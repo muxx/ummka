@@ -1,0 +1,99 @@
+name: Native host
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-host-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    runs-on: macos-26
+    timeout-minutes: 35
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - run: make check-macos
+      - name: Open the unpacked app twice offline on the disposable runner
+        shell: bash
+        run: |
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          ditto -x -k artifacts/ummka-macos-arm64.zip "$RUNNER_TEMP/ummka-install"
+          interface=$(route -n get default | awk '/interface:/ {print $2}')
+          test -n "$interface"
+          curl -fsS --max-time 5 https://api.github.com/zen > /dev/null
+          trap 'sudo /sbin/ifconfig "$interface" up' EXIT
+          (sleep 25; sudo /sbin/ifconfig "$interface" up) > /dev/null 2>&1 &
+          watchdog=$!
+          sudo /sbin/ifconfig "$interface" down
+          if curl -fsS --max-time 3 https://api.github.com/zen > /dev/null 2>&1; then
+            echo 'The runner still has network access.' >&2
+            exit 1
+          fi
+          bash scripts/smoke-macos.sh "$RUNNER_TEMP/ummka-install/ummka.app"
+          if ! kill -0 "$watchdog" 2>/dev/null || curl -fsS --max-time 2 https://api.github.com/zen > /dev/null 2>&1; then
+            echo 'Network isolation ended before the second launch finished.' >&2
+            exit 1
+          fi
+          sudo /sbin/ifconfig "$interface" up
+          kill "$watchdog"
+          trap - EXIT
+          curl -fsS --retry 5 --retry-all-errors --max-time 4 https://api.github.com/zen > /dev/null
+      - name: Upload dependency report
+        if: ${{ !cancelled() && hashFiles('artifacts/trivy.json') != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: dependency-report
+          path: artifacts/trivy.json
+          if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ummka-macos-arm64
+          path: artifacts/ummka-macos-arm64.zip
+          if-no-files-found: error
+
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - name: Install Android SDK packages
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-37.0' 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358' 'platform-tools'
+          echo "NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+      - name: Install Temurin 17.0.21.1+2
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl -fsSL --retry 3 -o jdk.tar.gz 'https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.21.1%2B2/OpenJDK17U-jdk_x64_linux_hotspot_17.0.21.1_2.tar.gz'
+          echo '0b0ac5eab6db6abaec68c9913bcddb31321e5da411c45073d520d9c125e6f7b4  jdk.tar.gz' | sha256sum -c -
+          mkdir ummka-jdk
+          tar -xzf jdk.tar.gz --strip-components=1 -C ummka-jdk
+          echo "JAVA_HOME=$RUNNER_TEMP/ummka-jdk" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/ummka-jdk/bin" >> "$GITHUB_PATH"
+      - run: rustup target add aarch64-linux-android
+      - run: npm ci
+      - run: make check-android
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ummka-android-arm64
+          path: artifacts/ummka-android-arm64-debug.apk
+          if-no-files-found: error

@@ -1,0 +1,24 @@
+{
+  "files": {
+    "includes": [
+      "src/**",
+      "vite.config.ts",
+      "tsconfig.json",
+      "biome.json",
+      "package.json"
+    ]
+  },
+  "formatter": {
+    "indentStyle": "space"
+  },
+  "linter": {
+    "domains": {
+      "react": "recommended"
+    },
+    "rules": {
+      "security": {
+        "noDangerouslySetInnerHtml": "error"
+      }
+    }
+  }
+}
