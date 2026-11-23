@@ -40,4 +40,6 @@ make check-android
 
 The APK uses Gradle's local debug signing key. Open **ummka** from the launcher on an ARM64 device or emulator. For the acceptance test, use an Android API 36 emulator, switch on airplane mode and open the app twice, stopping its process between launches.
 
-On a Mac with both toolchains, `make check` runs the same two build targets as GitHub Actions. The dependency scan covers npm, Cargo and Gradle. Its full report is written to `artifacts/trivy.json`. The disposable macOS runner also opens the unpacked application twice with its network interface disabled.
+After `npm ci`, point `JAVA_HOME` at Temurin 17 and run `make check-contract` to build the supported REST operations from the pinned Mattermost 10.10.1 sources. It validates the OpenAPI document, generates a test client and checks its requests in memory. The verified document is written to `artifacts/mattermost-v10.10.1.openapi.json`.
+
+On a Mac with both native toolchains, `make check` runs the two builds and the contract check used in GitHub Actions. The dependency scan covers npm, Cargo and Gradle. Its full report is written to `artifacts/trivy.json`. The disposable macOS runner also opens the unpacked application twice with its network interface disabled.

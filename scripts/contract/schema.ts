@@ -1,0 +1,116 @@
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { parse } from "yaml";
+
+type Fields = Record<string, unknown>;
+
+const operations = [
+  {
+    file: "system.yaml",
+    path: "/api/v4/system/ping",
+    method: "get",
+    id: "GetPing",
+  },
+];
+
+const methods = new Set([
+  "get",
+  "put",
+  "post",
+  "delete",
+  "options",
+  "head",
+  "patch",
+  "trace",
+]);
+
+export function object(value: unknown, name: string): Fields {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`Expected OpenAPI object ${name}`);
+  }
+  return value as Fields;
+}
+
+export function readSource(directory: string, file: string): Fields {
+  const source: unknown = parse(readFileSync(join(directory, file), "utf8"));
+  return object(source, file);
+}
+
+export function buildSpecification(read: (file: string) => Fields) {
+  const introduction = read("introduction.yaml");
+  const definitions = read("definitions.yaml");
+  const original = object(definitions.components, "components");
+  const components: Record<string, Fields> = Object.create(null);
+  const paths: Record<string, Fields> = Object.create(null);
+
+  function includeComponent(kind: string, name: string) {
+    components[kind] ??= Object.create(null);
+    const group = components[kind];
+    if (Object.hasOwn(group, name)) return;
+    const upstream = object(original[kind], `components/${kind}`);
+    if (!Object.hasOwn(upstream, name))
+      throw new Error(`Missing component ${kind}/${name}`);
+    const component = object(upstream[name], `components/${kind}/${name}`);
+    group[name] = component;
+    visit(component);
+  }
+
+  function visit(value: unknown) {
+    if (value === null || typeof value !== "object") return;
+    if ("$ref" in value) {
+      const ref = value.$ref;
+      const match =
+        typeof ref === "string" &&
+        /^#\/components\/([\w.-]+)\/([\w.-]+)$/.exec(ref);
+      if (!match) throw new Error(`Unsupported OpenAPI reference ${ref}`);
+      includeComponent(match[1], match[2]);
+    }
+    for (const item of Object.values(value)) visit(item);
+  }
+
+  function includeSecurity(requirements: unknown) {
+    if (!Array.isArray(requirements))
+      throw new Error("Expected OpenAPI security requirements");
+    for (const requirement of requirements) {
+      for (const name of Object.keys(
+        object(requirement, "security requirement"),
+      )) {
+        includeComponent("securitySchemes", name);
+      }
+    }
+  }
+
+  includeSecurity(definitions.security);
+  for (const { file, path, method, id } of operations) {
+    const sourcePath = object(read(file)[path], path);
+    const operation = object(sourcePath[method], `${method} ${path}`);
+    if (operation.operationId !== id)
+      throw new Error(`Expected operation ${id} at ${method} ${path}`);
+    paths[path] ??= Object.fromEntries(
+      Object.entries(sourcePath).filter(([key]) => !methods.has(key)),
+    );
+    paths[path][method] = operation;
+    if (Object.hasOwn(operation, "security"))
+      includeSecurity(operation.security);
+  }
+  visit(paths);
+
+  return {
+    openapi: introduction.openapi,
+    info: introduction.info,
+    servers: introduction.servers,
+    security: definitions.security,
+    paths,
+    components,
+  };
+}
+
+if (import.meta.main) {
+  const [directory, destination] = process.argv.slice(2);
+  if (!directory || !destination)
+    throw new Error("Expected a source directory and output file");
+  const specification = buildSpecification((file) =>
+    readSource(directory, file),
+  );
+  writeFileSync(destination, `${JSON.stringify(specification, null, 2)}\n`);
+}

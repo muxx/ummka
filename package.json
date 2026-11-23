@@ -14,7 +14,9 @@
     "build": "tsc --noEmit && vite build",
     "lint": "biome ci --error-on-warnings .",
     "unused": "knip",
-    "test": "vitest run --environment jsdom",
+    "test": "vitest run --environment jsdom src",
+    "contract:build": "node scripts/contract/schema.ts",
+    "contract:test": "node --test scripts/contract/contract.test.ts",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -34,6 +36,7 @@
     "knip": "6.48.0",
     "typescript": "7.0.2",
     "vite": "8.3.8",
-    "vitest": "5.1.1"
+    "vitest": "5.1.1",
+    "yaml": "2.9.1"
   }
 }
