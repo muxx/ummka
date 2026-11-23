@@ -1,4 +1,4 @@
-# ummka
+# <img src="src-tauri/icons/macos/Ummka.iconset/icon_128x128@2x.png" alt="" width="64" height="64" align="middle"> ummka
 
 An independent Mattermost client for people who spend their day in Channels. The first build opens a local React interface in a native window on macOS and Android.
 
