@@ -18,19 +18,26 @@ for run in 1 2; do
     done
     [[ -n "$pid" ]] || { echo 'The native app did not launch.' >&2; exit 1; }
     osascript - "$pid" <<'APPLESCRIPT'
+on containsMarker(node, insideWebArea)
+    tell application "System Events"
+        set nodeRole to role of node
+        if insideWebArea and nodeRole is "AXStaticText" then return (value of node is "ummka")
+        set children to get UI elements of node
+    end tell
+    set isWebContent to (insideWebArea or nodeRole is "AXWebArea")
+    repeat with child in children
+        if my containsMarker(contents of child, isWebContent) then return true
+    end repeat
+    return false
+end containsMarker
+
 on run argv
     set appPid to (item 1 of argv) as integer
     tell application "System Events"
         set proc to first application process whose unix id is appPid
         repeat 40 times
             if exists window 1 of proc then
-                repeat with element in (entire contents of window 1 of proc)
-                    if role of element is "AXWebArea" then
-                        repeat with node in (entire contents of element)
-                            if role of node is "AXStaticText" and value of node is "ummka" then return
-                        end repeat
-                    end if
-                end repeat
+                if my containsMarker(window 1 of proc, false) then return
             end if
             delay 0.1
         end repeat
