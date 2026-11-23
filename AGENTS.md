@@ -18,6 +18,7 @@ Follow the [design system](docs/design.md) when designing, building, or reviewin
 - Add linting, type checks where the language supports them, static analysis, and security checks with the first code in each language, including build scripts. Cover source code and dependencies. Pin the tools and run the same checks locally and in GitHub Actions on pull requests and pushes to `master`. A failed check must fail CI.
 - Write comprehensive tests alongside the implementation, including upstream edge cases. Run the full checks and test suite before handing off each iteration.
 - Have Kimi (`kimi-code/k3.1-pro`) review each RFC and each implementation iteration. Keep the changes fixed during review, verify findings, and submit the revised changes for review. If the review fails, report the failure. Changing the model or provider requires the user's approval.
+- After review, open a pull request and follow GitHub Actions through completion. The project owner has authorized this workflow for the `ummka` repository.
 
 ## Engineering principles
 

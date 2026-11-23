@@ -1,0 +1,17 @@
+[package]
+name = "ummka"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT"
+publish = false
+
+[lib]
+name = "ummka_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "=2.7.6", features = [] }
+
+[dependencies]
+tauri = { version = "=2.12.7", features = [] }
