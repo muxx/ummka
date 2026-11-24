@@ -248,12 +248,20 @@ export async function startFixture(dir: string) {
           path: "/Teams/Blue%20Sky//A%2FB/api/v4/system/ping?use_rest_semantics=true&device_id=wire%20check",
           header: "scoped",
         };
-        const settings = ["config", "license"].map((group) => ({
+        const reads = [
+          "config/client?format=old",
+          "license/client?format=old",
+          "users/me",
+          "users/Abc01234567890123456789012",
+          "users/me/teams",
+          "users/Abc01234567890123456789012/teams/Team0123456789012345678901/channels?include_deleted=false",
+          "users/me/teams/Team0123456789012345678901/channels/members",
+        ].map((route) => ({
           method: "GET",
-          path: `/Teams/Blue%20Sky//A%2FB/api/v4/${group}/client?format=old`,
+          path: `/Teams/Blue%20Sky//A%2FB/api/v4/${route}`,
           header: undefined,
         }));
-        assert.deepEqual(scopedRequests, [ping, ping, ...settings]);
+        assert.deepEqual(scopedRequests, [ping, ping, ...reads]);
         assert.equal(
           scopedSockets[0],
           scopedSockets[1],

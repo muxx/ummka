@@ -16,5 +16,29 @@
     "method": "GET",
     "path": "/api/v4/license/client",
     "id": "GetClientLicense"
+  },
+  {
+    "file": "users.yaml",
+    "method": "GET",
+    "path": "/api/v4/users/{user_id}",
+    "id": "GetUser"
+  },
+  {
+    "file": "teams.yaml",
+    "method": "GET",
+    "path": "/api/v4/users/{user_id}/teams",
+    "id": "GetTeamsForUser"
+  },
+  {
+    "file": "channels.yaml",
+    "method": "GET",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/channels",
+    "id": "GetChannelsForTeamForUser"
+  },
+  {
+    "file": "channels.yaml",
+    "method": "GET",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/channels/members",
+    "id": "GetChannelMembersForUser"
   }
 ]

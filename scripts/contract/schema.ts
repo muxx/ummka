@@ -5,6 +5,8 @@ import catalog from "../../contracts/mattermost/operations.json" with {
   type: "json",
 };
 
+import { checkPathParameters } from "./path-parameters.ts";
+
 type Fields = Record<string, unknown>;
 
 const methods = new Set([
@@ -82,14 +84,13 @@ export function buildSpecification(
     const method = verb.toLowerCase();
     if (!methods.has(method) || verb !== verb.toUpperCase())
       throw new Error(`Invalid HTTP method in the operation catalog: ${verb}`);
-    if (!path.startsWith("/api/v4/") || /[{}]/u.test(path))
-      throw new Error(
-        `Native routing requires a literal REST v4 path: ${path}`,
-      );
+    if (!path.startsWith("/api/v4/"))
+      throw new Error(`Expected a REST v4 path: ${path}`);
     const sourcePath = object(read(file)[path], path);
     const operation = object(sourcePath[method], `${method} ${path}`);
     if (operation.operationId !== id)
       throw new Error(`Expected operation ${id} at ${method} ${path}`);
+    checkPathParameters(path, sourcePath, operation, original);
     paths[path] ??= Object.fromEntries(
       Object.entries(sourcePath).filter(([key]) => !methods.has(key)),
     );

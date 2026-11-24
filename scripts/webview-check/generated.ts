@@ -5,7 +5,10 @@ import {
   FetchError,
   ResponseError,
   SystemApi,
+  UsersApi,
 } from "../../vendor/mattermost/index.js";
+
+import { checkTeamReads } from "./team-reads.ts";
 
 function check(value: unknown, message: string): asserts value {
   if (!value) throw Error(message);
@@ -50,6 +53,36 @@ export async function checkGeneratedRequests(ports: string[]) {
     const first = await api.getPing(query);
     const second = await api.getPing(query);
     check(first.status === "OK" && second.status === "OK", "generated-prefix");
+    const anonymousUser = new UsersApi(new Configuration(root));
+    const unauthenticated = await rejected(
+      anonymousUser.getUserRaw({ userId: "me" }),
+    );
+    check(
+      unauthenticated instanceof ResponseError &&
+        unauthenticated.response.status === 401,
+      "generated-user-auth",
+    );
+    check(
+      (await unauthenticated.response.json()).message === "session required",
+      "generated-user-error-body",
+    );
+    const signed = new Configuration({
+      ...prefixed,
+      accessToken: "synthetic-session",
+    });
+    const users = new UsersApi(signed);
+    const userId = "Abc01234567890123456789012";
+    const user = await (await users.getUserRaw({ userId })).value();
+    check(
+      user.id === userId &&
+        user.firstName === "Ada" &&
+        user.username === "fixture",
+      "generated-user",
+    );
+    await checkTeamReads(
+      new Configuration({ ...root, accessToken: "synthetic-session" }),
+      signed,
+    );
     const profile = await loadInstallationProfile(
       prefixed,
       new AbortController().signal,

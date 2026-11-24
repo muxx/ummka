@@ -33,9 +33,71 @@ export function webviewServers(
   let disconnect: Socket | undefined;
   let pingSocket: Socket | undefined;
   const settings = new Map<string, ServerResponse>();
+  const userId = "Abc01234567890123456789012";
+  const teamId = "Team0123456789012345678901";
+  const channelId = "c".repeat(26);
+  const teamReads = new Map<
+    string,
+    { name: string; query: string; body: object[] }
+  >([
+    [
+      "/api/v4/users/me/teams",
+      {
+        name: "my-teams",
+        query: "",
+        body: [{ id: teamId, display_name: "Fixture Team" }],
+      },
+    ],
+    [
+      `/team/chat/api/v4/users/me/teams/${teamId}/channels`,
+      {
+        name: "team-channels",
+        query: "?include_deleted=false&last_delete_at=123",
+        body: [{ id: channelId, team_id: teamId, name: "town-square" }],
+      },
+    ],
+    [
+      `/team/chat/api/v4/users/${userId}/teams/${teamId}/channels/members`,
+      {
+        name: "team-memberships",
+        query: "",
+        body: [{ channel_id: channelId, user_id: userId }],
+      },
+    ],
+  ]);
   const data = https.createServer(trusted, (req, res) => {
     const url = new URL(req.url ?? "/", "https://localhost");
     assert.equal(req.method, "GET");
+    const teamRead = teamReads.get(url.pathname);
+    if (teamRead) {
+      visits.push(teamRead.name);
+      assert.equal(url.search, teamRead.query);
+      assert.equal(req.headers.authorization, "Bearer synthetic-session");
+      assert.equal(req.headers.cookie, undefined);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(teamRead.body));
+      return;
+    }
+    if (url.pathname === "/api/v4/users/me") {
+      visits.push("user-me");
+      assert.equal(url.search, "");
+      assert.equal(req.headers.authorization, undefined);
+      assert.equal(req.headers.cookie, undefined);
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ message: "session required" }));
+      return;
+    }
+    if (url.pathname === `/team/chat/api/v4/users/${userId}`) {
+      visits.push("user-profile");
+      assert.equal(url.search, "");
+      assert.equal(req.headers.authorization, "Bearer synthetic-session");
+      assert.equal(req.headers.cookie, undefined);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({ id: userId, username: "fixture", first_name: "Ada" }),
+      );
+      return;
+    }
     const setting = /^\/team\/chat\/api\/v4\/(config|license)\/client$/.exec(
       url.pathname,
     )?.[1];
@@ -184,6 +246,11 @@ export function webviewServers(
         "owner",
         "reload",
         "ping-root",
+        "user-me",
+        "user-profile",
+        "my-teams",
+        "team-channels",
+        "team-memberships",
         "ping-prefix",
         "ping-prefix",
         "ping-unhealthy",

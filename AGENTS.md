@@ -18,7 +18,8 @@ Follow the [design system](docs/design.md) when designing, building, or reviewin
 - Add linting, type checks where the language supports them, static analysis, and security checks with the first code in each language, including build scripts. Cover source code and dependencies. Pin the tools and run the same checks locally and in GitHub Actions on pull requests and pushes to `master`. A failed check must fail CI.
 - Write comprehensive tests alongside the implementation, including upstream edge cases. Run the full checks and test suite before handing off each iteration.
 - Have Kimi (`kimi-code/k3.1-pro`) review each RFC and each implementation iteration. Keep the changes fixed during review, verify findings, and submit the revised changes for review. If the review fails, report the failure. Changing the model or provider requires the user's approval.
-- After Kimi review, open a pull request. Merge it into the default branch when GitHub Actions passes, update the local default branch and delete the merged working branch.
+- Use one branch and one pull request per architectural epic. Commit each reviewed RFC separately on the epic branch. Push the commits together and open the PR when the epic passes its local acceptance checks. Run the full CI suite on the combined changes before merging. While CI runs, work on the next epic whose dependencies are understood.
+- After the epic PR passes CI, merge it into the default branch, update the local checkout and delete the merged branch.
 
 ## Engineering principles
 
