@@ -25,6 +25,10 @@ async fn check_scope(
     control_base: &str,
 ) -> CheckResult {
     const PING: &str = "api/v4/system/ping";
+    const SETTINGS: [&str; 2] = [
+        "api/v4/config/client?format=old",
+        "api/v4/license/client?format=old",
+    ];
     expect_ok(control, control_base, "scope-created").await?;
     let mut fragment = get(selected, PING);
     fragment.url_mut().set_fragment(Some("private"));
@@ -62,6 +66,7 @@ async fn check_scope(
         .insert("host", "elsewhere.invalid".parse()?);
     for request in [
         get(selected, "api/v4/unknown?private=value"),
+        get(selected, "api/v4/config"),
         post,
         cookie,
         authority,
@@ -71,6 +76,18 @@ async fn check_scope(
         assert_eq!(error.to_string(), "REST operation is not allowed");
         assert_eq!(format!("{error:?}"), "OperationDenied");
     }
+    for path in SETTINGS {
+        let mut post = get(selected, path);
+        *post.method_mut() = Method::POST;
+        assert_eq!(
+            connection.send(post).await.unwrap_err(),
+            TransportError::OperationDenied
+        );
+        assert_eq!(
+            connection.send(get(other, path)).await.unwrap_err(),
+            TransportError::OutsideInstallation
+        );
+    }
     expect_ok(control, control_base, "scope-denied").await?;
     for _ in 0..2 {
         let mut request = get(
@@ -79,6 +96,11 @@ async fn check_scope(
         );
         request.headers_mut().insert("x-fixture", "scoped".parse()?);
         let response = connection.send(request).await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.text().await?, "OK");
+    }
+    for path in SETTINGS {
+        let response = connection.send(get(selected, path)).await?;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.text().await?, "OK");
     }

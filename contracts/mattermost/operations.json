@@ -4,5 +4,17 @@
     "method": "GET",
     "path": "/api/v4/system/ping",
     "id": "GetPing"
+  },
+  {
+    "file": "system.yaml",
+    "method": "GET",
+    "path": "/api/v4/config/client",
+    "id": "GetClientConfig"
+  },
+  {
+    "file": "system.yaml",
+    "method": "GET",
+    "path": "/api/v4/license/client",
+    "id": "GetClientLicense"
   }
 ]

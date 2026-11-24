@@ -8,6 +8,7 @@ import {
 import { type TestContext, test } from "node:test";
 import { createRestTransport } from "../../src/mattermost/rest-transport.ts";
 import { createSystemApi } from "../../src/mattermost/system-api.ts";
+import { ResponseError } from "../../vendor/mattermost/index.js";
 
 async function listen(t: TestContext, handler?: RequestListener) {
   const server = createServer(handler);
@@ -210,4 +211,59 @@ test("reports a disconnected socket as a transport error", async (t) => {
       error.cause instanceof Error &&
       !("response" in error),
   );
+});
+
+test("generated raw methods read public settings under each installation prefix", async (t) => {
+  const received: IncomingMessage[] = [];
+  const config = { Version: "10.10.1", EnableSignUpWithGitLab: "true" };
+  const license = { IsLicensed: "false" };
+  const { base } = await listen(t, (req, res) => {
+    received.push(req);
+    res.setHeader("Content-Type", "application/json");
+    res.end(
+      JSON.stringify(req.url?.includes("/config/client?") ? config : license),
+    );
+  });
+  for (const prefix of ["", "/team/chat"]) {
+    const api = createSystemApi(base + prefix, fetch);
+    const before = received.length;
+    assert.deepEqual(
+      await (await api.getClientConfigRaw({ format: "old" })).raw.json(),
+      config,
+    );
+    assert.deepEqual(
+      await (await api.getClientLicenseRaw({ format: "old" })).raw.json(),
+      license,
+    );
+    const requests = received.slice(before);
+    assert.deepEqual(
+      requests.map((req) => req.url),
+      [
+        `${prefix}/api/v4/config/client?format=old`,
+        `${prefix}/api/v4/license/client?format=old`,
+      ],
+    );
+    for (const req of requests) {
+      assert.equal(req.method, "GET");
+      assert.equal(req.headers.authorization, undefined);
+      assert.equal(req.headers.cookie, undefined);
+    }
+  }
+});
+
+test("both settings operations retain an HTTP error body", async (t) => {
+  const { base } = await listen(t, (_req, res) => {
+    res.writeHead(503, { "Content-Type": "application/json" });
+    res.end('{"message":"offline"}');
+  });
+  const api = createSystemApi(base, fetch);
+  for (const request of [
+    () => api.getClientConfigRaw({ format: "old" }),
+    () => api.getClientLicenseRaw({ format: "old" }),
+  ]) {
+    const error: unknown = await request().catch((reason: unknown) => reason);
+    assert(error instanceof ResponseError);
+    assert.equal(error.response.status, 503);
+    assert.deepEqual(await error.response.json(), { message: "offline" });
+  }
 });
