@@ -14,7 +14,7 @@ Follow the [design system](docs/design.md) when designing, building, or reviewin
 
 - Plan implementation epics by architectural layer, in dependency order. Each epic names its prerequisites and the capability it provides to the next layer. Use small RFCs for changes within that layer. User journeys guide interface design and later integration tests.
 - Check every behavior change against the official client's source and tests. Cite the upstream tag or commit and file in the RFC. Record any agreed deviation.
-- For a layer that consumes REST, verify the versioned Mattermost contract and generate bindings with OpenAPI Generator before implementing its callers.
+- For a layer that consumes REST, verify the versioned Mattermost contract and generate bindings with OpenAPI Generator before implementing its callers. Apply confirmed corrections before generation, cite the official code and test each correction against both compatibility servers.
 - Add linting, type checks where the language supports them, static analysis, and security checks with the first code in each language, including build scripts. Cover source code and dependencies. Pin the tools and run the same checks locally and in GitHub Actions on pull requests and pushes to `master`. A failed check must fail CI.
 - Write comprehensive tests alongside the implementation, including upstream edge cases. Run the full checks and test suite before handing off each iteration.
 - Have Kimi (`kimi-code/k3.1-pro`) review each RFC and each implementation iteration. Keep the changes fixed during review, verify findings, and submit the revised changes for review. If the review fails, report the failure. Changing the model or provider requires the user's approval.

@@ -1,7 +1,12 @@
 export PATH := $(CURDIR)/.check-tools:$(PATH)
 
-.PHONY: check check-macos check-android check-android-package check-android-http check-contract generate-bindings
-check: check-macos check-android check-contract
+.PHONY: check check-macos check-android check-android-package check-android-http check-contract generate-bindings check-mattermost check-mattermost-10.10.1 check-mattermost-12.1.0
+check: check-macos check-android check-contract check-mattermost
+
+check-mattermost: check-mattermost-10.10.1 check-mattermost-12.1.0
+
+check-mattermost-10.10.1 check-mattermost-12.1.0:
+	sh scripts/check-mattermost.sh $(@:check-mattermost-%=%)
 
 check-contract:
 	sh scripts/check-contract.sh

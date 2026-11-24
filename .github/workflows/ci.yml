@@ -12,6 +12,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  mattermost:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["10.10.1", "12.1.0"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - run: make check-mattermost-${{ matrix.version }}
+
   macos:
     runs-on: macos-26
     timeout-minutes: 35

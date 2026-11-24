@@ -11,7 +11,8 @@
   "packageManager": "npm@11.20.0",
   "knip": {
     "entry": [
-      "scripts/webview-check/check.ts"
+      "scripts/webview-check/check.ts",
+      "scripts/contract/compatibility/*.ts"
     ],
     "ignoreBinaries": [
       "openssl"

@@ -36,7 +36,11 @@ export function checkPathParameters(
 ) {
   const names = new Set<string>();
   for (const segment of path.split("/")) {
-    if (segment === "{user_id}" || segment === "{team_id}")
+    if (
+      segment === "{user_id}" ||
+      segment === "{team_id}" ||
+      segment === "{channel_id}"
+    )
       names.add(segment.slice(1, -1));
     else if (/[{}]/u.test(segment))
       throw Error(`Unsupported native route template: ${path}`);
