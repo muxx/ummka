@@ -1,5 +1,8 @@
 import { loadInstallationProfile } from "../../src/mattermost/installation-profile.ts";
-import { openNativeRestConnection } from "../../src/mattermost/native-rest.ts";
+import {
+  openAccountRestConnection,
+  openNativeRestConnection,
+} from "../../src/mattermost/native-rest.ts";
 import {
   Configuration,
   FetchError,
@@ -8,6 +11,7 @@ import {
   SystemApi,
   UsersApi,
 } from "../../vendor/mattermost/index.js";
+import { checkAccountResponses } from "./account.ts";
 import { checkChannelHistory } from "./history.ts";
 import { checkTeamReads } from "./team-reads.ts";
 
@@ -33,6 +37,12 @@ export async function checkGeneratedRequests(ports: string[]) {
   );
   const foreign = await openNativeRestConnection(
     `https://127.0.0.1:${ports[2]}`,
+  );
+  const userId = "Abc01234567890123456789012";
+  const accountRoot = await openAccountRestConnection(origin, userId);
+  const accountPrefix = await openAccountRestConnection(
+    prefixed.basePath,
+    userId,
   );
   const query = { useRestSemantics: true };
   const api = new SystemApi(new Configuration(prefixed));
@@ -105,12 +115,8 @@ export async function checkGeneratedRequests(ports: string[]) {
       (await unauthenticated.response.json()).message === "session required",
       "generated-user-error-body",
     );
-    const signed = new Configuration({
-      ...prefixed,
-      accessToken: "synthetic-session",
-    });
+    const signed = new Configuration(accountPrefix);
     const users = new UsersApi(signed);
-    const userId = "Abc01234567890123456789012";
     const batch = { requestBody: [userId, "b".repeat(26)], since: 123 };
     const profiles = await (await users.getUsersByIdsRaw(batch)).value();
     check(
@@ -143,10 +149,10 @@ export async function checkGeneratedRequests(ports: string[]) {
         user.username === "fixture",
       "generated-user",
     );
-    const rootSession = new Configuration({
-      ...root,
-      accessToken: "synthetic-session",
-    });
+    const rootSession = new Configuration(accountRoot);
+    await checkAccountResponses(accountPrefix, userId, () =>
+      observed("closed", "account-error-body"),
+    );
     await checkTeamReads(rootSession, signed);
     await checkChannelHistory(rootSession, signed, new Configuration(root));
     const profile = await loadInstallationProfile(
@@ -195,6 +201,8 @@ export async function checkGeneratedRequests(ports: string[]) {
     await checkAbort("batch", (init) => users.getUsersByIdsRaw(batch, init));
   } finally {
     await Promise.all([
+      accountRoot.close(),
+      accountPrefix.close(),
       root.close(),
       prefixed.close(),
       control.close(),

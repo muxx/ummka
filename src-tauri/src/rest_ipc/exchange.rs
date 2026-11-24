@@ -1,6 +1,7 @@
+use super::response::{self, ResponseBody, ResponseHead};
 use crate::rest::{RestConnection, TransportError};
 use reqwest::{
-    Method, Request, Response, StatusCode, Url,
+    Method, Request, Url,
     header::{HeaderName, HeaderValue},
 };
 use serde::Serialize;
@@ -20,53 +21,9 @@ pub(crate) enum ExchangeError {
     Transport(TransportError),
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ResponseHead {
-    status: u16,
-    headers: Vec<(String, String)>,
-    has_body: bool,
-}
-
-impl ResponseHead {
-    fn new(response: &Response) -> Self {
-        let status = response.status();
-        let headers = response
-            .headers()
-            .iter()
-            .filter(|(name, _)| {
-                !matches!(
-                    name.as_str(),
-                    "set-cookie"
-                        | "set-cookie2"
-                        | "token"
-                        | "authorization"
-                        | "proxy-authorization"
-                        | "x-cloud-token"
-                        | "x-remotecluster-token"
-                )
-            })
-            .map(|(name, value)| {
-                (
-                    name.as_str().to_owned(),
-                    value.as_bytes().iter().copied().map(char::from).collect(),
-                )
-            })
-            .collect();
-        Self {
-            status: status.as_u16(),
-            headers,
-            has_body: !matches!(
-                status,
-                StatusCode::NO_CONTENT | StatusCode::RESET_CONTENT | StatusCode::NOT_MODIFIED
-            ),
-        }
-    }
-}
-
 enum Phase {
     Prepared,
-    Body(Response),
+    Body(ResponseBody),
 }
 
 struct Exchange {
@@ -92,10 +49,11 @@ impl Resource for Session {
 
 impl Session {
     pub(super) fn new(http: RestConnection) -> Self {
+        let lifetime = http.lifetime();
         Self {
             http,
             exchanges: Mutex::default(),
-            lifetime: CancellationToken::new(),
+            lifetime,
         }
     }
 
@@ -141,9 +99,10 @@ impl Session {
         terminal: bool,
     ) -> Result<T, ExchangeError> {
         let mut active = self.exchanges.lock().unwrap();
-        if !active
-            .get::<Exchange>(id)
-            .is_ok_and(|entry| Arc::ptr_eq(&entry, exchange))
+        if self.lifetime.is_cancelled()
+            || !active
+                .get::<Exchange>(id)
+                .is_ok_and(|entry| Arc::ptr_eq(&entry, exchange))
         {
             return Err(ExchangeError::Cancelled);
         }
@@ -174,13 +133,16 @@ impl Session {
         if !matches!(*phase, Phase::Prepared) {
             return Err(ExchangeError::InvalidExchangeState);
         }
-        let request = async { self.http.send(request(method, url, headers, body)?).await };
-        let response = tokio::select! {
+        let request = async {
+            self.http
+                .exchange(request(method, url, headers, body)?, response::split)
+                .await
+        };
+        let result = tokio::select! {
             biased;
             _ = exchange.cancel.cancelled() => return Err(ExchangeError::Cancelled),
             result = request => result,
         };
-        let result = response.map(|body| (ResponseHead::new(&body), body));
         let terminal = result.as_ref().is_ok_and(|(head, _)| !head.has_body);
         let (head, body) = self.complete(id, &exchange, result, terminal)?;
         if head.has_body {
@@ -198,23 +160,10 @@ impl Session {
         let Phase::Body(response) = &mut *phase else {
             return Err(ExchangeError::InvalidExchangeState);
         };
-        let read = async {
-            loop {
-                match response
-                    .chunk()
-                    .await
-                    .map_err(|_| TransportError::Network)?
-                {
-                    Some(chunk) if chunk.is_empty() => continue,
-                    Some(chunk) => return Ok(chunk.to_vec()),
-                    None => return Ok(Vec::new()),
-                }
-            }
-        };
         let result = tokio::select! {
             biased;
             _ = exchange.cancel.cancelled() => return Err(ExchangeError::Cancelled),
-            result = read => result,
+            result = response.next() => result,
         };
         let eof = result.as_ref().is_ok_and(Vec::is_empty);
         self.complete(id, &exchange, result, eof)
@@ -250,35 +199,6 @@ fn request(
 mod tests {
     use super::*;
     use tokio::sync::oneshot;
-
-    #[test]
-    fn ipc_response_hides_all_values_of_session_headers() {
-        let mut response = tauri::http::Response::builder()
-            .status(401)
-            .header("X-Request-Id", "request-1")
-            .header("WWW-Authenticate", "Bearer");
-        for name in [
-            "SeT-CoOkIe",
-            "Set-Cookie2",
-            "ToKeN",
-            "Authorization",
-            "Proxy-Authorization",
-            "X-Cloud-Token",
-            "X-RemoteCluster-Token",
-        ] {
-            response = response
-                .header(name, "private-one")
-                .header(name, "private-two");
-        }
-        let response = Response::from(response.body(Vec::<u8>::new()).unwrap());
-        let head = serde_json::to_value(ResponseHead::new(&response)).unwrap();
-        let headers = head["headers"].as_array().unwrap();
-        assert_eq!(headers.len(), 2);
-        assert!(headers.contains(&serde_json::json!(["x-request-id", "request-1"])));
-        assert!(headers.contains(&serde_json::json!(["www-authenticate", "Bearer"])));
-        assert_eq!(head["status"], 401);
-        assert_eq!(head["hasBody"], true);
-    }
 
     #[test]
     fn request_body_preserves_absence_empty_text_and_original_utf8_bytes() {

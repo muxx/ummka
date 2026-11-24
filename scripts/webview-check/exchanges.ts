@@ -1,6 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { nativeFetch } from "../../src/mattermost/native-fetch.ts";
-import { openNativeRestConnection } from "../../src/mattermost/native-rest.ts";
+import {
+  openAccountRestConnection,
+  openNativeRestConnection,
+} from "../../src/mattermost/native-rest.ts";
 
 type Connection = Awaited<ReturnType<typeof openNativeRestConnection>>;
 type Head = { status: number; headers: [string, string][]; hasBody: boolean };
@@ -81,6 +84,60 @@ async function allBytes(connection: number, id: number) {
 }
 
 async function testPreparation(connection: number, control: Connection) {
+  const userId = "Abc01234567890123456789012";
+  const account = await openAccountRestConnection(base, userId);
+  try {
+    for (const rid of [connection, account.rid]) {
+      for (const name of [
+        "AuThOrIzAtIoN",
+        "Proxy-Authorization",
+        "CoOkIe",
+        "Cookie2",
+        "Set-Cookie",
+        "Set-Cookie2",
+        "ToKeN",
+        "X-Cloud-Token",
+        "X-RemoteCluster-Token",
+      ]) {
+        await expectCode(
+          send(rid, await prepare(rid), target("unused"), "GET", [
+            [name, "fixture"],
+            [name.toLowerCase(), "another-fixture"],
+          ]),
+          "operation_denied",
+        );
+      }
+      for (const query of [
+        "access_token=test",
+        "access%5Ftoken=test",
+        "access_token=&access_token=test",
+      ]) {
+        await expectCode(
+          send(rid, await prepare(rid), `${base}${route}?${query}`),
+          "operation_denied",
+        );
+      }
+      await expectCode(
+        send(rid, await prepare(rid), control.basePath + route),
+        "outside_installation",
+      );
+      await expectCode(
+        send(rid, await prepare(rid), `${base}-other${route}`),
+        "outside_installation",
+      );
+    }
+    await expectCode(openAccountRestConnection(base, "me"), "invalid_account");
+    await expectCode(
+      openAccountRestConnection(base, "c".repeat(26)),
+      "session_unavailable",
+    );
+    await expectCode(
+      openAccountRestConnection(base.replace("https:", "http:"), userId),
+      "cleartext_denied",
+    );
+  } finally {
+    await account.close();
+  }
   const pending = await prepare(connection);
   await expectCode(read(control.rid, pending), "unknown_exchange");
   await expectCode(read(connection, pending), "invalid_exchange_state");

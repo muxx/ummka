@@ -3,6 +3,7 @@ import { EventEmitter, once } from "node:events";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import https from "node:https";
 import type { Socket } from "node:net";
+import { respondToAccount } from "./account.ts";
 import { respondToHistory } from "./history.ts";
 
 export function webviewServers(
@@ -19,6 +20,7 @@ export function webviewServers(
     "ping-body",
     "batch-headers",
     "batch-body",
+    "account-error-body",
   ];
   const events = new EventEmitter();
   const held = new Map(
@@ -76,6 +78,13 @@ export function webviewServers(
   }
   const data = https.createServer(trusted, async (req, res) => {
     const url = new URL(req.url ?? "/", "https://localhost");
+    const account = respondToAccount(req, res, url, userId, () =>
+      events.emit("account-error-body-closed"),
+    );
+    if (account) {
+      visits.push(account);
+      return;
+    }
     const history = respondToHistory(req, res, url, channelId, userId);
     if (history) {
       visits.push(history);
@@ -92,7 +101,7 @@ export function webviewServers(
       assert.equal(req.headers.cookie, undefined);
       assert.equal(
         req.headers.authorization,
-        signed ? "Bearer synthetic-session" : undefined,
+        signed ? "Bearer fixture-prefixed-session" : undefined,
       );
       const chunks: Buffer[] = [];
       for await (const chunk of req) chunks.push(chunk);
@@ -135,7 +144,12 @@ export function webviewServers(
     if (teamRead) {
       visits.push(teamRead.name);
       assert.equal(url.search, teamRead.query);
-      assert.equal(req.headers.authorization, "Bearer synthetic-session");
+      assert.equal(
+        req.headers.authorization,
+        url.pathname.startsWith("/team/chat/")
+          ? "Bearer fixture-prefixed-session"
+          : "Bearer fixture-root-session",
+      );
       assert.equal(req.headers.cookie, undefined);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(teamRead.body));
@@ -153,7 +167,10 @@ export function webviewServers(
     if (url.pathname === `/team/chat/api/v4/users/${userId}`) {
       visits.push("user-profile");
       assert.equal(url.search, "");
-      assert.equal(req.headers.authorization, "Bearer synthetic-session");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
       assert.equal(req.headers.cookie, undefined);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(
@@ -313,6 +330,14 @@ export function webviewServers(
         "ping-root",
         "user-me",
         "user-profile",
+        "account-first",
+        "account-second",
+        "account-denied",
+        "account-expired",
+        "account-html",
+        "account-large",
+        "account-truncated",
+        "account-error-body",
         "my-teams",
         "team-channels",
         "team-memberships",

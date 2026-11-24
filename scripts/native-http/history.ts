@@ -25,7 +25,10 @@ export function respondToHistory(
       .end(JSON.stringify({ message: "session required" }));
     return "history-anonymous";
   }
-  assert.equal(request.headers.authorization, "Bearer synthetic-session");
+  assert.equal(
+    request.headers.authorization,
+    prefix ? "Bearer fixture-prefixed-session" : "Bearer fixture-root-session",
+  );
   assert.deepEqual(
     query,
     prefix
