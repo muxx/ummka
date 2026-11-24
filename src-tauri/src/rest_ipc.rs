@@ -125,6 +125,14 @@ pub(crate) fn report_check<R: Runtime>(webview: &Webview<R>, url: &tauri::Url) {
         _ => false,
     };
     if webview.label() == "main" && local && url.path() == "/ipc-result.html" {
+        if let Some(phase @ ("registry-removed" | "registry-confirmed" | "registry-unsupported")) =
+            url.query()
+        {
+            println!("UMMKA_WEBVIEW_CHECK {phase}");
+            #[cfg(not(target_os = "android"))]
+            webview.app_handle().exit(0);
+            return;
+        }
         let passed = url.query() == Some("pass");
         #[cfg(target_os = "macos")]
         if passed {

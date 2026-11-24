@@ -1,12 +1,19 @@
 mod installation_url;
+#[cfg(all(test, desktop))]
+mod ipc_test;
 mod native_http;
 pub mod registry;
+mod registry_ipc;
 pub mod rest;
 mod rest_ipc;
 
-use tauri::{App, Builder, Runtime};
+use tauri::{App, Builder, Context, Runtime};
 
-fn build<R: Runtime>(builder: Builder<R>) -> tauri::Result<App<R>> {
+fn context<R: Runtime>() -> Context<R> {
+    tauri::generate_context!()
+}
+
+fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<App<R>> {
     builder
         .invoke_handler(tauri::generate_handler![
             rest_ipc::open_rest_connection,
@@ -14,7 +21,10 @@ fn build<R: Runtime>(builder: Builder<R>) -> tauri::Result<App<R>> {
             rest_ipc::prepare_rest_request,
             rest_ipc::send_rest_request,
             rest_ipc::read_rest_body,
-            rest_ipc::cancel_rest_request
+            rest_ipc::cancel_rest_request,
+            registry_ipc::list_installations,
+            registry_ipc::remember_installation,
+            registry_ipc::forget_installation
         ])
         .setup(|app| {
             use tauri::Manager;
@@ -33,12 +43,12 @@ fn build<R: Runtime>(builder: Builder<R>) -> tauri::Result<App<R>> {
                 rest_ipc::report_check(webview, load.url());
             }
         })
-        .build(tauri::generate_context!())
+        .build(context)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    build(Builder::default())
+    build(Builder::default(), context())
         .expect("could not start ummka")
         .run(|_, _| {});
 }

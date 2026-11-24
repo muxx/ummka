@@ -5,7 +5,8 @@ use std::{fmt, path::Path};
 #[cfg(any(test, all(target_os = "android", feature = "native-http-check")))]
 pub(crate) mod checks;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RegistryError {
     InvalidInstallation,
     UnsupportedSchema,

@@ -1,33 +1,10 @@
 use super::*;
+use crate::ipc_test::{LOCAL, invoke, sibling};
 use serde_json::{Value, json};
-use tauri::ipc::{CallbackFn, InvokeBody, InvokeResponseBody};
-use tauri::test::{INVOKE_KEY, MockRuntime, get_ipc_response, mock_builder};
-use tauri::webview::InvokeRequest;
-use tauri::{LogicalPosition, LogicalSize, WebviewBuilder, WebviewWindowBuilder};
+use tauri::WebviewWindowBuilder;
+use tauri::test::{MockRuntime, mock_builder};
 
-const LOCAL: &str = "tauri://localhost/";
 const SERVER: &str = "https://chat.example.test";
-
-fn invoke(
-    view: &Webview<MockRuntime>,
-    command: &str,
-    origin: &str,
-    body: Value,
-) -> Result<InvokeResponseBody, Value> {
-    // The Tauri test helper accepts an AsRef wrapper for a child WebView.
-    get_ipc_response(
-        &Box::new(view.clone()),
-        InvokeRequest {
-            cmd: command.into(),
-            callback: CallbackFn(1),
-            error: CallbackFn(2),
-            url: origin.parse().unwrap(),
-            body: InvokeBody::Json(body),
-            headers: Default::default(),
-            invoke_key: INVOKE_KEY.to_owned(),
-        },
-    )
-}
 
 fn open(view: &Webview<MockRuntime>, base: &str) -> ResourceId {
     invoke(
@@ -50,19 +27,12 @@ impl Resource for Marker {}
 
 #[test]
 fn only_the_local_main_webview_can_manage_its_own_connections() {
-    let app = crate::build(mock_builder()).unwrap();
+    let app = crate::build(mock_builder(), crate::context()).unwrap();
     let window = WebviewWindowBuilder::new(&app, "main", Default::default())
         .build()
         .unwrap();
     let main = window.as_ref();
-    let sibling = main
-        .window()
-        .add_child(
-            WebviewBuilder::new("sibling", Default::default()),
-            LogicalPosition::new(0., 0.),
-            LogicalSize::new(100., 100.),
-        )
-        .unwrap();
+    let sibling = sibling(main);
     assert_eq!(main.window().label(), sibling.window().label());
     for (view, origin) in [(&sibling, LOCAL), (main, "https://remote.example.test/")] {
         for (command, body) in [
