@@ -22,12 +22,16 @@ export function respondToAccount(
     );
     return "account-logout-local-failure";
   }
-  if (url.pathname === "/team/chat/api/v4/users/logout") {
+  if (
+    url.pathname === "/team/chat/confirmed/api/v4/users/logout" ||
+    url.pathname === "/team/chat/secondary/api/v4/users/logout"
+  ) {
     assert.equal(request.method, "POST");
     assert.equal(url.search, "");
     assert.equal(request.headers.cookie, undefined);
     const auth = request.headers.authorization;
-    if (auth === "Bearer fixture-exit-session") {
+    if (url.pathname === "/team/chat/confirmed/api/v4/users/logout") {
+      assert.equal(auth, "Bearer fixture-exit-session");
       response.end(JSON.stringify({ status: "OK" }));
       return "account-logout-confirmed";
     }
@@ -35,11 +39,21 @@ export function respondToAccount(
     response.writeHead(503).end(JSON.stringify({ id: "fixture.unavailable" }));
     return "account-logout-unconfirmed";
   }
-  if (url.pathname !== "/team/chat/api/v4/users/me") return;
+  if (
+    url.pathname !== "/team/chat/api/v4/users/me" &&
+    url.pathname !== "/team/chat/secondary/api/v4/users/me"
+  )
+    return;
   assert.equal(request.method, "GET");
   assert.equal(url.search, "");
   const scenario = request.headers["x-test-case"];
   const second = scenario === "second" || scenario === "retire";
+  assert.equal(
+    url.pathname,
+    second
+      ? "/team/chat/secondary/api/v4/users/me"
+      : "/team/chat/api/v4/users/me",
+  );
   const token = second ? "fixture-second-session" : "fixture-prefixed-session";
   assert.equal(request.headers.authorization, `Bearer ${token}`);
   assert.equal(

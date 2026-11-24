@@ -24,6 +24,18 @@ impl AndroidCredentialStore {
         })
     }
 
+    fn stored_ids(db: &Connection, installation: &str) -> Result<Vec<String>, CredentialError> {
+        let mut statement =
+            db.prepare("SELECT user_id FROM sessions WHERE installation=?1 ORDER BY user_id")?;
+        let ids = statement
+            .query_map([installation], |row| row.get(0))?
+            .collect::<rusqlite::Result<Vec<String>>>()?;
+        if ids.iter().any(|id| !is_mattermost_id(id)) {
+            return Err(CredentialError::InvalidEntry);
+        }
+        Ok(ids)
+    }
+
     fn read_token(
         db: &Connection,
         account: &Account,
@@ -112,6 +124,7 @@ impl CredentialStore for AndroidCredentialStore {
     fn save(&self, account: &Account, token: &SessionToken) -> Result<(), CredentialError> {
         let mut db = self.connect()?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        super::allow_account(account, &Self::stored_ids(&tx, account.installation())?)?;
         let empty = tx.query_row("SELECT NOT EXISTS(SELECT 1 FROM sessions)", [], |r| {
             r.get(0)
         })?;
@@ -131,16 +144,7 @@ impl CredentialStore for AndroidCredentialStore {
 
     fn account_ids(&self, installation: &str) -> Result<Vec<String>, CredentialError> {
         validate_installation(installation).map_err(|_| CredentialError::InvalidInstallation)?;
-        let db = self.connect()?;
-        let mut statement =
-            db.prepare("SELECT user_id FROM sessions WHERE installation=?1 ORDER BY user_id")?;
-        let ids = statement
-            .query_map([installation], |row| row.get(0))?
-            .collect::<rusqlite::Result<Vec<String>>>()?;
-        if ids.iter().any(|id| !is_mattermost_id(id)) {
-            return Err(CredentialError::InvalidEntry);
-        }
-        Ok(ids)
+        Self::stored_ids(&self.connect()?, installation)
     }
 
     fn remove(&self, account: &Account) -> Result<(), CredentialError> {

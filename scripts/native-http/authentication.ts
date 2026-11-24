@@ -18,6 +18,7 @@ export async function handleAuth(
         [
           "saved",
           "replaced",
+          "peer-admitted",
           "out-refused",
           "out-lost",
           "out-invalid",
@@ -25,7 +26,14 @@ export async function handleAuth(
         ].some((name) => auth === `Bearer fixture-grant-${name}`),
     );
     visits.push(`me-${auth.slice("Bearer fixture-grant-".length)}`);
-    response.end(JSON.stringify({ id: "Abc01234567890123456789012" }));
+    response.end(
+      JSON.stringify({
+        id:
+          auth === "Bearer fixture-grant-peer-admitted"
+            ? "b".repeat(26)
+            : "Abc01234567890123456789012",
+      }),
+    );
     return;
   }
   assert.equal(request.method, "POST");
@@ -42,7 +50,7 @@ export async function handleAuth(
     const name = auth.slice("Bearer fixture-grant-".length);
     visits.push(`logout-${name}`);
     await beforeLogout(name);
-    if (name === "no-reply" || name === "out-lost") {
+    if (["no-reply", "out-lost", "peer-lost"].includes(name)) {
       request.socket.destroy();
     } else if (["refused-logout", "refused", "out-refused"].includes(name)) {
       response
@@ -102,11 +110,12 @@ export async function handleAuth(
           ? ["fixture-one", "fixture-two"]
           : `fixture-grant-${name}`,
       );
-    response.writeHead(name === "wrong-status" ? 201 : 200).end(
-      JSON.stringify({
-        id: name === "bad-id" ? "me" : "Abc01234567890123456789012",
-      }),
-    );
+    let id = "Abc01234567890123456789012";
+    if (name === "bad-id") id = "me";
+    if (name.startsWith("peer-")) id = "b".repeat(26);
+    response
+      .writeHead(name === "wrong-status" ? 201 : 200)
+      .end(JSON.stringify({ id }));
   }
 }
 
@@ -147,6 +156,13 @@ export function checkAuthVisits(visits: string[]) {
     "login-replaced",
     "me-replaced",
     "me-replaced",
+    "login-peer-conflict",
+    "logout-peer-conflict",
+    "login-peer-lost",
+    "logout-peer-lost",
+    "me-replaced",
+    "login-peer-admitted",
+    "me-peer-admitted",
     "login-out-success",
     "logout-out-success",
     "login-out-refused",

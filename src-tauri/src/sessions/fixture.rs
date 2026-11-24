@@ -35,7 +35,14 @@ impl CredentialStore for Arc<TestVault> {
         if self.refuse.load(std::sync::atomic::Ordering::SeqCst) {
             return Err(CredentialError::StorageUnavailable);
         }
-        self.rows.lock().unwrap().insert(a.clone(), t.clone());
+        let mut rows = self.rows.lock().unwrap();
+        if rows
+            .keys()
+            .any(|other| other.installation() == a.installation() && other != a)
+        {
+            return Err(CredentialError::InstallationAccountConflict);
+        }
+        rows.insert(a.clone(), t.clone());
         Ok(())
     }
     fn remove(&self, a: &Account) -> Result<(), CredentialError> {

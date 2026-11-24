@@ -51,7 +51,7 @@ export async function resumeRegistryCheck(): Promise<boolean> {
     await recovered.close();
   }
   const forgotten = await openAccountRestConnection(
-    `${root}/team/chat`,
+    `${root}/team/chat/secondary`,
     "b".repeat(26),
   ).catch((error: unknown) => error);
   if (forgotten !== "session_unavailable")
