@@ -266,6 +266,7 @@ export async function startFixture(dir: string) {
           "users/me/teams",
           "users/Abc01234567890123456789012/teams/Team0123456789012345678901/channels?include_deleted=false",
           "users/me/teams/Team0123456789012345678901/channels/members",
+          "channels/Channel0123456789012345678/posts?page=0&per_page=60&collapsedThreads=true",
         ].map((route) => ({
           method: "GET",
           path: `/Teams/Blue%20Sky//A%2FB/api/v4/${route}`,

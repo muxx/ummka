@@ -3,6 +3,7 @@ import { EventEmitter, once } from "node:events";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import https from "node:https";
 import type { Socket } from "node:net";
+import { respondToHistory } from "./history.ts";
 
 export function webviewServers(
   trusted: https.ServerOptions,
@@ -75,6 +76,11 @@ export function webviewServers(
   }
   const data = https.createServer(trusted, async (req, res) => {
     const url = new URL(req.url ?? "/", "https://localhost");
+    const history = respondToHistory(req, res, url, channelId, userId);
+    if (history) {
+      visits.push(history);
+      return;
+    }
     if (
       url.pathname === "/team/chat/api/v4/users/ids" ||
       url.pathname === "/api/v4/users/ids"
@@ -304,6 +310,9 @@ export function webviewServers(
         "my-teams",
         "team-channels",
         "team-memberships",
+        "history-root",
+        "history-prefixed",
+        "history-anonymous",
         "batch-signed",
         "batch-anonymous",
         "batch-text",

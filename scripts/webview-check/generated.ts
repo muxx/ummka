@@ -8,7 +8,7 @@ import {
   SystemApi,
   UsersApi,
 } from "../../vendor/mattermost/index.js";
-
+import { checkChannelHistory } from "./history.ts";
 import { checkTeamReads } from "./team-reads.ts";
 
 function check(value: unknown, message: string): asserts value {
@@ -143,10 +143,12 @@ export async function checkGeneratedRequests(ports: string[]) {
         user.username === "fixture",
       "generated-user",
     );
-    await checkTeamReads(
-      new Configuration({ ...root, accessToken: "synthetic-session" }),
-      signed,
-    );
+    const rootSession = new Configuration({
+      ...root,
+      accessToken: "synthetic-session",
+    });
+    await checkTeamReads(rootSession, signed);
+    await checkChannelHistory(rootSession, signed, new Configuration(root));
     const profile = await loadInstallationProfile(
       prefixed,
       new AbortController().signal,

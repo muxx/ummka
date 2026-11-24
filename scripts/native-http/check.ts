@@ -60,7 +60,7 @@ try {
     }
     fixture.verify(platform === "android");
     console.log(
-      `Generated Mattermost requests verified in the ${platform} WebView: installation profile, users, team channels and JSON profile batches, HTTP states, TLS and abort.`,
+      `Generated Mattermost requests verified in the ${platform} WebView: installation profile, users, team channels, channel history and JSON profile batches, HTTP states, TLS and abort.`,
     );
     console.log(
       `Native HTTP verified on ${platform}: installation scope, TLS, connection reuse, HTTP/2 streams, redirects, cookies, cancellation and disconnects.`,

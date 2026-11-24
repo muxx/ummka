@@ -1,0 +1,52 @@
+services:
+  database:
+    image: postgres@sha256:20edbde7749f822887a1a022ad526fde0a47d6b2be9a8364433605cf65099416
+    environment:
+      POSTGRES_USER: ummka
+      POSTGRES_DB: mattermost
+      POSTGRES_PASSWORD: ${UMMKA_FIXTURE_DB_PASSWORD:?}
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "ummka", "-d", "mattermost"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+
+  images:
+    image: &node node@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5
+    command: ["node", "/fixtures/image.ts"]
+    volumes:
+      - .:/fixtures:ro
+    networks:
+      default:
+        aliases: [images.example.test]
+
+  mattermost:
+    image: ${UMMKA_FIXTURE_SERVER_IMAGE:?}
+    platform: linux/amd64
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      MM_SQLSETTINGS_DRIVERNAME: postgres
+      MM_SQLSETTINGS_DATASOURCE: postgres://ummka:${UMMKA_FIXTURE_DB_PASSWORD:?}@database:5432/mattermost?sslmode=disable
+      MM_TEAMSETTINGS_ENABLEOPENSERVER: "true"
+      MM_EMAILSETTINGS_REQUIREEMAILVERIFICATION: "false"
+      MM_LOGSETTINGS_ENABLEDIAGNOSTICS: "false"
+      MM_SERVICESETTINGS_ALLOWEDUNTRUSTEDINTERNALCONNECTIONS: images.example.test
+    healthcheck:
+      test: ["CMD", "/mattermost/bin/mmctl", "system", "status", "--local"]
+      interval: 2s
+      timeout: 3s
+      retries: 90
+
+  probe:
+    image: *node
+    working_dir: /work
+    volumes:
+      - .:/work/scripts/contract/compatibility:ro
+      - ../../../vendor/mattermost:/work/vendor/mattermost:ro
+      - ../../../package.json:/work/package.json:ro
+
+networks:
+  default:
+    internal: true

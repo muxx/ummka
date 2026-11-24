@@ -5,9 +5,12 @@ import catalog from "../../contracts/mattermost/operations.json" with {
   type: "json",
 };
 
+import {
+  correctHistoryQuery,
+  correctHistorySchema,
+} from "./history-corrections.ts";
+import { type Fields, object } from "./objects.ts";
 import { checkPathParameters } from "./path-parameters.ts";
-
-type Fields = Record<string, unknown>;
 
 const methods = new Set([
   "get",
@@ -19,13 +22,6 @@ const methods = new Set([
   "patch",
   "trace",
 ]);
-
-export function object(value: unknown, name: string): Fields {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(`Expected OpenAPI object ${name}`);
-  }
-  return value as Fields;
-}
 
 export function readSource(directory: string, file: string): Fields {
   const source: unknown = parse(readFileSync(join(directory, file), "utf8"));
@@ -74,7 +70,9 @@ export function buildSpecification(
     const upstream = object(original[kind], `components/${kind}`);
     if (!Object.hasOwn(upstream, name))
       throw new Error(`Missing component ${kind}/${name}`);
-    const component = object(upstream[name], `components/${kind}/${name}`);
+    const source = object(upstream[name], `components/${kind}/${name}`);
+    const component =
+      kind === "schemas" ? correctHistorySchema(name, source) : source;
     group[name] = component;
     visit(component);
   }
@@ -120,7 +118,10 @@ export function buildSpecification(
     paths[path] ??= Object.fromEntries(
       Object.entries(sourcePath).filter(([key]) => !methods.has(key)),
     );
-    paths[path][method] = operation;
+    paths[path][method] =
+      id === "GetPostsForChannel"
+        ? correctHistoryQuery(operation, read("posts-12.1.0.yaml"), path)
+        : operation;
     if (Object.hasOwn(operation, "security"))
       includeSecurity(operation.security);
   }

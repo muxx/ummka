@@ -14,7 +14,12 @@ import { stringify } from "yaml";
 import catalog from "../../contracts/mattermost/operations.json" with {
   type: "json",
 };
-import { buildSpecification, object, readSource } from "./schema.ts";
+import {
+  correctHistoryQuery,
+  correctHistorySchema,
+} from "./history-corrections.ts";
+import { object } from "./objects.ts";
+import { buildSpecification, readSource } from "./schema.ts";
 
 const sources = process.env.UMMKA_CONTRACT_SOURCES;
 const work = process.env.UMMKA_CONTRACT_WORK;
@@ -28,6 +33,12 @@ const ping = "/api/v4/system/ping";
 const system = read("system.yaml");
 const userRoute = "/api/v4/users/{user_id}";
 const users = read("users.yaml");
+const history = "/api/v4/channels/{channel_id}/posts";
+const threadFlags = [
+  "skipFetchThreads",
+  "collapsedThreads",
+  "collapsedThreadsExtended",
+];
 
 function at(document: unknown, path: string[]) {
   let value = document;
@@ -51,6 +62,11 @@ const definitionPaths = [
   ["components", "schemas", "Channel"],
   ["components", "schemas", "ChannelMember"],
   ["components", "schemas", "ChannelNotifyProps"],
+  ...["Emoji", "FileInfo", "PostAcknowledgement", "Reaction"].map((name) => [
+    "components",
+    "schemas",
+    name,
+  ]),
   ["components", "responses", "Forbidden"],
   ["components", "schemas", "User"],
   ["components", "schemas", "UserNotifyProps"],
@@ -62,7 +78,23 @@ const definitionPaths = [
 test("retains the catalog operations, security and transitive models", () => {
   for (const { file, path, method } of catalog) {
     const key = [path, method.toLowerCase()];
-    assert.deepEqual(at(contract, ["paths", ...key]), at(read(file), key));
+    const actual = structuredClone(
+      object(at(contract, ["paths", ...key]), path),
+    );
+    if (path === history) {
+      const reference = at(read("posts-12.1.0.yaml"), [...key, "parameters"]);
+      assert.ok(Array.isArray(reference) && Array.isArray(actual.parameters));
+      const extra = actual.parameters.splice(-3);
+      assert.deepEqual(
+        extra.map((p) => p.name),
+        threadFlags,
+      );
+      assert.deepEqual(
+        extra,
+        reference.filter((p) => threadFlags.includes(p.name)),
+      );
+    }
+    assert.deepEqual(actual, at(read(file), key));
   }
   for (const path of definitionPaths) {
     assert.deepEqual(at(contract, path), at(definitions, path));
@@ -80,6 +112,13 @@ test("retains the catalog operations, security and transitive models", () => {
       "Channel",
       "ChannelMember",
       "ChannelNotifyProps",
+      "Emoji",
+      "FileInfo",
+      "Post",
+      "PostAcknowledgement",
+      "PostList",
+      "PostMetadata",
+      "Reaction",
       "SystemStatusResponse",
       "Team",
       "Timezone",
@@ -96,13 +135,115 @@ test("builds identical JSON from the pinned sources", () => {
   );
 });
 
+test("changes only the confirmed history fields in the selected models", () => {
+  const additions = {
+    Post: ["reply_count", "last_reply_at", "participants", "is_following"],
+    PostList: ["first_inaccessible_post_time"],
+    PostMetadata: ["images"],
+  };
+  for (const [name, fields] of Object.entries(additions)) {
+    const path = ["components", "schemas", name];
+    const original = at(definitions, path);
+    const baseline = object(at(original, ["properties"]), name);
+    const selected = structuredClone(at(contract, path));
+    const properties = object(at(selected, ["properties"]), name);
+    for (const field of fields) {
+      assert.ok(Object.hasOwn(properties, field), field);
+      if (Object.hasOwn(baseline, field)) {
+        assert.notDeepEqual(properties[field], baseline[field]);
+        properties[field] = baseline[field];
+      } else delete properties[field];
+    }
+    assert.deepEqual(selected, original);
+  }
+});
+
+test("history alone includes participant models and preserves reusable source objects", () => {
+  const sources = new Map<string, Record<string, unknown>>();
+  const cached = (file: string) => {
+    const value = sources.get(file) ?? read(file);
+    sources.set(file, value);
+    return value;
+  };
+  const untouched = ["definitions.yaml", "posts.yaml", "posts-12.1.0.yaml"].map(
+    (file) => [file, structuredClone(cached(file))] as const,
+  );
+  const ops = catalog.filter((op) => op.id === "GetPostsForChannel");
+  const result = buildSpecification(cached, ops);
+  assert.ok(Object.hasOwn(result.components.schemas, "User"));
+  assert.deepEqual(buildSpecification(cached, ops), result);
+  for (const [file, original] of untouched)
+    assert.deepEqual(cached(file), original);
+});
+
+test("a correction stops when either pinned history contract changes", () => {
+  const baseline = object(at(read("posts.yaml"), [history, "get"]), history);
+  const reference = read("posts-12.1.0.yaml");
+  const baseParams = baseline.parameters;
+  assert.ok(Array.isArray(baseParams));
+  for (const flag of threadFlags) {
+    assert.throws(
+      () =>
+        correctHistoryQuery(
+          {
+            ...baseline,
+            parameters: [...baseParams, { name: flag, in: "query" }],
+          },
+          reference,
+          history,
+        ),
+      /Review/,
+    );
+    const altered = structuredClone(reference);
+    const operation = object(at(altered, [history, "get"]), history);
+    assert.ok(Array.isArray(operation.parameters));
+    const param = operation.parameters.find((p) => p.name === flag);
+    param.schema.type = "string";
+    assert.throws(
+      () => correctHistoryQuery(baseline, altered, history),
+      /Review/,
+    );
+    operation.parameters = operation.parameters.filter((p) => p.name !== flag);
+    assert.throws(
+      () => correctHistoryQuery(baseline, altered, history),
+      /Review/,
+    );
+  }
+  for (const [name, field] of [
+    ["Post", "is_following"],
+    ["PostList", "first_inaccessible_post_time"],
+  ]) {
+    const schema = structuredClone(
+      object(at(definitions, ["components", "schemas", name]), name),
+    );
+    object(schema.properties, name)[field] = { type: "string" };
+    assert.throws(() => correctHistorySchema(name, schema), /Review/);
+  }
+  const metadata = structuredClone(
+    object(
+      at(definitions, ["components", "schemas", "PostMetadata"]),
+      "metadata",
+    ),
+  );
+  const images = object(at(metadata, ["properties", "images"]), "images");
+  images.additionalProperties = images.items;
+  assert.throws(() => correctHistorySchema("PostMetadata", metadata), /Review/);
+});
+
 const removals = [
   ...catalog.map(({ file, path, method }) => ({
     file,
     path: [path, method.toLowerCase()],
     error: `Expected OpenAPI object ${method.toLowerCase()} ${path}`,
   })),
-  ...definitionPaths.map((path) => ({
+  ...[
+    ...definitionPaths,
+    ...["Post", "PostList", "PostMetadata"].map((name) => [
+      "components",
+      "schemas",
+      name,
+    ]),
+  ].map((path) => ({
     file: "definitions.yaml",
     path,
     error:
@@ -120,6 +261,7 @@ for (const { file, path, error } of removals) {
     for (const name of new Set([
       "introduction.yaml",
       "definitions.yaml",
+      "posts-12.1.0.yaml",
       ...catalog.map(({ file }) => file),
     ])) {
       copyFileSync(join(sourceDirectory, name), join(fixture, name));
@@ -356,9 +498,32 @@ test("requires the HTTP verb in its wire spelling", () => {
 });
 
 // Load the emitted ESM from this build, after the generated client has passed strict tsc.
-const { Configuration, SystemApi } = await import(
+const { Configuration, SystemApi, PostListFromJSON } = await import(
   pathToFileURL(resolve(work, "compiled/index.js")).href
 );
+test("the generated reader preserves a nonzero history boundary and thread values", () => {
+  const page = PostListFromJSON({
+    order: ["root"],
+    posts: {
+      root: {
+        reply_count: 0,
+        last_reply_at: 0,
+        participants: null,
+        is_following: false,
+      },
+    },
+    first_inaccessible_post_time: 1700000000123,
+  });
+  assert.equal(page.firstInaccessiblePostTime, 1700000000123);
+  assert.equal(page.posts.root.replyCount, 0);
+  assert.equal(page.posts.root.lastReplyAt, 0);
+  assert.equal(page.posts.root.isFollowing, false);
+  assert.ok(page.posts.root.participants == null);
+  assert.equal(
+    PostListFromJSON({ order: [], posts: {} }).firstInaccessiblePostTime,
+    undefined,
+  );
+});
 for (const base of [
   "https://chat.example.test",
   "https://chat.example.test/departments/chat",
