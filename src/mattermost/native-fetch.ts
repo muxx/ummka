@@ -8,6 +8,7 @@ const errors = new Set([
   "cancelled",
   "outside_installation",
   "operation_denied",
+  "session_unavailable",
   "redirect",
   "cleartext_denied",
   "network",

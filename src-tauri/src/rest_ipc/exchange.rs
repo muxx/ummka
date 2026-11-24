@@ -1,7 +1,8 @@
+use super::response::{self, ResponseBody, ResponseHead};
 use crate::rest::{RestConnection, TransportError};
 use reqwest::{
-    Method, Request, Response, StatusCode, Url,
-    header::{HeaderName, HeaderValue, SET_COOKIE},
+    Method, Request, Url,
+    header::{HeaderName, HeaderValue},
 };
 use serde::Serialize;
 use std::sync::{Arc, Mutex};
@@ -20,42 +21,9 @@ pub(crate) enum ExchangeError {
     Transport(TransportError),
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ResponseHead {
-    status: u16,
-    headers: Vec<(String, String)>,
-    has_body: bool,
-}
-
-impl ResponseHead {
-    fn new(response: &Response) -> Self {
-        let status = response.status();
-        let headers = response
-            .headers()
-            .iter()
-            .filter(|(name, _)| **name != SET_COOKIE && name.as_str() != "set-cookie2")
-            .map(|(name, value)| {
-                (
-                    name.as_str().to_owned(),
-                    value.as_bytes().iter().copied().map(char::from).collect(),
-                )
-            })
-            .collect();
-        Self {
-            status: status.as_u16(),
-            headers,
-            has_body: !matches!(
-                status,
-                StatusCode::NO_CONTENT | StatusCode::RESET_CONTENT | StatusCode::NOT_MODIFIED
-            ),
-        }
-    }
-}
-
 enum Phase {
     Prepared,
-    Body(Response),
+    Body(ResponseBody),
 }
 
 struct Exchange {
@@ -81,10 +49,11 @@ impl Resource for Session {
 
 impl Session {
     pub(super) fn new(http: RestConnection) -> Self {
+        let lifetime = http.lifetime();
         Self {
             http,
             exchanges: Mutex::default(),
-            lifetime: CancellationToken::new(),
+            lifetime,
         }
     }
 
@@ -130,9 +99,10 @@ impl Session {
         terminal: bool,
     ) -> Result<T, ExchangeError> {
         let mut active = self.exchanges.lock().unwrap();
-        if !active
-            .get::<Exchange>(id)
-            .is_ok_and(|entry| Arc::ptr_eq(&entry, exchange))
+        if self.lifetime.is_cancelled()
+            || !active
+                .get::<Exchange>(id)
+                .is_ok_and(|entry| Arc::ptr_eq(&entry, exchange))
         {
             return Err(ExchangeError::Cancelled);
         }
@@ -163,13 +133,16 @@ impl Session {
         if !matches!(*phase, Phase::Prepared) {
             return Err(ExchangeError::InvalidExchangeState);
         }
-        let request = async { self.http.send(request(method, url, headers, body)?).await };
-        let response = tokio::select! {
+        let request = async {
+            self.http
+                .exchange(request(method, url, headers, body)?, response::split)
+                .await
+        };
+        let result = tokio::select! {
             biased;
             _ = exchange.cancel.cancelled() => return Err(ExchangeError::Cancelled),
             result = request => result,
         };
-        let result = response.map(|body| (ResponseHead::new(&body), body));
         let terminal = result.as_ref().is_ok_and(|(head, _)| !head.has_body);
         let (head, body) = self.complete(id, &exchange, result, terminal)?;
         if head.has_body {
@@ -187,23 +160,10 @@ impl Session {
         let Phase::Body(response) = &mut *phase else {
             return Err(ExchangeError::InvalidExchangeState);
         };
-        let read = async {
-            loop {
-                match response
-                    .chunk()
-                    .await
-                    .map_err(|_| TransportError::Network)?
-                {
-                    Some(chunk) if chunk.is_empty() => continue,
-                    Some(chunk) => return Ok(chunk.to_vec()),
-                    None => return Ok(Vec::new()),
-                }
-            }
-        };
         let result = tokio::select! {
             biased;
             _ = exchange.cancel.cancelled() => return Err(ExchangeError::Cancelled),
-            result = read => result,
+            result = response.next() => result,
         };
         let eof = result.as_ref().is_ok_and(Vec::is_empty);
         self.complete(id, &exchange, result, eof)

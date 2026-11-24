@@ -1,9 +1,13 @@
+mod error_body;
 mod exchange;
+mod response;
 #[cfg(all(feature = "webview-check", target_os = "macos"))]
 mod window_check;
 
 use crate::rest::{RestConnection, TransportError};
-use exchange::{ExchangeError, ResponseHead, Session};
+use crate::sessions::AccountSessions;
+use exchange::{ExchangeError, Session};
+use response::ResponseHead;
 use tauri::ipc::Response;
 use tauri::{Manager, Resource, ResourceId, Runtime, Webview, WindowEvent};
 
@@ -21,9 +25,14 @@ pub(crate) fn watch_window<R: Runtime>(webview: &Webview<R>) {
 pub(crate) fn open_rest_connection<R: Runtime>(
     webview: Webview<R>,
     base_path: String,
+    user_id: Option<String>,
 ) -> Result<ResourceId, TransportError> {
-    let mut resources = webview.resources_table();
-    Ok(resources.add(Session::new(open_transport(&base_path)?)))
+    let transport = open_transport(&base_path)?;
+    let transport = match user_id {
+        Some(id) => transport.for_account(&webview.state::<AccountSessions>(), &id)?,
+        None => transport,
+    };
+    Ok(webview.resources_table().add(Session::new(transport)))
 }
 
 #[cfg(not(all(feature = "webview-check", target_os = "macos")))]
@@ -116,6 +125,42 @@ pub(crate) fn clear_connections<R: Runtime>(webview: &Webview<R>) {
             connection.close();
         }
     }
+}
+
+#[cfg(feature = "webview-check")]
+#[cfg(not(test))]
+pub(crate) fn seed_check_sessions<R: Runtime>(
+    app: &tauri::App<R>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let port = app
+        .config()
+        .plugins
+        .0
+        .get("ummkaFixture")
+        .and_then(|fixture| fixture["dataPort"].as_u64())
+        .and_then(|v| u16::try_from(v).ok())
+        .ok_or("missing native WebView fixture port")?;
+    let root = format!("https://127.0.0.1:{port}");
+    let prefixed = format!("{root}/team/chat");
+    let sessions = app.state::<AccountSessions>();
+    tauri::async_runtime::block_on(async {
+        for (base, account, token) in [
+            (&root, "Abc01234567890123456789012", "fixture-root-session"),
+            (
+                &prefixed,
+                "Abc01234567890123456789012",
+                "fixture-prefixed-session",
+            ),
+            (
+                &prefixed,
+                "bbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "fixture-second-session",
+            ),
+        ] {
+            sessions.activate(base, account, token).await?;
+        }
+        Ok(())
+    })
 }
 
 #[cfg(feature = "webview-check")]

@@ -115,10 +115,18 @@ assert.deepEqual(
   ],
 );
 const anonymous = new PostsApi(new Configuration({ basePath: base }));
-await assert.rejects(
-  anonymous.getPostsForChannel(page),
-  (error) => error instanceof ResponseError && error.response.status === 401,
+const failure = await anonymous.getPostsForChannel(page).then(
+  () => assert.fail("Expected an anonymous HTTP error"),
+  (error: unknown) => error,
 );
+assert.ok(failure instanceof ResponseError);
+assert.equal(failure.response.status, 401);
+const publicError = await failure.response.json();
+assert.equal(publicError.status_code, 401);
+for (const field of ["id", "message", "request_id"]) {
+  assert.equal(typeof publicError[field], "string");
+  assert.ok(publicError[field].length > 0);
+}
 console.log(
   `Mattermost ${version} verified plain and collapsed history, thread participants, image dimensions and anonymous HTTP 401.`,
 );

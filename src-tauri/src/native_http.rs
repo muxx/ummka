@@ -10,6 +10,9 @@ mod checks;
 #[serde(rename_all = "snake_case")]
 pub enum TransportError {
     InvalidInstallation,
+    InvalidAccount,
+    InvalidSession,
+    SessionUnavailable,
     OutsideInstallation,
     OperationDenied,
     Redirect,
@@ -21,6 +24,9 @@ impl fmt::Display for TransportError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::InvalidInstallation => "Invalid canonical Mattermost server URL",
+            Self::InvalidAccount => "Invalid Mattermost account ID",
+            Self::InvalidSession => "Invalid Mattermost session credential",
+            Self::SessionUnavailable => "The Mattermost account session is unavailable",
             Self::OutsideInstallation => "REST target is outside the selected installation",
             Self::OperationDenied => "REST operation is not allowed",
             Self::Redirect => "HTTP redirect refused",

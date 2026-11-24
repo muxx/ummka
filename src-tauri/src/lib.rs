@@ -6,6 +6,7 @@ pub mod registry;
 mod registry_ipc;
 pub mod rest;
 mod rest_ipc;
+pub mod sessions;
 
 use tauri::{App, Builder, Context, Runtime};
 
@@ -15,6 +16,7 @@ fn context<R: Runtime>() -> Context<R> {
 
 fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<App<R>> {
     builder
+        .manage(sessions::AccountSessions::default())
         .invoke_handler(tauri::generate_handler![
             rest_ipc::open_rest_connection,
             rest_ipc::close_rest_connection,
@@ -28,6 +30,8 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
         ])
         .setup(|app| {
             use tauri::Manager;
+            #[cfg(all(feature = "webview-check", not(test)))]
+            rest_ipc::seed_check_sessions(app)?;
             let main = app
                 .get_webview_window("main")
                 .ok_or("missing main WebView")?;

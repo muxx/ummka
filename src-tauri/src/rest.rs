@@ -1,10 +1,12 @@
 use crate::installation_url::{has_credentials, parse_canonical};
 use crate::native_http::NativeHttp;
 pub use crate::native_http::TransportError;
-use reqwest::header::{CONTENT_LENGTH, CONTENT_TYPE, COOKIE, HOST, TRANSFER_ENCODING};
+use crate::sessions::{AccountSession, AccountSessions, SessionToken, is_credential_header};
+use reqwest::header::CONTENT_TYPE;
 use reqwest::{Request, Response, Url};
 use serde::Deserialize;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
+use tokio_util::sync::CancellationToken;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -66,7 +68,7 @@ fn has_json_content_type(request: &Request) -> bool {
             && media.params().eq([(mime::CHARSET, mime::UTF_8)]))
 }
 
-fn is_mattermost_id(value: &str) -> bool {
+pub(crate) fn is_mattermost_id(value: &str) -> bool {
     value.len() == 26 && value.bytes().all(|c| c.is_ascii_alphanumeric())
 }
 
@@ -79,6 +81,7 @@ static OPERATIONS: LazyLock<Vec<Operation<'static>>> = LazyLock::new(|| {
 pub struct RestConnection {
     base: Url,
     http: NativeHttp,
+    account: Option<Arc<AccountSession>>,
 }
 
 impl RestConnection {
@@ -95,12 +98,47 @@ impl RestConnection {
         Ok(Self {
             base: url,
             http: client()?,
+            account: None,
         })
     }
 
+    pub fn for_account(
+        mut self,
+        sessions: &AccountSessions,
+        user_id: &str,
+    ) -> Result<Self, TransportError> {
+        self.account = Some(sessions.get(self.base.as_str().trim_end_matches('/'), user_id)?);
+        Ok(self)
+    }
+
+    pub(crate) fn lifetime(&self) -> CancellationToken {
+        self.account
+            .as_ref()
+            .map_or_else(CancellationToken::new, |account| account.lifetime())
+    }
+
     pub async fn send(&self, request: Request) -> Result<Response, TransportError> {
+        self.exchange(request, |response, _| response).await
+    }
+
+    pub(crate) async fn exchange<T>(
+        &self,
+        mut request: Request,
+        receive: impl FnOnce(Response, Option<(&Arc<AccountSession>, &SessionToken)>) -> T,
+    ) -> Result<T, TransportError> {
         self.check_request(&request)?;
-        self.http.send(request).await
+        let Some(account) = &self.account else {
+            return Ok(receive(self.http.send(request).await?, None));
+        };
+        account
+            .dispatch(|token| async move {
+                token.authorize(&mut request);
+                Ok(receive(
+                    self.http.send(request).await?,
+                    Some((account, &token)),
+                ))
+            })
+            .await
     }
 
     fn check_request(&self, request: &Request) -> Result<(), TransportError> {
@@ -118,9 +156,11 @@ impl RestConnection {
             .strip_prefix(self.base.path().trim_end_matches('/'))
             .filter(|path| path.starts_with("/api/v4/"))
             .ok_or(TransportError::OutsideInstallation)?;
-        if [HOST, COOKIE, CONTENT_LENGTH, TRANSFER_ENCODING]
-            .iter()
-            .any(|name| request.headers().contains_key(name))
+        if request.headers().keys().any(|header| {
+            let name = header.as_str();
+            is_credential_header(name)
+                || matches!(name, "host" | "content-length" | "transfer-encoding")
+        }) || url.query_pairs().any(|(name, _)| name == "access_token")
         {
             return Err(TransportError::OperationDenied);
         }

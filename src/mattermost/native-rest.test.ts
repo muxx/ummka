@@ -1,6 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, expect, test, vi } from "vitest";
-import { openNativeRestConnection } from "./native-rest.ts";
+import {
+  openAccountRestConnection,
+  openNativeRestConnection,
+} from "./native-rest.ts";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const ipc = vi.mocked(invoke);
@@ -22,6 +25,34 @@ test("passes the canonical installation and closes the exact native handle", asy
 
 test("rejects an invalid address before invoking Tauri", async () => {
   await expect(openNativeRestConnection("relative")).rejects.toThrow(TypeError);
+  expect(ipc).not.toHaveBeenCalled();
+});
+
+test("opens a native account by installation and user ID", async () => {
+  const userId = "Abc01234567890123456789012";
+  ipc.mockResolvedValueOnce(9);
+  const connection = await openAccountRestConnection(
+    "https://CHAT.example.test/Team///",
+    userId,
+  );
+  expect(ipc).toHaveBeenCalledWith("open_rest_connection", {
+    basePath: "https://chat.example.test/Team",
+    userId,
+  });
+  expect(Object.keys(connection).sort()).toEqual([
+    "basePath",
+    "close",
+    "fetchApi",
+    "rid",
+  ]);
+});
+
+test("an absent account ID cannot open an anonymous connection", async () => {
+  await expect(
+    Reflect.apply(openAccountRestConnection, undefined, [
+      "https://chat.example.test",
+    ]),
+  ).rejects.toThrow(TypeError);
   expect(ipc).not.toHaveBeenCalled();
 });
 

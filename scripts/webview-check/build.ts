@@ -17,6 +17,7 @@ export async function buildWebviewFixture(
   });
   return JSON.stringify({
     build: { frontendDist, beforeBuildCommand: null },
+    plugins: { ummkaFixture: { dataPort: ports[0] } },
     app: {
       windows: [{ label: "main", title: "ummka", visible: false }],
       ...(platform === "macos" && {
