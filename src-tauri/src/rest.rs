@@ -115,6 +115,18 @@ impl RestConnection {
         Ok(self)
     }
 
+    /// Complete an explicit on-device sign-out for the login bound to this connection.
+    pub async fn sign_out_on_device(
+        &self,
+        sessions: &AccountSessions,
+    ) -> Result<crate::credentials::Removal, TransportError> {
+        let session = self
+            .account
+            .clone()
+            .ok_or(TransportError::SessionUnavailable)?;
+        sessions.forget_current(session).await
+    }
+
     pub(crate) fn lifetime(&self) -> CancellationToken {
         self.account
             .as_ref()

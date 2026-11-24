@@ -55,10 +55,23 @@ pub(crate) fn for_application(_: &str) -> Result<Box<dyn CredentialStore>, Crede
     Err(CredentialError::StorageUnavailable)
 }
 
+/// A conditional removal never removes a new credential for the same account.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Removal {
+    Removed,
+    Superseded,
+}
+
 /// Native, per-account credential storage. Call these blocking operations off the UI thread.
 pub trait CredentialStore {
     fn save(&self, account: &Account, token: &SessionToken) -> Result<(), CredentialError>;
     fn read(&self, account: &Account) -> Result<Option<SessionToken>, CredentialError>;
     fn account_ids(&self, installation: &str) -> Result<Vec<String>, CredentialError>;
     fn remove(&self, account: &Account) -> Result<(), CredentialError>;
+    fn remove_matching(
+        &self,
+        account: &Account,
+        expected: &SessionToken,
+    ) -> Result<Removal, CredentialError>;
 }
