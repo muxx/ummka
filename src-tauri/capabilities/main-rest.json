@@ -1,0 +1,7 @@
+{
+  "identifier": "main-rest",
+  "description": "The local main WebView owns its native Mattermost connections.",
+  "local": true,
+  "webviews": ["main"],
+  "permissions": ["allow-open-rest-connection", "allow-close-rest-connection"]
+}

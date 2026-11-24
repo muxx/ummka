@@ -15,6 +15,7 @@ tauri-build = { version = "=2.7.6", features = [] }
 
 [features]
 native-http-check = ["dep:tokio"]
+webview-check = []
 
 [dependencies]
 reqwest = { version = "=0.13.5", default-features = false, features = ["rustls", "http2", "system-proxy"] }
@@ -26,3 +27,6 @@ tokio = { version = "=1.54.1", features = ["macros", "rt", "time"], optional = t
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "=0.22.4"
 rustls-platform-verifier = "=0.7.1"
+
+[dev-dependencies]
+tauri = { version = "=2.12.7", features = ["test", "unstable"] }
