@@ -114,6 +114,17 @@ const teamChannels = await channels.getChannelsForTeamForUser({ userId: "me", te
 teamChannels[0]?.totalMsgCountRoot satisfies number | undefined;
 teamChannels[0]?.lastRootPostAt satisfies number | undefined;
 const members = await channels.getChannelMembersForUser({ userId: "me", teamId: "team" });
+import type { TeamsApi } from "./compiled/index.js";
+declare const teams: TeamsApi;
+const myTeams = await teams.getTeamMembersForUser({ userId: "me" });
+myTeams[0]?.schemeGuest satisfies boolean | undefined;
+myTeams[0]?.deleteAt satisfies number | undefined;
+members[0]?.schemeGuest satisfies boolean | undefined;
+members[0]?.schemeAdmin satisfies boolean | undefined;
+members[0]?.schemeUser satisfies boolean | undefined;
+members[0]?.explicitRoles satisfies string | undefined;
+// @ts-expect-error A membership read identifies its user.
+teams.getTeamMembersForUser({});
 members[0]?.msgCountRoot satisfies number | undefined;
 members[0]?.mentionCountRoot satisfies number | undefined;
 members[0]?.urgentMentionCount satisfies number | undefined;

@@ -65,6 +65,25 @@ export function webviewServers(
       },
     ],
     [
+      "/team/chat/api/v4/users/me/teams/members",
+      {
+        name: "my-team-members",
+        query: "",
+        body: [
+          {
+            team_id: teamId,
+            user_id: userId,
+            roles: "team_guest",
+            scheme_guest: true,
+            scheme_user: false,
+            scheme_admin: false,
+            explicit_roles: "",
+            delete_at: 0,
+          },
+        ],
+      },
+    ],
+    [
       `/team/chat/api/v4/users/me/teams/${teamId}/channels`,
       {
         name: "team-channels",
@@ -417,6 +436,7 @@ export function webviewServers(
         "account-error-body",
         "account-retire",
         "my-teams",
+        "my-team-members",
         "team-channels",
         "team-memberships",
         "sidebar-categories",

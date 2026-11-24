@@ -319,6 +319,7 @@ export async function startFixture(dir: string) {
           "users/me",
           "users/Abc01234567890123456789012",
           "users/me/teams",
+          "users/me/teams/members",
           "users/Abc01234567890123456789012/teams/Team0123456789012345678901/channels?include_deleted=false",
           "users/me/teams/Team0123456789012345678901/channels/members",
           "users/me/teams/Team0123456789012345678901/channels/categories",

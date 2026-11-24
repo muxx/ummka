@@ -130,6 +130,7 @@ const definitionPaths = [
   ["components", "responses", "NotImplemented"],
   ["components", "schemas", "AppError"],
   ["components", "schemas", "Team"],
+  ["components", "schemas", "TeamMember"],
   ["components", "schemas", "Channel"],
   ["components", "schemas", "ChannelMember"],
   ["components", "schemas", "ChannelNotifyProps"],
@@ -175,7 +176,7 @@ test("retains the catalog operations, security and transitive models", () => {
     const source = at(definitions, path);
     const name = path[2];
     const expected =
-      name === "Channel" || name === "ChannelMember"
+      name === "Channel" || name === "ChannelMember" || name === "TeamMember"
         ? correctSidebarSchema(name, object(source, name))
         : source;
     assert.deepEqual(at(contract, path), expected);
@@ -206,6 +207,7 @@ test("retains the catalog operations, security and transitive models", () => {
       "SidebarCategoryWithChannels",
       "SystemStatusResponse",
       "Team",
+      "TeamMember",
       "Timezone",
       "User",
       "UserNotifyProps",
@@ -733,7 +735,15 @@ const {
   ChannelToJSON,
   ChannelMemberFromJSON,
   ChannelMemberToJSON,
+  TeamMemberFromJSON,
+  TeamMemberToJSON,
 } = await import(pathToFileURL(resolve(work, "compiled/index.js")).href);
+const channelRoleFields = {
+  scheme_guest: { type: "boolean" },
+  scheme_user: { type: "boolean" },
+  scheme_admin: { type: "boolean" },
+  explicit_roles: { type: "string" },
+};
 test("root-only and urgent counts survive generation, including zero and absent values", () => {
   for (const { name, keys, decode, encode } of [
     {
@@ -762,7 +772,11 @@ test("root-only and urgent counts survive generation, including zero and absent 
     const additions = Object.fromEntries(
       keys.map((key) => [key, { type: "integer", format: "int64" }]),
     );
-    assert.deepEqual(published, { ...properties, ...additions });
+    assert.deepEqual(published, {
+      ...properties,
+      ...additions,
+      ...(name === "ChannelMember" ? channelRoleFields : {}),
+    });
     for (const key of keys) {
       assert.throws(
         () =>
@@ -783,6 +797,47 @@ test("root-only and urgent counts survive generation, including zero and absent 
       assert.deepEqual(JSON.parse(JSON.stringify(encode(decode(wire)))), wire);
     }
     assert.deepEqual(schema, original);
+  }
+});
+test("keeps scheme roles separate from explicit membership roles and detects upstream additions", () => {
+  for (const [name, decode, encode] of [
+    ["TeamMember", TeamMemberFromJSON, TeamMemberToJSON],
+    ["ChannelMember", ChannelMemberFromJSON, ChannelMemberToJSON],
+  ] as const) {
+    const base = object(at(definitions, ["components", "schemas", name]), name);
+    const properties = object(base.properties, name);
+    const extra =
+      name === "TeamMember"
+        ? { scheme_guest: channelRoleFields.scheme_guest }
+        : channelRoleFields;
+    for (const [key, value] of Object.entries(extra)) {
+      assert.throws(
+        () =>
+          correctSidebarSchema(name, {
+            ...base,
+            properties: { ...properties, [key]: value },
+          }),
+        /Review the .* membership roles/,
+      );
+    }
+    for (const wire of [
+      {},
+      {
+        roles: "member_guest custom_role",
+        scheme_guest: true,
+        scheme_user: false,
+        scheme_admin: false,
+        explicit_roles: "custom_role",
+      },
+      {
+        roles: "member_user member_admin",
+        scheme_guest: false,
+        scheme_user: true,
+        scheme_admin: true,
+        explicit_roles: "",
+      },
+    ])
+      assert.deepEqual(JSON.parse(JSON.stringify(encode(decode(wire)))), wire);
   }
 });
 test("the generated reader preserves a nonzero history boundary and thread values", () => {

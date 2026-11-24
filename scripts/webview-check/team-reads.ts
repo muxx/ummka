@@ -13,6 +13,19 @@ export async function checkTeamReads(
   const teamId = teams[0]?.id;
   if (teams.length !== 1 || !teamId || teams[0].displayName !== "Fixture Team")
     throw Error("generated team list");
+  const [teamMember] = await new TeamsApi(prefixed).getTeamMembersForUser({
+    userId: "me",
+  });
+  if (
+    teamMember?.teamId !== teamId ||
+    teamMember.schemeGuest !== true ||
+    teamMember.roles !== "team_guest" ||
+    teamMember.schemeUser !== false ||
+    teamMember.schemeAdmin !== false ||
+    teamMember.explicitRoles !== "" ||
+    teamMember.deleteAt !== 0
+  )
+    throw Error("generated team membership");
   const api = new ChannelsApi(prefixed);
   const channels = await api.getChannelsForTeamForUser({
     userId: "me",

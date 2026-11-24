@@ -1,6 +1,38 @@
 import * as runtime from '../runtime.js';
 import { TeamFromJSON, } from '../models/Team.js';
+import { TeamMemberFromJSON, } from '../models/TeamMember.js';
 export class TeamsApi extends runtime.BaseAPI {
+    async getTeamMembersForUserRequestOpts(requestParameters) {
+        if (requestParameters['userId'] == null) {
+            throw new runtime.RequiredError('userId', 'Required parameter "userId" was null or undefined when calling getTeamMembersForUser().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/users/{user_id}/teams/members`;
+        urlPath = urlPath.replace('{user_id}', encodeURIComponent(String(requestParameters['userId'])));
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async getTeamMembersForUserRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.getTeamMembersForUserRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => jsonValue.map(TeamMemberFromJSON));
+    }
+    async getTeamMembersForUser(requestParameters, initOverrides) {
+        const response = await this.getTeamMembersForUserRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
     async getTeamsForUserRequestOpts(requestParameters) {
         if (requestParameters['userId'] == null) {
             throw new runtime.RequiredError('userId', 'Required parameter "userId" was null or undefined when calling getTeamsForUser().');

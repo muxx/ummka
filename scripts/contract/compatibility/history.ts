@@ -16,6 +16,7 @@ import {
   ResponseError,
 } from "../../../vendor/mattermost/index.js";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
+import { checkNavigationMemberships } from "./memberships.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
 
@@ -449,6 +450,39 @@ await create(
   `teams/${team.id}/members`,
   { team_id: team.id, user_id: reader.id },
   token,
+);
+const extraTeam = await (
+  await create(
+    "teams",
+    {
+      name: "roles-fixture",
+      display_name: "Membership fixture",
+      type: "O",
+      allow_open_invite: true,
+    },
+    token,
+  )
+).json();
+await create(
+  `teams/${extraTeam.id}/members`,
+  { team_id: extraTeam.id, user_id: reader.id },
+  token,
+);
+await checkNavigationMemberships(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  reader.id,
+  { session, userId: user.id },
+  team.id,
+  extraTeam.id,
+  channelId,
+  () =>
+    fetch(`${base}/api/v4/teams/${extraTeam.id}/members/${reader.id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${readerToken}` },
+    }),
+);
+console.log(
+  `Mattermost ${version} verified channel and team roles, active and removed membership and anonymous HTTP 401.`,
 );
 await checkSidebarCounters(
   new Configuration({ basePath: base, accessToken: readerToken }),
