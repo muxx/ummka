@@ -7,6 +7,10 @@ use std::fmt;
 pub struct SecretInput(String);
 
 impl SecretInput {
+    pub(crate) fn appears_in(&self, bytes: &[u8]) -> bool {
+        crate::sessions::contains_secret(bytes, self.0.as_bytes())
+    }
+
     pub fn new(value: String) -> Self {
         Self(value)
     }

@@ -223,6 +223,8 @@ async fn check_wire(
         return Err("expected seven fixture ports".into());
     };
     let base = format!("https://127.0.0.1:{tls}");
+    crate::authentication::checks::exchange(&client, &base, &format!("https://127.0.0.1:{other}"))
+        .await?;
     let prefix = "/Teams/Blue%20Sky//A%2FB";
     let selected = format!("https://127.0.0.1:{selected}{prefix}");
     let other = format!("https://127.0.0.1:{other}{prefix}");

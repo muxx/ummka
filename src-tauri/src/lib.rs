@@ -1,3 +1,5 @@
+mod app_error;
+pub mod authentication;
 pub mod credentials;
 mod installation_url;
 #[cfg(all(test, desktop))]

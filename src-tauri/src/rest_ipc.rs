@@ -1,4 +1,3 @@
-mod error_body;
 mod exchange;
 mod response;
 #[cfg(all(feature = "webview-check", target_os = "macos"))]

@@ -8,6 +8,10 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
+pub(crate) fn contains_secret(bytes: &[u8], secret: &[u8]) -> bool {
+    !secret.is_empty() && bytes.windows(secret.len()).any(|part| part == secret)
+}
+
 pub(crate) fn is_credential_header(name: &str) -> bool {
     matches!(
         name,
@@ -84,8 +88,7 @@ impl SessionToken {
     }
 
     pub(crate) fn appears_in(&self, bytes: &[u8]) -> bool {
-        let raw = self.secret();
-        bytes.windows(raw.len()).any(|part| part == raw)
+        contains_secret(bytes, self.secret())
     }
 
     pub(crate) fn secret(&self) -> &[u8] {
