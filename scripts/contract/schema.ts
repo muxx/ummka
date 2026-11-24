@@ -20,8 +20,8 @@ import {
   postInfoSchema,
 } from "./post-info-correction.ts";
 import {
-  correctSidebarCategory,
   correctSidebarResponse,
+  correctSidebarSchema,
 } from "./sidebar-corrections.ts";
 
 const methods = new Set([
@@ -88,11 +88,10 @@ export function buildSpecification(
     if (!Object.hasOwn(upstream, name))
       throw new Error(`Missing component ${kind}/${name}`);
     const source = object(upstream[name], `components/${kind}/${name}`);
-    if (kind === "schemas" && name === "SidebarCategoryWithChannels")
-      group[name] = correctSidebarCategory(source);
-    else
-      group[name] =
-        kind === "schemas" ? correctHistorySchema(name, source) : source;
+    group[name] =
+      kind === "schemas"
+        ? correctSidebarSchema(name, correctHistorySchema(name, source))
+        : source;
     visit(group[name]);
   }
 

@@ -31,6 +31,7 @@ import { buildSpecification, readSource } from "./schema.ts";
 import {
   correctSidebarCategory,
   correctSidebarResponse,
+  correctSidebarSchema,
 } from "./sidebar-corrections.ts";
 
 const sources = process.env.UMMKA_CONTRACT_SOURCES;
@@ -171,7 +172,13 @@ test("retains the catalog operations, security and transitive models", () => {
     );
   }
   for (const path of definitionPaths) {
-    assert.deepEqual(at(contract, path), at(definitions, path));
+    const source = at(definitions, path);
+    const name = path[2];
+    const expected =
+      name === "Channel" || name === "ChannelMember"
+        ? correctSidebarSchema(name, object(source, name))
+        : source;
+    assert.deepEqual(at(contract, path), expected);
   }
   assert.deepEqual(
     Object.keys(object(contract.paths, "paths")).sort(),
@@ -718,9 +725,66 @@ test("requires the HTTP verb in its wire spelling", () => {
 });
 
 // Load the emitted ESM from this build, after the generated client has passed strict tsc.
-const { Configuration, SystemApi, PostListFromJSON } = await import(
-  pathToFileURL(resolve(work, "compiled/index.js")).href
-);
+const {
+  Configuration,
+  SystemApi,
+  PostListFromJSON,
+  ChannelFromJSON,
+  ChannelToJSON,
+  ChannelMemberFromJSON,
+  ChannelMemberToJSON,
+} = await import(pathToFileURL(resolve(work, "compiled/index.js")).href);
+test("root-only and urgent counts survive generation, including zero and absent values", () => {
+  for (const { name, keys, decode, encode } of [
+    {
+      name: "Channel",
+      keys: ["last_root_post_at", "total_msg_count_root"],
+      decode: ChannelFromJSON,
+      encode: ChannelToJSON,
+    },
+    {
+      name: "ChannelMember",
+      keys: ["mention_count_root", "msg_count_root", "urgent_mention_count"],
+      decode: ChannelMemberFromJSON,
+      encode: ChannelMemberToJSON,
+    },
+  ]) {
+    const schema = object(
+      at(definitions, ["components", "schemas", name]),
+      name,
+    );
+    const original = structuredClone(schema);
+    const properties = object(schema.properties, name);
+    const published = object(
+      at(contract, ["components", "schemas", name, "properties"]),
+      name,
+    );
+    const additions = Object.fromEntries(
+      keys.map((key) => [key, { type: "integer", format: "int64" }]),
+    );
+    assert.deepEqual(published, { ...properties, ...additions });
+    for (const key of keys) {
+      assert.throws(
+        () =>
+          correctSidebarSchema(name, {
+            ...schema,
+            properties: { ...properties, [key]: additions[key] },
+          }),
+        /Review the .* sidebar counter/,
+      );
+    }
+    for (const value of [undefined, 0, 27]) {
+      const wire =
+        value === undefined
+          ? {}
+          : Object.fromEntries(
+              keys.map((key, index) => [key, value && value + index]),
+            );
+      assert.deepEqual(JSON.parse(JSON.stringify(encode(decode(wire)))), wire);
+    }
+    assert.deepEqual(schema, original);
+  }
+});
 test("the generated reader preserves a nonzero history boundary and thread values", () => {
   const page = PostListFromJSON({
     order: ["root"],

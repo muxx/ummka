@@ -17,6 +17,7 @@ import {
 } from "../../../vendor/mattermost/index.js";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
 import { checkSidebarReads } from "./sidebar.ts";
+import { checkSidebarCounters } from "./sidebar-counters.ts";
 
 const base = "http://mattermost:8065";
 const version = process.argv[2];
@@ -448,6 +449,22 @@ await create(
   `teams/${team.id}/members`,
   { team_id: team.id, user_id: reader.id },
   token,
+);
+await checkSidebarCounters(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  team.id,
+  channelId,
+  readerLogin.login_id,
+  message,
+  () =>
+    create(
+      "channels/members/me/view",
+      { channel_id: channelId, collapsed_threads_supported: true },
+      readerToken,
+    ),
+);
+console.log(
+  `Mattermost ${version} verified root and reply counters through a channel view.`,
 );
 await checkSidebarReads(
   base,

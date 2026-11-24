@@ -18,6 +18,9 @@ export function ChannelMemberFromJSONTyped(json, ignoreDiscriminator) {
         'mentionCount': json['mention_count'] == null ? undefined : json['mention_count'],
         'notifyProps': json['notify_props'] == null ? undefined : ChannelNotifyPropsFromJSON(json['notify_props']),
         'lastUpdateAt': json['last_update_at'] == null ? undefined : json['last_update_at'],
+        'msgCountRoot': json['msg_count_root'] == null ? undefined : json['msg_count_root'],
+        'mentionCountRoot': json['mention_count_root'] == null ? undefined : json['mention_count_root'],
+        'urgentMentionCount': json['urgent_mention_count'] == null ? undefined : json['urgent_mention_count'],
     };
 }
 export function ChannelMemberToJSON(json) {
@@ -36,5 +39,8 @@ export function ChannelMemberToJSONTyped(value, ignoreDiscriminator = false) {
         'mention_count': value['mentionCount'],
         'notify_props': ChannelNotifyPropsToJSON(value['notifyProps']),
         'last_update_at': value['lastUpdateAt'],
+        'msg_count_root': value['msgCountRoot'],
+        'mention_count_root': value['mentionCountRoot'],
+        'urgent_mention_count': value['urgentMentionCount'],
     };
 }

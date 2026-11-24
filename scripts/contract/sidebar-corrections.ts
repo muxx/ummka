@@ -46,3 +46,30 @@ export function correctSidebarCategory(source: Fields): Fields {
     },
   };
 }
+
+// The channel and its member each carry ordinary and root-only counters.
+// https://github.com/mattermost/mattermost/blob/v10.10.1/server/public/model/channel.go#L88-L101
+// https://github.com/mattermost/mattermost/blob/v12.1.0/server/public/model/channel_member.go#L41-L56
+export function correctSidebarSchema(name: string, source: Fields): Fields {
+  if (name === "SidebarCategoryWithChannels")
+    return correctSidebarCategory(source);
+  if (name !== "Channel" && name !== "ChannelMember") return source;
+  const properties = object(source.properties, name);
+  const missing =
+    name === "Channel"
+      ? ["total_msg_count_root", "last_root_post_at"]
+      : ["msg_count_root", "mention_count_root", "urgent_mention_count"];
+  const ordinary = name === "Channel" ? "total_msg_count" : "msg_count";
+  if (
+    source.type !== "object" ||
+    object(properties[ordinary], ordinary).type !== "integer" ||
+    missing.some((field) => Object.hasOwn(properties, field))
+  )
+    throw Error(
+      `Review the ${name} sidebar counter correction against the pinned source`,
+    );
+  const next = { ...properties };
+  for (const field of missing)
+    next[field] = { type: "integer", format: "int64" };
+  return { ...source, properties: next };
+}

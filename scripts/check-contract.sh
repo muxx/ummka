@@ -110,6 +110,13 @@ const savedPreferences = await preferences.getPreferences({ userId: "me" });
 savedPreferences[0]?.value satisfies string | undefined;
 // @ts-expect-error Preference values remain strings.
 savedPreferences[0]?.value satisfies boolean | undefined;
+const teamChannels = await channels.getChannelsForTeamForUser({ userId: "me", teamId: "team" });
+teamChannels[0]?.totalMsgCountRoot satisfies number | undefined;
+teamChannels[0]?.lastRootPostAt satisfies number | undefined;
+const members = await channels.getChannelMembersForUser({ userId: "me", teamId: "team" });
+members[0]?.msgCountRoot satisfies number | undefined;
+members[0]?.mentionCountRoot satisfies number | undefined;
+members[0]?.urgentMentionCount satisfies number | undefined;
 declare const post: Post;
 post.messageSource satisfies string | undefined;
 page.firstInaccessiblePostTime satisfies number | undefined;
