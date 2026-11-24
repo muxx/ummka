@@ -7,14 +7,22 @@ export async function handleAuth(
   request: IncomingMessage,
   response: ServerResponse,
   visits: string[],
+  beforeLogout: (name: string) => Promise<void>,
 ) {
   assert.equal(request.headers.cookie, undefined);
   if (request.url === `${authPrefix}me`) {
     assert.equal(request.method, "GET");
     const auth = request.headers.authorization;
     assert(
-      auth === "Bearer fixture-grant-saved" ||
-        auth === "Bearer fixture-grant-replaced",
+      typeof auth === "string" &&
+        [
+          "saved",
+          "replaced",
+          "out-refused",
+          "out-lost",
+          "out-invalid",
+          "out-new",
+        ].some((name) => auth === `Bearer fixture-grant-${name}`),
     );
     visits.push(`me-${auth.slice("Bearer fixture-grant-".length)}`);
     response.end(JSON.stringify({ id: "Abc01234567890123456789012" }));
@@ -33,15 +41,18 @@ export async function handleAuth(
     assert.equal(bytes.length, 0);
     const name = auth.slice("Bearer fixture-grant-".length);
     visits.push(`logout-${name}`);
-    if (name === "no-reply") {
+    await beforeLogout(name);
+    if (name === "no-reply" || name === "out-lost") {
       request.socket.destroy();
-    } else if (name === "refused-logout" || name === "refused") {
+    } else if (["refused-logout", "refused", "out-refused"].includes(name)) {
       response
         .writeHead(403)
         .end(JSON.stringify({ id: "logout.refused", message: auth }));
     } else {
       response.end(
-        JSON.stringify({ status: name === "bad-logout" ? "FAIL" : "OK" }),
+        JSON.stringify({
+          status: ["bad-logout", "out-invalid"].includes(name) ? "FAIL" : "OK",
+        }),
       );
     }
     return name;
@@ -136,5 +147,24 @@ export function checkAuthVisits(visits: string[]) {
     "login-replaced",
     "me-replaced",
     "me-replaced",
+    "login-out-success",
+    "logout-out-success",
+    "login-out-refused",
+    "logout-out-refused",
+    "me-out-refused",
+    "login-out-lost",
+    "logout-out-lost",
+    "me-out-lost",
+    "login-out-invalid",
+    "logout-out-invalid",
+    "me-out-invalid",
+    "login-out-local-fail",
+    "logout-out-local-fail",
+    "login-out-dismiss",
+    "logout-out-dismiss",
+    "login-out-race",
+    "logout-out-race",
+    "login-out-new",
+    "me-out-new",
   ]);
 }

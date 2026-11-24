@@ -45,6 +45,25 @@ impl CredentialStore for Arc<TestVault> {
         self.rows.lock().unwrap().remove(a);
         Ok(())
     }
+    fn remove_matching(
+        &self,
+        a: &Account,
+        expected: &SessionToken,
+    ) -> Result<crate::credentials::Removal, CredentialError> {
+        use crate::credentials::Removal;
+        if self.refuse.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(CredentialError::StorageUnavailable);
+        }
+        let mut rows = self.rows.lock().unwrap();
+        if rows
+            .get(a)
+            .is_some_and(|current| current.secret() != expected.secret())
+        {
+            return Ok(Removal::Superseded);
+        }
+        rows.remove(a);
+        Ok(Removal::Removed)
+    }
     fn account_ids(&self, base: &str) -> Result<Vec<String>, CredentialError> {
         let mut ids: Vec<_> = self
             .rows

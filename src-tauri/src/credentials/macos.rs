@@ -1,4 +1,4 @@
-use super::{CredentialError, CredentialStore};
+use super::{CredentialError, CredentialStore, Removal};
 use crate::rest::is_mattermost_id;
 use crate::sessions::{Account, SessionToken, validate_installation};
 use core_foundation::base::TCFType;
@@ -7,7 +7,12 @@ use security_framework::os::macos::keychain::{SecKeychain, SecPreferencesDomain}
 use security_framework_sys::base::{errSecDuplicateItem, errSecItemNotFound, errSecSuccess};
 use security_framework_sys::keychain_item::SecKeychainItemDelete;
 
+use std::fs::{self, File, OpenOptions};
+use std::os::unix::fs::OpenOptionsExt;
+use std::path::{Path, PathBuf};
+
 pub struct MacCredentialStore {
+    writer: PathBuf,
     keychain: SecKeychain,
     application_id: String,
 }
@@ -20,18 +25,72 @@ impl MacCredentialStore {
         let keychain = SecKeychain::open(std::path::Path::new(&path))
             .map_err(|_| CredentialError::StorageUnavailable)?;
         Ok(Self {
+            writer: Path::new(&path).with_extension("writers.lock"),
             keychain,
             application_id: application_id.into(),
         })
     }
 
     pub fn for_user(application_id: &str) -> Result<Self, CredentialError> {
+        if Path::new(application_id).file_name() != Some(std::ffi::OsStr::new(application_id)) {
+            return Err(CredentialError::InvalidEntry);
+        }
+        let writer = dirs::data_local_dir()
+            .ok_or(CredentialError::StorageUnavailable)?
+            .join(application_id)
+            .join("session-writes.lock");
         let keychain = SecKeychain::default_for_domain(SecPreferencesDomain::User)
             .map_err(|_| CredentialError::StorageUnavailable)?;
         Ok(Self {
+            writer,
             keychain,
             application_id: application_id.into(),
         })
+    }
+
+    // All ummka writers lock the same stable file. Its contents never carry credentials.
+    fn write_guard(&self) -> Result<File, CredentialError> {
+        let unavailable = |_| CredentialError::StorageUnavailable;
+        let directory = self
+            .writer
+            .parent()
+            .ok_or(CredentialError::StorageUnavailable)?;
+        fs::create_dir_all(directory).map_err(unavailable)?;
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(&self.writer)
+            .map_err(unavailable)?;
+        file.lock().map_err(unavailable)?;
+        Ok(file)
+    }
+
+    fn remove_entry(
+        &self,
+        account: &Account,
+        expected: Option<&SessionToken>,
+    ) -> Result<Removal, CredentialError> {
+        let _guard = self.write_guard()?;
+        let service = self.service(account.installation());
+        let status = match self
+            .keychain
+            .find_generic_password(&service, account.user_id())
+        {
+            Ok((bytes, _)) if expected.is_some_and(|token| &*bytes != token.secret()) => {
+                return Ok(Removal::Superseded);
+            }
+            // The safe item's delete method discards OSStatus. This owned item stays live through the call.
+            Ok((_, item)) => unsafe { SecKeychainItemDelete(item.as_concrete_TypeRef()) },
+            Err(e) => e.code(),
+        };
+        if status == errSecSuccess || status == errSecItemNotFound {
+            Ok(Removal::Removed)
+        } else {
+            Err(CredentialError::StorageUnavailable)
+        }
     }
 
     fn service(&self, installation: &str) -> String {
@@ -41,6 +100,7 @@ impl MacCredentialStore {
 
 impl CredentialStore for MacCredentialStore {
     fn save(&self, account: &Account, token: &SessionToken) -> Result<(), CredentialError> {
+        let _guard = self.write_guard()?;
         let service = self.service(account.installation());
         match self
             .keychain
@@ -105,20 +165,15 @@ impl CredentialStore for MacCredentialStore {
     }
 
     fn remove(&self, account: &Account) -> Result<(), CredentialError> {
-        let service = self.service(account.installation());
-        let status = match self
-            .keychain
-            .find_generic_password(&service, account.user_id())
-        {
-            // The safe item's delete method discards OSStatus. This owned item stays live through the call.
-            Ok((_, item)) => unsafe { SecKeychainItemDelete(item.as_concrete_TypeRef()) },
-            Err(e) => e.code(),
-        };
-        if status == errSecSuccess || status == errSecItemNotFound {
-            Ok(())
-        } else {
-            Err(CredentialError::StorageUnavailable)
-        }
+        self.remove_entry(account, None).map(|_| ())
+    }
+
+    fn remove_matching(
+        &self,
+        account: &Account,
+        expected: &SessionToken,
+    ) -> Result<Removal, CredentialError> {
+        self.remove_entry(account, Some(expected))
     }
 }
 

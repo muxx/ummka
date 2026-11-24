@@ -3,6 +3,8 @@ fn main() {
         "open_rest_connection",
         "list_account_ids",
         "forget_local_account",
+        "sign_out_account",
+        "sign_out_on_device",
         "close_rest_connection",
         "prepare_rest_request",
         "send_rest_request",

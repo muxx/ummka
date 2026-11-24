@@ -1,7 +1,31 @@
 use super::*;
 use crate::models::SecretInput;
+use crate::rest::RestConnection;
 
 mod persistence;
+mod sign_out;
+
+type CheckResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
+async fn open(
+    client: &NativeAuthentication,
+    sessions: &crate::sessions::AccountSessions,
+    user_id: &str,
+) -> Result<RestConnection, TransportError> {
+    RestConnection::with_client(&client.base, || Ok(client.http.clone()))?
+        .for_account(sessions, user_id)
+        .await
+}
+
+async fn me(
+    connection: &RestConnection,
+    client: &NativeAuthentication,
+) -> Result<(), TransportError> {
+    let url = format!("{}/api/v4/users/me", client.base).parse().unwrap();
+    let response = connection.send(Request::new(Method::GET, url)).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    Ok(())
+}
 
 fn input(id: &str) -> LoginRequest {
     LoginRequest {
@@ -86,5 +110,6 @@ pub(crate) async fn exchange(
     assert_eq!(error.status_code, 403);
     assert_eq!(error.id.as_deref(), Some("logout.refused"));
     assert!(error.message.is_none());
-    persistence::check(&client, base).await
+    persistence::check(&client, base).await?;
+    sign_out::check(&client, base).await
 }

@@ -233,3 +233,47 @@ async fn pending_restore_cannot_resurrect_a_forgotten_account() {
     ));
     assert!(restarted.account_ids(BASE).await.unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn deferred_removal_protects_replacements_in_this_host_and_another_host() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let vault = Arc::new(TestVault::default());
+    let local = using(vault.clone());
+    let peer = using(vault.clone());
+    local.activate(BASE, FIRST, "first-grant").await.unwrap();
+    local.activate(BASE, SECOND, "other-grant").await.unwrap();
+    let old = local.restore(BASE, FIRST).await.unwrap();
+    local.activate(BASE, FIRST, "second-grant").await.unwrap();
+    let second = local.restore(BASE, FIRST).await.unwrap();
+    assert_eq!(local.forget_current(old).await, Ok(Removal::Superseded));
+    verify(&second, b"second-grant").await.unwrap();
+
+    peer.activate(BASE, FIRST, "third-grant").await.unwrap();
+    assert_eq!(
+        local.forget_current(second.clone()).await,
+        Ok(Removal::Superseded)
+    );
+    assert_eq!(
+        verify(&second, b"second-grant").await,
+        Err(TransportError::SessionUnavailable)
+    );
+    let current = local.restore(BASE, FIRST).await.unwrap();
+    verify(&current, b"third-grant").await.unwrap();
+
+    vault.refuse.store(true, SeqCst);
+    assert_eq!(
+        local.forget_current(current.clone()).await,
+        Err(TransportError::CredentialStorageUnavailable)
+    );
+    verify(&current, b"third-grant").await.unwrap();
+    vault.refuse.store(false, SeqCst);
+    assert_eq!(
+        local.forget_current(current.clone()).await,
+        Ok(Removal::Removed)
+    );
+    assert_eq!(
+        verify(&current, b"third-grant").await,
+        Err(TransportError::SessionUnavailable)
+    );
+    assert_eq!(using(vault).account_ids(BASE).await.unwrap(), [SECOND]);
+}

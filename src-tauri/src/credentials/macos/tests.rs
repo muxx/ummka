@@ -65,6 +65,11 @@ fn accounts_survive_processes_in_an_explicit_disposable_keychain() {
         );
     };
     run("seed");
+    let writer = File::open(Path::new(keyfile).with_extension("writers.lock")).unwrap();
+    assert_eq!(writer.metadata().unwrap().len(), 0);
+    writer.lock().unwrap();
+    run("writer-held");
+    drop(writer);
     run("rotate");
     keychain_command(&["lock-keychain", keyfile]);
     run("locked");
@@ -87,11 +92,14 @@ fn check_one_process() {
     let file = std::env::var_os("UMMKA_TEST_KEYCHAIN_PATH").unwrap();
     let keychain = SecKeychain::open(Path::new(&file)).unwrap();
     let _interaction = SecKeychain::disable_user_interaction().unwrap();
+    let writer = Path::new(&file).with_extension("writers.lock");
     let other_app = MacCredentialStore {
+        writer: writer.clone(),
         keychain: keychain.clone(),
         application_id: "io.github.muxx.ummka.fixture-other".into(),
     };
     let store = MacCredentialStore {
+        writer,
         keychain,
         application_id: "io.github.muxx.ummka.fixture".into(),
     };
@@ -111,11 +119,43 @@ fn check_one_process() {
     match phase.as_str() {
         "seed" => {
             assert!(store.account_ids(BASE).unwrap().is_empty());
-            save(&store, &first, "fixture-first").unwrap();
+            // The preceding release stored an ordinary generic password with these exact attributes.
+            store
+                .keychain
+                .add_generic_password(&store.service(BASE), FIRST, b"fixture-first")
+                .unwrap();
             save(&store, &second, "fixture-second").unwrap();
             save(&store, &case_peer, "fixture-case").unwrap();
             save(&store, &neighbor, "fixture-neighbor").unwrap();
             save(&other_app, &first, "fixture-other-app").unwrap();
+        }
+        "writer-held" => {
+            let guard = File::open(&store.writer).unwrap();
+            assert!(matches!(
+                guard.try_lock(),
+                Err(std::fs::TryLockError::WouldBlock)
+            ));
+            verify(&store, &first, "fixture-first");
+            // An unusable coordinator must stop every writer before it reaches Keychain.
+            let unavailable = MacCredentialStore {
+                keychain: store.keychain.clone(),
+                application_id: store.application_id.clone(),
+                writer: Path::new(&file).parent().unwrap().to_path_buf(),
+            };
+            let expected = SessionToken::new("fixture-first").unwrap();
+            assert_eq!(
+                unavailable.save(&first, &expected),
+                Err(CredentialError::StorageUnavailable)
+            );
+            assert_eq!(
+                unavailable.remove(&first),
+                Err(CredentialError::StorageUnavailable)
+            );
+            assert_eq!(
+                unavailable.remove_matching(&first, &expected),
+                Err(CredentialError::StorageUnavailable)
+            );
+            verify(&store, &first, "fixture-first");
         }
         "rotate" => {
             assert_eq!(store.account_ids(BASE).unwrap(), [FIRST, CASE_PEER, SECOND]);
@@ -142,8 +182,18 @@ fn check_one_process() {
             );
         }
         "remove" => {
+            let old = SessionToken::new("fixture-first").unwrap();
+            let current = SessionToken::new("fixture-updated").unwrap();
+            assert_eq!(store.remove_matching(&first, &old), Ok(Removal::Superseded));
             verify(&store, &first, "fixture-updated");
-            store.remove(&first).unwrap();
+            assert_eq!(
+                store.remove_matching(&first, &current),
+                Ok(Removal::Removed)
+            );
+            assert_eq!(
+                store.remove_matching(&first, &current),
+                Ok(Removal::Removed)
+            );
             store.remove(&first).unwrap();
         }
         "confirm" => {

@@ -1,4 +1,4 @@
-use crate::credentials::{CredentialError, CredentialStore};
+use crate::credentials::{CredentialError, CredentialStore, Removal};
 use crate::installation_url::parse_canonical;
 use crate::rest::{TransportError, is_mattermost_id};
 use reqwest::header::HeaderValue;
@@ -97,11 +97,16 @@ impl SessionToken {
 }
 
 pub(crate) struct AccountSession {
+    account: Account,
     token: RwLock<Option<SessionToken>>,
     end: CancellationToken,
 }
 
 impl AccountSession {
+    pub(crate) fn account(&self) -> &Account {
+        &self.account
+    }
+
     pub(crate) fn lifetime(&self) -> CancellationToken {
         self.end.child_token()
     }
@@ -160,8 +165,9 @@ impl SessionState {
 }
 
 impl AccountSession {
-    fn new(token: SessionToken) -> Arc<Self> {
+    fn new(account: Account, token: SessionToken) -> Arc<Self> {
         Arc::new(Self {
+            account,
             token: RwLock::new(Some(token)),
             end: CancellationToken::new(),
         })
@@ -216,7 +222,7 @@ impl AccountSessions {
         account: Account,
         token: SessionToken,
     ) -> Result<(), TransportError> {
-        let next = AccountSession::new(token.clone());
+        let next = AccountSession::new(account.clone(), token.clone());
         self.change(move |state| {
             (state.open_store)()?.save(&account, &token)?;
             state.replace(account, Some(next));
@@ -231,6 +237,30 @@ impl AccountSessions {
             (state.open_store)()?.remove(&account)?;
             state.replace(account, None);
             Ok(())
+        })
+        .await
+    }
+
+    pub(crate) async fn forget_current(
+        &self,
+        session: Arc<AccountSession>,
+    ) -> Result<Removal, TransportError> {
+        self.change(move |state| {
+            let account = &session.account;
+            if !state
+                .active(account)
+                .is_some_and(|current| Arc::ptr_eq(&current, &session))
+            {
+                return Ok(Removal::Superseded);
+            }
+            let result = {
+                let guard = session.token.blocking_read();
+                let token = guard.as_ref().ok_or(TransportError::SessionUnavailable)?;
+                (state.open_store)()?.remove_matching(account, token)?
+            };
+            // A different process may have replaced the durable entry. Retire only our stale copy.
+            state.replace(account.clone(), None);
+            Ok(result)
         })
         .await
     }
@@ -258,7 +288,7 @@ impl AccountSessions {
             let token = (state.open_store)()?
                 .read(&account)?
                 .ok_or(TransportError::SessionUnavailable)?;
-            let session = AccountSession::new(token);
+            let session = AccountSession::new(account.clone(), token);
             state.replace(account, Some(session.clone()));
             Ok(session)
         })

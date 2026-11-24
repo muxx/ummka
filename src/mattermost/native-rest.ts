@@ -23,11 +23,27 @@ export function openNativeRestConnection(serverUrl: string) {
   return openConnection(serverUrl);
 }
 
-export function openAccountRestConnection(serverUrl: string, userId: string) {
+export type AccountSignOut =
+  | { status: "signed_out" }
+  | { status: "unconfirmed" }
+  | { status: "superseded" }
+  | { status: "server_confirmed_local_removal_failed"; cause: string };
+
+export async function openAccountRestConnection(
+  serverUrl: string,
+  userId: string,
+) {
   if (typeof userId !== "string") {
-    return Promise.reject(new TypeError("Missing Mattermost account ID"));
+    throw new TypeError("Missing Mattermost account ID");
   }
-  return openConnection(serverUrl, userId);
+  const connection = await openConnection(serverUrl, userId);
+  const { rid } = connection;
+  return {
+    ...connection,
+    signOut: () => invoke<AccountSignOut>("sign_out_account", { rid }),
+    signOutOnDevice: () =>
+      invoke<"removed" | "superseded">("sign_out_on_device", { rid }),
+  };
 }
 
 async function openConnection(serverUrl: string, userId?: string) {

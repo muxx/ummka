@@ -1,7 +1,7 @@
 //! Android Keystore protects the key. SQLite commits the encrypted value and its account together.
 mod keystore;
 
-use super::{CredentialError, CredentialStore};
+use super::{CredentialError, CredentialStore, Removal};
 use crate::rest::is_mattermost_id;
 use crate::sessions::{Account, SessionToken, validate_installation};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
@@ -22,6 +22,47 @@ impl AndroidCredentialStore {
         Ok(Self {
             path: keystore::database_path()?.into(),
         })
+    }
+
+    fn read_token(
+        db: &Connection,
+        account: &Account,
+    ) -> Result<Option<SessionToken>, CredentialError> {
+        let value: Option<Vec<u8>> = db
+            .query_row(
+                "SELECT sealed FROM sessions WHERE installation=?1 AND user_id=?2",
+                [account.installation(), account.user_id()],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(value) = value else { return Ok(None) };
+        let token = keystore::open(&associated_data(account), &value)?
+            .ok_or(CredentialError::InvalidEntry)?;
+        let token = std::str::from_utf8(&token).map_err(|_| CredentialError::InvalidEntry)?;
+        SessionToken::new(token)
+            .map(Some)
+            .map_err(|_| CredentialError::InvalidEntry)
+    }
+
+    fn remove_entry(
+        &self,
+        account: &Account,
+        expected: Option<&SessionToken>,
+    ) -> Result<Removal, CredentialError> {
+        let mut db = self.connect()?;
+        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(expected) = expected
+            && Self::read_token(&tx, account)?
+                .is_some_and(|current| current.secret() != expected.secret())
+        {
+            return Ok(Removal::Superseded);
+        }
+        tx.execute(
+            "DELETE FROM sessions WHERE installation=?1 AND user_id=?2",
+            [account.installation(), account.user_id()],
+        )?;
+        tx.commit()?;
+        Ok(Removal::Removed)
     }
 
     fn connect(&self) -> Result<Connection, CredentialError> {
@@ -85,21 +126,7 @@ impl CredentialStore for AndroidCredentialStore {
     }
 
     fn read(&self, account: &Account) -> Result<Option<SessionToken>, CredentialError> {
-        let value: Option<Vec<u8>> = self
-            .connect()?
-            .query_row(
-                "SELECT sealed FROM sessions WHERE installation=?1 AND user_id=?2",
-                [account.installation(), account.user_id()],
-                |row| row.get(0),
-            )
-            .optional()?;
-        let Some(value) = value else { return Ok(None) };
-        let token = keystore::open(&associated_data(account), &value)?
-            .ok_or(CredentialError::InvalidEntry)?;
-        let token = std::str::from_utf8(&token).map_err(|_| CredentialError::InvalidEntry)?;
-        SessionToken::new(token)
-            .map(Some)
-            .map_err(|_| CredentialError::InvalidEntry)
+        Self::read_token(&self.connect()?, account)
     }
 
     fn account_ids(&self, installation: &str) -> Result<Vec<String>, CredentialError> {
@@ -117,14 +144,15 @@ impl CredentialStore for AndroidCredentialStore {
     }
 
     fn remove(&self, account: &Account) -> Result<(), CredentialError> {
-        let mut db = self.connect()?;
-        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        tx.execute(
-            "DELETE FROM sessions WHERE installation=?1 AND user_id=?2",
-            [account.installation(), account.user_id()],
-        )?;
-        tx.commit()?;
-        Ok(())
+        self.remove_entry(account, None).map(|_| ())
+    }
+
+    fn remove_matching(
+        &self,
+        account: &Account,
+        expected: &SessionToken,
+    ) -> Result<Removal, CredentialError> {
+        self.remove_entry(account, Some(expected))
     }
 }
 

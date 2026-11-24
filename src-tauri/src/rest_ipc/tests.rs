@@ -42,6 +42,8 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
                 "forget_local_account",
                 json!({"serverUrl":SERVER,"userId":"Abc01234567890123456789012"}),
             ),
+            ("sign_out_account", json!({"rid": 0})),
+            ("sign_out_on_device", json!({"rid": 0})),
             ("close_rest_connection", json!({"rid": 0})),
             ("prepare_rest_request", json!({"connection": 0})),
             (
@@ -106,7 +108,23 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
     let first = open(main, SERVER);
     let remaining = open(main, "https://other.example.test/path");
     assert_ne!(first, remaining);
+    for command in ["sign_out_account", "sign_out_on_device"] {
+        assert_eq!(
+            invoke(main, command, LOCAL, json!({"rid":foreign})).unwrap_err(),
+            "unknown_connection"
+        );
+        assert_eq!(
+            invoke(main, command, LOCAL, json!({"rid":first})).unwrap_err(),
+            "session_unavailable"
+        );
+    }
     close(main, first).unwrap();
+    for command in ["sign_out_account", "sign_out_on_device"] {
+        assert_eq!(
+            invoke(main, command, LOCAL, json!({"rid":first})).unwrap_err(),
+            "unknown_connection"
+        );
+    }
     assert_eq!(close(main, first).unwrap_err(), "unknown_connection");
     assert!(main.resources_table().get::<Session>(remaining).is_ok());
 

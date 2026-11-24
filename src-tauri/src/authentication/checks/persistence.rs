@@ -1,30 +1,7 @@
 use super::*;
-use crate::rest::RestConnection;
 use crate::sessions::fixture::{TestVault, using};
 use std::sync::{Arc, atomic::Ordering::SeqCst};
 use tokio::sync::oneshot;
-
-type CheckResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
-
-async fn open(
-    client: &NativeAuthentication,
-    sessions: &crate::sessions::AccountSessions,
-    user_id: &str,
-) -> Result<RestConnection, TransportError> {
-    RestConnection::with_client(&client.base, || Ok(client.http.clone()))?
-        .for_account(sessions, user_id)
-        .await
-}
-
-async fn me(
-    connection: &RestConnection,
-    client: &NativeAuthentication,
-) -> Result<(), TransportError> {
-    let url = format!("{}/api/v4/users/me", client.base).parse().unwrap();
-    let response = connection.send(Request::new(Method::GET, url)).await?;
-    assert_eq!(response.status(), StatusCode::OK);
-    Ok(())
-}
 
 pub(super) async fn check(client: &NativeAuthentication, fixture_base: &str) -> CheckResult {
     let vault = Arc::new(TestVault::default());

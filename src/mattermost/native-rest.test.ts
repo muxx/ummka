@@ -37,6 +37,7 @@ test("passes the canonical installation and closes the exact native handle", asy
   expect(connection.basePath).toBe(basePath);
   expect(connection.rid).toBe(41);
   expect(ipc).toHaveBeenNthCalledWith(1, "open_rest_connection", { basePath });
+  expect("signOut" in connection).toBe(false);
   await connection.close();
   expect(ipc).toHaveBeenNthCalledWith(2, "close_rest_connection", { rid: 41 });
   expect(ipc).toHaveBeenCalledTimes(2);
@@ -63,6 +64,26 @@ test("opens a native account by installation and user ID", async () => {
     "close",
     "fetchApi",
     "rid",
+    "signOut",
+    "signOutOnDevice",
+  ]);
+});
+
+test("only an explicit local sign-out sends the device command", async () => {
+  ipc
+    .mockResolvedValueOnce(27)
+    .mockResolvedValueOnce({ status: "unconfirmed" });
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    "a".repeat(26),
+  );
+  expect(await account.signOut()).toEqual({ status: "unconfirmed" });
+  expect(ipc).toHaveBeenCalledTimes(2);
+  ipc.mockResolvedValueOnce("removed");
+  expect(await account.signOutOnDevice()).toBe("removed");
+  expect(ipc.mock.calls.slice(1)).toEqual([
+    ["sign_out_account", { rid: 27 }],
+    ["sign_out_on_device", { rid: 27 }],
   ]);
 });
 

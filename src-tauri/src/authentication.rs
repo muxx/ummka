@@ -15,7 +15,9 @@ const MAX_AUTH_RESPONSE_BYTES: usize = 1024 * 1024;
 #[cfg(all(feature = "native-http-check", any(test, target_os = "android")))]
 pub(crate) mod checks;
 mod sign_in;
+mod sign_out;
 pub use sign_in::{Revocation, SignInError};
+pub use sign_out::SignOut;
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum AuthError {
@@ -151,19 +153,25 @@ impl NativeAuthentication {
     }
 
     pub async fn logout(&self, grant: &LoginGrant) -> Result<(), AuthError> {
+        self.logout_session(&grant.account, &grant.token).await
+    }
+
+    async fn logout_session(
+        &self,
+        account: &Account,
+        token: &SessionToken,
+    ) -> Result<(), AuthError> {
         #[derive(Deserialize)]
         struct Acknowledgment {
             status: String,
         }
 
-        if grant.account.installation() != self.base {
+        if account.installation() != self.base {
             return Err(TransportError::OutsideInstallation.into());
         }
         let mut request = self.request(Operation::Logout);
-        grant.token.authorize(&mut request);
-        let response = self
-            .send(request, |bytes| grant.token.appears_in(bytes))
-            .await?;
+        token.authorize(&mut request);
+        let response = self.send(request, |bytes| token.appears_in(bytes)).await?;
         let result: Acknowledgment = body(response).await?;
         if result.status != "OK" {
             return Err(AuthError::InvalidResponse);

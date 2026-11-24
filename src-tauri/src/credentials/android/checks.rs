@@ -1,5 +1,5 @@
 //! Runs only in the disposable release instrumentation APK.
-use super::{AndroidCredentialStore, CredentialError, CredentialStore};
+use super::{AndroidCredentialStore, CredentialError, CredentialStore, Removal};
 use crate::sessions::{Account, SessionToken};
 use jni::errors::ThrowRuntimeExAndDefault;
 use jni::objects::{JObject, JString};
@@ -100,6 +100,10 @@ fn run(phase: &str) -> Result<(), Box<dyn Error>> {
                 store.remove(&first),
                 Err(CredentialError::StorageUnavailable)
             );
+            assert_eq!(
+                store.remove_matching(&first, &updated),
+                Err(CredentialError::StorageUnavailable)
+            );
             verify(&first, &updated)?;
             allow_commits(&db)?;
             // Copy a valid envelope to a different account and to a case-distinct installation.
@@ -132,11 +136,12 @@ fn run(phase: &str) -> Result<(), Box<dyn Error>> {
             }
         }
         "remove" => {
+            assert_eq!(store.remove_matching(&first, &old)?, Removal::Superseded);
             verify(&first, &updated)?;
             verify(&second, &peer)?;
             verify(&neighbor, &peer)?;
-            store.remove(&first)?;
-            store.remove(&first)?;
+            assert_eq!(store.remove_matching(&first, &updated)?, Removal::Removed);
+            assert_eq!(store.remove_matching(&first, &updated)?, Removal::Removed);
         }
         "confirm" => {
             assert!(store.read(&first)?.is_none());

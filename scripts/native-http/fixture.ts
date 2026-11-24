@@ -98,6 +98,25 @@ export async function startFixture(dir: string) {
   const pooled: Socket[] = [];
   const sockets = new Set<Socket>();
   const events = new EventEmitter();
+  const logoutGates = new Map(
+    ["out-dismiss", "out-race"].map(
+      (name) =>
+        [
+          name,
+          {
+            received: once(events, `${name}-received`),
+            release: once(events, `${name}-release`),
+          },
+        ] as const,
+    ),
+  );
+  const beforeLogout = async (name: string) => {
+    const gate = logoutGates.get(name);
+    if (gate) {
+      events.emit(`${name}-received`);
+      await gate.release;
+    }
+  };
   const detachedRevoked = once(events, "detached-revoked");
   const receivedHeaders = once(events, "received-headers");
   const closedHeaders = once(events, "closed-headers");
@@ -116,19 +135,40 @@ export async function startFixture(dir: string) {
   const ok = (response: http.ServerResponse) => response.end("OK");
   const tls = https.createServer(certs.trusted, (request, response) => {
     const path = request.url;
+    const control = path?.match(
+      /^\/auth-check\/(out-dismiss|out-race)\/(received|release)$/,
+    );
+    if (control) {
+      const [, name, step] = control;
+      const gate = logoutGates.get(name);
+      assert(gate);
+      if (step === "received") void gate.received.then(() => ok(response));
+      else {
+        events.emit(`${name}-release`);
+        ok(response);
+      }
+      return;
+    }
     if (path === "/auth-check/detached-revoked") {
       void detachedRevoked.then(() => ok(response));
       return;
     }
     if (path?.startsWith(authPrefix)) {
-      void handleAuth(request, response, authVisits).then((loggedOut) => {
-        if (loggedOut === "detached") events.emit("detached-revoked");
-      });
+      void handleAuth(request, response, authVisits, beforeLogout).then(
+        (loggedOut) => {
+          if (loggedOut === "detached") events.emit("detached-revoked");
+        },
+      );
       return;
     }
     assert(path);
     visits.push(path);
     if (path.startsWith("/team/chat/")) {
+      assert.equal(
+        visits.length + authVisits.length,
+        pooled.length + 1,
+        "measure reuse before other traffic reaches this origin",
+      );
       pooled.push(request.socket);
       assert.equal(request.headers.cookie, undefined);
       if (path.endsWith("/one"))
@@ -308,11 +348,7 @@ export async function startFixture(dir: string) {
         assert.deepEqual(badTlsConnections, [1, 1]);
         assert.equal(plainConnections, android ? 0 : 1);
         assert.equal(pooled.length, 2);
-        assert.equal(
-          pooled[0],
-          pooled[1],
-          "HTTP/1.1 must reuse the connection",
-        );
+        assert(pooled[0] === pooled[1], "HTTP/1.1 must reuse the connection");
         assert.equal(sessions, 1);
         assert.deepEqual(paths.sort(), ["/one", "/two", "/warm"]);
         const redirects = [301, 302, 303, 307, 308].flatMap((code) =>
