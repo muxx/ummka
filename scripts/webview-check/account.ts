@@ -1,5 +1,6 @@
 import {
   forgetLocalAccount,
+  getCurrentAccountId,
   listAccountIds,
   openAccountRestConnection,
 } from "../../src/mattermost/native-rest.ts";
@@ -25,7 +26,15 @@ export async function checkAccountResponses(
     "d".repeat(26),
   );
   try {
+    check(
+      (await getCurrentAccountId(confirmed.basePath)) === "d".repeat(26),
+      "current-before-sign-out",
+    );
     const result = await confirmed.signOut();
+    check(
+      (await getCurrentAccountId(confirmed.basePath)) === null,
+      "current-after-confirmed-sign-out",
+    );
     check(
       result.status === "signed_out" && Object.keys(result).length === 1,
       "server-sign-out",
@@ -155,7 +164,7 @@ export async function checkAccountResponses(
       "unconfirmed-sign-out",
     );
     check(
-      (await listAccountIds(second.basePath)).includes(secondId),
+      (await getCurrentAccountId(second.basePath)) === secondId,
       "kept-until-choice",
     );
     const secondMe = `${second.basePath}/api/v4/users/me`;
@@ -171,6 +180,14 @@ export async function checkAccountResponses(
     check(
       (await second.signOutOnDevice()) === "removed",
       "explicit-local-sign-out",
+    );
+    check(
+      (await getCurrentAccountId(second.basePath)) === null,
+      "current-after-local-sign-out",
+    );
+    check(
+      (await getCurrentAccountId(first.basePath)) === userId,
+      "neighbor-still-current",
     );
     const retired = await pending;
     check(

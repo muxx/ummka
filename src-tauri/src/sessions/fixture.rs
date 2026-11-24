@@ -5,7 +5,7 @@ type Gate = (oneshot::Sender<()>, std::sync::mpsc::Receiver<()>);
 
 #[derive(Default)]
 pub(crate) struct TestVault {
-    rows: Mutex<HashMap<Account, SessionToken>>,
+    pub(super) rows: Mutex<HashMap<Account, SessionToken>>,
     pub(crate) reads: std::sync::atomic::AtomicUsize,
     pub(crate) saves: std::sync::atomic::AtomicUsize,
     pub(crate) refuse: std::sync::atomic::AtomicBool,

@@ -292,3 +292,49 @@ async fn deferred_removal_protects_replacements_in_this_host_and_another_host() 
     );
     assert_eq!(using(vault).account_ids(PEER).await.unwrap(), [SECOND]);
 }
+
+#[tokio::test]
+async fn observes_the_saved_user_without_loading_a_token_or_changing_old_rows() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let vault = Arc::new(TestVault::default());
+    let sessions = using(vault.clone());
+    assert_eq!(sessions.current_account_id(BASE).await, Ok(None));
+    sessions.activate(BASE, FIRST, "first-grant").await.unwrap();
+    sessions.activate(PEER, SECOND, "neighbor").await.unwrap();
+    let cold = using(vault.clone());
+    assert_eq!(
+        cold.current_account_id(BASE).await.unwrap().as_deref(),
+        Some(FIRST)
+    );
+    assert_eq!(
+        cold.current_account_id(PEER).await.unwrap().as_deref(),
+        Some(SECOND)
+    );
+    let previous_format = Account::new(BASE, SECOND).unwrap();
+    vault.rows.lock().unwrap().insert(
+        previous_format,
+        SessionToken::new("previous-format").unwrap(),
+    );
+    assert_eq!(
+        cold.current_account_id(BASE).await,
+        Err(TransportError::InstallationAccountConflict)
+    );
+    assert_eq!(cold.account_ids(BASE).await.unwrap(), [FIRST, SECOND]);
+    assert_eq!(vault.reads.load(SeqCst), 0);
+    assert_eq!(vault.saves.load(SeqCst), 2);
+    let unavailable = AccountSessions::with_store(|| Err(CredentialError::StorageUnavailable));
+    assert_eq!(
+        unavailable.current_account_id(BASE).await,
+        Err(TransportError::CredentialStorageUnavailable)
+    );
+    assert_eq!(
+        unavailable.current_account_id("relative").await,
+        Err(TransportError::InvalidInstallation)
+    );
+    assert_eq!(
+        unavailable
+            .current_account_id("http://chat.example.test")
+            .await,
+        Err(TransportError::CleartextDenied)
+    );
+}

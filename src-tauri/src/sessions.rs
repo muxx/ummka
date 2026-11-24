@@ -265,6 +265,15 @@ impl AccountSessions {
         .await
     }
 
+    /// Observe the saved identity without loading its token or opening an HTTP connection.
+    pub async fn current_account_id(&self, base: &str) -> Result<Option<String>, TransportError> {
+        let mut ids = self.account_ids(base).await?;
+        if ids.len() > 1 {
+            return Err(TransportError::InstallationAccountConflict);
+        }
+        Ok(ids.pop())
+    }
+
     pub async fn account_ids(&self, base: &str) -> Result<Vec<String>, TransportError> {
         validate_installation(base)?;
         let base = base.to_owned();

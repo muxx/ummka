@@ -46,6 +46,17 @@ pub(crate) async fn open_rest_connection<R: Runtime>(
 }
 
 #[tauri::command]
+pub(crate) async fn get_current_account_id<R: Runtime>(
+    webview: Webview<R>,
+    server_url: String,
+) -> Result<Option<String>, TransportError> {
+    webview
+        .state::<AccountSessions>()
+        .current_account_id(&server_url)
+        .await
+}
+
+#[tauri::command]
 pub(crate) async fn list_account_ids<R: Runtime>(
     webview: Webview<R>,
     server_url: String,

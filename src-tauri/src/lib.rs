@@ -24,6 +24,7 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
         .manage(sessions)
         .invoke_handler(tauri::generate_handler![
             rest_ipc::open_rest_connection,
+            rest_ipc::get_current_account_id,
             rest_ipc::list_account_ids,
             rest_ipc::forget_local_account,
             rest_ipc::sign_out_account,
