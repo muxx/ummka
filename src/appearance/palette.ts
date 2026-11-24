@@ -178,5 +178,6 @@ export function applyPalette(
 ) {
   for (const [role, value] of Object.entries(palette))
     root.style.setProperty(`--${role}`, value);
+  root.dataset.appearance = mode;
   root.style.colorScheme = mode;
 }

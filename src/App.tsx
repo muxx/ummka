@@ -1,3 +1,9 @@
+import { EntryWindow } from "./entry/EntryWindow";
+
 export function App() {
-  return <main>ummka</main>;
+  return (
+    <EntryWindow>
+      <h1>ummka</h1>
+    </EntryWindow>
+  );
 }

@@ -1,0 +1,8 @@
+{
+  "identifier": "macos-window-drag",
+  "description": "The local main WebView may move the macOS window and handle system title-bar double clicks.",
+  "platforms": ["macOS"],
+  "local": true,
+  "webviews": ["main"],
+  "permissions": ["core:window:allow-start-dragging", "core:window:allow-internal-toggle-maximize"]
+}

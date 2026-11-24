@@ -31,18 +31,25 @@ on containsMarker(node, insideWebArea)
     return false
 end containsMarker
 
+on hasNativeControls(win)
+    tell application "System Events"
+        set types to subrole of every button of win
+        return types contains "AXCloseButton" and types contains "AXMinimizeButton" and (types contains "AXFullScreenButton" or types contains "AXZoomButton")
+    end tell
+end hasNativeControls
+
 on run argv
     set appPid to (item 1 of argv) as integer
     tell application "System Events"
         set proc to first application process whose unix id is appPid
         repeat 40 times
             if exists window 1 of proc then
-                if my containsMarker(window 1 of proc, false) then return
+                if my containsMarker(window 1 of proc, false) and my hasNativeControls(window 1 of proc) then return
             end if
             delay 0.1
         end repeat
     end tell
-    error "React text did not appear inside the WebView."
+    error "Expected web content and the three system window controls did not appear."
 end run
 APPLESCRIPT
     kill -TERM "$pid"
