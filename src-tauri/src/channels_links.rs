@@ -84,6 +84,8 @@ pub(crate) fn acknowledge_channels_link(inbox: State<'_, ChannelsLinks>, id: Str
     let mut state = inbox.0.lock().expect("link inbox poisoned");
     if state.links.front().is_some_and(|link| link.id == id) {
         state.links.pop_front();
+        #[cfg(feature = "webview-check")]
+        println!("UMMKA_LINK_ACK {id} {}", std::process::id());
         true
     } else {
         false

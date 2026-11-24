@@ -15,7 +15,9 @@ import {
 } from "../../src/mattermost/route-channels-link.ts";
 import { checkRefreshedAfterRestart } from "./channel-refresh.ts";
 import { verifyHistoryLoadsAfterRestart } from "./history-loads.ts";
+import { signInLinkServer } from "./link-examples.ts";
 import { checkOfflineWindows } from "./local-history.ts";
+import { checkSystemLinks } from "./system-links.ts";
 
 const first = "https://chat.example.test";
 const second = "https://chat.example.test/Team";
@@ -46,6 +48,10 @@ export async function resumeRegistryCheck(): Promise<boolean> {
   } catch (error) {
     if (error !== "unsupported_schema") throw error;
     location.replace("/ipc-result.html?registry-unsupported");
+    return true;
+  }
+  if (urls.includes(signInLinkServer)) {
+    await checkSystemLinks();
     return true;
   }
   if (urls.length === 0) return false;
@@ -102,6 +108,7 @@ export async function resumeRegistryCheck(): Promise<boolean> {
   } else if (urls.length === 1 && urls[0] === second) {
     await checkLink(first, false);
     await checkLink(second, true);
+    await rememberInstallation(signInLinkServer);
     location.replace("/ipc-result.html?registry-confirmed");
   } else {
     throw Error("unexpected persisted installations");

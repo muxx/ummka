@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFile, unlink } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
+import { checkMacSystemLinks } from "./macos-links.ts";
 
 const exec = promisify(execFile);
 
@@ -22,9 +23,10 @@ async function launch(expected: string, env = process.env) {
   );
 }
 
-async function checkRestarts(env = process.env) {
+async function checkRestartsAndLinks(dir: string, env = process.env) {
   await launch("registry-removed", env);
   await launch("registry-confirmed", env);
+  await checkMacSystemLinks(dir, env);
 }
 
 export async function checkMacWebview(
@@ -80,7 +82,7 @@ export async function checkMacWebview(
       );
       console.log(stdout.trim());
     } else {
-      await checkRestarts(env);
+      await checkRestartsAndLinks(dir, env);
     }
     const file = join(dir, "data", "installations.sqlite");
     await unlink(file);
@@ -104,4 +106,8 @@ export async function checkMacWebview(
   }
 }
 
-if (import.meta.main) await checkRestarts();
+if (import.meta.main) {
+  const keychain = process.env.UMMKA_CHECK_KEYCHAIN;
+  assert(keychain);
+  await checkRestartsAndLinks(dirname(keychain));
+}

@@ -3,5 +3,10 @@
   "description": "The local main WebView can receive and acknowledge links handed to the application.",
   "local": true,
   "webviews": ["main"],
-  "permissions": ["allow-pending-channels-link", "allow-acknowledge-channels-link"]
+  "permissions": [
+    "allow-pending-channels-link",
+    "allow-acknowledge-channels-link",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
+  ]
 }

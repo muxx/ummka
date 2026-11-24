@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
+import { coldLink, warmLink } from "../webview-check/link-examples.ts";
 
 type Adb = (...args: string[]) => Promise<string>;
 
@@ -57,6 +58,50 @@ async function isOffline(adb: Adb) {
   );
 }
 
+async function openSystemLink(
+  adb: Adb,
+  app: string,
+  activity: string,
+  href: string,
+  id: number,
+) {
+  const result = await adb(
+    "shell",
+    "am",
+    "start",
+    "-W",
+    "-n",
+    activity,
+    "-a",
+    "android.intent.action.VIEW",
+    "-d",
+    href,
+  );
+  assert.match(result, /Status: ok/u);
+  const pid = (await adb("shell", "pidof", "-s", app)).trim();
+  assert.match(pid, /^\d+$/u);
+  const deadline = Date.now() + 45_000;
+  while (Date.now() < deadline) {
+    const output = await adb(
+      "logcat",
+      "-d",
+      `--pid=${pid}`,
+      "-s",
+      "RustStdoutStderr:I",
+      "AndroidRuntime:E",
+    );
+    assert.doesNotMatch(output, /FATAL EXCEPTION|UMMKA_WEBVIEW_CHECK FAIL/u);
+    if (
+      output
+        .split(/\r?\n/u)
+        .some((line) => line.endsWith(`UMMKA_LINK_ACK ${id} ${pid}`))
+    )
+      return pid;
+    await delay(100);
+  }
+  throw Error(`Android ACTION_VIEW link ${id} was not acknowledged`);
+}
+
 export async function checkWebviewProcesses(
   adb: Adb,
   app: string,
@@ -87,6 +132,16 @@ export async function checkWebviewProcesses(
   await stop(adb, app);
   const confirmed = await launch(adb, app, activity, "registry-confirmed");
   assert.equal(new Set([seeded, removed, confirmed]).size, 3);
+  await stop(adb, app);
+  const linkProcess = await openSystemLink(adb, app, activity, coldLink, 1);
+  assert.notEqual(linkProcess, confirmed);
+  assert.equal(
+    await openSystemLink(adb, app, activity, warmLink, 2),
+    linkProcess,
+  );
+  console.log(
+    "ACTION_VIEW delivered both HTTPS links to one offline Android WebView process.",
+  );
   assert(
     await isOffline(adb),
     "network isolation ended before reading the registry",
