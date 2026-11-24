@@ -1,12 +1,14 @@
 use super::exchange::{ExchangeError, Session};
 use crate::{
-    history::{AccountHistory, HistoryError, WindowSlice},
+    history::{
+        AccountHistory, ChannelHistoryPage, ChannelPostLoad, HistoryError, PageWrite, WindowSlice,
+    },
     rest::TransportError,
     sessions::AccountSessions,
 };
 use serde::Deserialize;
 use std::sync::{Arc, Weak};
-use tauri::{Manager, ResourceId, Runtime, Webview};
+use tauri::{Manager, Resource, ResourceId, Runtime, Webview};
 use tokio::sync::{Mutex, OnceCell};
 
 // Mattermost v10.10.1 server/channels/web/params.go bounds one response at 200 posts.
@@ -35,8 +37,8 @@ pub(crate) enum ChannelWindowQuery {
 }
 
 impl ChannelWindowQuery {
-    fn read(self, history: &mut AccountHistory) -> Result<Option<WindowSlice>, ExchangeError> {
-        let output = match self {
+    fn read(self, history: &mut AccountHistory) -> Result<Option<WindowSlice>, HistoryError> {
+        match self {
             Self::Latest {
                 channel_id,
                 collapsed_threads,
@@ -53,9 +55,14 @@ impl ChannelWindowQuery {
             } if 1 + u32::from(newer) + u32::from(older) <= MAX_POSTS => {
                 history.read_window_around(&channel_id, collapsed_threads, &post_id, newer, older)
             }
-            _ => return Err(ExchangeError::InvalidHistoryRequest),
-        };
-        output.map_err(|cause| match cause {
+            _ => Err(HistoryError::InvalidPost),
+        }
+    }
+}
+
+impl From<HistoryError> for ExchangeError {
+    fn from(cause: HistoryError) -> Self {
+        match cause {
             HistoryError::InvalidPost | HistoryError::InvalidInstallation => {
                 ExchangeError::InvalidHistoryRequest
             }
@@ -65,7 +72,7 @@ impl ChannelWindowQuery {
             HistoryError::Storage | HistoryError::UnsupportedSchema => {
                 ExchangeError::Transport(TransportError::HistoryStorageUnavailable)
             }
-        })
+        }
     }
 }
 
@@ -85,12 +92,12 @@ impl Session {
         cached
     }
 
-    async fn read_channel_window(
+    async fn with_history<T: Send + 'static>(
         &self,
         sessions: &AccountSessions,
-        query: ChannelWindowQuery,
-    ) -> Result<Option<WindowSlice>, ExchangeError> {
-        let read = async {
+        operation: impl FnOnce(&mut AccountHistory) -> Result<T, HistoryError> + Send + 'static,
+    ) -> Result<T, ExchangeError> {
+        let work = async {
             let history = self
                 .history
                 .get_or_try_init(|| async {
@@ -105,16 +112,106 @@ impl Session {
                 .ok_or(ExchangeError::Cancelled)?;
             // Queue on this connection before assigning a blocking worker to SQLite.
             let mut view = history.lock_owned().await;
-            tauri::async_runtime::spawn_blocking(move || query.read(&mut view))
-                .await
-                .map_err(|_| ExchangeError::Transport(TransportError::HistoryStorageUnavailable))?
+            let lifetime = self.lifetime.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                if lifetime.is_cancelled() {
+                    return Err(ExchangeError::Cancelled);
+                }
+                operation(&mut view).map_err(ExchangeError::from)
+            })
+            .await
+            .map_err(|_| ExchangeError::Transport(TransportError::HistoryStorageUnavailable))?
         };
         tokio::select! {
             biased;
             _=self.lifetime.cancelled()=>Err(ExchangeError::Cancelled),
-            answer=read=>self.finish_if_open(answer),
+            answer=work=>self.finish_if_open(answer),
         }
     }
+
+    async fn read_channel_window(
+        &self,
+        sessions: &AccountSessions,
+        query: ChannelWindowQuery,
+    ) -> Result<Option<WindowSlice>, ExchangeError> {
+        self.with_history(sessions, move |view| query.read(view))
+            .await
+    }
+
+    async fn begin_history_load(
+        &self,
+        sessions: &AccountSessions,
+        channel_id: String,
+    ) -> Result<ResourceId, ExchangeError> {
+        let load = self
+            .with_history(sessions, move |view| view.begin_channel_load(&channel_id))
+            .await?;
+        Ok(self.open_resources()?.add(PendingLoad(load)))
+    }
+
+    fn take_history_load(&self, load: ResourceId) -> Result<ChannelPostLoad, ExchangeError> {
+        let pending = self
+            .open_resources()?
+            .take::<PendingLoad>(load)
+            .map_err(|_| ExchangeError::UnknownHistoryLoad)?;
+        // This private type is only ever taken, never borrowed from the resource table.
+        Arc::into_inner(pending)
+            .map(|entry| entry.0)
+            .ok_or(ExchangeError::UnknownHistoryLoad)
+    }
+
+    async fn store_history_page(
+        &self,
+        sessions: &AccountSessions,
+        load: ResourceId,
+        page: serde_json::Value,
+    ) -> Result<PageWrite, ExchangeError> {
+        let ticket = self.take_history_load(load)?;
+        self.with_history(sessions, move |view| {
+            // Consume the ticket even when the renderer submits an invalid page.
+            let page: ChannelHistoryPage =
+                serde_json::from_value(page).map_err(|_| HistoryError::InvalidPost)?;
+            view.apply_channel_window(ticket, &page)
+        })
+        .await
+    }
+}
+
+struct PendingLoad(ChannelPostLoad);
+impl Resource for PendingLoad {}
+
+#[tauri::command]
+pub(crate) async fn begin_channel_history_load<R: Runtime>(
+    webview: Webview<R>,
+    rid: ResourceId,
+    channel_id: String,
+) -> Result<ResourceId, ExchangeError> {
+    super::session(&webview, rid)?
+        .begin_history_load(&webview.state::<AccountSessions>(), channel_id)
+        .await
+}
+
+#[tauri::command]
+pub(crate) async fn store_channel_history_page<R: Runtime>(
+    webview: Webview<R>,
+    rid: ResourceId,
+    load: ResourceId,
+    page: serde_json::Value,
+) -> Result<PageWrite, ExchangeError> {
+    super::session(&webview, rid)?
+        .store_history_page(&webview.state::<AccountSessions>(), load, page)
+        .await
+}
+
+#[tauri::command]
+pub(crate) fn cancel_channel_history_load<R: Runtime>(
+    webview: Webview<R>,
+    rid: ResourceId,
+    load: ResourceId,
+) -> Result<(), ExchangeError> {
+    super::session(&webview, rid)?
+        .take_history_load(load)
+        .map(drop)
 }
 
 #[tauri::command]
@@ -135,6 +232,58 @@ mod tests {
     use crate::sessions::Account;
     use std::time::Duration;
     use tauri::Resource;
+
+    #[tokio::test]
+    async fn retiring_an_account_cancels_a_queued_write_without_restoring_its_post() {
+        let base = "https://local.example.test/replace";
+        let user = "a".repeat(26);
+        let channel = "c".repeat(26);
+        let id = "r".repeat(26);
+        let root = tempfile::tempdir().unwrap();
+        let sessions = AccountSessions::default();
+        sessions.activate(base, &user, "old").await.unwrap();
+        let account = Account::new(base, &user).unwrap();
+        let session = Session::new(
+            RestConnection::new(base)
+                .unwrap()
+                .for_account(&sessions, &user)
+                .await
+                .unwrap(),
+        );
+        let opened = session.cache_history(AccountHistory::open(root.path(), &account).unwrap());
+        assert!(session.history.set(opened.clone()).is_ok());
+
+        let load = session
+            .begin_history_load(&sessions, channel.clone())
+            .await
+            .unwrap();
+        let exchange = session.prepare().unwrap();
+        assert_eq!(session.cancel(load), Err(ExchangeError::UnknownExchange));
+        assert!(matches!(
+            session.take_history_load(exchange),
+            Err(ExchangeError::UnknownHistoryLoad)
+        ));
+        session.cancel(exchange).unwrap();
+
+        let data = serde_json::json!({
+            "channelId": channel, "source": {"kind":"latest"}, "collapsedThreads": false, "order":[id],
+            "changes":[{"kind":"save", "id":id, "channelId":channel, "userId":user, "rootId":null,
+                       "createAt":100,"updateAt":100,"editAt":0,"type":"","message":"old","messageSource":null,
+                       "hashtags":"","isPinned":false}]
+        });
+        let mut view = opened.upgrade().unwrap().lock_owned().await;
+        let write = session.store_history_page(&sessions, load, data);
+        tokio::pin!(write);
+        tokio::select! { biased; ready = &mut write => panic!("write was not pending: {ready:?}"), _=std::future::ready(())=>{} }
+        sessions.activate(base, &user, "new").await.unwrap();
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(5), write)
+                .await
+                .unwrap(),
+            Err(ExchangeError::Cancelled)
+        );
+        assert!(view.read_post(&id).unwrap().is_none());
+    }
 
     #[tokio::test]
     async fn a_queued_read_loses_access_on_close_or_replacement() {

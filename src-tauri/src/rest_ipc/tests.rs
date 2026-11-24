@@ -46,6 +46,15 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
             ("sign_out_account", json!({"rid": 0})),
             ("sign_out_on_device", json!({"rid": 0})),
             (
+                "begin_channel_history_load",
+                json!({"rid":0,"channelId":"c".repeat(26)}),
+            ),
+            (
+                "store_channel_history_page",
+                json!({"rid":0,"load":0,"page":null}),
+            ),
+            ("cancel_channel_history_load", json!({"rid":0,"load":0})),
+            (
                 "read_channel_window",
                 json!({"rid":0,"query":{"kind":"latest","channelId":"c".repeat(26),"collapsedThreads":false,"limit":1}}),
             ),
@@ -130,6 +139,21 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
     };
     assert_eq!(read(foreign).unwrap_err(), "unknown_connection");
     assert_eq!(read(first).unwrap_err(), "session_unavailable");
+    for (rid, expected) in [
+        (foreign, "unknown_connection"),
+        (first, "session_unavailable"),
+    ] {
+        assert_eq!(
+            invoke(
+                main,
+                "begin_channel_history_load",
+                LOCAL,
+                json!({"rid":rid,"channelId":"c".repeat(26)})
+            )
+            .unwrap_err(),
+            expected
+        );
+    }
     for command in ["sign_out_account", "sign_out_on_device"] {
         assert_eq!(
             invoke(main, command, LOCAL, json!({"rid":foreign})).unwrap_err(),

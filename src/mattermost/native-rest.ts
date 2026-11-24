@@ -1,4 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
+import { Configuration, PostsApi } from "../../vendor/mattermost/index.js";
+import {
+  type ChannelRefreshRequest,
+  type ChannelRefreshResult,
+  refreshChannelHistory,
+} from "./channel-history-refresh.ts";
 import type {
   ChannelWindowQuery,
   LocalChannelWindow,
@@ -50,9 +56,37 @@ export async function openAccountRestConnection(
   }
   const connection = await openConnection(serverUrl, userId);
   const { rid } = connection;
+  const posts = new PostsApi(new Configuration(connection));
   let retired: "unknown_connection" | "cancelled" | undefined;
   return {
     ...connection,
+    refreshChannelHistory(query: ChannelRefreshRequest, signal?: AbortSignal) {
+      if (retired) return Promise.reject<ChannelRefreshResult>(retired);
+      return refreshChannelHistory(
+        posts,
+        {
+          begin: (channelId) =>
+            invoke<number>("begin_channel_history_load", { rid, channelId }),
+          store: (load, page) =>
+            invoke<ChannelRefreshResult>("store_channel_history_page", {
+              rid,
+              load,
+              page,
+            }),
+          cancel: async (load) => {
+            try {
+              await invoke<void>("cancel_channel_history_load", { rid, load });
+            } catch (error) {
+              // A closed resource has already discarded all its pending loads.
+              if (error !== "unknown_connection" && error !== "cancelled")
+                throw error;
+            }
+          },
+        },
+        query,
+        signal,
+      );
+    },
     close() {
       retired = "unknown_connection";
       return connection.close();
