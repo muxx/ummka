@@ -8,6 +8,19 @@ const CREATE_POSTS: &str = include_str!("migrations/0002_posts.sql");
 const INDEX_REPLIES: &str = include_str!("migrations/0002_replies.sql");
 const CREATE_DELETIONS: &str = include_str!("migrations/0002_channel_deletions.sql");
 
+const WINDOWS: &str = include_str!("migrations/0003_windows.sql");
+const WINDOW_POSTS: &str = include_str!("migrations/0003_window_posts.sql");
+const NEIGHBORS: &str = include_str!("migrations/0003_window_neighbors.sql");
+const RECENT: &str = "CREATE UNIQUE INDEX history_window_recent ON history_window(channel_id, collapsed) WHERE recent = 1";
+const ORDER: &str =
+    "CREATE INDEX history_window_order ON history_window_post(window_id, created DESC, tie DESC)";
+const TIES: &str = "CREATE INDEX history_window_ties ON history_window_post(created, tie)";
+const NEIGHBOR_ID: &str =
+    "CREATE INDEX history_window_neighbor_id ON history_window_neighbor(post_id, window_id)";
+
+const NEWER_HINT: &str = "CREATE INDEX history_window_newer ON history_window(newer, channel_id) WHERE newer IS NOT NULL";
+const OLDER_HINT: &str = "CREATE INDEX history_window_older ON history_window(older, channel_id) WHERE older IS NOT NULL";
+
 /// Each entry advances user_version by one. Keep published entries in order.
 pub(super) struct Migration {
     pub(super) statements: &'static [&'static str],
@@ -22,6 +35,34 @@ pub(super) const MIGRATIONS: &[Migration] = &[
     Migration {
         statements: &[CREATE_POSTS, INDEX_REPLIES, CREATE_DELETIONS],
         objects: &[CREATE_OWNER, CREATE_POSTS, INDEX_REPLIES, CREATE_DELETIONS],
+    },
+    Migration {
+        statements: &[
+            WINDOWS,
+            WINDOW_POSTS,
+            NEIGHBORS,
+            RECENT,
+            ORDER,
+            TIES,
+            NEIGHBOR_ID,
+            NEWER_HINT,
+            OLDER_HINT,
+        ],
+        objects: &[
+            CREATE_OWNER,
+            CREATE_POSTS,
+            INDEX_REPLIES,
+            CREATE_DELETIONS,
+            WINDOWS,
+            WINDOW_POSTS,
+            NEIGHBORS,
+            RECENT,
+            ORDER,
+            TIES,
+            NEIGHBOR_ID,
+            NEWER_HINT,
+            OLDER_HINT,
+        ],
     },
 ];
 

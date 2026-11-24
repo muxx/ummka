@@ -12,6 +12,8 @@ mod reclamation;
 pub use lifecycle::AccountHistory;
 pub use posts::{ChannelPostLoad, PageWrite, PostChange, StoredPost};
 mod schema;
+mod windows;
+pub use windows::{ChannelHistoryPage, WindowEdge, WindowSlice, WindowSource};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum HistoryError {

@@ -1,4 +1,4 @@
-use super::{AccountHistory, HistoryError, HistoryOwner};
+use super::{AccountHistory, ChannelHistoryPage, HistoryError, HistoryOwner, windows};
 use crate::rest::is_mattermost_id;
 use rusqlite::{OptionalExtension, Row, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -46,6 +46,9 @@ pub enum PageWrite {
     Applied,
     /// A removal was accepted in this channel since the load began. Retain the caller's cursor.
     Superseded,
+    Inaccessible {
+        first_inaccessible_post_time: i64,
+    },
 }
 
 pub(super) const READ: &str =
@@ -63,7 +66,7 @@ const SAVE: &str = "INSERT INTO history_post
     hashtags=excluded.hashtags, is_pinned=excluded.is_pinned";
 
 impl StoredPost {
-    fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
+    pub(super) fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
         Ok(Self {
             id: row.get(0)?,
             channel_id: row.get(1)?,
@@ -142,6 +145,23 @@ impl AccountHistory {
         load: ChannelPostLoad,
         changes: &[PostChange],
     ) -> Result<PageWrite, HistoryError> {
+        self.store_page(load, changes, None)
+    }
+
+    pub fn apply_channel_window(
+        &mut self,
+        load: ChannelPostLoad,
+        page: &ChannelHistoryPage,
+    ) -> Result<PageWrite, HistoryError> {
+        self.store_page(load, &page.changes, Some(page))
+    }
+
+    fn store_page(
+        &mut self,
+        load: ChannelPostLoad,
+        changes: &[PostChange],
+        page: Option<&ChannelHistoryPage>,
+    ) -> Result<PageWrite, HistoryError> {
         if load.owner != self.owner {
             return Err(HistoryError::StaleOwner);
         }
@@ -150,61 +170,97 @@ impl AccountHistory {
                 if deletion_revision(tx, &load.channel_id)? != load.revision {
                     return Ok(PageWrite::Superseded);
                 }
-                let mut previous =
-                    tx.prepare("SELECT channel_id, update_at FROM history_post WHERE id = ?1")?;
-                let mut save = tx.prepare(SAVE)?;
-                let mut ids = HashSet::with_capacity(changes.len());
-                let mut removed = Vec::new();
-                for change in changes {
-                    let (id, channel) = change.identity()?;
-                    if channel != load.channel_id || !is_mattermost_id(id) || !ids.insert(id) {
-                        return Err(HistoryError::InvalidPost);
-                    }
-                    let stored = previous
-                        .query_row([id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
-                        .optional()?;
-                    if stored
-                        .as_ref()
-                        .is_some_and(|(old_channel, _)| old_channel != channel)
-                    {
-                        return Err(HistoryError::InvalidPost);
-                    }
-                    match change {
-                        PostChange::Save(p) => {
-                            if stored.is_some_and(|(_, version)| version >= p.update_at) {
-                                continue;
-                            }
-                            save.execute(params![
-                                p.id,
-                                p.channel_id,
-                                p.user_id,
-                                p.root_id,
-                                p.create_at,
-                                p.update_at,
-                                p.edit_at,
-                                p.post_type,
-                                p.message,
-                                p.message_source,
-                                p.hashtags,
-                                p.is_pinned
-                            ])?;
-                        }
-                        PostChange::Remove { .. } => removed.push(id),
-                    }
-                }
-                if !removed.is_empty() {
-                    // A deleted root also removes replies delivered in the same unordered dictionary.
-                    let mut remove = tx.prepare(REMOVE)?;
-                    for id in removed {
-                        remove.execute(params![load.channel_id, id])?;
-                    }
-                    tx.execute(
-                        "INSERT INTO history_channel_deletion (channel_id, revision) VALUES (?1, 1)
-                    ON CONFLICT(channel_id) DO UPDATE SET revision = revision + 1",
-                        [&load.channel_id],
-                    )?;
+                let removed = write_changes(tx, &load.channel_id, changes)?;
+                if let Some(page) = page {
+                    page.validate(&load.channel_id)?;
+                    return windows::record(tx, page, &removed);
                 }
                 Ok(PageWrite::Applied)
             })
     }
+}
+
+fn write_changes(
+    tx: &Transaction<'_>,
+    channel: &str,
+    changes: &[PostChange],
+) -> Result<HashSet<String>, HistoryError> {
+    let mut previous = tx.prepare_cached(
+        "SELECT channel_id, update_at, create_at FROM history_post WHERE id = ?1",
+    )?;
+    let mut save = tx.prepare_cached(SAVE)?;
+    let mut ids = HashSet::with_capacity(changes.len());
+    let mut removals = Vec::new();
+    for change in changes {
+        let (id, incoming_channel) = change.identity()?;
+        if incoming_channel != channel || !is_mattermost_id(id) || !ids.insert(id) {
+            return Err(HistoryError::InvalidPost);
+        }
+        let stored = previous
+            .query_row([id], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)?,
+                ))
+            })
+            .optional()?;
+        if stored
+            .as_ref()
+            .is_some_and(|(old_channel, _, _)| old_channel != channel)
+        {
+            return Err(HistoryError::InvalidPost);
+        }
+        match change {
+            PostChange::Save(p) => {
+                if let Some((_, version, created)) = stored {
+                    if version >= p.update_at {
+                        continue;
+                    }
+                    if created != p.create_at {
+                        windows::move_post_time(tx, id, p.create_at)?;
+                    }
+                }
+                save.execute(params![
+                    p.id,
+                    p.channel_id,
+                    p.user_id,
+                    p.root_id,
+                    p.create_at,
+                    p.update_at,
+                    p.edit_at,
+                    p.post_type,
+                    p.message,
+                    p.message_source,
+                    p.hashtags,
+                    p.is_pinned
+                ])?;
+            }
+            PostChange::Remove { .. } => removals.push(id),
+        }
+    }
+    let mut removed = HashSet::new();
+    if !removals.is_empty() {
+        // Remember affected IDs only for this transaction, including replies to a deleted root.
+        let mut affected = tx.prepare_cached(
+            "SELECT id FROM history_post WHERE channel_id = ?1 AND (id = ?2 OR root_id = ?2)",
+        )?;
+        let mut remove = tx.prepare_cached(REMOVE)?;
+        for &id in &removals {
+            removed.insert(id.to_owned());
+            for affected_id in affected.query_map(params![channel, id], |r| r.get(0))? {
+                removed.insert(affected_id?);
+            }
+        }
+        windows::forget_posts(tx, channel, &removed)?;
+        for id in removals {
+            remove.execute(params![channel, id])?;
+        }
+        tx.execute(
+            "INSERT INTO history_channel_deletion (channel_id, revision) VALUES (?1, 1)
+            ON CONFLICT(channel_id) DO UPDATE SET revision = revision + 1",
+            [channel],
+        )?;
+    }
+    Ok(removed)
 }

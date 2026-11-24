@@ -93,7 +93,8 @@ pub(crate) fn round_trip(root: &Path) -> Result<(), HistoryError> {
     let mut v1 = HistoryDatabase::open_with(&production, URL, &CHAIN[..1])?;
     let identity = account(URL, ALICE);
     let original = v1.restore(&identity)?;
-    let mut v2 = HistoryDatabase::open(&production, URL)?;
+    let mut v2 =
+        HistoryDatabase::open_with(&production, URL, &crate::history::schema::MIGRATIONS[..2])?;
     assert_eq!(v2.version, 2);
     assert!(v2.restore(&identity)? == original);
     assert_eq!(

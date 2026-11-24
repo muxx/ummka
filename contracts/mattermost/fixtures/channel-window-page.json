@@ -1,0 +1,9 @@
+{
+  "channelId": "cccccccccccccccccccccccccc",
+  "collapsedThreads": true,
+  "source": { "kind": "before", "postId": "eeeeeeeeeeeeeeeeeeeeeeeeee" },
+  "order": ["rrrrrrrrrrrrrrrrrrrrrrrrrr"],
+  "prevPostId": "",
+  "nextPostId": "eeeeeeeeeeeeeeeeeeeeeeeeee",
+  "firstInaccessiblePostTime": 0
+}
