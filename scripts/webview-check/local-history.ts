@@ -16,7 +16,7 @@ const latest = {
   limit: 200,
 } satisfies ChannelWindowQuery;
 
-async function expectCode(promise: Promise<unknown>, expected: string) {
+export async function expectCode(promise: Promise<unknown>, expected: string) {
   try {
     await promise;
   } catch (error) {

@@ -13,6 +13,7 @@ import {
   resumeChannelsLink,
   routeChannelsLink,
 } from "../../src/mattermost/route-channels-link.ts";
+import { verifyHistoryLoadsAfterRestart } from "./history-loads.ts";
 import { checkOfflineWindows } from "./local-history.ts";
 
 const first = "https://chat.example.test";
@@ -50,6 +51,7 @@ export async function resumeRegistryCheck(): Promise<boolean> {
   const port = String(import.meta.env.VITE_UMMKA_CHECK_PORTS).split(",")[0];
   const root = `https://127.0.0.1:${port}`;
   await checkOfflineWindows(root);
+  await verifyHistoryLoadsAfterRestart(root);
   const firstId = "Abc01234567890123456789012";
   for (const base of [root, `${root}/team/chat`]) {
     if ((await listAccountIds(base)).join(",") !== firstId)

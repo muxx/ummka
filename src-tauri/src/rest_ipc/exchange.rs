@@ -15,6 +15,7 @@ use tokio_util::sync::CancellationToken;
 pub(crate) enum ExchangeError {
     UnknownConnection,
     UnknownExchange,
+    UnknownHistoryLoad,
     InvalidHistoryRequest,
     InvalidExchangeState,
     Cancelled,
@@ -36,14 +37,14 @@ impl Resource for Exchange {}
 
 pub(super) struct Session {
     pub(super) http: RestConnection,
-    exchanges: Mutex<ResourceTable>,
+    resources: Mutex<ResourceTable>,
     pub(super) history: super::history::LocalHistory,
     pub(super) lifetime: CancellationToken,
 }
 
 impl Resource for Session {
     fn close(self: Arc<Self>) {
-        let mut active = self.exchanges.lock().unwrap();
+        let mut active = self.resources.lock().unwrap();
         self.lifetime.cancel();
         *active = ResourceTable::default();
     }
@@ -60,17 +61,24 @@ impl Session {
         let lifetime = http.lifetime();
         Self {
             http,
-            exchanges: Mutex::default(),
+            resources: Mutex::default(),
             history: super::history::LocalHistory::new(),
             lifetime,
         }
     }
 
-    pub(super) fn prepare(&self) -> Result<ResourceId, ExchangeError> {
-        let mut active = self.exchanges.lock().unwrap();
+    pub(super) fn open_resources(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, ResourceTable>, ExchangeError> {
+        let active = self.resources.lock().unwrap();
         if self.lifetime.is_cancelled() {
             return Err(ExchangeError::UnknownConnection);
         }
+        Ok(active)
+    }
+
+    pub(super) fn prepare(&self) -> Result<ResourceId, ExchangeError> {
+        let mut active = self.open_resources()?;
         Ok(active.add(Exchange {
             phase: AsyncMutex::new(Phase::Prepared),
             cancel: self.lifetime.child_token(),
@@ -81,7 +89,7 @@ impl Session {
         &self,
         value: Result<T, ExchangeError>,
     ) -> Result<T, ExchangeError> {
-        let _guard = self.exchanges.lock().unwrap();
+        let _guard = self.resources.lock().unwrap();
         if self.lifetime.is_cancelled() {
             return Err(ExchangeError::Cancelled);
         }
@@ -89,7 +97,7 @@ impl Session {
     }
 
     fn exchange(&self, id: ResourceId) -> Result<Arc<Exchange>, ExchangeError> {
-        let active = self.exchanges.lock().unwrap();
+        let active = self.resources.lock().unwrap();
         if self.lifetime.is_cancelled() {
             return Err(ExchangeError::UnknownConnection);
         }
@@ -99,7 +107,7 @@ impl Session {
     }
 
     pub(super) fn cancel(&self, id: ResourceId) -> Result<(), ExchangeError> {
-        let mut active = self.exchanges.lock().unwrap();
+        let mut active = self.resources.lock().unwrap();
         if self.lifetime.is_cancelled() {
             return Err(ExchangeError::UnknownConnection);
         }
@@ -118,7 +126,7 @@ impl Session {
         result: Result<T, TransportError>,
         terminal: bool,
     ) -> Result<T, ExchangeError> {
-        let mut active = self.exchanges.lock().unwrap();
+        let mut active = self.resources.lock().unwrap();
         if self.lifetime.is_cancelled()
             || !active
                 .get::<Exchange>(id)
@@ -257,7 +265,7 @@ mod tests {
         release.send(()).unwrap();
         assert_eq!(late.await.unwrap(), Err(ExchangeError::Cancelled));
         assert_eq!(session.prepare(), Err(ExchangeError::UnknownConnection));
-        assert_eq!(session.exchanges.lock().unwrap().names().count(), 0);
+        assert_eq!(session.resources.lock().unwrap().names().count(), 0);
     }
 
     #[test]

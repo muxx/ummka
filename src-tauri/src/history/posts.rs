@@ -41,7 +41,12 @@ pub struct ChannelPostLoad {
     revision: i64,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum PageWrite {
     Applied,
     /// A removal was accepted in this channel since the load began. Retain the caller's cursor.
