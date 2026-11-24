@@ -1,0 +1,257 @@
+use crate::rest::is_mattermost_id;
+use crate::sessions::{Account, validate_installation};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
+use sha2::{Digest, Sha256};
+use std::{fmt, fmt::Write, fs, path::Path};
+
+#[cfg(any(test, all(target_os = "android", feature = "native-http-check")))]
+pub(crate) mod checks;
+
+const APPLICATION_ID: i64 = 0x554d4849; // UMHI
+const CREATE_OWNER: &str = "CREATE TABLE history_owner (
+    slot INTEGER PRIMARY KEY CHECK (slot = 1),
+    installation TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    generation BLOB NOT NULL CHECK (length(generation) = 16)
+) STRICT";
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum HistoryError {
+    InvalidInstallation,
+    UnsupportedSchema,
+    OwnerConflict,
+    StaleOwner,
+    Storage,
+}
+
+impl fmt::Display for HistoryError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::InvalidInstallation => "Invalid canonical HTTPS installation",
+            Self::UnsupportedSchema => "Unsupported local history database",
+            Self::OwnerConflict => "Local history belongs to another account or installation",
+            Self::StaleOwner => "Local history access has expired",
+            Self::Storage => "Could not access local history",
+        })
+    }
+}
+
+impl std::error::Error for HistoryError {}
+
+impl From<rusqlite::Error> for HistoryError {
+    fn from(_: rusqlite::Error) -> Self {
+        Self::Storage
+    }
+}
+
+/// Native access issued for one specific login on one installation.
+#[derive(Clone, PartialEq, Eq)]
+pub struct HistoryOwner {
+    account: Account,
+    generation: [u8; 16],
+}
+
+/// A file-backed history connection. Open it and execute its transactions on a blocking thread.
+pub struct HistoryDatabase {
+    connection: Connection,
+    installation: String,
+}
+
+fn filename(installation: &str) -> String {
+    let mut name = String::with_capacity(64 + ".sqlite".len());
+    for byte in Sha256::digest(installation.as_bytes()) {
+        write!(name, "{byte:02x}").expect("writing to a String is infallible");
+    }
+    name.push_str(".sqlite");
+    name
+}
+
+fn stored_owner(connection: &Connection) -> rusqlite::Result<Option<(String, String, [u8; 16])>> {
+    connection
+        .query_row(
+            "SELECT installation, user_id, generation FROM history_owner WHERE slot = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+}
+
+#[derive(PartialEq, Eq)]
+enum Format {
+    Empty,
+    VersionOne,
+}
+
+fn inspect(connection: &Connection, installation: &str) -> Result<Format, HistoryError> {
+    let id: i64 = connection.pragma_query_value(None, "application_id", |row| row.get(0))?;
+    let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    if (id, version) == (0, 0) {
+        let empty: bool = connection.query_row(
+            "SELECT NOT EXISTS(SELECT 1 FROM sqlite_schema)",
+            [],
+            |row| row.get(0),
+        )?;
+        if empty {
+            return Ok(Format::Empty);
+        }
+    }
+    if (id, version) != (APPLICATION_ID, 1) {
+        return Err(HistoryError::UnsupportedSchema);
+    }
+
+    let recognized: bool = connection.query_row(
+        "SELECT count(*) = 1 AND count(*) FILTER (WHERE type = 'table' AND sql = ?1) = 1
+         FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'",
+        [CREATE_OWNER],
+        |row| row.get(0),
+    )?;
+    if !recognized {
+        return Err(HistoryError::UnsupportedSchema);
+    }
+    let vacuum: i64 = connection.pragma_query_value(None, "auto_vacuum", |row| row.get(0))?;
+    if vacuum != 2 {
+        return Err(HistoryError::UnsupportedSchema);
+    }
+    if let Some((url, user_id, _)) = stored_owner(connection)? {
+        if url != installation {
+            return Err(HistoryError::OwnerConflict);
+        }
+        if !is_mattermost_id(&user_id) {
+            return Err(HistoryError::UnsupportedSchema);
+        }
+    }
+    Ok(Format::VersionOne)
+}
+
+impl HistoryDatabase {
+    pub fn open(private_root: &Path, installation: &str) -> Result<Self, HistoryError> {
+        validate_installation(installation).map_err(|_| HistoryError::InvalidInstallation)?;
+        let dir = std::path::absolute(private_root)
+            .map_err(|_| HistoryError::Storage)?
+            .join("history");
+        let mut builder = fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        builder.create(&dir).map_err(|_| HistoryError::Storage)?;
+        let mut connection = Connection::open(dir.join(filename(installation)))?;
+        connection.pragma_update(None, "foreign_keys", true)?;
+
+        let snapshot = connection.transaction()?;
+        let format = inspect(&snapshot, installation)?;
+        snapshot.commit()?;
+        if format == Format::Empty {
+            // The page-map setting must precede both the first table and its transaction.
+            connection.pragma_update(None, "auto_vacuum", "INCREMENTAL")?;
+        }
+        let journal: String =
+            connection.query_row("PRAGMA journal_mode=WAL", [], |row| row.get(0))?;
+        if journal != "wal" {
+            return Err(HistoryError::Storage);
+        }
+        if format == Format::Empty {
+            let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            if inspect(&tx, installation)? == Format::Empty {
+                tx.execute(CREATE_OWNER, [])?;
+                tx.pragma_update(None, "application_id", APPLICATION_ID)?;
+                tx.pragma_update(None, "user_version", 1)?;
+                inspect(&tx, installation)?;
+            }
+            tx.commit()?;
+        }
+        Ok(Self {
+            connection,
+            installation: installation.to_owned(),
+        })
+    }
+
+    /// Recover the existing generation for a confirmed saved session, including offline.
+    pub fn restore(&mut self, account: &Account) -> Result<HistoryOwner, HistoryError> {
+        self.bind(account, Login::Restored)
+    }
+
+    /// Rotate the generation of a newly authenticated session while preserving that user's rows.
+    pub fn new_login(&mut self, account: &Account) -> Result<HistoryOwner, HistoryError> {
+        self.bind(account, Login::New)
+    }
+
+    fn bind(&mut self, account: &Account, login: Login) -> Result<HistoryOwner, HistoryError> {
+        if self.installation != account.installation() {
+            return Err(HistoryError::OwnerConflict);
+        }
+        self.connection.pragma_update(None, "query_only", false)?;
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let generation = match stored_owner(&tx)? {
+            None => tx.query_row(
+                "INSERT INTO history_owner VALUES (1, ?1, ?2, randomblob(16)) RETURNING generation",
+                params![account.installation(), account.user_id()],
+                |row| row.get(0),
+            )?,
+            Some((url, user, generation)) => {
+                if url != account.installation() || user != account.user_id() {
+                    return Err(HistoryError::OwnerConflict);
+                }
+                match login {
+                    Login::Restored => generation,
+                    Login::New => tx.query_row(
+                        "UPDATE history_owner SET generation = randomblob(16) WHERE slot = 1 RETURNING generation",
+                        [], |row| row.get(0))?,
+                }
+            }
+        };
+        tx.commit()?;
+        Ok(HistoryOwner {
+            account: account.clone(),
+            generation,
+        })
+    }
+
+    pub fn read<T>(
+        &mut self,
+        owner: &HistoryOwner,
+        operation: impl FnOnce(&Transaction<'_>) -> rusqlite::Result<T>,
+    ) -> Result<T, HistoryError> {
+        self.access(owner, TransactionBehavior::Deferred, operation)
+    }
+
+    pub fn write<T>(
+        &mut self,
+        owner: &HistoryOwner,
+        operation: impl FnOnce(&Transaction<'_>) -> rusqlite::Result<T>,
+    ) -> Result<T, HistoryError> {
+        self.access(owner, TransactionBehavior::Immediate, operation)
+    }
+
+    fn access<T>(
+        &mut self,
+        owner: &HistoryOwner,
+        behavior: TransactionBehavior,
+        operation: impl FnOnce(&Transaction<'_>) -> rusqlite::Result<T>,
+    ) -> Result<T, HistoryError> {
+        if self.installation != owner.account.installation() {
+            return Err(HistoryError::StaleOwner);
+        }
+        self.connection.pragma_update(
+            None,
+            "query_only",
+            matches!(behavior, TransactionBehavior::Deferred),
+        )?;
+        let tx = self.connection.transaction_with_behavior(behavior)?;
+        let current: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM history_owner WHERE slot = 1 AND installation = ?1 AND user_id = ?2 AND generation = ?3)",
+            params![owner.account.installation(), owner.account.user_id(), owner.generation], |row| row.get(0))?;
+        if !current {
+            return Err(HistoryError::StaleOwner);
+        }
+        let value = operation(&tx)?;
+        tx.commit()?;
+        Ok(value)
+    }
+}
+
+enum Login {
+    Restored,
+    New,
+}

@@ -338,7 +338,11 @@ pub fn run_checks<'local>(
                 .expect("could not install fixture constraint");
         }
         let result = tauri::async_runtime::block_on(async {
-            crate::registry::checks::round_trip(std::path::Path::new(&registry_path))?;
+            let registry = std::path::Path::new(&registry_path);
+            crate::registry::checks::round_trip(registry)?;
+            crate::history::checks::round_trip(
+                registry.parent().ok_or("missing fixture directory")?,
+            )?;
             check_wire(NativeHttp::new()?, RestConnection::new, &ports).await
         });
         if let Err(error) = result {
