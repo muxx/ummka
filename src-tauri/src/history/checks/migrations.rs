@@ -19,15 +19,15 @@ const OBJECTS: &[&str] = &[CREATE_OWNER, CREATE_LABELS];
 // These versions exercise a schema change followed by a separate data change.
 const CHAIN: &[Migration] = &[
     Migration {
-        sql: CREATE_OWNER,
+        statements: &[CREATE_OWNER],
         objects: &[CREATE_OWNER],
     },
     Migration {
-        sql: CREATE_LABELS,
+        statements: &[CREATE_LABELS],
         objects: OBJECTS,
     },
     Migration {
-        sql: "INSERT INTO fixture_labels SELECT slot, user_id FROM history_owner",
+        statements: &["INSERT INTO fixture_labels SELECT slot, user_id FROM history_owner"],
         objects: OBJECTS,
     },
 ];
@@ -57,7 +57,7 @@ fn check_data(db: &mut HistoryDatabase) -> Result<(), HistoryError> {
 // Signal at SQLite's actual lock conflict, then publish v2 before letting it retry.
 fn waits_for_migration(root: &Path) -> Result<(), HistoryError> {
     seed(root)?;
-    let mut first = HistoryDatabase::open(root, URL)?;
+    let mut first = HistoryDatabase::open_with(root, URL, &CHAIN[..1])?;
     let writer = first
         .connection
         .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -88,23 +88,45 @@ fn waits_for_migration(root: &Path) -> Result<(), HistoryError> {
 }
 
 pub(crate) fn round_trip(root: &Path) -> Result<(), HistoryError> {
+    let production = root.join("published-posts");
+    seed(&production)?;
+    let mut v1 = HistoryDatabase::open_with(&production, URL, &CHAIN[..1])?;
+    let identity = account(URL, ALICE);
+    let original = v1.restore(&identity)?;
+    let mut v2 = HistoryDatabase::open(&production, URL)?;
+    assert_eq!(v2.version, 2);
+    assert!(v2.restore(&identity)? == original);
+    assert_eq!(
+        v1.read(&original, |_| Ok(())),
+        Err(HistoryError::UnsupportedSchema)
+    );
+    assert_eq!(
+        HistoryDatabase::open_with(&production, URL, &CHAIN[..1]).err(),
+        Some(HistoryError::UnsupportedSchema)
+    );
+    drop(v2);
+    let mut reopened = HistoryDatabase::open(&production, URL)?;
+    assert_eq!(reopened.restore(&identity)?.generation, ORIGINAL);
+
     waits_for_migration(&root.join("contended"))?;
     let skipped = root.join("skipped");
     seed(&skipped)?;
-    let mut old = HistoryDatabase::open(&skipped, URL)?;
+    let mut old = HistoryDatabase::open_with(&skipped, URL, &CHAIN[..1])?;
     let handle = old.restore(&account(URL, ALICE))?;
     assert_eq!(handle.generation, ORIGINAL);
     let broken = [
         Migration {
-            sql: CREATE_OWNER,
+            statements: &[CREATE_OWNER],
             objects: &[CREATE_OWNER],
         },
         Migration {
-            sql: CREATE_LABELS,
+            statements: &[CREATE_LABELS],
             objects: OBJECTS,
         },
         Migration {
-            sql: "INSERT INTO fixture_labels VALUES(1, 'partial'); INSERT INTO missing VALUES(1);",
+            statements: &[
+                "INSERT INTO fixture_labels VALUES(1, 'partial'); INSERT INTO missing VALUES(1);",
+            ],
             objects: OBJECTS,
         },
     ];
@@ -112,7 +134,7 @@ pub(crate) fn round_trip(root: &Path) -> Result<(), HistoryError> {
         HistoryDatabase::open_with(&skipped, URL, &broken).err(),
         Some(HistoryError::Storage)
     );
-    let mut reopened = HistoryDatabase::open(&skipped, URL)?;
+    let mut reopened = HistoryDatabase::open_with(&skipped, URL, &CHAIN[..1])?;
     assert!(reopened.restore(&account(URL, ALICE))? == handle);
     drop(reopened);
 
@@ -144,7 +166,7 @@ pub(crate) fn round_trip(root: &Path) -> Result<(), HistoryError> {
         Some(HistoryError::UnsupportedSchema)
     );
     assert_eq!(
-        HistoryDatabase::open(&skipped, URL).err(),
+        HistoryDatabase::open_with(&skipped, URL, &CHAIN[..1]).err(),
         Some(HistoryError::UnsupportedSchema)
     );
     check_data(&mut HistoryDatabase::open_with(&skipped, URL, CHAIN)?)?;

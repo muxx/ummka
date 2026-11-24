@@ -4,17 +4,26 @@ use rusqlite::{Connection, TransactionBehavior};
 
 pub(super) const APPLICATION_ID: i64 = 0x554d4849; // UMHI
 pub(super) const CREATE_OWNER: &str = include_str!("migrations/0001_owner.sql");
+const CREATE_POSTS: &str = include_str!("migrations/0002_posts.sql");
+const INDEX_REPLIES: &str = include_str!("migrations/0002_replies.sql");
+const CREATE_DELETIONS: &str = include_str!("migrations/0002_channel_deletions.sql");
 
 /// Each entry advances user_version by one. Keep published entries in order.
 pub(super) struct Migration {
-    pub(super) sql: &'static str,
+    pub(super) statements: &'static [&'static str],
     pub(super) objects: &'static [&'static str],
 }
 
-pub(super) const MIGRATIONS: &[Migration] = &[Migration {
-    sql: CREATE_OWNER,
-    objects: &[CREATE_OWNER],
-}];
+pub(super) const MIGRATIONS: &[Migration] = &[
+    Migration {
+        statements: &[CREATE_OWNER],
+        objects: &[CREATE_OWNER],
+    },
+    Migration {
+        statements: &[CREATE_POSTS, INDEX_REPLIES, CREATE_DELETIONS],
+        objects: &[CREATE_OWNER, CREATE_POSTS, INDEX_REPLIES, CREATE_DELETIONS],
+    },
+];
 
 pub(super) fn version(connection: &Connection) -> rusqlite::Result<i64> {
     connection.pragma_query_value(None, "user_version", |row| row.get(0))
@@ -100,7 +109,9 @@ pub(super) fn upgrade(
             tx.pragma_update(None, "application_id", APPLICATION_ID)?;
         }
         for (index, migration) in migrations.iter().enumerate().skip(start) {
-            tx.execute_batch(migration.sql)?;
+            for statement in migration.statements {
+                tx.execute_batch(statement)?;
+            }
             let next =
                 i64::try_from(index + 1).expect("compiled migrations fit SQLite user_version");
             tx.pragma_update(None, "user_version", next)?;

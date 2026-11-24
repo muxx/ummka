@@ -7,13 +7,16 @@ use std::{fmt, fmt::Write, fs, path::Path};
 pub(crate) mod checks;
 
 mod lifecycle;
+mod posts;
 mod reclamation;
 pub use lifecycle::AccountHistory;
+pub use posts::{ChannelPostLoad, PageWrite, PostChange, StoredPost};
 mod schema;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum HistoryError {
     InvalidInstallation,
+    InvalidPost,
     UnsupportedSchema,
     OwnerConflict,
     StaleOwner,
@@ -24,6 +27,7 @@ impl fmt::Display for HistoryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::InvalidInstallation => "Invalid canonical HTTPS installation",
+            Self::InvalidPost => "Invalid channel history record",
             Self::UnsupportedSchema => "Unsupported local history database",
             Self::OwnerConflict => "Local history belongs to another account or installation",
             Self::StaleOwner => "Local history access has expired",
@@ -149,7 +153,9 @@ impl HistoryDatabase {
         owner: &HistoryOwner,
         operation: impl FnOnce(&Transaction<'_>) -> rusqlite::Result<T>,
     ) -> Result<T, HistoryError> {
-        self.access(owner, TransactionBehavior::Deferred, operation)
+        self.access(owner, TransactionBehavior::Deferred, |tx| {
+            Ok(operation(tx)?)
+        })
     }
 
     fn write<T>(
@@ -157,7 +163,9 @@ impl HistoryDatabase {
         owner: &HistoryOwner,
         operation: impl FnOnce(&Transaction<'_>) -> rusqlite::Result<T>,
     ) -> Result<T, HistoryError> {
-        self.access(owner, TransactionBehavior::Immediate, operation)
+        self.access(owner, TransactionBehavior::Immediate, |tx| {
+            Ok(operation(tx)?)
+        })
     }
 
     fn transaction(
@@ -180,7 +188,7 @@ impl HistoryDatabase {
         &mut self,
         owner: &HistoryOwner,
         behavior: TransactionBehavior,
-        operation: impl FnOnce(&Transaction<'_>) -> rusqlite::Result<T>,
+        operation: impl FnOnce(&Transaction<'_>) -> Result<T, HistoryError>,
     ) -> Result<T, HistoryError> {
         if self.installation != owner.account.installation() {
             return Err(HistoryError::StaleOwner);

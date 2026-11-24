@@ -121,6 +121,19 @@ pub(super) async fn check(
     let external = open(client, &second, USER).await?;
     let mut page = previous.open_history(&first).await?;
     let mut restored = external.open_history(&second).await?;
+    use crate::history::{
+        PageWrite,
+        checks::posts::{CHANNEL, ROOT, fixture},
+    };
+    let load = page.begin_channel_load(CHANNEL)?;
+    assert_eq!(
+        page.apply_channel_page(load, &fixture())?,
+        PageWrite::Applied
+    );
+    let earlier = restored.begin_channel_load(CHANNEL)?;
+    let cached = restored
+        .read_post(ROOT)?
+        .expect("stored authenticated post");
     let owner_generation = |tx: &rusqlite::Transaction<'_>| {
         tx.query_row("SELECT generation FROM history_owner", [], |r| {
             r.get::<_, Vec<u8>>(0)
@@ -140,6 +153,11 @@ pub(super) async fn check(
     refuse_write(&root, false)?;
     assert_eq!(page.write(|_| Ok(())), Err(HistoryError::StaleOwner));
     let mut reopened = external.open_history(&second).await?;
+    assert_eq!(
+        reopened.apply_channel_page(earlier, &[]),
+        Err(HistoryError::StaleOwner)
+    );
+    assert_eq!(reopened.read_post(ROOT)?, Some(cached));
     reopened.read(owner_generation)?;
     me(&previous, client).await?;
     sign_out::control(client, base, "history-rejected", "release").await?;
@@ -211,6 +229,7 @@ pub(super) async fn check(
     client.sign_in(&first, input("history-final")).await?;
     let current = open(client, &first, USER).await?;
     let mut final_page = current.open_history(&first).await?;
+    assert_eq!(final_page.read_post(ROOT)?, None);
     assert_eq!(current.sign_out(&first).await?, SignOut::SignedOut);
     assert_eq!(
         final_page.read(owner_generation),

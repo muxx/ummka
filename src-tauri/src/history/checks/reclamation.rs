@@ -12,11 +12,11 @@ const PEER: &str = "https://chat.example.test/reclamation/peer";
 const POSTS: &str = "CREATE TABLE fixture_messages (id INTEGER PRIMARY KEY, owner INTEGER NOT NULL REFERENCES history_owner(slot) ON DELETE CASCADE, body BLOB NOT NULL) STRICT";
 const FIXTURE: &[Migration] = &[
     Migration {
-        sql: CREATE_OWNER,
+        statements: &[CREATE_OWNER],
         objects: &[CREATE_OWNER],
     },
     Migration {
-        sql: POSTS,
+        statements: &[POSTS],
         objects: &[CREATE_OWNER, POSTS],
     },
 ];

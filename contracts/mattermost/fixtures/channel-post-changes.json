@@ -1,0 +1,37 @@
+[
+  {
+    "kind": "save",
+    "id": "rrrrrrrrrrrrrrrrrrrrrrrrrr",
+    "channelId": "cccccccccccccccccccccccccc",
+    "userId": "aaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "rootId": null,
+    "createAt": 100,
+    "updateAt": 110,
+    "editAt": 108,
+    "type": "",
+    "message": "![sky](https://chat.example.test/api/v4/image?url=sky)",
+    "messageSource": "![sky](https://images.example.test/sky.png)",
+    "hashtags": "",
+    "isPinned": true
+  },
+  {
+    "kind": "save",
+    "id": "pppppppppppppppppppppppppp",
+    "channelId": "cccccccccccccccccccccccccc",
+    "userId": "aaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "rootId": "rrrrrrrrrrrrrrrrrrrrrrrrrr",
+    "createAt": 101,
+    "updateAt": 101,
+    "editAt": 0,
+    "type": "",
+    "message": "Reply #sky",
+    "messageSource": null,
+    "hashtags": "#sky",
+    "isPinned": false
+  },
+  {
+    "kind": "remove",
+    "id": "dddddddddddddddddddddddddd",
+    "channelId": "cccccccccccccccccccccccccc"
+  }
+]
