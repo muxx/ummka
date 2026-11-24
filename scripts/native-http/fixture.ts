@@ -98,6 +98,25 @@ export async function startFixture(dir: string) {
   const pooled: Socket[] = [];
   const sockets = new Set<Socket>();
   const events = new EventEmitter();
+  const logoutGates = new Map(
+    ["out-dismiss", "out-race"].map(
+      (name) =>
+        [
+          name,
+          {
+            received: once(events, `${name}-received`),
+            release: once(events, `${name}-release`),
+          },
+        ] as const,
+    ),
+  );
+  const beforeLogout = async (name: string) => {
+    const gate = logoutGates.get(name);
+    if (gate) {
+      events.emit(`${name}-received`);
+      await gate.release;
+    }
+  };
   const detachedRevoked = once(events, "detached-revoked");
   const receivedHeaders = once(events, "received-headers");
   const closedHeaders = once(events, "closed-headers");
@@ -116,14 +135,30 @@ export async function startFixture(dir: string) {
   const ok = (response: http.ServerResponse) => response.end("OK");
   const tls = https.createServer(certs.trusted, (request, response) => {
     const path = request.url;
+    const control = path?.match(
+      /^\/auth-check\/(out-dismiss|out-race)\/(received|release)$/,
+    );
+    if (control) {
+      const [, name, step] = control;
+      const gate = logoutGates.get(name);
+      assert(gate);
+      if (step === "received") void gate.received.then(() => ok(response));
+      else {
+        events.emit(`${name}-release`);
+        ok(response);
+      }
+      return;
+    }
     if (path === "/auth-check/detached-revoked") {
       void detachedRevoked.then(() => ok(response));
       return;
     }
     if (path?.startsWith(authPrefix)) {
-      void handleAuth(request, response, authVisits).then((loggedOut) => {
-        if (loggedOut === "detached") events.emit("detached-revoked");
-      });
+      void handleAuth(request, response, authVisits, beforeLogout).then(
+        (loggedOut) => {
+          if (loggedOut === "detached") events.emit("detached-revoked");
+        },
+      );
       return;
     }
     assert(path);

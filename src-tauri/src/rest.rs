@@ -115,6 +115,22 @@ impl RestConnection {
         Ok(self)
     }
 
+    /// Ask the selected installation to sign out the login bound to this connection.
+    pub async fn sign_out(
+        &self,
+        sessions: &AccountSessions,
+    ) -> Result<crate::authentication::SignOut, TransportError> {
+        let session = self
+            .account
+            .clone()
+            .ok_or(TransportError::SessionUnavailable)?;
+        let auth = crate::authentication::NativeAuthentication::with_client(
+            self.base.as_str().trim_end_matches('/'),
+            || Ok(self.http.clone()),
+        )?;
+        auth.sign_out_account(sessions.clone(), session).await
+    }
+
     /// Complete an explicit on-device sign-out for the login bound to this connection.
     pub async fn sign_out_on_device(
         &self,

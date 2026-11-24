@@ -103,6 +103,10 @@ pub(crate) struct AccountSession {
 }
 
 impl AccountSession {
+    pub(crate) fn account(&self) -> &Account {
+        &self.account
+    }
+
     pub(crate) fn lifetime(&self) -> CancellationToken {
         self.end.child_token()
     }
