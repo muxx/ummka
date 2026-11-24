@@ -182,7 +182,7 @@ async fn wire() -> CheckResult {
 }
 
 #[cfg(target_os = "android")]
-#[jni::jni_mangle("io.github.muxx.ummka.dev.HttpCheckActivity")]
+#[jni::jni_mangle("io.github.muxx.ummka.dev.HttpCheckInstrumentation")]
 pub fn run_checks<'local>(
     mut env: jni::EnvUnowned<'local>,
     _: jni::objects::JObject<'local>,

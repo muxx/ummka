@@ -99,6 +99,7 @@ export async function startFixture(dir: string) {
   const closedHeaders = once(events, "closed-headers");
   const closedBody = once(events, "closed-body");
   const scopedConnections = [0, 0];
+  const scopedSockets: Socket[] = [];
   const scopedRequests: {
     method?: string;
     path?: string;
@@ -188,6 +189,7 @@ export async function startFixture(dir: string) {
   });
 
   const selected = https.createServer(certs.trusted, (req, res) => {
+    scopedSockets.push(req.socket);
     scopedRequests.push({
       method: req.method,
       path: req.url,
@@ -232,7 +234,7 @@ export async function startFixture(dir: string) {
           [0, 0, 0, 0],
           [0, 0, 0, 0],
         ]);
-        assert.deepEqual(scopedConnections, [1, 0]);
+        assert.equal(scopedConnections[1], 0);
         assert.equal(otherRequests, 0);
         const ping = {
           method: "GET",
@@ -240,6 +242,14 @@ export async function startFixture(dir: string) {
           header: "scoped",
         };
         assert.deepEqual(scopedRequests, [ping, ping]);
+        assert.equal(
+          scopedSockets[0],
+          scopedSockets[1],
+          "both scoped requests must reuse one HTTP/1.1 connection",
+        );
+        console.log(
+          `Two scoped requests shared one connection. The selected origin accepted ${scopedConnections[0]} TCP connection(s).`,
+        );
         assert.equal(rejectedHttp, 0);
         assert.deepEqual(badTlsConnections, [1, 1]);
         assert.equal(plainConnections, android ? 0 : 1);

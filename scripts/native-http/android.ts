@@ -191,38 +191,22 @@ export async function checkAndroid(dir: string, ports: number[], ca: Buffer) {
       ),
       /Success/,
     );
-    const launch = await adb(
+    const result = await adb(
       "shell",
       "am",
-      "start",
-      "-W",
-      "-n",
-      `${component}HttpCheckActivity`,
-      "--es",
+      "instrument",
+      "-w",
+      "-r",
+      "-e",
       "ca",
       ca.toString("base64"),
-      "--es",
+      "-e",
       "ports",
       ports.join(","),
+      `${component}HttpCheckInstrumentation`,
     );
-    assert.match(launch, /Status: ok/);
-    const until = Date.now() + 65_000;
-    while (true) {
-      const output = await adb(
-        "logcat",
-        "-d",
-        "-s",
-        "UmmkaHttpCheck:I",
-        "AndroidRuntime:E",
-      );
-      assert.doesNotMatch(output, /UmmkaHttpCheck: FAIL|FATAL EXCEPTION/);
-      if (output.includes("UmmkaHttpCheck: PASS")) break;
-      assert(
-        Date.now() < until && emulator.exitCode === null,
-        `Android HTTP test timed out.\n${output}`,
-      );
-      await delay(500);
-    }
+    assert.match(result, /^INSTRUMENTATION_RESULT: result=PASS\r?$/m);
+    assert.match(result, /^INSTRUMENTATION_CODE: -1\r?$/m);
   } catch (error) {
     console.error((await readFile(log, "utf8")).slice(-1500));
     throw error;
