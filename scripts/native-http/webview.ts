@@ -46,6 +46,7 @@ export function webviewServers(
   let disconnect: Socket | undefined;
   let pingSocket: Socket | undefined;
   const settings = new Map<string, ServerResponse>();
+  const entrySettings = new Map<string, ServerResponse>();
   const userId = "Abc01234567890123456789012";
   const refresh = historyRefreshFixture(userId, () =>
     events.emit("refresh-late-received"),
@@ -294,22 +295,26 @@ export function webviewServers(
       );
       return;
     }
-    const setting = /^\/team\/chat\/api\/v4\/(config|license)\/client$/.exec(
-      url.pathname,
-    )?.[1];
+    const setting =
+      /^\/(team\/chat|entry\/team)\/api\/v4\/(config|license)\/client$/.exec(
+        url.pathname,
+      );
     if (setting) {
       assert.equal(url.search, "?format=old");
       assert.equal(req.headers.authorization, undefined);
       assert.equal(req.headers.cookie, undefined);
-      assert(!settings.has(setting), "each profile operation is sent once");
-      settings.set(setting, res);
-      if (settings.size === 2) {
-        for (const [name, response] of settings) {
+      const entry = setting[1] === "entry/team";
+      const reports = entry ? entrySettings : settings;
+      assert(!reports.has(setting[2]), "each profile operation is sent once");
+      reports.set(setting[2], res);
+      if (reports.size === 2) {
+        for (const [name, response] of reports) {
           const body =
             name === "config"
               ? {
                   Version: "10.10.1",
-                  SiteName: "Fixture",
+                  SiteName: entry ? "Entry fixture" : "Fixture",
+                  EnableSignInWithEmail: entry ? "true" : "false",
                   EnableSignUpWithGitLab: "true",
                 }
               : { IsLicensed: "false" };
@@ -437,6 +442,7 @@ export function webviewServers(
       );
       assert(before);
       assert.equal(settings.size, 2);
+      assert.equal(entrySettings.size, 2);
       assert.equal(untrustedRequests, 0);
       const expected = [
         "bytes",

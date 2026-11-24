@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
+  <title id="title">Северное сияние</title>
+  <g id="background">
+    <defs>
+      <linearGradient id="polar-sky" x1="4%" y1="0%" x2="95%" y2="100%">
+        <stop stop-color="#193C51"/>
+        <stop offset=".53" stop-color="#336F78"/>
+        <stop offset="1" stop-color="#76B7A4"/>
+      </linearGradient>
+      <radialGradient id="lower-light" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1"
+          gradientTransform="translate(170 584) rotate(-13) scale(870 156)">
+        <stop stop-color="#C5EABA" stop-opacity=".92"/>
+        <stop offset=".42" stop-color="#A4DFB5" stop-opacity=".68"/>
+        <stop offset="1" stop-color="#87D1AE" stop-opacity="0"/>
+      </radialGradient>
+      <radialGradient id="upper-light" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1"
+          gradientTransform="translate(885 268) rotate(-43) scale(637 119)">
+        <stop stop-color="#B6EAC0" stop-opacity=".76"/>
+        <stop offset=".43" stop-color="#8FD9B8" stop-opacity=".48"/>
+        <stop offset="1" stop-color="#87D5B4" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
+    <rect width="1024" height="1024" fill="url(#polar-sky)"/>
+    <rect width="1024" height="1024" fill="url(#lower-light)"/>
+    <rect width="1024" height="1024" fill="url(#upper-light)"/>
+  </g>
+</svg>

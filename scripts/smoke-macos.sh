@@ -18,18 +18,24 @@ for run in 1 2; do
     done
     [[ -n "$pid" ]] || { echo 'The native app did not launch.' >&2; exit 1; }
     osascript - "$pid" <<'APPLESCRIPT'
-on containsMarker(node, insideWebArea)
+on containsServerField(node, insideWebArea)
     tell application "System Events"
         set nodeRole to role of node
-        if insideWebArea and nodeRole is "AXStaticText" then return (value of node is "ummka")
+        if insideWebArea and nodeRole is "AXTextField" then return enabled of node
         set children to get UI elements of node
     end tell
     set isWebContent to (insideWebArea or nodeRole is "AXWebArea")
     repeat with child in children
-        if my containsMarker(contents of child, isWebContent) then return true
+        if my containsServerField(contents of child, isWebContent) then return true
     end repeat
     return false
-end containsMarker
+end containsServerField
+
+on hasNativeControls(win)
+    local controlSubroles
+    tell application "System Events" to set controlSubroles to get subrole of every button of win
+    return controlSubroles contains "AXCloseButton" and controlSubroles contains "AXMinimizeButton" and (controlSubroles contains "AXFullScreenButton" or controlSubroles contains "AXZoomButton")
+end hasNativeControls
 
 on run argv
     set appPid to (item 1 of argv) as integer
@@ -37,12 +43,12 @@ on run argv
         set proc to first application process whose unix id is appPid
         repeat 40 times
             if exists window 1 of proc then
-                if my containsMarker(window 1 of proc, false) then return
+                if my containsServerField(window 1 of proc, false) and my hasNativeControls(window 1 of proc) then return
             end if
             delay 0.1
         end repeat
     end tell
-    error "React text did not appear inside the WebView."
+    error "The server address field and the system window controls did not appear."
 end run
 APPLESCRIPT
     kill -TERM "$pid"
@@ -52,5 +58,5 @@ APPLESCRIPT
     done
     if kill -0 "$pid" 2>/dev/null; then echo 'The app did not stop.' >&2; exit 1; fi
     pid=''
-    echo "Offline launch $run rendered the React component."
+    echo "Offline launch $run rendered the server address field."
 done

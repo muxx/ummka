@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
+  <title id="title">Ночь с сиянием</title>
+  <g id="background">
+    <defs>
+      <linearGradient id="night-sky" x1="0%" y1="0%" x2="78%" y2="100%">
+        <stop stop-color="#38577F"/>
+        <stop offset=".52" stop-color="#253D62"/>
+        <stop offset="1" stop-color="#172941"/>
+      </linearGradient>
+      <radialGradient id="western-aurora" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1"
+          gradientTransform="translate(22 620) rotate(4) scale(560 129)">
+        <stop stop-color="#81C79D" stop-opacity=".41"/>
+        <stop offset=".33" stop-color="#66B298" stop-opacity=".33"/>
+        <stop offset=".72" stop-color="#388B84" stop-opacity=".19"/>
+        <stop offset="1" stop-color="#337D80" stop-opacity="0"/>
+      </radialGradient>
+      <radialGradient id="eastern-aurora" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1"
+          gradientTransform="translate(987 566) rotate(-13) scale(550 111)">
+        <stop stop-color="#74BA9A" stop-opacity=".41"/>
+        <stop offset=".38" stop-color="#59AA92" stop-opacity=".34"/>
+        <stop offset=".76" stop-color="#388C87" stop-opacity=".16"/>
+        <stop offset="1" stop-color="#337D80" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
+    <rect width="1024" height="1024" fill="url(#night-sky)"/>
+    <rect width="1024" height="1024" fill="url(#western-aurora)"/>
+    <rect width="1024" height="1024" fill="url(#eastern-aurora)"/>
+  </g>
+</svg>
