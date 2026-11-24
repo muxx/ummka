@@ -1,0 +1,9 @@
+{
+  "build": {
+    "beforeBuildCommand": "npm run build:webview-check",
+    "frontendDist": "../artifacts/webview-ui"
+  },
+  "app": {
+    "windows": [{ "label": "main", "title": "ummka", "visible": false }]
+  }
+}

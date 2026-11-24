@@ -6,7 +6,8 @@ mod android;
 #[cfg(all(feature = "native-http-check", any(test, target_os = "android")))]
 mod checks;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TransportError {
     InvalidInstallation,
     OutsideInstallation,

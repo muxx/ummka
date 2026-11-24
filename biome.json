@@ -5,6 +5,7 @@
       "src/**",
       "scripts/contract/**",
       "scripts/native-http/**",
+      "scripts/webview-check/**",
       "vite.config.ts",
       "tsconfig.json",
       "biome.json",

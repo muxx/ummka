@@ -43,7 +43,7 @@ export async function checkAndroid(dir: string, ports: number[], ca: Buffer) {
       "--target",
       target,
       "--features",
-      "native-http-check",
+      "native-http-check,webview-check",
       "--",
       "-D",
       "warnings",
@@ -74,8 +74,10 @@ export async function checkAndroid(dir: string, ports: number[], ca: Buffer) {
       "--apk",
       "--target",
       arm ? "aarch64" : "x86_64",
+      "--config",
+      "src-tauri/tauri.webview-check.json",
       "--features",
-      "native-http-check",
+      "native-http-check,webview-check",
       "--",
       "--locked",
     ],
@@ -207,6 +209,35 @@ export async function checkAndroid(dir: string, ports: number[], ca: Buffer) {
     );
     assert.match(result, /^INSTRUMENTATION_RESULT: result=PASS\r?$/m);
     assert.match(result, /^INSTRUMENTATION_CODE: -1\r?$/m);
+    const launch = await adb(
+      "shell",
+      "am",
+      "start",
+      "-W",
+      "-n",
+      `${component}MainActivity`,
+    );
+    assert.match(launch, /Status: ok/);
+    const until = Date.now() + 65_000;
+    while (true) {
+      const output = await adb(
+        "logcat",
+        "-d",
+        "-s",
+        "RustStdoutStderr:I",
+        "AndroidRuntime:E",
+      );
+      assert.doesNotMatch(output, /UMMKA_WEBVIEW_CHECK FAIL|FATAL EXCEPTION/);
+      if (output.includes("UMMKA_WEBVIEW_CHECK PASS")) break;
+      assert(
+        Date.now() < until && emulator.exitCode === null,
+        `Android WebView check timed out.\n${output}`,
+      );
+      await delay(500);
+    }
+    console.log(
+      "Android WebView opened and closed native REST connections across a reload.",
+    );
   } catch (error) {
     console.error((await readFile(log, "utf8")).slice(-1500));
     throw error;
