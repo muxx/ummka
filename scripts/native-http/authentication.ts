@@ -24,6 +24,7 @@ export async function handleAuth(
           "out-invalid",
           "out-new",
           "history-a",
+          "form-mfa",
         ].some((name) => auth === `Bearer fixture-grant-${name}`),
     );
     visits.push(`me-${auth.slice("Bearer fixture-grant-".length)}`);
@@ -79,7 +80,28 @@ export async function handleAuth(
   const input = JSON.parse(bytes.toString("utf8"));
   const name = input.login_id;
   assert.equal(typeof name, "string");
-  assert.equal(input.password, "fixture-password");
+  assert.equal(
+    input.password,
+    name === "form-mfa" ? " fixture password " : "fixture-password",
+  );
+  if (name === "form-mfa") {
+    assert.equal(input.ldap_only, "true");
+    assert([undefined, "000000", "012345"].includes(input.token));
+    if (input.token !== "012345") {
+      visits.push(
+        input.token === undefined ? "form-challenge" : "form-rejected-code",
+      );
+      response.writeHead(401).end(
+        JSON.stringify({
+          id:
+            input.token === undefined
+              ? "mfa.validate_token.authenticate.app_error"
+              : "api.user.check_user_mfa.bad_code.app_error",
+        }),
+      );
+      return;
+    }
+  }
   if (name === "ordinary")
     assert.deepEqual(input, {
       login_id: name,
@@ -145,6 +167,12 @@ export function checkAuthVisits(visits: string[]) {
     "logout-bad-logout",
     "login-refused-logout",
     "logout-refused-logout",
+    "form-challenge",
+    "form-challenge",
+    "form-rejected-code",
+    "login-form-mfa",
+    "me-form-mfa",
+    "form-challenge",
     "login-saved",
     "me-saved",
     "login-mfa",

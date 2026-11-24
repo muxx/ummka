@@ -14,6 +14,7 @@ const MAX_AUTH_RESPONSE_BYTES: usize = 1024 * 1024;
 
 #[cfg(all(feature = "native-http-check", any(test, target_os = "android")))]
 pub(crate) mod checks;
+pub mod form;
 mod sign_in;
 mod sign_out;
 pub use sign_in::{Revocation, SignInError};
