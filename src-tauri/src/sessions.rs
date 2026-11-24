@@ -1,3 +1,4 @@
+use crate::credentials::{CredentialError, CredentialStore};
 use crate::installation_url::parse_canonical;
 use crate::rest::{TransportError, is_mattermost_id};
 use reqwest::header::HeaderValue;
@@ -22,18 +23,15 @@ pub(crate) fn is_credential_header(name: &str) -> bool {
     )
 }
 
-#[derive(Eq, Hash, PartialEq)]
-struct Account {
+#[derive(Clone, Eq, Hash, PartialEq)]
+pub struct Account {
     installation: String,
     user_id: String,
 }
 
 impl Account {
-    fn new(base: &str, user_id: &str) -> Result<Self, TransportError> {
-        let url = parse_canonical(base).ok_or(TransportError::InvalidInstallation)?;
-        if url.scheme() != "https" {
-            return Err(TransportError::CleartextDenied);
-        }
+    pub fn new(base: &str, user_id: &str) -> Result<Self, TransportError> {
+        validate_installation(base)?;
         if !is_mattermost_id(user_id) {
             return Err(TransportError::InvalidAccount);
         }
@@ -42,13 +40,29 @@ impl Account {
             user_id: user_id.to_owned(),
         })
     }
+
+    pub fn installation(&self) -> &str {
+        &self.installation
+    }
+
+    pub fn user_id(&self) -> &str {
+        &self.user_id
+    }
+}
+
+pub(crate) fn validate_installation(base: &str) -> Result<(), TransportError> {
+    let url = parse_canonical(base).ok_or(TransportError::InvalidInstallation)?;
+    if url.scheme() != "https" {
+        return Err(TransportError::CleartextDenied);
+    }
+    Ok(())
 }
 
 #[derive(Clone)]
-pub(crate) struct SessionToken(HeaderValue);
+pub struct SessionToken(HeaderValue);
 
 impl SessionToken {
-    pub(crate) fn new(raw: &str) -> Result<Self, TransportError> {
+    pub fn new(raw: &str) -> Result<Self, TransportError> {
         let unpadded = raw.trim_end_matches('=');
         if unpadded.is_empty()
             || !unpadded
@@ -70,8 +84,12 @@ impl SessionToken {
     }
 
     pub(crate) fn appears_in(&self, bytes: &[u8]) -> bool {
-        let raw = &self.0.as_bytes()[b"Bearer ".len()..];
+        let raw = self.secret();
         bytes.windows(raw.len()).any(|part| part == raw)
+    }
+
+    pub(crate) fn secret(&self) -> &[u8] {
+        &self.0.as_bytes()[b"Bearer ".len()..]
     }
 }
 
@@ -103,35 +121,24 @@ impl AccountSession {
     }
 }
 
-/// Active native logins, keyed by the exact installation and Mattermost account.
-/// Only a native login or restoration of a verified account can supply a token.
-#[derive(Default)]
-pub struct AccountSessions {
+/// Native state for one application. A worker serializes durable changes and restoration.
+/// Requests on an active account use only that session's in-memory generation.
+#[derive(Clone)]
+pub struct AccountSessions(Arc<SessionState>);
+
+struct SessionState {
     entries: Mutex<HashMap<Account, Arc<AccountSession>>>,
+    changes: Mutex<()>,
+    open_store: Box<dyn Fn() -> Result<Box<dyn CredentialStore>, CredentialError> + Send + Sync>,
 }
 
-impl AccountSessions {
-    pub async fn activate(
-        &self,
-        base: &str,
-        user_id: &str,
-        token: &str,
-    ) -> Result<(), TransportError> {
-        let account = Account::new(base, user_id)?;
-        let session = AccountSession {
-            token: RwLock::new(Some(SessionToken::new(token)?)),
-            end: CancellationToken::new(),
-        };
-        self.replace(account, Some(Arc::new(session))).await;
-        Ok(())
+impl SessionState {
+    fn active(&self, account: &Account) -> Option<Arc<AccountSession>> {
+        self.entries.lock().unwrap().get(account).cloned()
     }
 
-    pub async fn forget(&self, base: &str, user_id: &str) -> Result<(), TransportError> {
-        self.replace(Account::new(base, user_id)?, None).await;
-        Ok(())
-    }
-
-    async fn replace(&self, account: Account, next: Option<Arc<AccountSession>>) {
+    // Called on a blocking worker under the lifecycle lock, after a confirmed storage operation.
+    fn replace(&self, account: Account, next: Option<Arc<AccountSession>>) {
         let previous = {
             let mut entries = self.entries.lock().unwrap();
             let previous = match next {
@@ -144,22 +151,107 @@ impl AccountSessions {
             previous
         };
         if let Some(session) = previous {
-            session.token.write().await.take();
+            session.token.blocking_write().take();
         }
     }
+}
 
-    pub(crate) fn get(
+impl AccountSession {
+    fn new(token: SessionToken) -> Arc<Self> {
+        Arc::new(Self {
+            token: RwLock::new(Some(token)),
+            end: CancellationToken::new(),
+        })
+    }
+}
+
+impl AccountSessions {
+    pub fn for_application(application_id: String) -> Self {
+        Self::with_store(move || crate::credentials::for_application(&application_id))
+    }
+
+    fn with_store(
+        open_store: impl Fn() -> Result<Box<dyn CredentialStore>, CredentialError>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Self {
+        Self(Arc::new(SessionState {
+            entries: Mutex::new(HashMap::new()),
+            changes: Mutex::new(()),
+            open_store: Box::new(open_store),
+        }))
+    }
+
+    async fn change<T: Send + 'static>(
+        &self,
+        action: impl FnOnce(&SessionState) -> Result<T, TransportError> + Send + 'static,
+    ) -> Result<T, TransportError> {
+        let state = self.0.clone();
+        // Dropping the IPC waiter cannot interrupt a committed change before retirement.
+        tauri::async_runtime::spawn_blocking(move || {
+            let _guard = state.changes.lock().unwrap();
+            action(&state)
+        })
+        .await
+        .map_err(|_| TransportError::CredentialStorageUnavailable)?
+    }
+
+    /// Accept only the result of a verified native login. No renderer command takes a token.
+    pub async fn activate(
+        &self,
+        base: &str,
+        user_id: &str,
+        raw: &str,
+    ) -> Result<(), TransportError> {
+        let account = Account::new(base, user_id)?;
+        let token = SessionToken::new(raw)?;
+        self.change(move |state| {
+            (state.open_store)()?.save(&account, &token)?;
+            state.replace(account, Some(AccountSession::new(token)));
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn forget(&self, base: &str, user_id: &str) -> Result<(), TransportError> {
+        let account = Account::new(base, user_id)?;
+        self.change(move |state| {
+            (state.open_store)()?.remove(&account)?;
+            state.replace(account, None);
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn account_ids(&self, base: &str) -> Result<Vec<String>, TransportError> {
+        validate_installation(base)?;
+        let base = base.to_owned();
+        self.change(move |state| Ok((state.open_store)()?.account_ids(&base)?))
+            .await
+    }
+
+    pub(crate) async fn restore(
         &self,
         base: &str,
         user_id: &str,
     ) -> Result<Arc<AccountSession>, TransportError> {
         let account = Account::new(base, user_id)?;
-        self.entries
-            .lock()
-            .unwrap()
-            .get(&account)
-            .cloned()
-            .ok_or(TransportError::SessionUnavailable)
+        if let Some(session) = self.0.active(&account) {
+            return Ok(session);
+        }
+        self.change(move |state| {
+            if let Some(session) = state.active(&account) {
+                return Ok(session);
+            }
+            let token = (state.open_store)()?
+                .read(&account)?
+                .ok_or(TransportError::SessionUnavailable)?;
+            let session = AccountSession::new(token);
+            state.replace(account, Some(session.clone()));
+            Ok(session)
+        })
+        .await
     }
 }
 

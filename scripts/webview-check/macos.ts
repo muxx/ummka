@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -21,9 +22,9 @@ async function launch(expected: string, env = process.env) {
   );
 }
 
-async function checkRestarts() {
-  await launch("registry-removed");
-  await launch("registry-confirmed");
+async function checkRestarts(env = process.env) {
+  await launch("registry-removed", env);
+  await launch("registry-confirmed", env);
 }
 
 export async function checkMacWebview(
@@ -31,9 +32,11 @@ export async function checkMacWebview(
   dir: string,
   config: string,
 ) {
+  const keychain = join(dir, "sessions.keychain-db");
   const env = {
     ...process.env,
     UMMKA_WEBVIEW_CHECK_PORTS: ports.join(","),
+    UMMKA_CHECK_KEYCHAIN: keychain,
     UMMKA_HTTP_TEST_CA: join(dir, "trusted.pem"),
   };
   execFileSync(
@@ -53,28 +56,52 @@ export async function checkMacWebview(
     ],
     { env, stdio: "inherit" },
   );
-  await launch("PASS", env);
-  if (process.env.UMMKA_CHECK_MACOS_OFFLINE === "1") {
-    const { stdout } = await exec(
-      "bash",
-      ["scripts/with-macos-offline.sh", process.execPath, import.meta.filename],
-      { env },
+  const security = (...args: string[]) =>
+    execFileSync("/usr/bin/security", args);
+  const original = security("list-keychains", "-d", "user");
+  const password = randomUUID();
+  security("create-keychain", "-p", password, keychain);
+  try {
+    security("unlock-keychain", "-p", password, keychain);
+    await launch("credentials-seeded", {
+      ...env,
+      UMMKA_CHECK_SEED_ACCOUNTS: "1",
+    });
+    await launch("PASS", env);
+    if (process.env.UMMKA_CHECK_MACOS_OFFLINE === "1") {
+      const { stdout } = await exec(
+        "bash",
+        [
+          "scripts/with-macos-offline.sh",
+          process.execPath,
+          import.meta.filename,
+        ],
+        { env },
+      );
+      console.log(stdout.trim());
+    } else {
+      await checkRestarts(env);
+    }
+    const file = join(dir, "data", "installations.sqlite");
+    await unlink(file);
+    const query = (sql: string) =>
+      execFileSync("/usr/bin/sqlite3", [file, sql], {
+        encoding: "utf8",
+      }).trim();
+    query(
+      "CREATE TABLE other(value TEXT); INSERT INTO other VALUES ('kept'); PRAGMA user_version = 3;",
     );
-    console.log(stdout.trim());
-  } else {
-    await checkRestarts();
+    const before = await readFile(file);
+    await launch("registry-unsupported", env);
+    assert.deepEqual(await readFile(file), before);
+    assert.equal(query("SELECT value FROM other"), "kept");
+  } finally {
+    security("delete-keychain", keychain);
+    assert(
+      original.equals(security("list-keychains", "-d", "user")),
+      "fixture changed the user Keychain search list",
+    );
   }
-  const file = join(dir, "data", "installations.sqlite");
-  await unlink(file);
-  const query = (sql: string) =>
-    execFileSync("/usr/bin/sqlite3", [file, sql], { encoding: "utf8" }).trim();
-  query(
-    "CREATE TABLE other(value TEXT); INSERT INTO other VALUES ('kept'); PRAGMA user_version = 3;",
-  );
-  const before = await readFile(file);
-  await launch("registry-unsupported");
-  assert.deepEqual(await readFile(file), before);
-  assert.equal(query("SELECT value FROM other"), "kept");
 }
 
 if (import.meta.main) await checkRestarts();

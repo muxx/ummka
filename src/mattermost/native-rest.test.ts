@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, expect, test, vi } from "vitest";
 import {
+  forgetLocalAccount,
+  listAccountIds,
   openAccountRestConnection,
   openNativeRestConnection,
 } from "./native-rest.ts";
@@ -8,6 +10,23 @@ import {
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const ipc = vi.mocked(invoke);
 beforeEach(() => ipc.mockReset());
+
+test("lists and forgets accounts for the exact canonical installation", async () => {
+  const server = "https://CHAT.example.test/Team///";
+  const serverUrl = "https://chat.example.test/Team";
+  const userId = "Abc01234567890123456789012";
+  ipc
+    .mockResolvedValueOnce([userId])
+    .mockRejectedValueOnce("credential_storage_unavailable");
+  await expect(listAccountIds(server)).resolves.toEqual([userId]);
+  await expect(forgetLocalAccount(server, userId)).rejects.toBe(
+    "credential_storage_unavailable",
+  );
+  expect(ipc.mock.calls).toEqual([
+    ["list_account_ids", { serverUrl }],
+    ["forget_local_account", { serverUrl, userId }],
+  ]);
+});
 
 test("passes the canonical installation and closes the exact native handle", async () => {
   ipc.mockResolvedValueOnce(41).mockResolvedValueOnce(undefined);

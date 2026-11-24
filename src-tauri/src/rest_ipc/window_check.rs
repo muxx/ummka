@@ -38,7 +38,9 @@ async fn check<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<(), &'static str
     .map_err(|_| "test window")?;
     let owner: &Webview<R> = window.as_ref();
     watch_window(owner);
-    let connection = open_rest_connection(owner.clone(), base.clone(), None).map_err(|_| "open")?;
+    let connection = open_rest_connection(owner.clone(), base.clone(), None)
+        .await
+        .map_err(|_| "open")?;
     let pending = session(owner, connection).map_err(|_| "connection")?;
     let id = pending.prepare().map_err(|_| "prepare")?;
     let task = tauri::async_runtime::spawn(async move {

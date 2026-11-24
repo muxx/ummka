@@ -1,6 +1,8 @@
 fn main() {
     let manifest = tauri_build::AppManifest::new().commands(&[
         "open_rest_connection",
+        "list_account_ids",
+        "forget_local_account",
         "close_rest_connection",
         "prepare_rest_request",
         "send_rest_request",

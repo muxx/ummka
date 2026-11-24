@@ -1,6 +1,23 @@
 import { invoke } from "@tauri-apps/api/core";
 import { nativeFetch } from "./native-fetch.ts";
 import { createRestTransport } from "./rest-transport.ts";
+import { canonicalServerUrl } from "./server-url.ts";
+
+export async function listAccountIds(serverUrl: string): Promise<string[]> {
+  return invoke<string[]>("list_account_ids", {
+    serverUrl: canonicalServerUrl(serverUrl),
+  });
+}
+
+export async function forgetLocalAccount(
+  serverUrl: string,
+  userId: string,
+): Promise<void> {
+  return invoke<void>("forget_local_account", {
+    serverUrl: canonicalServerUrl(serverUrl),
+    userId,
+  });
+}
 
 export function openNativeRestConnection(serverUrl: string) {
   return openConnection(serverUrl);

@@ -307,10 +307,22 @@ pub fn run_checks<'local>(
     _: jni::objects::JObject<'local>,
     ports: jni::objects::JString<'local>,
     registry_path: jni::objects::JString<'local>,
+    _account_port: jni::sys::jint,
 ) {
     env.with_env(|env| {
         let ports = ports.try_to_string(env)?;
         let registry_path = registry_path.try_to_string(env)?;
+        #[cfg(feature = "webview-check")]
+        {
+            let sessions = crate::sessions::AccountSessions::for_application(String::new());
+            crate::rest_ipc::seed_check_sessions(
+                &sessions,
+                u16::try_from(_account_port).expect("fixture port"),
+            )
+            .expect("could not seed Android fixture credentials");
+            crate::credentials::android::checks::reject_first_account_removal()
+                .expect("could not install fixture constraint");
+        }
         let result = tauri::async_runtime::block_on(async {
             crate::registry::checks::round_trip(std::path::Path::new(&registry_path))?;
             check_wire(NativeHttp::new()?, RestConnection::new, &ports).await

@@ -3,7 +3,10 @@ import {
   listInstallations,
   rememberInstallation,
 } from "../../src/mattermost/installation-registry.ts";
-
+import {
+  listAccountIds,
+  openAccountRestConnection,
+} from "../../src/mattermost/native-rest.ts";
 import { resolveChannelsLink } from "../../src/mattermost/resolve-channels-link.ts";
 
 const first = "https://chat.example.test";
@@ -38,6 +41,21 @@ export async function resumeRegistryCheck(): Promise<boolean> {
     return true;
   }
   if (urls.length === 0) return false;
+  const port = String(import.meta.env.VITE_UMMKA_CHECK_PORTS).split(",")[0];
+  const root = `https://127.0.0.1:${port}`;
+  const firstId = "Abc01234567890123456789012";
+  for (const base of [root, `${root}/team/chat`]) {
+    if ((await listAccountIds(base)).join(",") !== firstId)
+      throw Error("wrong offline account list");
+    const recovered = await openAccountRestConnection(base, firstId);
+    await recovered.close();
+  }
+  const forgotten = await openAccountRestConnection(
+    `${root}/team/chat`,
+    "b".repeat(26),
+  ).catch((error: unknown) => error);
+  if (forgotten !== "session_unavailable")
+    throw Error("forgotten account restored offline");
   if (urls.length === 2 && urls[0] === first && urls[1] === second) {
     await checkLink(first, true);
     await checkLink(second, true);

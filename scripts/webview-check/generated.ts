@@ -150,9 +150,7 @@ export async function checkGeneratedRequests(ports: string[]) {
       "generated-user",
     );
     const rootSession = new Configuration(accountRoot);
-    await checkAccountResponses(accountPrefix, userId, () =>
-      observed("closed", "account-error-body"),
-    );
+    await checkAccountResponses(accountPrefix, userId, observed);
     await checkTeamReads(rootSession, signed);
     await checkChannelHistory(rootSession, signed, new Configuration(root));
     const profile = await loadInstallationProfile(
