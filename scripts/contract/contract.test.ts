@@ -228,7 +228,13 @@ test("builds identical JSON from the pinned sources", () => {
 
 test("changes only the confirmed history fields in the selected models", () => {
   const additions = {
-    Post: ["reply_count", "last_reply_at", "participants", "is_following"],
+    Post: [
+      "is_pinned",
+      "reply_count",
+      "last_reply_at",
+      "participants",
+      "is_following",
+    ],
     PostList: ["first_inaccessible_post_time"],
     PostMetadata: ["images"],
   };
@@ -238,6 +244,12 @@ test("changes only the confirmed history fields in the selected models", () => {
     const baseline = object(at(original, ["properties"]), name);
     const selected = structuredClone(at(contract, path));
     const properties = object(at(selected, ["properties"]), name);
+    if (name === "Post") {
+      assert.equal(Object.hasOwn(properties, "hashtag"), false);
+      assert.deepEqual(properties.hashtags, baseline.hashtag);
+      properties.hashtag = properties.hashtags;
+      delete properties.hashtags;
+    }
     for (const field of fields) {
       assert.ok(Object.hasOwn(properties, field), field);
       if (Object.hasOwn(baseline, field)) {
@@ -346,18 +358,68 @@ const removals = [
 const builder = fileURLToPath(new URL("./schema.ts", import.meta.url));
 const sourceDirectory = resolve(sources);
 const fixturePrefix = join(work, "incomplete-");
+function copySources() {
+  const fixture = mkdtempSync(fixturePrefix);
+  for (const name of new Set([
+    "introduction.yaml",
+    "definitions.yaml",
+    "definitions-12.1.0.yaml",
+    "posts-12.1.0.yaml",
+    ...catalog.map(({ file }) => file),
+  ])) {
+    copyFileSync(join(sourceDirectory, name), join(fixture, name));
+  }
+  return fixture;
+}
+
+test("preserves the verified artifact if a corrected Post field drifts", () => {
+  for (const change of [
+    "missing hashtag",
+    "new type",
+    "hashtags exists",
+    "is_pinned exists",
+    "hashtag required",
+  ]) {
+    const fixture = copySources();
+    const altered = readSource(fixture, "definitions.yaml");
+    const schema = object(
+      at(altered, ["components", "schemas", "Post"]),
+      "Post",
+    );
+    const fields = object(schema.properties, "Post properties");
+    switch (change) {
+      case "missing hashtag":
+        delete fields.hashtag;
+        break;
+      case "new type":
+        fields.hashtag = { type: "integer" };
+        break;
+      case "hashtags exists":
+        fields.hashtags = { type: "string" };
+        break;
+      case "is_pinned exists":
+        fields.is_pinned = { type: "boolean" };
+        break;
+      case "hashtag required":
+        schema.required = ["hashtag"];
+        break;
+    }
+    writeFileSync(join(fixture, "definitions.yaml"), stringify(altered));
+    const output = join(fixture, "openapi.json");
+    writeFileSync(output, serialized);
+    const result = spawnSync(process.execPath, [builder, fixture, output], {
+      encoding: "utf8",
+    });
+    assert.ifError(result.error);
+    assert.equal(result.status, 1, change);
+    assert.match(result.stderr, /Review the Post/);
+    assert.equal(readFileSync(output, "utf8"), serialized);
+  }
+});
+
 for (const { file, path, error } of removals) {
   test(`the builder rejects ${file} without ${path.join(" > ")}`, () => {
-    const fixture = mkdtempSync(fixturePrefix);
-    for (const name of new Set([
-      "introduction.yaml",
-      "definitions.yaml",
-      "definitions-12.1.0.yaml",
-      "posts-12.1.0.yaml",
-      ...catalog.map(({ file }) => file),
-    ])) {
-      copyFileSync(join(sourceDirectory, name), join(fixture, name));
-    }
+    const fixture = copySources();
     const altered = readSource(fixture, file);
     const parent = object(at(altered, path.slice(0, -1)), "parent");
     delete parent[path[path.length - 1]];

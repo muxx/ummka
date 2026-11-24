@@ -7,7 +7,9 @@ import {
 import {
   ChannelsApi,
   Configuration,
+  PostFromJSON,
   PostsApi,
+  PostToJSON,
   ResponseError,
 } from "../../../vendor/mattermost/index.js";
 
@@ -320,6 +322,40 @@ for (const collapsedThreads of [false, true]) {
 }
 console.log(
   `Mattermost ${version} verified the focused timeline with plain and collapsed threads.`,
+);
+
+// Pin state and the server's parsed hashtags are independent properties of each post.
+const plainPost = await message("An ordinary post");
+const taggedPost = await message("A post with #ummkatest");
+for (const pinned of [false, true]) {
+  if (pinned) {
+    for (const post of [plainPost, taggedPost])
+      await create(`posts/${post.id}/pin`, {}, token);
+  }
+  const response = await posts.getPostsForChannelRaw(page);
+  const raw = await response.raw.clone().json();
+  const model = await response.value();
+  for (const [id, tags] of [
+    [plainPost.id, ""],
+    [taggedPost.id, "#ummkatest"],
+  ]) {
+    const wire = raw.posts[id];
+    assert.equal(wire.is_pinned, pinned);
+    assert.equal(wire.hashtags, tags);
+    assert.equal(Object.hasOwn(wire, "hashtag"), false);
+    const post = model.posts?.[id];
+    assert.ok(post);
+    assert.deepEqual(post, PostFromJSON(wire));
+    assert.equal(post.isPinned, pinned);
+    assert.equal(post.hashtags, tags);
+    const encoded = JSON.parse(JSON.stringify(PostToJSON(post)));
+    assert.equal(encoded.is_pinned, pinned);
+    assert.equal(encoded.hashtags, tags);
+    assert.equal(Object.hasOwn(encoded, "hashtag"), false);
+  }
+}
+console.log(
+  `Mattermost ${version} verified independent pin and hashtag values through the generated Post converters.`,
 );
 
 // A failed local save must revoke only the new server session for this same user.
