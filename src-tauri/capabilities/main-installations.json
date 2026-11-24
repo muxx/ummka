@@ -1,0 +1,11 @@
+{
+  "identifier": "main-installations",
+  "description": "The local main WebView can list, remember and forget Mattermost installations.",
+  "local": true,
+  "webviews": ["main"],
+  "permissions": [
+    "allow-list-installations",
+    "allow-remember-installation",
+    "allow-forget-installation"
+  ]
+}

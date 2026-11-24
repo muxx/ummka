@@ -18,7 +18,11 @@ const dir = await mkdtemp(join(tmpdir(), "ummka-http-"));
 try {
   const fixture = await startFixture(dir);
   try {
-    const config = await buildWebviewFixture(dir, fixture.webviewPorts);
+    const config = await buildWebviewFixture(
+      dir,
+      fixture.webviewPorts,
+      platform,
+    );
     if (platform === "android")
       await checkAndroid(
         dir,
@@ -52,11 +56,7 @@ try {
         },
       );
       assert.match(result.stdout, /1 passed/);
-      await checkMacWebview(
-        fixture.webviewPorts,
-        join(dir, "trusted.pem"),
-        config,
-      );
+      await checkMacWebview(fixture.webviewPorts, dir, config);
     }
     fixture.verify(platform === "android");
     console.log(

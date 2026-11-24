@@ -8,6 +8,8 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 
+import { checkWebviewProcesses } from "./android-webview.ts";
+
 const exec = promisify(execFile);
 const app = "io.github.muxx.ummka.dev";
 const deviceProfile = "pixel_6";
@@ -232,35 +234,7 @@ export async function checkAndroid(
     );
     assert.match(result, /^INSTRUMENTATION_RESULT: result=PASS\r?$/m);
     assert.match(result, /^INSTRUMENTATION_CODE: -1\r?$/m);
-    const launch = await adb(
-      "shell",
-      "am",
-      "start",
-      "-W",
-      "-n",
-      `${component}MainActivity`,
-    );
-    assert.match(launch, /Status: ok/);
-    const until = Date.now() + 65_000;
-    while (true) {
-      const output = await adb(
-        "logcat",
-        "-d",
-        "-s",
-        "RustStdoutStderr:I",
-        "AndroidRuntime:E",
-      );
-      assert.doesNotMatch(output, /UMMKA_WEBVIEW_CHECK FAIL|FATAL EXCEPTION/);
-      if (output.includes("UMMKA_WEBVIEW_CHECK PASS")) break;
-      assert(
-        Date.now() < until && emulator.exitCode === null,
-        `Android WebView check timed out.\n${output}`,
-      );
-      await delay(500);
-    }
-    console.log(
-      "Android WebView opened and closed native REST connections across a reload.",
-    );
+    await checkWebviewProcesses(adb, `${app}.httpcheck`, component);
   } catch (error) {
     console.error((await readFile(log, "utf8")).slice(-1500));
     throw error;

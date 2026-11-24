@@ -3,6 +3,8 @@ import { openNativeRestConnection } from "../../src/mattermost/native-rest.ts";
 import { beginExchanges, finishExchangesAfterReload } from "./exchanges.ts";
 import { checkGeneratedRequests } from "./generated.ts";
 
+import { resumeRegistryCheck, seedRegistry } from "./registry.ts";
+
 const fetch = window.fetch.bind(window);
 let direct = 0;
 let blocked = 0;
@@ -44,10 +46,12 @@ async function expectClosed(close: () => Promise<void>) {
 }
 
 async function checkResources() {
+  if (await resumeRegistryCheck()) return;
   if (await finishExchangesAfterReload()) {
     await checkGeneratedRequests(
       String(import.meta.env.VITE_UMMKA_CHECK_PORTS).split(","),
     );
+    await seedRegistry();
     location.replace("/ipc-result.html?pass");
     return;
   }
@@ -61,7 +65,7 @@ async function checkResources() {
     if (first.rid === second.rid) throw Error("shared-handle");
     await first.close();
     await expectClosed(first.close);
-    checkRoute(4);
+    checkRoute(5);
     sessionStorage.setItem("rest-connection", String(second.rid));
     location.reload();
     return;
@@ -71,7 +75,7 @@ async function checkResources() {
   );
   const next = await openNativeRestConnection(server);
   await next.close();
-  checkRoute(3);
+  checkRoute(4);
   sessionStorage.removeItem("rest-connection");
   await beginExchanges(() => {
     if (

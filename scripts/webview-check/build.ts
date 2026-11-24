@@ -1,7 +1,11 @@
 import { join } from "node:path";
 import { build } from "vite";
 
-export async function buildWebviewFixture(dir: string, ports: number[]) {
+export async function buildWebviewFixture(
+  dir: string,
+  ports: number[],
+  platform: "macos" | "android",
+) {
   const frontendDist = join(dir, "ui");
   await build({
     configFile: false,
@@ -13,6 +17,11 @@ export async function buildWebviewFixture(dir: string, ports: number[]) {
   });
   return JSON.stringify({
     build: { frontendDist, beforeBuildCommand: null },
-    app: { windows: [{ label: "main", title: "ummka", visible: false }] },
+    app: {
+      windows: [{ label: "main", title: "ummka", visible: false }],
+      ...(platform === "macos" && {
+        appDirectoriesOverride: { localData: join(dir, "data") },
+      }),
+    },
   });
 }
