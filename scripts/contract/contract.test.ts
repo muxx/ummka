@@ -28,6 +28,11 @@ import {
   postInfoSchema,
 } from "./post-info-correction.ts";
 import { buildSpecification, readSource } from "./schema.ts";
+import {
+  correctSidebarCategory,
+  correctSidebarResponse,
+  correctSidebarSchema,
+} from "./sidebar-corrections.ts";
 
 const sources = process.env.UMMKA_CONTRACT_SOURCES;
 const work = process.env.UMMKA_CONTRACT_WORK;
@@ -45,6 +50,7 @@ const system = read("system.yaml");
 const userRoute = "/api/v4/users/{user_id}";
 const users = read("users.yaml");
 const history = "/api/v4/channels/{channel_id}/posts";
+const sidebar = "/api/v4/users/{user_id}/teams/{team_id}/channels/categories";
 const threadFlags = [
   "skipFetchThreads",
   "collapsedThreads",
@@ -124,6 +130,7 @@ const definitionPaths = [
   ["components", "responses", "NotImplemented"],
   ["components", "schemas", "AppError"],
   ["components", "schemas", "Team"],
+  ["components", "schemas", "TeamMember"],
   ["components", "schemas", "Channel"],
   ["components", "schemas", "ChannelMember"],
   ["components", "schemas", "ChannelNotifyProps"],
@@ -159,10 +166,20 @@ test("retains the catalog operations, security and transitive models", () => {
         reference.filter((p) => threadFlags.includes(p.name)),
       );
     }
-    assert.deepEqual(actual, at(read(file), key));
+    const source = object(at(read(file), key), path);
+    assert.deepEqual(
+      actual,
+      path === sidebar ? correctSidebarResponse(source) : source,
+    );
   }
   for (const path of definitionPaths) {
-    assert.deepEqual(at(contract, path), at(definitions, path));
+    const source = at(definitions, path);
+    const name = path[2];
+    const expected =
+      name === "Channel" || name === "ChannelMember" || name === "TeamMember"
+        ? correctSidebarSchema(name, object(source, name))
+        : source;
+    assert.deepEqual(at(contract, path), expected);
   }
   assert.deepEqual(
     Object.keys(object(contract.paths, "paths")).sort(),
@@ -179,19 +196,72 @@ test("retains the catalog operations, security and transitive models", () => {
       "ChannelNotifyProps",
       "Emoji",
       "FileInfo",
+      "OrderedSidebarCategories",
       "Post",
       "PostAcknowledgement",
       "PostInfo",
       "PostList",
       "PostMetadata",
+      "Preference",
       "Reaction",
+      "SidebarCategoryWithChannels",
       "SystemStatusResponse",
       "Team",
+      "TeamMember",
       "Timezone",
       "User",
       "UserNotifyProps",
     ],
   );
+});
+
+test("corrects the sidebar envelope and category fields without changing the upstream objects", () => {
+  const operation = object(
+    at(read("channels.yaml"), [sidebar, "get"]),
+    sidebar,
+  );
+  const success = ["responses", "200", "content", "application/json"];
+  const original = structuredClone(operation);
+  const corrected = correctSidebarResponse(operation);
+  assert.deepEqual(at(corrected, [...success, "schema"]), {
+    $ref: "#/components/schemas/OrderedSidebarCategories",
+  });
+  assert.deepEqual(operation, original);
+  assert.throws(
+    () => correctSidebarResponse(corrected),
+    /Review the sidebar response/,
+  );
+
+  const name = "SidebarCategoryWithChannels";
+  const schema = object(at(definitions, ["components", "schemas", name]), name);
+  const unchanged = structuredClone(schema);
+  const properties = object(schema.properties, name);
+  const output = object(
+    at(contract, ["components", "schemas", name, "properties"]),
+    name,
+  );
+  assert.deepEqual(output, {
+    ...properties,
+    type: {
+      type: "string",
+      enum: ["channels", "custom", "direct_messages", "favorites", "managed"],
+    },
+    sort_order: { type: "integer", format: "int64" },
+    sorting: { type: "string" },
+    muted: { type: "boolean" },
+    collapsed: { type: "boolean" },
+  });
+  for (const key of ["sort_order", "sorting", "muted", "collapsed", "type"]) {
+    const altered = {
+      ...schema,
+      properties: { ...properties, [key]: { type: "string" } },
+    };
+    assert.throws(
+      () => correctSidebarCategory(altered),
+      /Review the sidebar category/,
+    );
+  }
+  assert.deepEqual(schema, unchanged);
 });
 
 test("imports precisely the missing post info contract and stops on drift", () => {
@@ -657,9 +727,119 @@ test("requires the HTTP verb in its wire spelling", () => {
 });
 
 // Load the emitted ESM from this build, after the generated client has passed strict tsc.
-const { Configuration, SystemApi, PostListFromJSON } = await import(
-  pathToFileURL(resolve(work, "compiled/index.js")).href
-);
+const {
+  Configuration,
+  SystemApi,
+  PostListFromJSON,
+  ChannelFromJSON,
+  ChannelToJSON,
+  ChannelMemberFromJSON,
+  ChannelMemberToJSON,
+  TeamMemberFromJSON,
+  TeamMemberToJSON,
+} = await import(pathToFileURL(resolve(work, "compiled/index.js")).href);
+const channelRoleFields = {
+  scheme_guest: { type: "boolean" },
+  scheme_user: { type: "boolean" },
+  scheme_admin: { type: "boolean" },
+  explicit_roles: { type: "string" },
+};
+test("root-only and urgent counts survive generation, including zero and absent values", () => {
+  for (const { name, keys, decode, encode } of [
+    {
+      name: "Channel",
+      keys: ["last_root_post_at", "total_msg_count_root"],
+      decode: ChannelFromJSON,
+      encode: ChannelToJSON,
+    },
+    {
+      name: "ChannelMember",
+      keys: ["mention_count_root", "msg_count_root", "urgent_mention_count"],
+      decode: ChannelMemberFromJSON,
+      encode: ChannelMemberToJSON,
+    },
+  ]) {
+    const schema = object(
+      at(definitions, ["components", "schemas", name]),
+      name,
+    );
+    const original = structuredClone(schema);
+    const properties = object(schema.properties, name);
+    const published = object(
+      at(contract, ["components", "schemas", name, "properties"]),
+      name,
+    );
+    const additions = Object.fromEntries(
+      keys.map((key) => [key, { type: "integer", format: "int64" }]),
+    );
+    assert.deepEqual(published, {
+      ...properties,
+      ...additions,
+      ...(name === "ChannelMember" ? channelRoleFields : {}),
+    });
+    for (const key of keys) {
+      assert.throws(
+        () =>
+          correctSidebarSchema(name, {
+            ...schema,
+            properties: { ...properties, [key]: additions[key] },
+          }),
+        /Review the .* sidebar counter/,
+      );
+    }
+    for (const value of [undefined, 0, 27]) {
+      const wire =
+        value === undefined
+          ? {}
+          : Object.fromEntries(
+              keys.map((key, index) => [key, value && value + index]),
+            );
+      assert.deepEqual(JSON.parse(JSON.stringify(encode(decode(wire)))), wire);
+    }
+    assert.deepEqual(schema, original);
+  }
+});
+test("keeps scheme roles separate from explicit membership roles and detects upstream additions", () => {
+  for (const [name, decode, encode] of [
+    ["TeamMember", TeamMemberFromJSON, TeamMemberToJSON],
+    ["ChannelMember", ChannelMemberFromJSON, ChannelMemberToJSON],
+  ] as const) {
+    const base = object(at(definitions, ["components", "schemas", name]), name);
+    const properties = object(base.properties, name);
+    const extra =
+      name === "TeamMember"
+        ? { scheme_guest: channelRoleFields.scheme_guest }
+        : channelRoleFields;
+    for (const [key, value] of Object.entries(extra)) {
+      assert.throws(
+        () =>
+          correctSidebarSchema(name, {
+            ...base,
+            properties: { ...properties, [key]: value },
+          }),
+        /Review the .* membership roles/,
+      );
+    }
+    for (const wire of [
+      {},
+      {
+        roles: "member_guest custom_role",
+        scheme_guest: true,
+        scheme_user: false,
+        scheme_admin: false,
+        explicit_roles: "custom_role",
+      },
+      {
+        roles: "member_user member_admin",
+        scheme_guest: false,
+        scheme_user: true,
+        scheme_admin: true,
+        explicit_roles: "",
+      },
+    ])
+      assert.deepEqual(JSON.parse(JSON.stringify(encode(decode(wire)))), wire);
+  }
+});
 test("the generated reader preserves a nonzero history boundary and thread values", () => {
   const page = PostListFromJSON({
     order: ["root"],

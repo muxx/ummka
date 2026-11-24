@@ -30,6 +30,12 @@
     "id": "GetTeamsForUser"
   },
   {
+    "file": "teams.yaml",
+    "method": "GET",
+    "path": "/api/v4/users/{user_id}/teams/members",
+    "id": "GetTeamMembersForUser"
+  },
+  {
     "file": "channels.yaml",
     "method": "GET",
     "path": "/api/v4/users/{user_id}/teams/{team_id}/channels",
@@ -40,6 +46,18 @@
     "method": "GET",
     "path": "/api/v4/users/{user_id}/teams/{team_id}/channels/members",
     "id": "GetChannelMembersForUser"
+  },
+  {
+    "file": "channels.yaml",
+    "method": "GET",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/channels/categories",
+    "id": "GetSidebarCategoriesForTeamForUser"
+  },
+  {
+    "file": "preferences.yaml",
+    "method": "GET",
+    "path": "/api/v4/users/{user_id}/preferences",
+    "id": "GetPreferences"
   },
   {
     "file": "users.yaml",

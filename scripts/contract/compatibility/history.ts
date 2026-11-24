@@ -16,6 +16,9 @@ import {
   ResponseError,
 } from "../../../vendor/mattermost/index.js";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
+import { checkNavigationMemberships } from "./memberships.ts";
+import { checkSidebarReads } from "./sidebar.ts";
+import { checkSidebarCounters } from "./sidebar-counters.ts";
 
 const base = "http://mattermost:8065";
 const version = process.argv[2];
@@ -447,6 +450,66 @@ await create(
   `teams/${team.id}/members`,
   { team_id: team.id, user_id: reader.id },
   token,
+);
+const extraTeam = await (
+  await create(
+    "teams",
+    {
+      name: "roles-fixture",
+      display_name: "Membership fixture",
+      type: "O",
+      allow_open_invite: true,
+    },
+    token,
+  )
+).json();
+await create(
+  `teams/${extraTeam.id}/members`,
+  { team_id: extraTeam.id, user_id: reader.id },
+  token,
+);
+await checkNavigationMemberships(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  reader.id,
+  { session, userId: user.id },
+  team.id,
+  extraTeam.id,
+  channelId,
+  () =>
+    fetch(`${base}/api/v4/teams/${extraTeam.id}/members/${reader.id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${readerToken}` },
+    }),
+);
+console.log(
+  `Mattermost ${version} verified channel and team roles, active and removed membership and anonymous HTTP 401.`,
+);
+await checkSidebarCounters(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  team.id,
+  channelId,
+  readerLogin.login_id,
+  message,
+  () =>
+    create(
+      "channels/members/me/view",
+      { channel_id: channelId, collapsed_threads_supported: true },
+      readerToken,
+    ),
+);
+console.log(
+  `Mattermost ${version} verified root and reply counters through a channel view.`,
+);
+await checkSidebarReads(
+  base,
+  readerToken,
+  reader.id,
+  user.id,
+  team.id,
+  channelId,
+);
+console.log(
+  `Mattermost ${version} verified personal sidebar categories, order, flags, preferences and ownership.`,
 );
 const disposable = await (
   await create(

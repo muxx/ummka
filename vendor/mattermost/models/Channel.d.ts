@@ -13,6 +13,8 @@ export interface Channel {
     totalMsgCount?: number;
     extraUpdateAt?: number;
     creatorId?: string;
+    totalMsgCountRoot?: number;
+    lastRootPostAt?: number;
 }
 export declare function instanceOfChannel(value: object): value is Channel;
 export declare function ChannelFromJSON(json: any): Channel;

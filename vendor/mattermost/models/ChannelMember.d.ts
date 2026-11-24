@@ -8,6 +8,13 @@ export interface ChannelMember {
     mentionCount?: number;
     notifyProps?: ChannelNotifyProps;
     lastUpdateAt?: number;
+    schemeGuest?: boolean;
+    schemeUser?: boolean;
+    schemeAdmin?: boolean;
+    explicitRoles?: string;
+    msgCountRoot?: number;
+    mentionCountRoot?: number;
+    urgentMentionCount?: number;
 }
 export declare function instanceOfChannelMember(value: object): value is ChannelMember;
 export declare function ChannelMemberFromJSON(json: any): ChannelMember;
