@@ -3,6 +3,14 @@ import { nativeFetch } from "./native-fetch.ts";
 import { createRestTransport } from "./rest-transport.ts";
 import { canonicalServerUrl } from "./server-url.ts";
 
+export async function getCurrentAccountId(
+  serverUrl: string,
+): Promise<string | null> {
+  return invoke<string | null>("get_current_account_id", {
+    serverUrl: canonicalServerUrl(serverUrl),
+  });
+}
+
 export async function listAccountIds(serverUrl: string): Promise<string[]> {
   return invoke<string[]>("list_account_ids", {
     serverUrl: canonicalServerUrl(serverUrl),

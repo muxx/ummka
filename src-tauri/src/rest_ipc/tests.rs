@@ -37,6 +37,7 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
     for (view, origin) in [(&sibling, LOCAL), (main, "https://remote.example.test/")] {
         for (command, body) in [
             ("open_rest_connection", json!({"basePath": SERVER})),
+            ("get_current_account_id", json!({"serverUrl":SERVER})),
             ("list_account_ids", json!({"serverUrl":SERVER})),
             (
                 "forget_local_account",
@@ -74,6 +75,16 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
     assert_eq!(main.resources_table().names().count(), 0);
 
     for (command, body, code) in [
+        (
+            "get_current_account_id",
+            json!({"serverUrl":"http://chat.example.test"}),
+            "cleartext_denied",
+        ),
+        (
+            "get_current_account_id",
+            json!({"serverUrl":"invalid"}),
+            "invalid_installation",
+        ),
         (
             "list_account_ids",
             json!({"serverUrl":"http://chat.example.test"}),

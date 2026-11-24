@@ -5,7 +5,7 @@ type Gate = (oneshot::Sender<()>, std::sync::mpsc::Receiver<()>);
 
 #[derive(Default)]
 pub(crate) struct TestVault {
-    rows: Mutex<HashMap<Account, SessionToken>>,
+    pub(super) rows: Mutex<HashMap<Account, SessionToken>>,
     pub(crate) reads: std::sync::atomic::AtomicUsize,
     pub(crate) saves: std::sync::atomic::AtomicUsize,
     pub(crate) refuse: std::sync::atomic::AtomicBool,
@@ -35,7 +35,14 @@ impl CredentialStore for Arc<TestVault> {
         if self.refuse.load(std::sync::atomic::Ordering::SeqCst) {
             return Err(CredentialError::StorageUnavailable);
         }
-        self.rows.lock().unwrap().insert(a.clone(), t.clone());
+        let mut rows = self.rows.lock().unwrap();
+        if rows
+            .keys()
+            .any(|other| other.installation() == a.installation() && other != a)
+        {
+            return Err(CredentialError::InstallationAccountConflict);
+        }
+        rows.insert(a.clone(), t.clone());
         Ok(())
     }
     fn remove(&self, a: &Account) -> Result<(), CredentialError> {

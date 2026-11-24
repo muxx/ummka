@@ -46,6 +46,17 @@ pub(crate) async fn open_rest_connection<R: Runtime>(
 }
 
 #[tauri::command]
+pub(crate) async fn get_current_account_id<R: Runtime>(
+    webview: Webview<R>,
+    server_url: String,
+) -> Result<Option<String>, TransportError> {
+    webview
+        .state::<AccountSessions>()
+        .current_account_id(&server_url)
+        .await
+}
+
+#[tauri::command]
 pub(crate) async fn list_account_ids<R: Runtime>(
     webview: Webview<R>,
     server_url: String,
@@ -199,6 +210,8 @@ pub(crate) fn seed_check_sessions(
 ) -> Result<(), TransportError> {
     let root = format!("https://127.0.0.1:{port}");
     let prefixed = format!("{root}/team/chat");
+    let secondary = format!("{prefixed}/secondary");
+    let confirmed = format!("{prefixed}/confirmed");
     tauri::async_runtime::block_on(async {
         for (base, account, token) in [
             (&root, "Abc01234567890123456789012", "fixture-root-session"),
@@ -208,12 +221,12 @@ pub(crate) fn seed_check_sessions(
                 "fixture-prefixed-session",
             ),
             (
-                &prefixed,
+                &secondary,
                 "bbbbbbbbbbbbbbbbbbbbbbbbbb",
                 "fixture-second-session",
             ),
             (
-                &prefixed,
+                &confirmed,
                 "dddddddddddddddddddddddddd",
                 "fixture-exit-session",
             ),

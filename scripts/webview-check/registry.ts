@@ -4,6 +4,7 @@ import {
   rememberInstallation,
 } from "../../src/mattermost/installation-registry.ts";
 import {
+  getCurrentAccountId,
   listAccountIds,
   openAccountRestConnection,
 } from "../../src/mattermost/native-rest.ts";
@@ -47,11 +48,15 @@ export async function resumeRegistryCheck(): Promise<boolean> {
   for (const base of [root, `${root}/team/chat`]) {
     if ((await listAccountIds(base)).join(",") !== firstId)
       throw Error("wrong offline account list");
-    const recovered = await openAccountRestConnection(base, firstId);
+    const current = await getCurrentAccountId(base);
+    if (current !== firstId) throw Error("wrong current account offline");
+    const recovered = await openAccountRestConnection(base, current);
     await recovered.close();
   }
+  if ((await getCurrentAccountId(`${root}/team/chat/secondary`)) !== null)
+    throw Error("signed-out installation has a current account offline");
   const forgotten = await openAccountRestConnection(
-    `${root}/team/chat`,
+    `${root}/team/chat/secondary`,
     "b".repeat(26),
   ).catch((error: unknown) => error);
   if (forgotten !== "session_unavailable")

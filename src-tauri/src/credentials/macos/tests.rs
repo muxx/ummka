@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const BASE: &str = "https://chat.example.test/Team";
+const PEER: &str = "https://chat.example.test/peers";
+const RACE: &str = "https://chat.example.test/race";
 const PREFIX: &str = "https://chat.example.test/team";
 const FIRST: &str = "Abc01234567890123456789012";
 const CASE_PEER: &str = "abc01234567890123456789012";
@@ -70,6 +72,11 @@ fn accounts_survive_processes_in_an_explicit_disposable_keychain() {
     writer.lock().unwrap();
     run("writer-held");
     drop(writer);
+    std::thread::scope(|scope| {
+        scope.spawn(|| run("race-a"));
+        run("race-b");
+    });
+    run("race-confirm");
     run("rotate");
     keychain_command(&["lock-keychain", keyfile]);
     run("locked");
@@ -104,7 +111,7 @@ fn check_one_process() {
         application_id: "io.github.muxx.ummka.fixture".into(),
     };
     let first = Account::new(BASE, FIRST).unwrap();
-    let second = Account::new(BASE, SECOND).unwrap();
+    let second = Account::new(PEER, SECOND).unwrap();
     let case_peer = Account::new(BASE, CASE_PEER).unwrap();
     let neighbor = Account::new(PREFIX, FIRST).unwrap();
     let save = |store: &MacCredentialStore, account: &Account, raw| {
@@ -125,7 +132,10 @@ fn check_one_process() {
                 .add_generic_password(&store.service(BASE), FIRST, b"fixture-first")
                 .unwrap();
             save(&store, &second, "fixture-second").unwrap();
-            save(&store, &case_peer, "fixture-case").unwrap();
+            assert_eq!(
+                save(&store, &case_peer, "fixture-case"),
+                Err(CredentialError::InstallationAccountConflict)
+            );
             save(&store, &neighbor, "fixture-neighbor").unwrap();
             save(&other_app, &first, "fixture-other-app").unwrap();
         }
@@ -158,7 +168,8 @@ fn check_one_process() {
             verify(&store, &first, "fixture-first");
         }
         "rotate" => {
-            assert_eq!(store.account_ids(BASE).unwrap(), [FIRST, CASE_PEER, SECOND]);
+            assert_eq!(store.account_ids(BASE).unwrap(), [FIRST]);
+            assert_eq!(store.account_ids(PEER).unwrap(), [SECOND]);
             assert_eq!(store.account_ids(PREFIX).unwrap(), [FIRST]);
             verify(&store, &first, "fixture-first");
             save(&store, &first, "fixture-updated").unwrap();
@@ -198,7 +209,8 @@ fn check_one_process() {
         }
         "confirm" => {
             assert!(store.read(&first).unwrap().is_none());
-            assert_eq!(store.account_ids(BASE).unwrap(), [CASE_PEER, SECOND]);
+            assert!(store.account_ids(BASE).unwrap().is_empty());
+            save(&store, &case_peer, "fixture-case").unwrap();
             verify(&store, &case_peer, "fixture-case");
             verify(&store, &second, "fixture-second");
             verify(&store, &neighbor, "fixture-neighbor");
@@ -212,7 +224,92 @@ fn check_one_process() {
                 Err(CredentialError::InvalidEntry)
             ));
         }
+        "race-a" | "race-b" => racing_writer(&store, Path::new(&file), &phase),
+        "race-confirm" => {
+            let ids = store.account_ids(RACE).unwrap();
+            let mut successful = Vec::new();
+            for (phase, id) in [("race-a", FIRST), ("race-b", SECOND)] {
+                let outcome =
+                    fs::read_to_string(Path::new(&file).with_extension(format!("{phase}-result")))
+                        .unwrap();
+                let account = Account::new(RACE, id).unwrap();
+                if outcome == "saved" {
+                    successful.push(id);
+                    verify(&store, &account, phase);
+                } else {
+                    assert_eq!(outcome, "conflict");
+                    assert!(store.read(&account).unwrap().is_none());
+                }
+            }
+            assert_eq!(successful.len(), 1);
+            assert_eq!(ids, successful);
+            check_legacy_accounts(&store);
+        }
         _ => panic!("unknown keychain fixture phase"),
     }
     println!("UMMKA_KEYCHAIN {phase}");
+}
+
+fn racing_writer(store: &MacCredentialStore, keyfile: &Path, phase: &str) {
+    let (id, peer) = if phase == "race-a" {
+        (FIRST, "race-b")
+    } else {
+        (SECOND, "race-a")
+    };
+    fs::write(keyfile.with_extension(phase), []).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !keyfile.with_extension(peer).exists() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "second writer did not start"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let account = Account::new(RACE, id).unwrap();
+    let result = match store.save(&account, &SessionToken::new(phase).unwrap()) {
+        Ok(()) => "saved",
+        Err(CredentialError::InstallationAccountConflict) => "conflict",
+        Err(error) => panic!("unexpected writer failure: {error}"),
+    };
+    fs::write(keyfile.with_extension(format!("{phase}-result")), result).unwrap();
+}
+
+fn check_legacy_accounts(store: &MacCredentialStore) {
+    let base = "https://chat.example.test/legacy";
+    for id in [FIRST, CASE_PEER] {
+        store
+            .keychain
+            .add_generic_password(&store.service(base), id, id.as_bytes())
+            .unwrap();
+    }
+    let first = Account::new(base, FIRST).unwrap();
+    let token = SessionToken::new("new-grant").unwrap();
+    assert_eq!(
+        store.save(&first, &token),
+        Err(CredentialError::InstallationAccountConflict)
+    );
+    for id in [FIRST, CASE_PEER] {
+        let account = Account::new(base, id).unwrap();
+        assert_eq!(
+            store.read(&account).unwrap().unwrap().secret(),
+            id.as_bytes()
+        );
+    }
+    store
+        .remove(&Account::new(base, CASE_PEER).unwrap())
+        .unwrap();
+    store.save(&first, &token).unwrap();
+    assert_eq!(store.account_ids(base).unwrap(), [FIRST]);
+    store
+        .keychain
+        .add_generic_password(&store.service(base), "malformed", b"fixture")
+        .unwrap();
+    assert_eq!(
+        store.save(&first, &SessionToken::new("rejected").unwrap()),
+        Err(CredentialError::InvalidEntry)
+    );
+    assert_eq!(
+        store.read(&first).unwrap().unwrap().secret(),
+        token.secret()
+    );
 }

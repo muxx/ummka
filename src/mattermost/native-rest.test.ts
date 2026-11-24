@@ -1,7 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
-import { beforeEach, expect, test, vi } from "vitest";
+import { beforeEach, expect, expectTypeOf, test, vi } from "vitest";
 import {
   forgetLocalAccount,
+  getCurrentAccountId,
   listAccountIds,
   openAccountRestConnection,
   openNativeRestConnection,
@@ -26,6 +27,28 @@ test("lists and forgets accounts for the exact canonical installation", async ()
     ["list_account_ids", { serverUrl }],
     ["forget_local_account", { serverUrl, userId }],
   ]);
+});
+
+test("observes the current user without opening a connection", async () => {
+  const input = "https://CHAT.example.test/Team///";
+  const serverUrl = "https://chat.example.test/Team";
+  const id = "Abc01234567890123456789012";
+  expectTypeOf(getCurrentAccountId).returns.toEqualTypeOf<
+    Promise<string | null>
+  >();
+  ipc
+    .mockResolvedValueOnce(id)
+    .mockResolvedValueOnce(null)
+    .mockRejectedValueOnce("installation_account_conflict");
+  await expect(getCurrentAccountId(input)).resolves.toBe(id);
+  await expect(getCurrentAccountId(input)).resolves.toBeNull();
+  await expect(getCurrentAccountId(input)).rejects.toBe(
+    "installation_account_conflict",
+  );
+  await expect(getCurrentAccountId("relative")).rejects.toThrow(TypeError);
+  expect(ipc.mock.calls).toEqual(
+    Array(3).fill(["get_current_account_id", { serverUrl }]),
+  );
 });
 
 test("passes the canonical installation and closes the exact native handle", async () => {

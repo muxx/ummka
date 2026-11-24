@@ -11,6 +11,7 @@ pub mod macos;
 pub enum CredentialError {
     InvalidInstallation,
     InvalidEntry,
+    InstallationAccountConflict,
     StorageUnavailable,
 }
 
@@ -18,6 +19,7 @@ impl fmt::Display for CredentialError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::InvalidInstallation => "Invalid installation for credential storage",
+            Self::InstallationAccountConflict => "Sign out of the current Mattermost account first",
             Self::InvalidEntry => "Invalid stored Mattermost credential",
             Self::StorageUnavailable => "The platform credential store is unavailable",
         })
@@ -30,6 +32,7 @@ impl From<CredentialError> for crate::rest::TransportError {
     fn from(value: CredentialError) -> Self {
         match value {
             CredentialError::InvalidInstallation => Self::InvalidInstallation,
+            CredentialError::InstallationAccountConflict => Self::InstallationAccountConflict,
             CredentialError::InvalidEntry => Self::InvalidStoredCredential,
             CredentialError::StorageUnavailable => Self::CredentialStorageUnavailable,
         }
@@ -55,6 +58,14 @@ pub(crate) fn for_application(_: &str) -> Result<Box<dyn CredentialStore>, Crede
     Err(CredentialError::StorageUnavailable)
 }
 
+#[cfg(any(target_os = "macos", target_os = "android"))]
+fn allow_account(account: &Account, stored_ids: &[String]) -> Result<(), CredentialError> {
+    if stored_ids.iter().any(|id| id != account.user_id()) {
+        return Err(CredentialError::InstallationAccountConflict);
+    }
+    Ok(())
+}
+
 /// A conditional removal never removes a new credential for the same account.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -65,6 +76,7 @@ pub enum Removal {
 
 /// Native, per-account credential storage. Call these blocking operations off the UI thread.
 pub trait CredentialStore {
+    /// Atomically refuse a different user at the same installation, or persist this login.
     fn save(&self, account: &Account, token: &SessionToken) -> Result<(), CredentialError>;
     fn read(&self, account: &Account) -> Result<Option<SessionToken>, CredentialError>;
     fn account_ids(&self, installation: &str) -> Result<Vec<String>, CredentialError>;

@@ -3,6 +3,7 @@ use super::*;
 use tokio::sync::oneshot;
 
 const BASE: &str = "https://chat.example.test/Team";
+const PEER: &str = "https://chat.example.test/peer";
 const FIRST: &str = "Abc01234567890123456789012";
 const SECOND: &str = "bbc01234567890123456789012";
 
@@ -23,7 +24,7 @@ async fn isolates_accounts_installations_and_each_login() {
     let other = "https://chat.example.test/team";
     sessions.activate(BASE, FIRST, "first-one").await.unwrap();
     sessions
-        .activate(BASE, SECOND, "second-token")
+        .activate(PEER, SECOND, "second-token")
         .await
         .unwrap();
     sessions
@@ -31,7 +32,7 @@ async fn isolates_accounts_installations_and_each_login() {
         .await
         .unwrap();
     let old = sessions.restore(BASE, FIRST).await.unwrap();
-    let second = sessions.restore(BASE, SECOND).await.unwrap();
+    let second = sessions.restore(PEER, SECOND).await.unwrap();
     let adjacent = sessions.restore(other, FIRST).await.unwrap();
     verify(&old, b"first-one").await.unwrap();
     sessions
@@ -41,6 +42,10 @@ async fn isolates_accounts_installations_and_each_login() {
     assert_eq!(
         verify(&old, b"first-one").await,
         Err(TransportError::SessionUnavailable)
+    );
+    assert_eq!(
+        sessions.activate(BASE, SECOND, "conflicting-login").await,
+        Err(TransportError::InstallationAccountConflict)
     );
     let current = sessions.restore(BASE, FIRST).await.unwrap();
     verify(&current, b"replacement.+/_~==").await.unwrap();
@@ -54,6 +59,16 @@ async fn isolates_accounts_installations_and_each_login() {
         verify(&current, b"replacement").await,
         Err(TransportError::SessionUnavailable)
     );
+    sessions
+        .activate(BASE, SECOND, "after-sign-out")
+        .await
+        .unwrap();
+    verify(
+        &sessions.restore(BASE, SECOND).await.unwrap(),
+        b"after-sign-out",
+    )
+    .await
+    .unwrap();
     verify(&second, b"second-token").await.unwrap();
     verify(&adjacent, b"other-token").await.unwrap();
 }
@@ -129,7 +144,7 @@ async fn retirement_drains_a_pending_send_without_waiting_for_the_network() {
     let sessions = AccountSessions::default();
     sessions.activate(BASE, FIRST, "pending-one").await.unwrap();
     sessions
-        .activate(BASE, SECOND, "stays-active")
+        .activate(PEER, SECOND, "stays-active")
         .await
         .unwrap();
     let session = sessions.restore(BASE, FIRST).await.unwrap();
@@ -155,7 +170,7 @@ async fn retirement_drains_a_pending_send_without_waiting_for_the_network() {
         Err(TransportError::SessionUnavailable)
     );
     verify(
-        &sessions.restore(BASE, SECOND).await.unwrap(),
+        &sessions.restore(PEER, SECOND).await.unwrap(),
         b"stays-active",
     )
     .await
@@ -241,7 +256,7 @@ async fn deferred_removal_protects_replacements_in_this_host_and_another_host() 
     let local = using(vault.clone());
     let peer = using(vault.clone());
     local.activate(BASE, FIRST, "first-grant").await.unwrap();
-    local.activate(BASE, SECOND, "other-grant").await.unwrap();
+    local.activate(PEER, SECOND, "other-grant").await.unwrap();
     let old = local.restore(BASE, FIRST).await.unwrap();
     local.activate(BASE, FIRST, "second-grant").await.unwrap();
     let second = local.restore(BASE, FIRST).await.unwrap();
@@ -275,5 +290,51 @@ async fn deferred_removal_protects_replacements_in_this_host_and_another_host() 
         verify(&current, b"third-grant").await,
         Err(TransportError::SessionUnavailable)
     );
-    assert_eq!(using(vault).account_ids(BASE).await.unwrap(), [SECOND]);
+    assert_eq!(using(vault).account_ids(PEER).await.unwrap(), [SECOND]);
+}
+
+#[tokio::test]
+async fn observes_the_saved_user_without_loading_a_token_or_changing_old_rows() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let vault = Arc::new(TestVault::default());
+    let sessions = using(vault.clone());
+    assert_eq!(sessions.current_account_id(BASE).await, Ok(None));
+    sessions.activate(BASE, FIRST, "first-grant").await.unwrap();
+    sessions.activate(PEER, SECOND, "neighbor").await.unwrap();
+    let cold = using(vault.clone());
+    assert_eq!(
+        cold.current_account_id(BASE).await.unwrap().as_deref(),
+        Some(FIRST)
+    );
+    assert_eq!(
+        cold.current_account_id(PEER).await.unwrap().as_deref(),
+        Some(SECOND)
+    );
+    let previous_format = Account::new(BASE, SECOND).unwrap();
+    vault.rows.lock().unwrap().insert(
+        previous_format,
+        SessionToken::new("previous-format").unwrap(),
+    );
+    assert_eq!(
+        cold.current_account_id(BASE).await,
+        Err(TransportError::InstallationAccountConflict)
+    );
+    assert_eq!(cold.account_ids(BASE).await.unwrap(), [FIRST, SECOND]);
+    assert_eq!(vault.reads.load(SeqCst), 0);
+    assert_eq!(vault.saves.load(SeqCst), 2);
+    let unavailable = AccountSessions::with_store(|| Err(CredentialError::StorageUnavailable));
+    assert_eq!(
+        unavailable.current_account_id(BASE).await,
+        Err(TransportError::CredentialStorageUnavailable)
+    );
+    assert_eq!(
+        unavailable.current_account_id("relative").await,
+        Err(TransportError::InvalidInstallation)
+    );
+    assert_eq!(
+        unavailable
+            .current_account_id("http://chat.example.test")
+            .await,
+        Err(TransportError::CleartextDenied)
+    );
 }

@@ -1,5 +1,6 @@
 import {
   forgetLocalAccount,
+  getCurrentAccountId,
   listAccountIds,
   openAccountRestConnection,
 } from "../../src/mattermost/native-rest.ts";
@@ -21,11 +22,19 @@ export async function checkAccountResponses(
   observed: (step: string, name: string) => Promise<void>,
 ) {
   const confirmed = await openAccountRestConnection(
-    first.basePath,
+    `${first.basePath}/confirmed`,
     "d".repeat(26),
   );
   try {
+    check(
+      (await getCurrentAccountId(confirmed.basePath)) === "d".repeat(26),
+      "current-before-sign-out",
+    );
     const result = await confirmed.signOut();
+    check(
+      (await getCurrentAccountId(confirmed.basePath)) === null,
+      "current-after-confirmed-sign-out",
+    );
     check(
       result.status === "signed_out" && Object.keys(result).length === 1,
       "server-sign-out",
@@ -43,11 +52,14 @@ export async function checkAccountResponses(
     await confirmed.close();
   }
   const secondId = "b".repeat(26);
-  const second = await openAccountRestConnection(first.basePath, secondId);
+  const second = await openAccountRestConnection(
+    `${first.basePath}/secondary`,
+    secondId,
+  );
   try {
     check(
-      (await listAccountIds(first.basePath)).join(",") ===
-        [userId, secondId].join(","),
+      (await listAccountIds(first.basePath)).join(",") === userId &&
+        (await listAccountIds(second.basePath)).join(",") === secondId,
       "restored-ids",
     );
     if (navigator.userAgent.includes("Android")) {
@@ -152,11 +164,12 @@ export async function checkAccountResponses(
       "unconfirmed-sign-out",
     );
     check(
-      (await listAccountIds(first.basePath)).includes(secondId),
+      (await getCurrentAccountId(second.basePath)) === secondId,
       "kept-until-choice",
     );
+    const secondMe = `${second.basePath}/api/v4/users/me`;
     const pending = second
-      .fetchApi(me, { headers: { "X-Test-Case": "retire" } })
+      .fetchApi(secondMe, { headers: { "X-Test-Case": "retire" } })
       .catch((error: unknown) => error);
     await Promise.race([
       observed("received", "account-retire"),
@@ -168,18 +181,28 @@ export async function checkAccountResponses(
       (await second.signOutOnDevice()) === "removed",
       "explicit-local-sign-out",
     );
+    check(
+      (await getCurrentAccountId(second.basePath)) === null,
+      "current-after-local-sign-out",
+    );
+    check(
+      (await getCurrentAccountId(first.basePath)) === userId,
+      "neighbor-still-current",
+    );
     const retired = await pending;
     check(
       retired instanceof TypeError && retired.cause === "cancelled",
       "pending-forget",
     );
     await observed("closed", "account-retire");
-    const stale = await second.fetchApi(me).catch((error: unknown) => error);
+    const stale = await second
+      .fetchApi(secondMe)
+      .catch((error: unknown) => error);
     check(
       stale instanceof TypeError && stale.cause === "unknown_connection",
       "old-handle",
     );
-    await forgetLocalAccount(first.basePath, secondId);
+    await forgetLocalAccount(second.basePath, secondId);
   } finally {
     await second.close();
   }

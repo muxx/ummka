@@ -84,6 +84,34 @@ pub(super) async fn check(client: &NativeAuthentication, fixture_base: &str) -> 
         Err(TransportError::SessionUnavailable)
     );
     me(&open(client, &sessions, user).await?, client).await?;
-    me(&open(client, &using(vault), user).await?, client).await?;
+    let restored = open(client, &using(vault.clone()), user).await?;
+    me(&restored, client).await?;
+    for (name, revocation) in [
+        ("peer-conflict", Revocation::Confirmed),
+        ("peer-lost", Revocation::Unconfirmed),
+    ] {
+        assert!(matches!(
+            client.sign_in(&sessions, input(name)).await,
+            Err(SignInError::NotSaved {
+                cause: TransportError::InstallationAccountConflict,
+                revocation: result,
+            }) if result == revocation
+        ));
+    }
+    me(&restored, client).await?;
+    assert_eq!(
+        using(vault.clone()).account_ids(&client.base).await?,
+        [user]
+    );
+    let current = open(client, &sessions, user).await?;
+    assert_eq!(
+        current.sign_out_on_device(&sessions).await?,
+        crate::credentials::Removal::Removed
+    );
+    let peer = client.sign_in(&sessions, input("peer-admitted")).await?;
+    assert_eq!(peer.user_id(), "bbbbbbbbbbbbbbbbbbbbbbbbbb");
+    let restarted = using(vault);
+    assert_eq!(restarted.account_ids(&client.base).await?, [peer.user_id()]);
+    me(&open(client, &restarted, peer.user_id()).await?, client).await?;
     Ok(())
 }

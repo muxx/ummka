@@ -101,6 +101,7 @@ impl MacCredentialStore {
 impl CredentialStore for MacCredentialStore {
     fn save(&self, account: &Account, token: &SessionToken) -> Result<(), CredentialError> {
         let _guard = self.write_guard()?;
+        super::allow_account(account, &self.account_ids(account.installation())?)?;
         let service = self.service(account.installation());
         match self
             .keychain
