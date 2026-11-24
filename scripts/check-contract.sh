@@ -22,6 +22,7 @@ download() {
     if [ ! -f "$target" ]; then
         partial=$(mktemp "$cache/.download.XXXXXXXX")
         candidate="$partial"
+        printf 'Downloading %s\n' "$1"
         curl -fsSL --retry 3 --max-time 300 "$2" -o "$candidate"
     fi
     if ! printf '%s  %s\n' "$3" "$candidate" | shasum -a 256 --check --status; then
