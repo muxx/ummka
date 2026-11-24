@@ -356,6 +356,8 @@ export function webviewServers(
         "team-memberships",
         "history-root",
         "history-prefixed",
+        "history-focused-after",
+        "history-focused-before",
         "history-anonymous",
         "post-info-root",
         "post-info-prefixed",
