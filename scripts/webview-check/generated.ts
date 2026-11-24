@@ -159,6 +159,14 @@ export async function checkGeneratedRequests(ports: string[]) {
     await checkAccountResponses(accountPrefix, userId, observed);
     await checkChannelRefresh(accountPrefix, observed);
     await checkTeamReads(rootSession, signed);
+    const directory = await accountPrefix.readAccountDirectory();
+    check(
+      directory.teams.length === 1 &&
+        directory.teams[0]?.team.name === "fixture" &&
+        directory.teams[0]?.membership.schemeGuest === true &&
+        directory.preferences[0]?.value === "false",
+      "account-navigation-directory",
+    );
     await checkChannelHistory(rootSession, signed, new Configuration(root));
     await checkPostContext(rootSession, signed);
     const profile = await loadInstallationProfile(

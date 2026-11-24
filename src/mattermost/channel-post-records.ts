@@ -1,27 +1,11 @@
 import type { PostList } from "../../vendor/mattermost/index.js";
-
-const idPattern = /^[A-Za-z0-9]{26}$/u;
-
-export function isHistoryId(value: unknown): value is string {
-  return (
-    typeof value === "string" && value.length === 26 && idPattern.test(value)
-  );
-}
-
-export function isHistoryTime(
-  value: unknown,
-  minimum: number,
-): value is number {
-  return (
-    typeof value === "number" && Number.isSafeInteger(value) && value >= minimum
-  );
-}
+import { isMattermostId, isMattermostTime } from "./model-fields.ts";
 
 /** Project the complete REST dictionary into the native history store's text records. */
 export function channelPostChanges(channelId: string, page: PostList) {
   const posts = page.posts;
   if (
-    !isHistoryId(channelId) ||
+    !isMattermostId(channelId) ||
     !posts ||
     typeof posts !== "object" ||
     Array.isArray(posts)
@@ -30,10 +14,10 @@ export function channelPostChanges(channelId: string, page: PostList) {
   }
   return Object.entries(posts).map(([id, post]) => {
     if (
-      !isHistoryId(id) ||
+      !isMattermostId(id) ||
       post?.id !== id ||
       post.channelId !== channelId ||
-      !isHistoryTime(post.deleteAt, 0)
+      !isMattermostTime(post.deleteAt, 0)
     ) {
       throw new TypeError("Invalid Mattermost post identity or deletion time.");
     }
@@ -52,12 +36,12 @@ export function channelPostChanges(channelId: string, page: PostList) {
       isPinned,
     } = post;
     if (
-      !isHistoryId(userId) ||
-      (rootId !== "" && !isHistoryId(rootId)) ||
+      !isMattermostId(userId) ||
+      (rootId !== "" && !isMattermostId(rootId)) ||
       rootId === id ||
-      !isHistoryTime(createAt, 1) ||
-      !isHistoryTime(updateAt, 1) ||
-      !isHistoryTime(editAt, 0) ||
+      !isMattermostTime(createAt, 1) ||
+      !isMattermostTime(updateAt, 1) ||
+      !isMattermostTime(editAt, 0) ||
       typeof type !== "string" ||
       typeof message !== "string" ||
       (messageSource !== undefined && typeof messageSource !== "string") ||

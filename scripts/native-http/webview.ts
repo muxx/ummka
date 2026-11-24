@@ -65,6 +65,21 @@ export function webviewServers(
       },
     ],
     [
+      "/team/chat/api/v4/users/me/teams",
+      {
+        name: "directory-teams",
+        query: "",
+        body: [
+          {
+            id: teamId,
+            name: "fixture",
+            display_name: "Fixture Team",
+            delete_at: 0,
+          },
+        ],
+      },
+    ],
+    [
       "/team/chat/api/v4/users/me/teams/members",
       {
         name: "my-team-members",
@@ -437,6 +452,9 @@ export function webviewServers(
         "account-retire",
         "my-teams",
         "my-team-members",
+        "directory-teams",
+        "my-team-members",
+        "sidebar-preferences",
         "team-channels",
         "team-memberships",
         "sidebar-categories",

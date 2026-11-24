@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { loadAccountDirectory } from "../../../src/mattermost/navigation-data.ts";
 import {
   ChannelsApi,
   Configuration,
@@ -30,6 +31,14 @@ export async function checkNavigationMemberships(
   );
   const member = active.find((m) => m.teamId === leaveTeamId);
   assert.ok(member);
+  const joined = await loadAccountDirectory(session, userId);
+  assert.deepEqual(
+    joined.teams.find(({ team }) => team.id === leaveTeamId)?.membership,
+    member,
+  );
+  assert.ok(
+    joined.preferences.every((preference) => preference.userId === userId),
+  );
   assert.deepEqual(member, {
     teamId: leaveTeamId,
     userId,
@@ -67,6 +76,9 @@ export async function checkNavigationMemberships(
   const removed = after.find((m) => m.teamId === leaveTeamId);
   assert.ok(removed?.deleteAt && removed.deleteAt > 0);
   assert.equal(after.find((m) => m.teamId === keepTeamId)?.deleteAt, 0);
+  const remaining = await loadAccountDirectory(session, userId);
+  assert.ok(remaining.teams.some(({ team }) => team.id === keepTeamId));
+  assert.ok(!remaining.teams.some(({ team }) => team.id === leaveTeamId));
   assert.ok(
     !(await teams.getTeamsForUser(own)).some((team) => team.id === leaveTeamId),
   );
