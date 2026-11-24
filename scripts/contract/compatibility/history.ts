@@ -7,6 +7,7 @@ import {
 import {
   ChannelsApi,
   Configuration,
+  type Post,
   PostFromJSON,
   PostsApi,
   PostToJSON,
@@ -99,6 +100,8 @@ assert.equal(ordinary.posts?.[reply.id]?.rootId, root.id);
 assert.equal(ordinary.firstInaccessiblePostTime, 0);
 const size = ordinary.posts?.[image.id]?.metadata?.images?.[imageUrl];
 assert.deepEqual(size, { height: 3, width: 4, format: "png", frameCount: 0 });
+assert.equal(ordinary.posts?.[image.id]?.message, image.message);
+assert.equal(ordinary.posts?.[image.id]?.messageSource, undefined);
 
 const collapsed = await posts.getPostsForChannel({
   ...page,
@@ -356,6 +359,36 @@ for (const pinned of [false, true]) {
 }
 console.log(
   `Mattermost ${version} verified independent pin and hashtag values through the generated Post converters.`,
+);
+
+// The local image proxy rewrites the displayed Markdown and keeps the author's source.
+const enableProxy = await fetch(`${base}/api/v4/config/patch`, {
+  method: "PUT",
+  headers: { ...authorization, "Content-Type": "application/json" },
+  body: JSON.stringify({ ImageProxySettings: { Enable: true } }),
+});
+assert.equal(enableProxy.status, 200);
+const proxyPage = await posts.getPostsForChannelRaw(page);
+const proxyWire = (await proxyPage.raw.clone().json()).posts;
+const proxyPosts = (await proxyPage.value()).posts;
+assert.ok(proxyPosts);
+const proxied = new URL("/api/v4/image", base);
+proxied.searchParams.set("url", imageUrl);
+assert.equal(proxyWire[image.id].message, `![sample](${proxied.href})`);
+assert.equal(proxyWire[image.id].message_source, image.message);
+assert.equal(Object.hasOwn(proxyWire[plainPost.id], "message_source"), false);
+for (const id of [image.id, plainPost.id]) {
+  const post: Post = proxyPosts[id];
+  assert.deepEqual(post, PostFromJSON(proxyWire[id]));
+  assert.equal(post.message, proxyWire[id].message);
+  assert.equal(post.messageSource, proxyWire[id].message_source);
+  const encoded = JSON.parse(JSON.stringify(PostToJSON(post)));
+  assert.equal(encoded.message, proxyWire[id].message);
+  assert.equal(encoded.message_source, proxyWire[id].message_source);
+  assert.equal(Object.hasOwn(encoded, "message_source"), id === image.id);
+}
+console.log(
+  `Mattermost ${version} verified original Markdown across image proxy rewrites.`,
 );
 
 // A failed local save must revoke only the new server session for this same user.
