@@ -234,6 +234,8 @@ export function webviewServers(
       res.setHeader("X-Fixture", "café");
       res.setHeader("Set-Cookie", "fixture=one; Path=/");
       res.setHeader("Set-Cookie2", "fixture=two");
+      res.setHeader("ToKeN", ["fixture-secret-one", "fixture-secret-two"]);
+      res.setHeader("Authorization", "Bearer fixture-secret");
       res.end(
         Buffer.from(Uint8Array.from({ length: 65_536 }, (_, i) => i % 251)),
       );
@@ -247,6 +249,10 @@ export function webviewServers(
         })
         .end();
     } else if (["204", "205", "304", "401", "503"].includes(name)) {
+      if (name === "401") {
+        res.setHeader("ToKeN", "fixture-secret");
+        res.setHeader("WWW-Authenticate", "Bearer");
+      }
       res
         .writeHead(Number(name))
         .end(name === "401" || name === "503" ? "status body" : undefined);

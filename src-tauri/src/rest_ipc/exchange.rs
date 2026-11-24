@@ -1,7 +1,7 @@
 use crate::rest::{RestConnection, TransportError};
 use reqwest::{
     Method, Request, Response, StatusCode, Url,
-    header::{HeaderName, HeaderValue, SET_COOKIE},
+    header::{HeaderName, HeaderValue},
 };
 use serde::Serialize;
 use std::sync::{Arc, Mutex};
@@ -34,7 +34,18 @@ impl ResponseHead {
         let headers = response
             .headers()
             .iter()
-            .filter(|(name, _)| **name != SET_COOKIE && name.as_str() != "set-cookie2")
+            .filter(|(name, _)| {
+                !matches!(
+                    name.as_str(),
+                    "set-cookie"
+                        | "set-cookie2"
+                        | "token"
+                        | "authorization"
+                        | "proxy-authorization"
+                        | "x-cloud-token"
+                        | "x-remotecluster-token"
+                )
+            })
             .map(|(name, value)| {
                 (
                     name.as_str().to_owned(),
@@ -239,6 +250,35 @@ fn request(
 mod tests {
     use super::*;
     use tokio::sync::oneshot;
+
+    #[test]
+    fn ipc_response_hides_all_values_of_session_headers() {
+        let mut response = tauri::http::Response::builder()
+            .status(401)
+            .header("X-Request-Id", "request-1")
+            .header("WWW-Authenticate", "Bearer");
+        for name in [
+            "SeT-CoOkIe",
+            "Set-Cookie2",
+            "ToKeN",
+            "Authorization",
+            "Proxy-Authorization",
+            "X-Cloud-Token",
+            "X-RemoteCluster-Token",
+        ] {
+            response = response
+                .header(name, "private-one")
+                .header(name, "private-two");
+        }
+        let response = Response::from(response.body(Vec::<u8>::new()).unwrap());
+        let head = serde_json::to_value(ResponseHead::new(&response)).unwrap();
+        let headers = head["headers"].as_array().unwrap();
+        assert_eq!(headers.len(), 2);
+        assert!(headers.contains(&serde_json::json!(["x-request-id", "request-1"])));
+        assert!(headers.contains(&serde_json::json!(["www-authenticate", "Bearer"])));
+        assert_eq!(head["status"], 401);
+        assert_eq!(head["hasBody"], true);
+    }
 
     #[test]
     fn request_body_preserves_absence_empty_text_and_original_utf8_bytes() {

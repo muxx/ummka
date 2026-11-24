@@ -159,7 +159,9 @@ async function testResponses(connection: number, verifyRoute: () => void) {
   check(
     headers.get("x-fixture") === "café" &&
       !headers.has("set-cookie") &&
-      !headers.has("set-cookie2"),
+      !headers.has("set-cookie2") &&
+      !headers.has("token") &&
+      !headers.has("authorization"),
     "byte-headers",
   );
   const bytes = await allBytes(connection, binary);
@@ -173,6 +175,13 @@ async function testResponses(connection: number, verifyRoute: () => void) {
   for (const status of [204, 205, 304, 401, 503]) {
     const id = await prepare(connection);
     const head = await send(connection, id, target(String(status)));
+    if (status === 401) {
+      const fields = new Headers(head.headers);
+      check(
+        !fields.has("token") && fields.get("www-authenticate") === "Bearer",
+        "unauthorized-response-headers",
+      );
+    }
     check(
       head.status === status && head.hasBody === status >= 400,
       "response-status",
