@@ -1,5 +1,7 @@
 fn main() {
     let manifest = tauri_build::AppManifest::new().commands(&[
+        "pending_channels_link",
+        "acknowledge_channels_link",
         "open_rest_connection",
         "get_current_account_id",
         "list_account_ids",
