@@ -38,7 +38,7 @@ async fn check_scope(
     const PING: &str = "api/v4/system/ping";
     const HISTORY: &str =
         "api/v4/channels/Channel0123456789012345678/posts?page=0&per_page=60&collapsedThreads=true";
-    const READ_ROUTES: [&str; 9] = [
+    const READ_ROUTES: [&str; 10] = [
         "api/v4/config/client?format=old",
         "api/v4/license/client?format=old",
         "api/v4/users/me",
@@ -48,6 +48,7 @@ async fn check_scope(
         "api/v4/users/me/teams/Team0123456789012345678901/channels/members",
         HISTORY,
         "api/v4/posts/Post0123456789012345678901/info",
+        "api/v4/posts/Post0123456789012345678901/thread?direction=down&perPage=1",
     ];
     expect_ok(control, control_base, "scope-created").await?;
     let mut fragment = get(selected, PING);

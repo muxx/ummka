@@ -231,6 +231,58 @@ console.log(
   `Mattermost ${version} verified post context for members, nonmembers, a DM, and private posts.`,
 );
 
+const lastReply = await message("Second reply", root.id);
+const threadQuery = {
+  perPage: 60,
+  direction: "down",
+  skipFetchThreads: false,
+  collapsedThreads: false,
+  collapsedThreadsExtended: false,
+};
+for (const post of [root, reply]) {
+  const thread = await memberPosts.getPostThread({
+    ...threadQuery,
+    postId: post.id,
+  });
+  assert.deepEqual(
+    thread.order,
+    post.id === root.id
+      ? [root.id, reply.id, lastReply.id]
+      : [reply.id, root.id, lastReply.id],
+  );
+  assert.equal(thread.posts?.[reply.id]?.rootId, root.id);
+  assert.equal(thread.posts?.[lastReply.id]?.message, "Second reply");
+  assert.equal(thread.firstInaccessiblePostTime, 0);
+  assert.equal(thread.hasNext, false);
+}
+const firstPage = await memberPosts.getPostThread({
+  postId: root.id,
+  perPage: 1,
+  direction: "down",
+});
+assert.deepEqual(firstPage.order, [root.id]);
+assert.equal(firstPage.hasNext, true);
+const followingPage = await memberPosts.getPostThread({
+  postId: root.id,
+  perPage: 1,
+  direction: "down",
+  fromPost: reply.id,
+  fromCreateAt: reply.create_at,
+});
+assert.deepEqual(followingPage.order, [root.id, lastReply.id]);
+assert.equal(followingPage.hasNext, false);
+await assert.rejects(
+  memberPosts.getPostThread({ postId: root.id, updatesOnly: true }),
+  (e: unknown) => e instanceof ResponseError && e.response.status === 400,
+);
+await assert.rejects(
+  anonymous.getPostThread({ postId: root.id }),
+  (e: unknown) => e instanceof ResponseError && e.response.status === 401,
+);
+console.log(
+  `Mattermost ${version} verified thread order for root and reply, cursor pagination and thread errors.`,
+);
+
 // A failed local save must revoke only the new server session for this same user.
 const secondLogin = await create("users/login", {
   login_id: username,

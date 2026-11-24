@@ -359,6 +359,8 @@ export function webviewServers(
         "history-anonymous",
         "post-info-root",
         "post-info-prefixed",
+        "post-thread-archive",
+        "post-thread-reply",
         "batch-signed",
         "batch-anonymous",
         "batch-text",

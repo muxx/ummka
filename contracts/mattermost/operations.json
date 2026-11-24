@@ -59,5 +59,11 @@
     "method": "GET",
     "path": "/api/v4/posts/{post_id}/info",
     "id": "GetPostInfo"
+  },
+  {
+    "file": "posts.yaml",
+    "method": "GET",
+    "path": "/api/v4/posts/{post_id}/thread",
+    "id": "GetPostThread"
   }
 ]

@@ -69,7 +69,7 @@ strict_tsc --declaration --removeComments --rootDir "$work/client" --outDir "$wo
 cat > "$work/transport-types.ts" <<'TS'
 import type { createRestTransport } from "../../src/mattermost/rest-transport.js";
 import type { ConfigurationParameters } from "./client/runtime.js";
-import type { GetPostInfoRequest, GetPostsForChannelRequest, GetUsersByIdsRequest, Post, PostInfo, PostList } from "./compiled/index.js";
+import type { GetPostInfoRequest, GetPostThreadRequest, GetPostsForChannelRequest, GetUsersByIdsRequest, Post, PostInfo, PostList } from "./compiled/index.js";
 declare const transport: ReturnType<typeof createRestTransport>;
 transport satisfies Required<Pick<ConfigurationParameters, "basePath" | "fetchApi">>;
 const ids: GetUsersByIdsRequest = { requestBody: ["an-id"], since: 123 };
@@ -89,6 +89,9 @@ declare const info: PostInfo;
 info.hasJoinedTeam satisfies boolean | undefined;
 info.hasJoinedChannel satisfies boolean | undefined;
 info.channelId satisfies string | undefined;
+const thread: GetPostThreadRequest = { postId: "a-post-id", fromCreateAt: 12, perPage: 1, direction: "down", updatesOnly: false };
+// @ts-expect-error Timestamps on a thread cursor are numbers.
+const badCursor: GetPostThreadRequest = { postId: "a-post-id", fromCreateAt: "12" };
 declare const page: PostList;
 declare const post: Post;
 page.firstInaccessiblePostTime satisfies number | undefined;
