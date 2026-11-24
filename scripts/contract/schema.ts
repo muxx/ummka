@@ -1,17 +1,11 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "yaml";
+import catalog from "../../contracts/mattermost/operations.json" with {
+  type: "json",
+};
 
 type Fields = Record<string, unknown>;
-
-const operations = [
-  {
-    file: "system.yaml",
-    path: "/api/v4/system/ping",
-    method: "get",
-    id: "GetPing",
-  },
-];
 
 const methods = new Set([
   "get",
@@ -36,7 +30,10 @@ export function readSource(directory: string, file: string): Fields {
   return object(source, file);
 }
 
-export function buildSpecification(read: (file: string) => Fields) {
+export function buildSpecification(
+  read: (file: string) => Fields,
+  operations = catalog,
+) {
   const introduction = read("introduction.yaml");
   const definitions = read("definitions.yaml");
   const original = object(definitions.components, "components");
@@ -81,7 +78,14 @@ export function buildSpecification(read: (file: string) => Fields) {
   }
 
   includeSecurity(definitions.security);
-  for (const { file, path, method, id } of operations) {
+  for (const { file, path, method: verb, id } of operations) {
+    const method = verb.toLowerCase();
+    if (!methods.has(method) || verb !== verb.toUpperCase())
+      throw new Error(`Invalid HTTP method in the operation catalog: ${verb}`);
+    if (!path.startsWith("/api/v4/") || /[{}]/u.test(path))
+      throw new Error(
+        `Native routing requires a literal REST v4 path: ${path}`,
+      );
     const sourcePath = object(read(file)[path], path);
     const operation = object(sourcePath[method], `${method} ${path}`);
     if (operation.operationId !== id)

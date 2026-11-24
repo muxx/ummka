@@ -1,4 +1,5 @@
 use super::{NativeHttp, TransportError};
+use crate::rest::RestConnection;
 use reqwest::{Method, Request, StatusCode, Version};
 use std::error::Error;
 
@@ -16,15 +17,92 @@ async fn expect_ok(client: &NativeHttp, base: &str, path: &str) -> CheckResult<V
     Ok(version)
 }
 
-async fn check_wire(client: NativeHttp, spec: &str) -> CheckResult {
+async fn check_scope(
+    connection: &RestConnection,
+    selected: &str,
+    other: &str,
+    control: &NativeHttp,
+    control_base: &str,
+) -> CheckResult {
+    const PING: &str = "api/v4/system/ping";
+    expect_ok(control, control_base, "scope-created").await?;
+    let mut fragment = get(selected, PING);
+    fragment.url_mut().set_fragment(Some("private"));
+    let mut credentials = get(selected, PING);
+    credentials.url_mut().set_username("private").unwrap();
+    let mut scheme = get(selected, PING);
+    scheme.url_mut().set_scheme("http").unwrap();
+    let mut host = get(selected, PING);
+    host.url_mut().set_host(Some("localhost")).unwrap();
+    for request in [
+        get(other, PING),
+        get(&format!("{selected}-sibling"), PING),
+        fragment,
+        credentials,
+        scheme,
+        host,
+    ] {
+        let error = connection.send(request).await.unwrap_err();
+        assert_eq!(error, TransportError::OutsideInstallation);
+        assert_eq!(
+            error.to_string(),
+            "REST target is outside the selected installation"
+        );
+        assert_eq!(format!("{error:?}"), "OutsideInstallation");
+    }
+    let mut post = get(selected, PING);
+    *post.method_mut() = Method::POST;
+    let mut cookie = get(selected, PING);
+    cookie
+        .headers_mut()
+        .insert("cookie", "private=value".parse()?);
+    let mut authority = get(selected, PING);
+    authority
+        .headers_mut()
+        .insert("host", "elsewhere.invalid".parse()?);
+    for request in [
+        get(selected, "api/v4/unknown?private=value"),
+        post,
+        cookie,
+        authority,
+    ] {
+        let error = connection.send(request).await.unwrap_err();
+        assert_eq!(error, TransportError::OperationDenied);
+        assert_eq!(error.to_string(), "REST operation is not allowed");
+        assert_eq!(format!("{error:?}"), "OperationDenied");
+    }
+    expect_ok(control, control_base, "scope-denied").await?;
+    for _ in 0..2 {
+        let mut request = get(
+            selected,
+            "api/v4/system/ping?use_rest_semantics=true&device_id=wire%20check",
+        );
+        request.headers_mut().insert("x-fixture", "scoped".parse()?);
+        let response = connection.send(request).await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.text().await?, "OK");
+    }
+    Ok(())
+}
+
+async fn check_wire(
+    client: NativeHttp,
+    connect: impl FnOnce(&str) -> Result<RestConnection, TransportError>,
+    spec: &str,
+) -> CheckResult {
     let ports = spec
         .split(',')
         .map(str::parse::<u16>)
         .collect::<Result<Vec<_>, _>>()?;
-    let [tls, unknown_ca, wrong_name, http2, plain] = ports[..] else {
-        return Err("expected five fixture ports".into());
+    let [tls, unknown_ca, wrong_name, http2, plain, selected, other] = ports[..] else {
+        return Err("expected seven fixture ports".into());
     };
     let base = format!("https://127.0.0.1:{tls}");
+    let prefix = "/Teams/Blue%20Sky//A%2FB";
+    let selected = format!("https://127.0.0.1:{selected}{prefix}");
+    let other = format!("https://127.0.0.1:{other}{prefix}");
+    let connection = connect(&selected)?;
+    check_scope(&connection, &selected, &other, &client, &base).await?;
     for path in ["team/chat/one", "team/chat/two"] {
         assert_eq!(expect_ok(&client, &base, path).await?, Version::HTTP_11);
     }
@@ -92,10 +170,15 @@ async fn check_wire(client: NativeHttp, spec: &str) -> CheckResult {
 #[tokio::test]
 async fn wire() -> CheckResult {
     let pem = std::fs::read(std::env::var("UMMKA_HTTP_TEST_CA")?)?;
-    let builder =
-        reqwest::Client::builder().tls_certs_merge([reqwest::Certificate::from_pem(&pem)?]);
-    let client = NativeHttp::from_builder(builder)?;
-    check_wire(client, &std::env::var("UMMKA_HTTP_PORTS")?).await
+    let ca = reqwest::Certificate::from_pem(&pem)?;
+    let http =
+        || NativeHttp::from_builder(reqwest::Client::builder().tls_certs_merge([ca.clone()]));
+    check_wire(
+        http()?,
+        |base| RestConnection::with_client(base, http),
+        &std::env::var("UMMKA_HTTP_PORTS")?,
+    )
+    .await
 }
 
 #[cfg(target_os = "android")]
@@ -107,8 +190,9 @@ pub fn run_checks<'local>(
 ) {
     env.with_env(|env| {
         let ports = ports.try_to_string(env)?;
-        let result =
-            tauri::async_runtime::block_on(async { check_wire(NativeHttp::new()?, &ports).await });
+        let result = tauri::async_runtime::block_on(async {
+            check_wire(NativeHttp::new()?, RestConnection::new, &ports).await
+        });
         if let Err(error) = result {
             env.throw_new(
                 jni::jni_str!("java/lang/AssertionError"),

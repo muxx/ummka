@@ -46,7 +46,7 @@ try {
     }
     fixture.verify(platform === "android");
     console.log(
-      `Native HTTP verified on ${platform}: TLS, connection reuse, HTTP/2 streams, redirects, cookies, cancellation and disconnects.`,
+      `Native HTTP verified on ${platform}: installation scope, TLS, connection reuse, HTTP/2 streams, redirects, cookies, cancellation and disconnects.`,
     );
   } finally {
     fixture.close();

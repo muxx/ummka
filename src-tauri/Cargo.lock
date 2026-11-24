@@ -4268,6 +4268,8 @@ dependencies = [
  "jni 0.22.4",
  "reqwest",
  "rustls-platform-verifier",
+ "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tokio",

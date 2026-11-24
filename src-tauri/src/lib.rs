@@ -1,4 +1,5 @@
-pub mod native_http;
+mod native_http;
+pub mod rest;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
