@@ -10,6 +10,7 @@ import type {
   LocalChannelWindow,
 } from "./local-history.ts";
 import { nativeFetch } from "./native-fetch.ts";
+import { loadAccountDirectory, loadTeamDirectory } from "./navigation-data.ts";
 import { createRestTransport } from "./rest-transport.ts";
 import { canonicalServerUrl } from "./server-url.ts";
 
@@ -56,10 +57,25 @@ export async function openAccountRestConnection(
   }
   const connection = await openConnection(serverUrl, userId);
   const { rid } = connection;
-  const posts = new PostsApi(new Configuration(connection));
+  const config = new Configuration(connection);
+  const posts = new PostsApi(config);
   let retired: "unknown_connection" | "cancelled" | undefined;
+  async function readWhileOpen<T>(read: () => Promise<T>) {
+    if (retired) throw retired;
+    const result = await read();
+    if (retired) throw "cancelled";
+    return result;
+  }
   return {
     ...connection,
+    readAccountDirectory(signal?: AbortSignal) {
+      return readWhileOpen(() => loadAccountDirectory(config, userId, signal));
+    },
+    readTeamDirectory(teamId: string, signal?: AbortSignal) {
+      return readWhileOpen(() =>
+        loadTeamDirectory(config, userId, teamId, signal),
+      );
+    },
     refreshChannelHistory(query: ChannelRefreshRequest, signal?: AbortSignal) {
       if (retired) return Promise.reject<ChannelRefreshResult>(retired);
       return refreshChannelHistory(
@@ -91,14 +107,13 @@ export async function openAccountRestConnection(
       retired = "unknown_connection";
       return connection.close();
     },
-    async readChannelWindow(query: ChannelWindowQuery) {
-      if (retired) return Promise.reject(retired);
-      const page = await invoke<LocalChannelWindow | null>(
-        "read_channel_window",
-        { rid, query },
+    readChannelWindow(query: ChannelWindowQuery) {
+      return readWhileOpen(() =>
+        invoke<LocalChannelWindow | null>("read_channel_window", {
+          rid,
+          query,
+        }),
       );
-      if (retired) return Promise.reject("cancelled");
-      return page;
     },
     async signOut() {
       const result = await invoke<AccountSignOut>("sign_out_account", { rid });

@@ -7,6 +7,7 @@ import {
   openAccountRestConnection,
   openNativeRestConnection,
 } from "./native-rest.ts";
+import * as directory from "./navigation-data.ts";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const ipc = vi.mocked(invoke);
@@ -125,6 +126,8 @@ test("passes the canonical installation and closes the exact native handle", asy
   expect(ipc).toHaveBeenNthCalledWith(1, "open_rest_connection", { basePath });
   expect("signOut" in connection).toBe(false);
   expect("readChannelWindow" in connection).toBe(false);
+  expect("readAccountDirectory" in connection).toBe(false);
+  expect("readTeamDirectory" in connection).toBe(false);
   expect("refreshChannelHistory" in connection).toBe(false);
   await connection.close();
   expect(ipc).toHaveBeenNthCalledWith(2, "close_rest_connection", { rid: 41 });
@@ -151,12 +154,44 @@ test("opens a native account by installation and user ID", async () => {
     "basePath",
     "close",
     "fetchApi",
+    "readAccountDirectory",
     "readChannelWindow",
+    "readTeamDirectory",
     "refreshChannelHistory",
     "rid",
     "signOut",
     "signOutOnDevice",
   ]);
+});
+
+test("a directory delivered after the account signs out is discarded", async () => {
+  const user = "a".repeat(26);
+  ipc.mockResolvedValueOnce(18);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    user,
+  );
+  let finish!: (value: { teams: []; preferences: [] }) => void;
+  const read = vi
+    .spyOn(directory, "loadAccountDirectory")
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+  try {
+    const pending = account.readAccountDirectory();
+    expect(read.mock.calls[0]?.[1]).toBe(user);
+    ipc.mockResolvedValueOnce({ status: "signed_out" });
+    await account.signOut();
+    finish({ teams: [], preferences: [] });
+    await expect(pending).rejects.toBe("cancelled");
+    await expect(account.readAccountDirectory()).rejects.toBe("cancelled");
+    expect(read).toHaveBeenCalledTimes(1);
+  } finally {
+    read.mockRestore();
+  }
 });
 
 test("only an explicit local sign-out sends the device command", async () => {

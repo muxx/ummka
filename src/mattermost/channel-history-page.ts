@@ -2,11 +2,8 @@ import type {
   GetPostsForChannelRequest,
   PostList,
 } from "../../vendor/mattermost/index.js";
-import {
-  channelPostChanges,
-  isHistoryId,
-  isHistoryTime,
-} from "./channel-post-records.ts";
+import { channelPostChanges } from "./channel-post-records.ts";
+import { isMattermostId, isMattermostTime } from "./model-fields.ts";
 
 interface FocusedRead {
   channelId: string;
@@ -16,7 +13,7 @@ interface FocusedRead {
 
 function channelReadSource(request: GetPostsForChannelRequest | FocusedRead) {
   if ("focusedPostId" in request) {
-    if (!isHistoryId(request.focusedPostId))
+    if (!isMattermostId(request.focusedPostId))
       throw new TypeError("Invalid focused post ID.");
     return { kind: "focused" as const, postId: request.focusedPostId };
   }
@@ -25,10 +22,10 @@ function channelReadSource(request: GetPostsForChannelRequest | FocusedRead) {
       "An administrative deleted-post listing cannot describe the visible timeline.",
     );
   for (const anchor of [request.before, request.after]) {
-    if (anchor !== undefined && anchor !== "" && !isHistoryId(anchor))
+    if (anchor !== undefined && anchor !== "" && !isMattermostId(anchor))
       throw new TypeError("Invalid channel page anchor.");
   }
-  if (request.since !== undefined && !isHistoryTime(request.since, 0))
+  if (request.since !== undefined && !isMattermostTime(request.since, 0))
     throw new RangeError("Invalid channel update time.");
   // Mattermost handles a positive since first, followed by after, before, then page.
   if (request.since) return { kind: "since" as const, since: request.since };
@@ -60,12 +57,12 @@ export function channelHistoryPage(
     throw new TypeError("Invalid visible channel post order.");
   }
   for (const cursor of [prevPostId, nextPostId]) {
-    if (cursor !== undefined && cursor !== "" && !isHistoryId(cursor))
+    if (cursor !== undefined && cursor !== "" && !isMattermostId(cursor))
       throw new TypeError("Invalid channel page boundary.");
   }
   if (
     firstInaccessiblePostTime !== undefined &&
-    !isHistoryTime(firstInaccessiblePostTime, 0)
+    !isMattermostTime(firstInaccessiblePostTime, 0)
   ) {
     throw new TypeError("Invalid channel history access boundary.");
   }
