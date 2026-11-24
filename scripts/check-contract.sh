@@ -60,7 +60,7 @@ import type { ConfigurationParameters } from "./client/runtime.js";
 declare const transport: ReturnType<typeof createRestTransport>;
 transport satisfies Required<Pick<ConfigurationParameters, "basePath" | "fetchApi">>;
 TS
-strict_tsc --noEmit "$work/transport-types.ts"
+strict_tsc --noEmit --allowImportingTsExtensions "$work/transport-types.ts"
 UMMKA_CONTRACT_SOURCES="$cache" UMMKA_CONTRACT_WORK="$work" npm run contract:test
 bindings=vendor/mattermost
 if [ "${1-}" = "--write-bindings" ]; then
