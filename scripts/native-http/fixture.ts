@@ -164,6 +164,11 @@ export async function startFixture(dir: string) {
     assert(path);
     visits.push(path);
     if (path.startsWith("/team/chat/")) {
+      assert.equal(
+        visits.length + authVisits.length,
+        pooled.length + 1,
+        "measure reuse before other traffic reaches this origin",
+      );
       pooled.push(request.socket);
       assert.equal(request.headers.cookie, undefined);
       if (path.endsWith("/one"))
@@ -343,11 +348,7 @@ export async function startFixture(dir: string) {
         assert.deepEqual(badTlsConnections, [1, 1]);
         assert.equal(plainConnections, android ? 0 : 1);
         assert.equal(pooled.length, 2);
-        assert.equal(
-          pooled[0],
-          pooled[1],
-          "HTTP/1.1 must reuse the connection",
-        );
+        assert(pooled[0] === pooled[1], "HTTP/1.1 must reuse the connection");
         assert.equal(sessions, 1);
         assert.deepEqual(paths.sort(), ["/one", "/two", "/warm"]);
         const redirects = [301, 302, 303, 307, 308].flatMap((code) =>

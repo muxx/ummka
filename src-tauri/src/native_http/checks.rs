@@ -223,6 +223,10 @@ async fn check_wire(
         return Err("expected seven fixture ports".into());
     };
     let base = format!("https://127.0.0.1:{tls}");
+    // Probe the fresh pool before the concurrent sign-out cases leave multiple idle sockets.
+    for path in ["team/chat/one", "team/chat/two"] {
+        assert_eq!(expect_ok(&client, &base, path).await?, Version::HTTP_11);
+    }
     crate::authentication::checks::exchange(&client, &base, &format!("https://127.0.0.1:{other}"))
         .await?;
     let prefix = "/Teams/Blue%20Sky//A%2FB";
@@ -230,9 +234,6 @@ async fn check_wire(
     let other = format!("https://127.0.0.1:{other}{prefix}");
     let connection = connect(&selected)?;
     check_scope(&connection, &selected, &other, &client, &base).await?;
-    for path in ["team/chat/one", "team/chat/two"] {
-        assert_eq!(expect_ok(&client, &base, path).await?, Version::HTTP_11);
-    }
     for port in [unknown_ca, wrong_name] {
         let url = format!("https://127.0.0.1:{port}");
         assert_eq!(
