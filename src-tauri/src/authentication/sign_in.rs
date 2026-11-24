@@ -1,4 +1,4 @@
-use super::{AuthError, NativeAuthentication};
+use super::{AuthError, LoginGrant, NativeAuthentication};
 use crate::models::LoginRequest;
 use crate::rest::TransportError;
 use crate::sessions::{Account, AccountSessions};
@@ -56,19 +56,27 @@ impl NativeAuthentication {
                 .await
                 .map_err(SignInError::Authentication)?;
             drop(input);
-            if let Err(cause) = sessions
-                .activate_verified(grant.account.clone(), grant.token.clone())
-                .await
-            {
-                let revocation = match client.logout(&grant).await {
-                    Ok(()) => Revocation::Confirmed,
-                    Err(_) => Revocation::Unconfirmed,
-                };
-                return Err(SignInError::NotSaved { cause, revocation });
-            }
-            Ok(grant.account)
+            client.activate_grant(&sessions, grant).await
         })
         .await
         .map_err(|_| SignInError::Interrupted)?
+    }
+
+    pub(super) async fn activate_grant(
+        &self,
+        sessions: &AccountSessions,
+        grant: LoginGrant,
+    ) -> Result<Account, SignInError> {
+        if let Err(cause) = sessions
+            .activate_verified(grant.account.clone(), grant.token.clone())
+            .await
+        {
+            let revocation = match self.logout(&grant).await {
+                Ok(()) => Revocation::Confirmed,
+                Err(_) => Revocation::Unconfirmed,
+            };
+            return Err(SignInError::NotSaved { cause, revocation });
+        }
+        Ok(grant.account)
     }
 }

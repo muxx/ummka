@@ -656,4 +656,9 @@ console.log(
   `Mattermost ${version} verified plain and collapsed history, thread participants, image dimensions and anonymous HTTP 401.`,
 );
 
-await checkBrowserSignIn(base, version);
+await checkBrowserSignIn(base, version, {
+  username,
+  password,
+  email: user.email,
+  id: user.id,
+});

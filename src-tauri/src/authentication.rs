@@ -12,6 +12,7 @@ use std::{fmt, sync::LazyLock, time::Duration};
 const AUTH_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_AUTH_RESPONSE_BYTES: usize = 1024 * 1024;
 
+pub mod browser;
 #[cfg(all(feature = "native-http-check", any(test, target_os = "android")))]
 pub(crate) mod checks;
 pub mod form;
@@ -106,7 +107,11 @@ impl NativeAuthentication {
             .find(|route| route.id == operation)
             .expect("missing native authentication operation");
         let method = Method::from_bytes(route.method.as_bytes()).expect("verified HTTP method");
-        let url = format!("{}{}", self.base, route.path)
+        self.request_at(method, route.path)
+    }
+
+    fn request_at(&self, method: Method, path: &str) -> Request {
+        let url = format!("{}{path}", self.base)
             .parse()
             .expect("canonical installation and verified route");
         let mut request = Request::new(method, url);
@@ -115,11 +120,6 @@ impl NativeAuthentication {
     }
 
     pub async fn login(&self, input: &LoginRequest) -> Result<LoginGrant, AuthError> {
-        #[derive(Deserialize)]
-        struct Identity {
-            id: String,
-        }
-
         let mut request = self.request(Operation::Login);
         request.headers_mut().insert(
             header::CONTENT_TYPE,
@@ -147,6 +147,19 @@ impl NativeAuthentication {
         if values.next().is_some() {
             return Err(AuthError::InvalidResponse);
         }
+        self.read_grant(response, token).await
+    }
+
+    async fn read_grant(
+        &self,
+        response: Response,
+        token: SessionToken,
+    ) -> Result<LoginGrant, AuthError> {
+        #[derive(Deserialize)]
+        struct Identity {
+            id: String,
+        }
+
         let identity: Identity = body(response).await?;
         let account =
             Account::new(&self.base, &identity.id).map_err(|_| AuthError::InvalidResponse)?;
