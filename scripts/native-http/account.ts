@@ -6,13 +6,13 @@ export function respondToAccount(
   response: ServerResponse,
   url: URL,
   firstId: string,
-  closed: () => void,
+  event: (name: string) => void,
 ): string | undefined {
   if (url.pathname !== "/team/chat/api/v4/users/me") return;
   assert.equal(request.method, "GET");
   assert.equal(url.search, "");
   const scenario = request.headers["x-test-case"];
-  const second = scenario === "second";
+  const second = scenario === "second" || scenario === "retire";
   const token = second ? "fixture-second-session" : "fixture-prefixed-session";
   assert.equal(request.headers.authorization, `Bearer ${token}`);
   assert.equal(
@@ -20,6 +20,11 @@ export function respondToAccount(
       .length,
     1,
   );
+  if (scenario === "retire") {
+    request.socket.once("close", () => event("account-retire-closed"));
+    event("account-retire-received");
+    return "account-retire";
+  }
   if (scenario === "first" || second) {
     response.setHeader("X-Fixture-Diagnostic", `private ${token}`);
     response.setHeader("Content-Type", "application/json");
@@ -28,7 +33,7 @@ export function respondToAccount(
   }
   assert.equal(typeof scenario, "string");
   if (scenario === "error-body") {
-    request.socket.once("close", closed);
+    request.socket.once("close", () => event("account-error-body-closed"));
     response
       .writeHead(403, { "Content-Type": "application/json" })
       .write('{"message":"');

@@ -102,12 +102,16 @@ impl RestConnection {
         })
     }
 
-    pub fn for_account(
+    pub async fn for_account(
         mut self,
         sessions: &AccountSessions,
         user_id: &str,
     ) -> Result<Self, TransportError> {
-        self.account = Some(sessions.get(self.base.as_str().trim_end_matches('/'), user_id)?);
+        self.account = Some(
+            sessions
+                .restore(self.base.as_str().trim_end_matches('/'), user_id)
+                .await?,
+        );
         Ok(self)
     }
 

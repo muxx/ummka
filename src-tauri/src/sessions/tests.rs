@@ -29,9 +29,9 @@ async fn isolates_accounts_installations_and_each_login() {
         .activate(other, FIRST, "other-token")
         .await
         .unwrap();
-    let old = sessions.get(BASE, FIRST).unwrap();
-    let second = sessions.get(BASE, SECOND).unwrap();
-    let adjacent = sessions.get(other, FIRST).unwrap();
+    let old = sessions.restore(BASE, FIRST).await.unwrap();
+    let second = sessions.restore(BASE, SECOND).await.unwrap();
+    let adjacent = sessions.restore(other, FIRST).await.unwrap();
     verify(&old, b"first-one").await.unwrap();
     sessions
         .activate(BASE, FIRST, "replacement.+/_~==")
@@ -41,12 +41,12 @@ async fn isolates_accounts_installations_and_each_login() {
         verify(&old, b"first-one").await,
         Err(TransportError::SessionUnavailable)
     );
-    let current = sessions.get(BASE, FIRST).unwrap();
+    let current = sessions.restore(BASE, FIRST).await.unwrap();
     verify(&current, b"replacement.+/_~==").await.unwrap();
     sessions.forget(BASE, FIRST).await.unwrap();
     sessions.forget(BASE, FIRST).await.unwrap();
     assert!(matches!(
-        sessions.get(BASE, FIRST),
+        sessions.restore(BASE, FIRST).await,
         Err(TransportError::SessionUnavailable)
     ));
     assert_eq!(
@@ -72,28 +72,31 @@ async fn invalid_input_keeps_the_current_session() {
     }
     for invalid in ["me", "", "abc", "Абв01234567890123456789012"] {
         assert!(matches!(
-            sessions.get(BASE, invalid),
+            sessions.restore(BASE, invalid).await,
             Err(TransportError::InvalidAccount)
         ));
     }
     assert!(matches!(
-        sessions.get("https://CHAT.example.test", FIRST),
+        sessions.restore("https://CHAT.example.test", FIRST).await,
         Err(TransportError::InvalidInstallation)
     ));
     assert!(matches!(
-        sessions.get("http://chat.example.test", FIRST),
+        sessions.restore("http://chat.example.test", FIRST).await,
         Err(TransportError::CleartextDenied)
     ));
-    verify(&sessions.get(BASE, FIRST).unwrap(), b"already-active")
-        .await
-        .unwrap();
+    verify(
+        &sessions.restore(BASE, FIRST).await.unwrap(),
+        b"already-active",
+    )
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn retiring_before_dispatch_never_calls_the_sender() {
     let sessions = Arc::new(AccountSessions::default());
     sessions.activate(BASE, FIRST, "before-send").await.unwrap();
-    let session = sessions.get(BASE, FIRST).unwrap();
+    let session = sessions.restore(BASE, FIRST).await.unwrap();
     let gate = session.token.write().await;
     let (ready, waiting) = oneshot::channel();
     let request = tokio::spawn({
@@ -128,7 +131,7 @@ async fn retirement_drains_a_pending_send_without_waiting_for_the_network() {
         .activate(BASE, SECOND, "stays-active")
         .await
         .unwrap();
-    let session = sessions.get(BASE, FIRST).unwrap();
+    let session = sessions.restore(BASE, FIRST).await.unwrap();
     let (started, received) = oneshot::channel();
     let request = tokio::spawn(async move {
         session
@@ -150,7 +153,133 @@ async fn retirement_drains_a_pending_send_without_waiting_for_the_network() {
         request.await.unwrap(),
         Err(TransportError::SessionUnavailable)
     );
-    verify(&sessions.get(BASE, SECOND).unwrap(), b"stays-active")
+    verify(
+        &sessions.restore(BASE, SECOND).await.unwrap(),
+        b"stays-active",
+    )
+    .await
+    .unwrap();
+}
+
+#[derive(Default)]
+struct TestVault {
+    rows: Mutex<HashMap<Account, SessionToken>>,
+    reads: std::sync::atomic::AtomicUsize,
+    refuse: std::sync::atomic::AtomicBool,
+    read_gate: Mutex<Option<(oneshot::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
+}
+
+impl CredentialStore for Arc<TestVault> {
+    fn read(&self, a: &Account) -> Result<Option<SessionToken>, CredentialError> {
+        use std::sync::atomic::Ordering::SeqCst;
+        self.reads.fetch_add(1, SeqCst);
+        let existing = self.rows.lock().unwrap().get(a).cloned();
+        if let Some((started, release)) = self.read_gate.lock().unwrap().take() {
+            started.send(()).unwrap();
+            release.recv().unwrap();
+        }
+        Ok(existing)
+    }
+    fn save(&self, a: &Account, t: &SessionToken) -> Result<(), CredentialError> {
+        if self.refuse.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(CredentialError::StorageUnavailable);
+        }
+        self.rows.lock().unwrap().insert(a.clone(), t.clone());
+        Ok(())
+    }
+    fn remove(&self, a: &Account) -> Result<(), CredentialError> {
+        if self.refuse.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(CredentialError::StorageUnavailable);
+        }
+        self.rows.lock().unwrap().remove(a);
+        Ok(())
+    }
+    fn account_ids(&self, base: &str) -> Result<Vec<String>, CredentialError> {
+        let mut ids: Vec<_> = self
+            .rows
+            .lock()
+            .unwrap()
+            .keys()
+            .filter(|a| a.installation() == base)
+            .map(|a| a.user_id().to_owned())
+            .collect();
+        ids.sort_unstable();
+        Ok(ids)
+    }
+}
+
+fn using(vault: Arc<TestVault>) -> AccountSessions {
+    AccountSessions::with_store(move || Ok(Box::new(vault.clone())))
+}
+
+impl Default for AccountSessions {
+    fn default() -> Self {
+        using(Arc::new(TestVault::default()))
+    }
+}
+
+#[tokio::test]
+async fn warm_requests_and_opens_skip_storage_and_failed_changes_preserve_the_login() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let vault = Arc::new(TestVault::default());
+    let first = using(vault.clone());
+    first.activate(BASE, FIRST, "previous-login").await.unwrap();
+    let restarted = using(vault.clone());
+    let handle = restarted.restore(BASE, FIRST).await.unwrap();
+    assert!(Arc::ptr_eq(
+        &handle,
+        &restarted.restore(BASE, FIRST).await.unwrap()
+    ));
+    verify(&handle, b"previous-login").await.unwrap();
+    assert_eq!(vault.reads.load(SeqCst), 1);
+    vault.refuse.store(true, SeqCst);
+    assert_eq!(
+        restarted.activate(BASE, FIRST, "failed-login").await,
+        Err(TransportError::CredentialStorageUnavailable)
+    );
+    assert_eq!(
+        restarted.forget(BASE, FIRST).await,
+        Err(TransportError::CredentialStorageUnavailable)
+    );
+    verify(&handle, b"previous-login").await.unwrap();
+    verify(
+        &using(vault).restore(BASE, FIRST).await.unwrap(),
+        b"previous-login",
+    )
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn pending_restore_cannot_resurrect_a_forgotten_account() {
+    let vault = Arc::new(TestVault::default());
+    using(vault.clone())
+        .activate(BASE, FIRST, "before-forget")
         .await
         .unwrap();
+    let restarted = using(vault.clone());
+    let (started, reading) = oneshot::channel();
+    let (unblock, gate) = std::sync::mpsc::channel();
+    *vault.read_gate.lock().unwrap() = Some((started, gate));
+    let restore = tokio::spawn({
+        let owner = restarted.clone();
+        async move { owner.restore(BASE, FIRST).await }
+    });
+    reading.await.unwrap();
+    let forget = tokio::spawn({
+        let owner = restarted.clone();
+        async move { owner.forget(BASE, FIRST).await }
+    });
+    unblock.send(()).unwrap();
+    let old = restore.await.unwrap().unwrap();
+    forget.await.unwrap().unwrap();
+    assert_eq!(
+        verify(&old, b"before-forget").await,
+        Err(TransportError::SessionUnavailable)
+    );
+    assert!(matches!(
+        restarted.restore(BASE, FIRST).await,
+        Err(TransportError::SessionUnavailable)
+    ));
+    assert!(restarted.account_ids(BASE).await.unwrap().is_empty());
 }

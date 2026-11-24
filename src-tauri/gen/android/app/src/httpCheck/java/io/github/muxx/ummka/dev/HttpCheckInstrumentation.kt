@@ -14,7 +14,7 @@ import java.security.KeyStore
 class HttpCheckAdmin : DeviceAdminReceiver()
 
 class HttpCheckInstrumentation : Instrumentation() {
-    private external fun runChecks(ports: String, registryPath: String)
+    private external fun runChecks(ports: String, registryPath: String, accountPort: Int)
     private external fun checkVault(phase: String)
     private lateinit var arguments: Bundle
 
@@ -52,7 +52,7 @@ class HttpCheckInstrumentation : Instrumentation() {
             check(policies.installCaCert(admin, ca))
             val registry = File.createTempFile("ummka-registry-", ".sqlite", app.cacheDir)
             try {
-                runChecks(requireNotNull(arguments.getString("ports")), registry.absolutePath)
+                runChecks(requireNotNull(arguments.getString("ports")), registry.absolutePath, requireNotNull(arguments.getString("accountPort")).toInt())
             } finally {
                 registry.delete()
             }

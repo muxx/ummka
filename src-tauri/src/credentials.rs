@@ -26,6 +26,35 @@ impl fmt::Display for CredentialError {
 
 impl std::error::Error for CredentialError {}
 
+impl From<CredentialError> for crate::rest::TransportError {
+    fn from(value: CredentialError) -> Self {
+        match value {
+            CredentialError::InvalidInstallation => Self::InvalidInstallation,
+            CredentialError::InvalidEntry => Self::InvalidStoredCredential,
+            CredentialError::StorageUnavailable => Self::CredentialStorageUnavailable,
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn for_application(id: &str) -> Result<Box<dyn CredentialStore>, CredentialError> {
+    #[cfg(feature = "webview-check")]
+    let store = macos::MacCredentialStore::for_check(id)?;
+    #[cfg(not(feature = "webview-check"))]
+    let store = macos::MacCredentialStore::for_user(id)?;
+    Ok(Box::new(store))
+}
+
+#[cfg(target_os = "android")]
+pub(crate) fn for_application(_: &str) -> Result<Box<dyn CredentialStore>, CredentialError> {
+    Ok(Box::new(android::AndroidCredentialStore::for_app()?))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "android")))]
+pub(crate) fn for_application(_: &str) -> Result<Box<dyn CredentialStore>, CredentialError> {
+    Err(CredentialError::StorageUnavailable)
+}
+
 /// Native, per-account credential storage. Call these blocking operations off the UI thread.
 pub trait CredentialStore {
     fn save(&self, account: &Account, token: &SessionToken) -> Result<(), CredentialError>;

@@ -1,4 +1,8 @@
-import { openAccountRestConnection } from "../../src/mattermost/native-rest.ts";
+import {
+  forgetLocalAccount,
+  listAccountIds,
+  openAccountRestConnection,
+} from "../../src/mattermost/native-rest.ts";
 import {
   AppErrorFromJSON,
   Configuration,
@@ -14,11 +18,22 @@ function check(ok: unknown, name: string): asserts ok {
 export async function checkAccountResponses(
   first: Account,
   userId: string,
-  closed: () => Promise<void>,
+  observed: (step: string, name: string) => Promise<void>,
 ) {
   const secondId = "b".repeat(26);
   const second = await openAccountRestConnection(first.basePath, secondId);
   try {
+    check(
+      (await listAccountIds(first.basePath)).join(",") ===
+        [userId, secondId].join(","),
+      "restored-ids",
+    );
+    if (navigator.userAgent.includes("Android")) {
+      const refusal = await forgetLocalAccount(first.basePath, userId).catch(
+        (error: unknown) => error,
+      );
+      check(refusal === "credential_storage_unavailable", "commit-error");
+    }
     for (const [account, name, id] of [
       [first, "first", userId],
       [second, "second", secondId],
@@ -86,7 +101,30 @@ export async function checkAccountResponses(
       .catch((error: unknown) => error);
     controller.abort(reason);
     check((await read) === reason, "error-stream-abort");
-    await closed();
+    await observed("closed", "account-error-body");
+
+    const pending = second
+      .fetchApi(me, { headers: { "X-Test-Case": "retire" } })
+      .catch((error: unknown) => error);
+    await Promise.race([
+      observed("received", "account-retire"),
+      pending.then(() => {
+        throw Error("account-retired-early");
+      }),
+    ]);
+    await forgetLocalAccount(first.basePath, secondId);
+    const retired = await pending;
+    check(
+      retired instanceof TypeError && retired.cause === "cancelled",
+      "pending-forget",
+    );
+    await observed("closed", "account-retire");
+    const stale = await second.fetchApi(me).catch((error: unknown) => error);
+    check(
+      stale instanceof TypeError && stale.cause === "unknown_connection",
+      "old-handle",
+    );
+    await forgetLocalAccount(first.basePath, secondId);
   } finally {
     await second.close();
   }

@@ -27,6 +27,17 @@ pub(crate) fn allow_commits(db: &Connection) -> rusqlite::Result<()> {
     )
 }
 
+#[cfg(feature = "webview-check")]
+pub(crate) fn reject_first_account_removal() -> Result<(), CredentialError> {
+    let db = AndroidCredentialStore::for_app()?.connect()?;
+    db.execute_batch("CREATE TABLE webview_parent (id INTEGER PRIMARY KEY);
+        CREATE TABLE webview_child (id INTEGER REFERENCES webview_parent(id) DEFERRABLE INITIALLY DEFERRED);
+        CREATE TRIGGER webview_refuse_first_delete AFTER DELETE ON sessions
+          WHEN OLD.user_id = 'Abc01234567890123456789012'
+          BEGIN INSERT INTO webview_child VALUES (1); END;")?;
+    Ok(())
+}
+
 fn run(phase: &str) -> Result<(), Box<dyn Error>> {
     let store = AndroidCredentialStore::for_app()?;
     let first = Account::new(BASE, FIRST)?;

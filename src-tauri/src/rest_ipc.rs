@@ -21,18 +21,52 @@ pub(crate) fn watch_window<R: Runtime>(webview: &Webview<R>) {
     });
 }
 
+struct PendingAccountOpen;
+impl Resource for PendingAccountOpen {}
+
 #[tauri::command]
-pub(crate) fn open_rest_connection<R: Runtime>(
+pub(crate) async fn open_rest_connection<R: Runtime>(
     webview: Webview<R>,
     base_path: String,
     user_id: Option<String>,
 ) -> Result<ResourceId, TransportError> {
     let transport = open_transport(&base_path)?;
-    let transport = match user_id {
-        Some(id) => transport.for_account(&webview.state::<AccountSessions>(), &id)?,
-        None => transport,
+    let Some(id) = user_id else {
+        return Ok(webview.resources_table().add(Session::new(transport)));
     };
-    Ok(webview.resources_table().add(Session::new(transport)))
+    // Navigation and window destruction can retire a pending Keychain/Keystore lookup.
+    let pending = webview.resources_table().add(PendingAccountOpen);
+    let restored = transport
+        .for_account(&webview.state::<AccountSessions>(), &id)
+        .await;
+    let mut table = webview.resources_table();
+    table
+        .take::<PendingAccountOpen>(pending)
+        .map_err(|_| TransportError::SessionUnavailable)?;
+    Ok(table.add(Session::new(restored?)))
+}
+
+#[tauri::command]
+pub(crate) async fn list_account_ids<R: Runtime>(
+    webview: Webview<R>,
+    server_url: String,
+) -> Result<Vec<String>, TransportError> {
+    webview
+        .state::<AccountSessions>()
+        .account_ids(&server_url)
+        .await
+}
+
+#[tauri::command]
+pub(crate) async fn forget_local_account<R: Runtime>(
+    webview: Webview<R>,
+    server_url: String,
+    user_id: String,
+) -> Result<(), TransportError> {
+    webview
+        .state::<AccountSessions>()
+        .forget(&server_url, &user_id)
+        .await
 }
 
 #[cfg(not(all(feature = "webview-check", target_os = "macos")))]
@@ -123,26 +157,25 @@ pub(crate) fn clear_connections<R: Runtime>(webview: &Webview<R>) {
         // A typed take leaves resources belonging to other parts of the app in place.
         if let Ok(connection) = resources.take::<Session>(id) {
             connection.close();
+        } else {
+            let _ = resources.take::<PendingAccountOpen>(id);
         }
     }
 }
 
-#[cfg(feature = "webview-check")]
-#[cfg(not(test))]
-pub(crate) fn seed_check_sessions<R: Runtime>(
-    app: &tauri::App<R>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let port = app
-        .config()
-        .plugins
-        .0
-        .get("ummkaFixture")
-        .and_then(|fixture| fixture["dataPort"].as_u64())
-        .and_then(|v| u16::try_from(v).ok())
-        .ok_or("missing native WebView fixture port")?;
+#[cfg(all(
+    feature = "webview-check",
+    any(
+        target_os = "macos",
+        all(feature = "native-http-check", target_os = "android")
+    )
+))]
+pub(crate) fn seed_check_sessions(
+    sessions: &AccountSessions,
+    port: u16,
+) -> Result<(), TransportError> {
     let root = format!("https://127.0.0.1:{port}");
     let prefixed = format!("{root}/team/chat");
-    let sessions = app.state::<AccountSessions>();
     tauri::async_runtime::block_on(async {
         for (base, account, token) in [
             (&root, "Abc01234567890123456789012", "fixture-root-session"),

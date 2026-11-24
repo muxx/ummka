@@ -254,6 +254,9 @@ export async function checkAndroid(
       "-e",
       "ports",
       ports.join(","),
+      "-e",
+      "accountPort",
+      String(webviewPorts[0]),
       `${component}HttpCheckInstrumentation`,
     );
     assert.match(result, /^INSTRUMENTATION_RESULT: result=PASS\r?$/m);

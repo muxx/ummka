@@ -37,6 +37,11 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
     for (view, origin) in [(&sibling, LOCAL), (main, "https://remote.example.test/")] {
         for (command, body) in [
             ("open_rest_connection", json!({"basePath": SERVER})),
+            ("list_account_ids", json!({"serverUrl":SERVER})),
+            (
+                "forget_local_account",
+                json!({"serverUrl":SERVER,"userId":"Abc01234567890123456789012"}),
+            ),
             ("close_rest_connection", json!({"rid": 0})),
             ("prepare_rest_request", json!({"connection": 0})),
             (
@@ -65,6 +70,33 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
         "invalid_installation"
     );
     assert_eq!(main.resources_table().names().count(), 0);
+
+    for (command, body, code) in [
+        (
+            "list_account_ids",
+            json!({"serverUrl":"http://chat.example.test"}),
+            "cleartext_denied",
+        ),
+        (
+            "forget_local_account",
+            json!({"serverUrl":SERVER,"userId":"invalid"}),
+            "invalid_account",
+        ),
+        (
+            "open_rest_connection",
+            json!({"basePath":SERVER,"userId":"invalid"}),
+            "invalid_account",
+        ),
+    ] {
+        assert_eq!(invoke(main, command, LOCAL, body).unwrap_err(), code);
+    }
+    let pending = main.resources_table().add(PendingAccountOpen);
+    clear_connections(main);
+    assert!(
+        main.resources_table()
+            .get::<PendingAccountOpen>(pending)
+            .is_err()
+    );
 
     let foreign = sibling
         .resources_table()

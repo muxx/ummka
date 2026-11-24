@@ -21,6 +21,7 @@ export function webviewServers(
     "batch-headers",
     "batch-body",
     "account-error-body",
+    "account-retire",
   ];
   const events = new EventEmitter();
   const held = new Map(
@@ -78,8 +79,8 @@ export function webviewServers(
   }
   const data = https.createServer(trusted, async (req, res) => {
     const url = new URL(req.url ?? "/", "https://localhost");
-    const account = respondToAccount(req, res, url, userId, () =>
-      events.emit("account-error-body-closed"),
+    const account = respondToAccount(req, res, url, userId, (name) =>
+      events.emit(name),
     );
     if (account) {
       visits.push(account);
@@ -338,6 +339,7 @@ export function webviewServers(
         "account-large",
         "account-truncated",
         "account-error-body",
+        "account-retire",
         "my-teams",
         "team-channels",
         "team-memberships",

@@ -13,6 +13,18 @@ pub struct MacCredentialStore {
 }
 
 impl MacCredentialStore {
+    #[cfg(feature = "webview-check")]
+    pub(super) fn for_check(application_id: &str) -> Result<Self, CredentialError> {
+        let path =
+            std::env::var_os("UMMKA_CHECK_KEYCHAIN").ok_or(CredentialError::StorageUnavailable)?;
+        let keychain = SecKeychain::open(std::path::Path::new(&path))
+            .map_err(|_| CredentialError::StorageUnavailable)?;
+        Ok(Self {
+            keychain,
+            application_id: application_id.into(),
+        })
+    }
+
     pub fn for_user(application_id: &str) -> Result<Self, CredentialError> {
         let keychain = SecKeychain::default_for_domain(SecPreferencesDomain::User)
             .map_err(|_| CredentialError::StorageUnavailable)?;
