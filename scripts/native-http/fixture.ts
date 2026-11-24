@@ -98,6 +98,15 @@ export async function startFixture(dir: string) {
   const receivedHeaders = once(events, "received-headers");
   const closedHeaders = once(events, "closed-headers");
   const closedBody = once(events, "closed-body");
+  const scopedConnections = [0, 0];
+  const scopedSockets: Socket[] = [];
+  const scopedRequests: {
+    method?: string;
+    path?: string;
+    header?: string | string[];
+  }[] = [];
+  let otherRequests = 0;
+  const checkpoints: number[][] = [];
   const ok = (response: http.ServerResponse) => response.end("OK");
   const tls = https.createServer(certs.trusted, (request, response) => {
     const path = request.url;
@@ -128,6 +137,14 @@ export async function startFixture(dir: string) {
       response.writeHead(200, { "Content-Length": "100" }).write("first");
     } else if (path === "/body-closed") {
       void closedBody.then(() => ok(response));
+    } else if (path === "/scope-created" || path === "/scope-denied") {
+      checkpoints.push([
+        scopedConnections[0],
+        scopedRequests.length,
+        scopedConnections[1],
+        otherRequests,
+      ]);
+      ok(response);
     } else if (path === "/disconnect") {
       request.socket.destroy();
     } else {
@@ -171,7 +188,25 @@ export async function startFixture(dir: string) {
     }
   });
 
-  const servers: Server[] = [tls, unknown, wrong, h2, plain];
+  const selected = https.createServer(certs.trusted, (req, res) => {
+    scopedSockets.push(req.socket);
+    scopedRequests.push({
+      method: req.method,
+      path: req.url,
+      header: req.headers["x-fixture"],
+    });
+    ok(res);
+  });
+  const other = https.createServer(certs.trusted, (_req, res) => {
+    otherRequests++;
+    ok(res);
+  });
+  for (const [i, server] of [selected, other].entries()) {
+    server.on("connection", () => {
+      scopedConnections[i]++;
+    });
+  }
+  const servers: Server[] = [tls, unknown, wrong, h2, plain, selected, other];
   const close = () => {
     for (const server of servers) server.close();
     for (const socket of sockets) socket.destroy();
@@ -195,6 +230,26 @@ export async function startFixture(dir: string) {
       ca: certs.ca,
       close,
       verify(android: boolean) {
+        assert.deepEqual(checkpoints, [
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+        ]);
+        assert.equal(scopedConnections[1], 0);
+        assert.equal(otherRequests, 0);
+        const ping = {
+          method: "GET",
+          path: "/Teams/Blue%20Sky//A%2FB/api/v4/system/ping?use_rest_semantics=true&device_id=wire%20check",
+          header: "scoped",
+        };
+        assert.deepEqual(scopedRequests, [ping, ping]);
+        assert.equal(
+          scopedSockets[0],
+          scopedSockets[1],
+          "both scoped requests must reuse one HTTP/1.1 connection",
+        );
+        console.log(
+          `Two scoped requests shared one connection. The selected origin accepted ${scopedConnections[0]} TCP connection(s).`,
+        );
         assert.equal(rejectedHttp, 0);
         assert.deepEqual(badTlsConnections, [1, 1]);
         assert.equal(plainConnections, android ? 0 : 1);
@@ -224,6 +279,8 @@ export async function startFixture(dir: string) {
             "/hold-body",
             "/body-closed",
             "/disconnect",
+            "/scope-created",
+            "/scope-denied",
             "/team/chat/one",
             "/team/chat/two",
           ].sort(),

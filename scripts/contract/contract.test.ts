@@ -11,6 +11,9 @@ import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { stringify } from "yaml";
+import catalog from "../../contracts/mattermost/operations.json" with {
+  type: "json",
+};
 import { buildSpecification, object, readSource } from "./schema.ts";
 
 const sources = process.env.UMMKA_CONTRACT_SOURCES;
@@ -119,6 +122,23 @@ test("rejects a changed operation ID", () => {
         file === "system.yaml" ? altered : read(file),
       ),
     /Expected operation GetPing/,
+  );
+});
+
+test("rejects a route template before publishing an unsupported native route", () => {
+  const operation = { ...catalog[0], path: "/api/v4/users/{user_id}" };
+  assert.throws(() => buildSpecification(read, [operation]), {
+    message:
+      "Native routing requires a literal REST v4 path: /api/v4/users/{user_id}",
+  });
+});
+
+test("requires the HTTP verb in its wire spelling", () => {
+  assert.throws(
+    () => buildSpecification(read, [{ ...catalog[0], method: "get" }]),
+    {
+      message: "Invalid HTTP method in the operation catalog: get",
+    },
   );
 });
 

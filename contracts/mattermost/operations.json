@@ -1,0 +1,8 @@
+[
+  {
+    "file": "system.yaml",
+    "method": "GET",
+    "path": "/api/v4/system/ping",
+    "id": "GetPing"
+  }
+]

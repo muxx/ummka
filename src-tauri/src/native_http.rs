@@ -8,6 +8,9 @@ mod checks;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum TransportError {
+    InvalidInstallation,
+    OutsideInstallation,
+    OperationDenied,
     Redirect,
     CleartextDenied,
     Network,
@@ -16,6 +19,9 @@ pub enum TransportError {
 impl fmt::Display for TransportError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
+            Self::InvalidInstallation => "Invalid canonical Mattermost server URL",
+            Self::OutsideInstallation => "REST target is outside the selected installation",
+            Self::OperationDenied => "REST operation is not allowed",
             Self::Redirect => "HTTP redirect refused",
             Self::CleartextDenied => "Cleartext HTTP is disabled",
             Self::Network => "HTTP exchange failed",

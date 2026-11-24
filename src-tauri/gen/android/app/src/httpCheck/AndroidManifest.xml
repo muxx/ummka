@@ -4,6 +4,6 @@
             <meta-data android:name="android.app.device_admin" android:resource="@xml/http_check_admin" />
             <intent-filter><action android:name="android.app.action.DEVICE_ADMIN_ENABLED" /></intent-filter>
         </receiver>
-        <activity android:name=".HttpCheckActivity" android:exported="true" android:permission="android.permission.DUMP" />
     </application>
+    <instrumentation android:name="io.github.muxx.ummka.dev.HttpCheckInstrumentation" android:targetPackage="${applicationId}" />
 </manifest>

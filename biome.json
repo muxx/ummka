@@ -1,6 +1,7 @@
 {
   "files": {
     "includes": [
+      "contracts/mattermost/**",
       "src/**",
       "scripts/contract/**",
       "scripts/native-http/**",
