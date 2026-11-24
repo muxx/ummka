@@ -2,10 +2,11 @@
 mod keystore;
 
 use super::{CredentialError, CredentialStore, Removal};
+use crate::history::{AccountHistory, HistoryDatabase};
 use crate::rest::is_mattermost_id;
 use crate::sessions::{Account, SessionToken, validate_installation};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub struct AndroidCredentialStore {
     path: PathBuf,
@@ -22,6 +23,17 @@ impl AndroidCredentialStore {
         Ok(Self {
             path: keystore::database_path()?.into(),
         })
+    }
+
+    #[cfg(feature = "native-http-check")]
+    pub(crate) fn at_path(path: PathBuf) -> Self {
+        Self { path }
+    }
+
+    fn private_root(&self) -> Result<&Path, CredentialError> {
+        self.path
+            .parent()
+            .ok_or(CredentialError::StorageUnavailable)
     }
 
     fn stored_ids(db: &Connection, installation: &str) -> Result<Vec<String>, CredentialError> {
@@ -63,12 +75,28 @@ impl AndroidCredentialStore {
     ) -> Result<Removal, CredentialError> {
         let mut db = self.connect()?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let present: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sessions WHERE installation=?1 AND user_id=?2)",
+            [account.installation(), account.user_id()],
+            |row| row.get(0),
+        )?;
+        if !present {
+            return Ok(
+                if expected.is_some() && !Self::stored_ids(&tx, account.installation())?.is_empty()
+                {
+                    Removal::Superseded
+                } else {
+                    Removal::Removed
+                },
+            );
+        }
         if let Some(expected) = expected
             && Self::read_token(&tx, account)?
-                .is_some_and(|current| current.secret() != expected.secret())
+                .is_none_or(|current| current.secret() != expected.secret())
         {
             return Ok(Removal::Superseded);
         }
+        HistoryDatabase::purge_account(self.private_root()?, account)?;
         tx.execute(
             "DELETE FROM sessions WHERE installation=?1 AND user_id=?2",
             [account.installation(), account.user_id()],
@@ -124,7 +152,9 @@ impl CredentialStore for AndroidCredentialStore {
     fn save(&self, account: &Account, token: &SessionToken) -> Result<(), CredentialError> {
         let mut db = self.connect()?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        super::allow_account(account, &Self::stored_ids(&tx, account.installation())?)?;
+        let ids = Self::stored_ids(&tx, account.installation())?;
+        super::allow_account(account, &ids)?;
+        HistoryDatabase::retire_existing(self.private_root()?, account, !ids.is_empty())?;
         let empty = tx.query_row("SELECT NOT EXISTS(SELECT 1 FROM sessions)", [], |r| {
             r.get(0)
         })?;
@@ -136,6 +166,24 @@ impl CredentialStore for AndroidCredentialStore {
         )?;
         tx.commit()?;
         Ok(())
+    }
+
+    fn open_history(
+        &self,
+        account: &Account,
+        expected: &SessionToken,
+    ) -> Result<AccountHistory, CredentialError> {
+        let mut db = self.connect()?;
+        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        super::allow_account(account, &Self::stored_ids(&tx, account.installation())?)?;
+        let history = super::bind_history(
+            self.private_root()?,
+            account,
+            expected,
+            Self::read_token(&tx, account)?,
+        )?;
+        tx.commit()?;
+        Ok(history)
     }
 
     fn read(&self, account: &Account) -> Result<Option<SessionToken>, CredentialError> {

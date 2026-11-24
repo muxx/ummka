@@ -1,6 +1,7 @@
 mod app_error;
 pub mod authentication;
 pub mod credentials;
+pub mod history;
 mod installation_url;
 #[cfg(all(test, desktop))]
 mod ipc_test;

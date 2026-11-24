@@ -1,4 +1,5 @@
 use super::{CredentialError, CredentialStore, Removal};
+use crate::history::{AccountHistory, HistoryDatabase};
 use crate::rest::is_mattermost_id;
 use crate::sessions::{Account, SessionToken, validate_installation};
 use core_foundation::base::TCFType;
@@ -22,10 +23,14 @@ impl MacCredentialStore {
     pub(super) fn for_check(application_id: &str) -> Result<Self, CredentialError> {
         let path =
             std::env::var_os("UMMKA_CHECK_KEYCHAIN").ok_or(CredentialError::StorageUnavailable)?;
-        let keychain = SecKeychain::open(std::path::Path::new(&path))
-            .map_err(|_| CredentialError::StorageUnavailable)?;
+        Self::at_keychain(Path::new(&path), application_id)
+    }
+
+    #[cfg(any(feature = "webview-check", all(test, feature = "native-http-check")))]
+    pub(crate) fn at_keychain(path: &Path, application_id: &str) -> Result<Self, CredentialError> {
+        let keychain = SecKeychain::open(path).map_err(|_| CredentialError::StorageUnavailable)?;
         Ok(Self {
-            writer: Path::new(&path).with_extension("writers.lock"),
+            writer: path.with_extension("writers.lock"),
             keychain,
             application_id: application_id.into(),
         })
@@ -48,13 +53,16 @@ impl MacCredentialStore {
         })
     }
 
+    fn private_root(&self) -> Result<&Path, CredentialError> {
+        self.writer
+            .parent()
+            .ok_or(CredentialError::StorageUnavailable)
+    }
+
     // All ummka writers lock the same stable file. Its contents never carry credentials.
     fn write_guard(&self) -> Result<File, CredentialError> {
         let unavailable = |_| CredentialError::StorageUnavailable;
-        let directory = self
-            .writer
-            .parent()
-            .ok_or(CredentialError::StorageUnavailable)?;
+        let directory = self.private_root()?;
         fs::create_dir_all(directory).map_err(unavailable)?;
         let file = OpenOptions::new()
             .read(true)
@@ -82,8 +90,18 @@ impl MacCredentialStore {
             Ok((bytes, _)) if expected.is_some_and(|token| &*bytes != token.secret()) => {
                 return Ok(Removal::Superseded);
             }
-            // The safe item's delete method discards OSStatus. This owned item stays live through the call.
-            Ok((_, item)) => unsafe { SecKeychainItemDelete(item.as_concrete_TypeRef()) },
+            Ok((_, item)) => {
+                HistoryDatabase::purge_account(self.private_root()?, account)?;
+                // The safe item's delete method discards OSStatus. The owned item is live through the call.
+                unsafe { SecKeychainItemDelete(item.as_concrete_TypeRef()) }
+            }
+            Err(e) if e.code() == errSecItemNotFound && expected.is_some() => {
+                return Ok(if self.account_ids(account.installation())?.is_empty() {
+                    Removal::Removed
+                } else {
+                    Removal::Superseded
+                });
+            }
             Err(e) => e.code(),
         };
         if status == errSecSuccess || status == errSecItemNotFound {
@@ -101,7 +119,9 @@ impl MacCredentialStore {
 impl CredentialStore for MacCredentialStore {
     fn save(&self, account: &Account, token: &SessionToken) -> Result<(), CredentialError> {
         let _guard = self.write_guard()?;
-        super::allow_account(account, &self.account_ids(account.installation())?)?;
+        let ids = self.account_ids(account.installation())?;
+        super::allow_account(account, &ids)?;
+        HistoryDatabase::retire_existing(self.private_root()?, account, !ids.is_empty())?;
         let service = self.service(account.installation());
         match self
             .keychain
@@ -118,6 +138,16 @@ impl CredentialStore for MacCredentialStore {
             }
             Err(_) => Err(CredentialError::StorageUnavailable),
         }
+    }
+
+    fn open_history(
+        &self,
+        account: &Account,
+        expected: &SessionToken,
+    ) -> Result<AccountHistory, CredentialError> {
+        let _guard = self.write_guard()?;
+        super::allow_account(account, &self.account_ids(account.installation())?)?;
+        super::bind_history(self.private_root()?, account, expected, self.read(account)?)
     }
 
     fn read(&self, account: &Account) -> Result<Option<SessionToken>, CredentialError> {

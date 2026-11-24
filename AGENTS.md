@@ -26,6 +26,12 @@ Follow the [design system](docs/design.md) when designing, building, or reviewin
 - Choose the simplest design that meets the requirements. Use maintained libraries, fix root causes, and suggest refactoring where it helps. Apply SOLID, DRY, and domain-driven design where they simplify the code.
 - Allow breaking changes to ummka's interfaces while preserving the stated Mattermost compatibility.
 
+## Database changes
+
+- Version each database format. Keep independent schema changes and data transformations in separate, ordered migrations. When SQLite must rebuild a table, copy its rows and replace it in the same transaction.
+- Test upgrades on populated files with the bundled SQLite, including skipped releases and rollback after a failure. Verify the schema and user data after reopening. Test both directions of supported downgrades. An older client must preserve a database whose version it cannot read.
+- Inspect the query plan for new or changed queries on representative data. For SQLite, use `EXPLAIN QUERY PLAN`. Choose query shapes and indexes that match the filters, joins, and ordering on the target engine.
+
 ## Docs
 
 - Write repository documentation in English. Workspace documents follow their directory's rules.

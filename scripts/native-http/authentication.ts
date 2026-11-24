@@ -23,6 +23,7 @@ export async function handleAuth(
           "out-lost",
           "out-invalid",
           "out-new",
+          "history-a",
         ].some((name) => auth === `Bearer fixture-grant-${name}`),
     );
     visits.push(`me-${auth.slice("Bearer fixture-grant-".length)}`);
@@ -52,7 +53,14 @@ export async function handleAuth(
     await beforeLogout(name);
     if (["no-reply", "out-lost", "peer-lost"].includes(name)) {
       request.socket.destroy();
-    } else if (["refused-logout", "refused", "out-refused"].includes(name)) {
+    } else if (
+      [
+        "refused-logout",
+        "refused",
+        "out-refused",
+        "history-unconfirmed",
+      ].includes(name)
+    ) {
       response
         .writeHead(403)
         .end(JSON.stringify({ id: "logout.refused", message: auth }));
@@ -182,5 +190,20 @@ export function checkAuthVisits(visits: string[]) {
     "logout-out-race",
     "login-out-new",
     "me-out-new",
+    "login-history-first-fail",
+    "logout-history-first-fail",
+    "login-peer-history-first",
+    "login-history-a",
+    "login-history-rejected",
+    "logout-history-rejected",
+    "me-history-a",
+    "login-history-old-out",
+    "logout-history-old-out",
+    "login-history-unconfirmed",
+    "logout-history-unconfirmed",
+    "login-history-unreadable",
+    "logout-history-unreadable",
+    "login-history-final",
+    "logout-history-final",
   ]);
 }

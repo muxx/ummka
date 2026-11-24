@@ -1,3 +1,4 @@
+use crate::history::{AccountHistory, HistoryError};
 use crate::sessions::{Account, SessionToken};
 use std::fmt;
 
@@ -13,6 +14,8 @@ pub enum CredentialError {
     InvalidEntry,
     InstallationAccountConflict,
     StorageUnavailable,
+    HistoryStorageUnavailable,
+    SessionUnavailable,
 }
 
 impl fmt::Display for CredentialError {
@@ -21,6 +24,8 @@ impl fmt::Display for CredentialError {
             Self::InvalidInstallation => "Invalid installation for credential storage",
             Self::InstallationAccountConflict => "Sign out of the current Mattermost account first",
             Self::InvalidEntry => "Invalid stored Mattermost credential",
+            Self::HistoryStorageUnavailable => "Local history storage is unavailable",
+            Self::SessionUnavailable => "The Mattermost account session is unavailable",
             Self::StorageUnavailable => "The platform credential store is unavailable",
         })
     }
@@ -28,12 +33,20 @@ impl fmt::Display for CredentialError {
 
 impl std::error::Error for CredentialError {}
 
+impl From<HistoryError> for CredentialError {
+    fn from(_: HistoryError) -> Self {
+        Self::HistoryStorageUnavailable
+    }
+}
+
 impl From<CredentialError> for crate::rest::TransportError {
     fn from(value: CredentialError) -> Self {
         match value {
             CredentialError::InvalidInstallation => Self::InvalidInstallation,
             CredentialError::InstallationAccountConflict => Self::InstallationAccountConflict,
             CredentialError::InvalidEntry => Self::InvalidStoredCredential,
+            CredentialError::HistoryStorageUnavailable => Self::HistoryStorageUnavailable,
+            CredentialError::SessionUnavailable => Self::SessionUnavailable,
             CredentialError::StorageUnavailable => Self::CredentialStorageUnavailable,
         }
     }
@@ -58,12 +71,24 @@ pub(crate) fn for_application(_: &str) -> Result<Box<dyn CredentialStore>, Crede
     Err(CredentialError::StorageUnavailable)
 }
 
-#[cfg(any(target_os = "macos", target_os = "android"))]
 fn allow_account(account: &Account, stored_ids: &[String]) -> Result<(), CredentialError> {
     if stored_ids.iter().any(|id| id != account.user_id()) {
         return Err(CredentialError::InstallationAccountConflict);
     }
     Ok(())
+}
+
+// The platform writer is held until both the current credential and the SQLite generation agree.
+fn bind_history(
+    root: &std::path::Path,
+    account: &Account,
+    expected: &SessionToken,
+    current: Option<SessionToken>,
+) -> Result<AccountHistory, CredentialError> {
+    if current.is_none_or(|token| token.secret() != expected.secret()) {
+        return Err(CredentialError::SessionUnavailable);
+    }
+    Ok(AccountHistory::open(root, account)?)
 }
 
 /// A conditional removal never removes a new credential for the same account.
@@ -78,6 +103,11 @@ pub enum Removal {
 pub trait CredentialStore {
     /// Atomically refuse a different user at the same installation, or persist this login.
     fn save(&self, account: &Account, token: &SessionToken) -> Result<(), CredentialError>;
+    fn open_history(
+        &self,
+        account: &Account,
+        expected: &SessionToken,
+    ) -> Result<AccountHistory, CredentialError>;
     fn read(&self, account: &Account) -> Result<Option<SessionToken>, CredentialError>;
     fn account_ids(&self, installation: &str) -> Result<Vec<String>, CredentialError>;
     fn remove(&self, account: &Account) -> Result<(), CredentialError>;

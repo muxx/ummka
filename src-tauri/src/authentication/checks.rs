@@ -2,6 +2,8 @@ use super::*;
 use crate::models::SecretInput;
 use crate::rest::RestConnection;
 
+#[cfg(any(target_os = "android", target_os = "macos"))]
+mod history;
 mod persistence;
 mod sign_out;
 
@@ -41,6 +43,7 @@ pub(crate) async fn exchange(
     http: &NativeHttp,
     base: &str,
     other: &str,
+    _fixture_dir: &std::path::Path,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let prefixed = format!("{base}/Login%20Site//Blue");
     let open = |base: &str| NativeAuthentication::with_client(base, || Ok(http.clone()));
@@ -111,5 +114,8 @@ pub(crate) async fn exchange(
     assert_eq!(error.id.as_deref(), Some("logout.refused"));
     assert!(error.message.is_none());
     persistence::check(&client, base).await?;
-    sign_out::check(&client, base).await
+    sign_out::check(&client, base).await?;
+    #[cfg(any(target_os = "android", target_os = "macos"))]
+    history::check(&client, base, _fixture_dir).await?;
+    Ok(())
 }

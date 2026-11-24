@@ -10,6 +10,7 @@ import android.util.Base64
 import android.util.Log
 import java.io.File
 import java.security.KeyStore
+import java.util.UUID
 
 class HttpCheckAdmin : DeviceAdminReceiver()
 
@@ -50,11 +51,13 @@ class HttpCheckInstrumentation : Instrumentation() {
             val admin = ComponentName(app, HttpCheckAdmin::class.java)
             val ca = Base64.decode(requireNotNull(arguments.getString("ca")), Base64.DEFAULT)
             check(policies.installCaCert(admin, ca))
-            val registry = File.createTempFile("ummka-registry-", ".sqlite", app.cacheDir)
+            val workspace = File(app.cacheDir, "ummka-storage-" + UUID.randomUUID())
+            check(workspace.mkdir())
+            val registry = File(workspace, "installations.sqlite")
             try {
                 runChecks(requireNotNull(arguments.getString("ports")), registry.absolutePath, requireNotNull(arguments.getString("accountPort")).toInt())
             } finally {
-                registry.delete()
+                check(workspace.deleteRecursively())
             }
             result.putString("result", "PASS")
             finish(Activity.RESULT_OK, result)
