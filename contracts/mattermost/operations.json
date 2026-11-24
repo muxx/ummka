@@ -40,5 +40,12 @@
     "method": "GET",
     "path": "/api/v4/users/{user_id}/teams/{team_id}/channels/members",
     "id": "GetChannelMembersForUser"
+  },
+  {
+    "file": "users.yaml",
+    "method": "POST",
+    "path": "/api/v4/users/ids",
+    "id": "GetUsersByIds",
+    "body": "json"
   }
 ]

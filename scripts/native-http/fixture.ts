@@ -105,6 +105,8 @@ export async function startFixture(dir: string) {
     method?: string;
     path?: string;
     header?: string | string[];
+    contentType?: string;
+    body?: Buffer;
   }[] = [];
   let otherRequests = 0;
   const checkpoints: number[][] = [];
@@ -189,14 +191,22 @@ export async function startFixture(dir: string) {
     }
   });
 
-  const selected = https.createServer(certs.trusted, (req, res) => {
+  const selected = https.createServer(certs.trusted, async (req, res) => {
     assert.equal(req.headers.authorization, undefined);
     assert.equal(req.headers.cookie, undefined);
     scopedSockets.push(req.socket);
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk);
     scopedRequests.push({
       method: req.method,
       path: req.url,
       header: req.headers["x-fixture"],
+      ...(chunks.length || req.method === "POST"
+        ? {
+            contentType: req.headers["content-type"],
+            body: Buffer.concat(chunks),
+          }
+        : {}),
     });
     ok(res);
   });
@@ -261,7 +271,16 @@ export async function startFixture(dir: string) {
           path: `/Teams/Blue%20Sky//A%2FB/api/v4/${route}`,
           header: undefined,
         }));
-        assert.deepEqual(scopedRequests, [ping, ping, ...reads]);
+        const batch = {
+          method: "POST",
+          path: "/Teams/Blue%20Sky//A%2FB/api/v4/users/ids?since=123",
+          header: undefined,
+          contentType: "application/json",
+          body: Buffer.from(
+            '["Abc01234567890123456789012","def01234567890123456789012"]',
+          ),
+        };
+        assert.deepEqual(scopedRequests, [ping, ping, ...reads, batch]);
         assert.equal(
           scopedSockets[0],
           scopedSockets[1],
