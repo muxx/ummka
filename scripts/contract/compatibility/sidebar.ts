@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { loadTeamDirectory } from "../../../src/mattermost/navigation-data.ts";
 import {
   ChannelsApi,
   Configuration,
@@ -73,6 +74,19 @@ export async function checkSidebarReads(
     teamId,
   });
   assert.deepEqual(updated.order, order);
+  const directory = await loadTeamDirectory(config, userId, teamId);
+  assert.deepEqual(
+    directory.categories.map((category) => category.id),
+    order,
+  );
+  assert.deepEqual(directory.categories[1]?.channelIds, [channelId]);
+  const row = directory.channels.find((row) => row.channel.id === channelId);
+  assert.ok(
+    row &&
+      row.membership.userId === userId &&
+      row.channel.lastRootPostAt &&
+      row.membership.mentionCountRoot === 0,
+  );
   assert.deepEqual(
     updated.categories?.find((c) => c.id === custom.id),
     {

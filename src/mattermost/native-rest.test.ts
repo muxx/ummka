@@ -127,6 +127,7 @@ test("passes the canonical installation and closes the exact native handle", asy
   expect("signOut" in connection).toBe(false);
   expect("readChannelWindow" in connection).toBe(false);
   expect("readAccountDirectory" in connection).toBe(false);
+  expect("readTeamDirectory" in connection).toBe(false);
   expect("refreshChannelHistory" in connection).toBe(false);
   await connection.close();
   expect(ipc).toHaveBeenNthCalledWith(2, "close_rest_connection", { rid: 41 });
@@ -155,6 +156,7 @@ test("opens a native account by installation and user ID", async () => {
     "fetchApi",
     "readAccountDirectory",
     "readChannelWindow",
+    "readTeamDirectory",
     "refreshChannelHistory",
     "rid",
     "signOut",

@@ -10,7 +10,7 @@ import type {
   LocalChannelWindow,
 } from "./local-history.ts";
 import { nativeFetch } from "./native-fetch.ts";
-import { loadAccountDirectory } from "./navigation-data.ts";
+import { loadAccountDirectory, loadTeamDirectory } from "./navigation-data.ts";
 import { createRestTransport } from "./rest-transport.ts";
 import { canonicalServerUrl } from "./server-url.ts";
 
@@ -70,6 +70,11 @@ export async function openAccountRestConnection(
     ...connection,
     readAccountDirectory(signal?: AbortSignal) {
       return readWhileOpen(() => loadAccountDirectory(config, userId, signal));
+    },
+    readTeamDirectory(teamId: string, signal?: AbortSignal) {
+      return readWhileOpen(() =>
+        loadTeamDirectory(config, userId, teamId, signal),
+      );
     },
     refreshChannelHistory(query: ChannelRefreshRequest, signal?: AbortSignal) {
       if (retired) return Promise.reject<ChannelRefreshResult>(retired);
