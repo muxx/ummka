@@ -98,6 +98,7 @@ export async function startFixture(dir: string) {
   const pooled: Socket[] = [];
   const sockets = new Set<Socket>();
   const events = new EventEmitter();
+  const detachedRevoked = once(events, "detached-revoked");
   const receivedHeaders = once(events, "received-headers");
   const closedHeaders = once(events, "closed-headers");
   const closedBody = once(events, "closed-body");
@@ -115,8 +116,14 @@ export async function startFixture(dir: string) {
   const ok = (response: http.ServerResponse) => response.end("OK");
   const tls = https.createServer(certs.trusted, (request, response) => {
     const path = request.url;
+    if (path === "/auth-check/detached-revoked") {
+      void detachedRevoked.then(() => ok(response));
+      return;
+    }
     if (path?.startsWith(authPrefix)) {
-      void handleAuth(request, response, authVisits);
+      void handleAuth(request, response, authVisits).then((loggedOut) => {
+        if (loggedOut === "detached") events.emit("detached-revoked");
+      });
       return;
     }
     assert(path);

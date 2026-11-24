@@ -207,11 +207,19 @@ impl AccountSessions {
         user_id: &str,
         raw: &str,
     ) -> Result<(), TransportError> {
-        let account = Account::new(base, user_id)?;
-        let token = SessionToken::new(raw)?;
+        self.activate_verified(Account::new(base, user_id)?, SessionToken::new(raw)?)
+            .await
+    }
+
+    pub(crate) async fn activate_verified(
+        &self,
+        account: Account,
+        token: SessionToken,
+    ) -> Result<(), TransportError> {
+        let next = AccountSession::new(token.clone());
         self.change(move |state| {
             (state.open_store)()?.save(&account, &token)?;
-            state.replace(account, Some(AccountSession::new(token)));
+            state.replace(account, Some(next));
             Ok(())
         })
         .await
@@ -257,6 +265,9 @@ impl AccountSessions {
         .await
     }
 }
+
+#[cfg(any(test, all(feature = "native-http-check", target_os = "android")))]
+pub(crate) mod fixture;
 
 #[cfg(test)]
 mod tests;

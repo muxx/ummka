@@ -8,8 +8,19 @@ export async function handleAuth(
   response: ServerResponse,
   visits: string[],
 ) {
-  assert.equal(request.method, "POST");
   assert.equal(request.headers.cookie, undefined);
+  if (request.url === `${authPrefix}me`) {
+    assert.equal(request.method, "GET");
+    const auth = request.headers.authorization;
+    assert(
+      auth === "Bearer fixture-grant-saved" ||
+        auth === "Bearer fixture-grant-replaced",
+    );
+    visits.push(`me-${auth.slice("Bearer fixture-grant-".length)}`);
+    response.end(JSON.stringify({ id: "Abc01234567890123456789012" }));
+    return;
+  }
+  assert.equal(request.method, "POST");
   const chunks: Buffer[] = [];
   for await (const chunk of request) chunks.push(Buffer.from(chunk));
   const bytes = Buffer.concat(chunks);
@@ -22,7 +33,9 @@ export async function handleAuth(
     assert.equal(bytes.length, 0);
     const name = auth.slice("Bearer fixture-grant-".length);
     visits.push(`logout-${name}`);
-    if (name === "refused-logout") {
+    if (name === "no-reply") {
+      request.socket.destroy();
+    } else if (name === "refused-logout" || name === "refused") {
       response
         .writeHead(403)
         .end(JSON.stringify({ id: "logout.refused", message: auth }));
@@ -31,7 +44,7 @@ export async function handleAuth(
         JSON.stringify({ status: name === "bad-logout" ? "FAIL" : "OK" }),
       );
     }
-    return;
+    return name;
   }
   assert.equal(request.url, `${authPrefix}login`);
   assert.equal(request.headers.authorization, undefined);
@@ -104,5 +117,24 @@ export function checkAuthVisits(visits: string[]) {
     "logout-bad-logout",
     "login-refused-logout",
     "logout-refused-logout",
+    "login-saved",
+    "me-saved",
+    "login-mfa",
+    "login-confirmed",
+    "logout-confirmed",
+    "login-refused",
+    "logout-refused",
+    "login-no-reply",
+    "logout-no-reply",
+    "me-saved",
+    "me-saved",
+    "login-empty",
+    "logout-empty",
+    "login-detached",
+    "logout-detached",
+    "me-saved",
+    "login-replaced",
+    "me-replaced",
+    "me-replaced",
   ]);
 }

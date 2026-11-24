@@ -1,6 +1,18 @@
 use super::*;
 use crate::models::SecretInput;
 
+mod persistence;
+
+fn input(id: &str) -> LoginRequest {
+    LoginRequest {
+        login_id: Some(id.into()),
+        password: Some(SecretInput::new("fixture-password".into())),
+        token: Some(SecretInput::new("fixture-code".into())),
+        ldap_only: Some("true".into()),
+        ..Default::default()
+    }
+}
+
 pub(crate) async fn exchange(
     http: &NativeHttp,
     base: &str,
@@ -13,15 +25,6 @@ pub(crate) async fn exchange(
         open("http://vault.example.test"),
         Err(TransportError::CleartextDenied)
     ));
-    fn input(id: &str) -> LoginRequest {
-        LoginRequest {
-            login_id: Some(id.into()),
-            password: Some(SecretInput::new("fixture-password".into())),
-            token: Some(SecretInput::new("fixture-code".into())),
-            ldap_only: Some("true".into()),
-            ..Default::default()
-        }
-    }
     let good = client.login(&input("ordinary")).await?;
     assert_eq!(good.account().installation(), prefixed);
     assert_eq!(good.account().user_id(), "Abc01234567890123456789012");
@@ -83,5 +86,5 @@ pub(crate) async fn exchange(
     assert_eq!(error.status_code, 403);
     assert_eq!(error.id.as_deref(), Some("logout.refused"));
     assert!(error.message.is_none());
-    Ok(())
+    persistence::check(&client, base).await
 }

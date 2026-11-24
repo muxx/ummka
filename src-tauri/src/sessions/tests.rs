@@ -1,3 +1,4 @@
+use super::fixture::{TestVault, using};
 use super::*;
 use tokio::sync::oneshot;
 
@@ -159,57 +160,6 @@ async fn retirement_drains_a_pending_send_without_waiting_for_the_network() {
     )
     .await
     .unwrap();
-}
-
-#[derive(Default)]
-struct TestVault {
-    rows: Mutex<HashMap<Account, SessionToken>>,
-    reads: std::sync::atomic::AtomicUsize,
-    refuse: std::sync::atomic::AtomicBool,
-    read_gate: Mutex<Option<(oneshot::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
-}
-
-impl CredentialStore for Arc<TestVault> {
-    fn read(&self, a: &Account) -> Result<Option<SessionToken>, CredentialError> {
-        use std::sync::atomic::Ordering::SeqCst;
-        self.reads.fetch_add(1, SeqCst);
-        let existing = self.rows.lock().unwrap().get(a).cloned();
-        if let Some((started, release)) = self.read_gate.lock().unwrap().take() {
-            started.send(()).unwrap();
-            release.recv().unwrap();
-        }
-        Ok(existing)
-    }
-    fn save(&self, a: &Account, t: &SessionToken) -> Result<(), CredentialError> {
-        if self.refuse.load(std::sync::atomic::Ordering::SeqCst) {
-            return Err(CredentialError::StorageUnavailable);
-        }
-        self.rows.lock().unwrap().insert(a.clone(), t.clone());
-        Ok(())
-    }
-    fn remove(&self, a: &Account) -> Result<(), CredentialError> {
-        if self.refuse.load(std::sync::atomic::Ordering::SeqCst) {
-            return Err(CredentialError::StorageUnavailable);
-        }
-        self.rows.lock().unwrap().remove(a);
-        Ok(())
-    }
-    fn account_ids(&self, base: &str) -> Result<Vec<String>, CredentialError> {
-        let mut ids: Vec<_> = self
-            .rows
-            .lock()
-            .unwrap()
-            .keys()
-            .filter(|a| a.installation() == base)
-            .map(|a| a.user_id().to_owned())
-            .collect();
-        ids.sort_unstable();
-        Ok(ids)
-    }
-}
-
-fn using(vault: Arc<TestVault>) -> AccountSessions {
-    AccountSessions::with_store(move || Ok(Box::new(vault.clone())))
 }
 
 impl Default for AccountSessions {
