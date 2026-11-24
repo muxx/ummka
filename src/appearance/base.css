@@ -1,0 +1,48 @@
+:root {
+  --inline-link: var(--link);
+  --keyboard-focus: var(--focus);
+  --focus-offset: 2px;
+  color: var(--text);
+  background-color: var(--canvas);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+[data-surface="message"] {
+  --inline-link: var(--message-link);
+  --keyboard-focus: var(--focus);
+}
+
+[data-surface="navigation"] {
+  --inline-link: var(--on-navigation);
+  --keyboard-focus: var(--on-navigation);
+  --focus-offset: -2px;
+}
+
+[data-surface="topbar"] {
+  --inline-link: var(--on-topbar);
+  --keyboard-focus: var(--on-topbar);
+  --focus-offset: -2px;
+}
+
+[data-surface="selected-navigation"] {
+  --inline-link: var(--on-selected);
+  --keyboard-focus: var(--on-selected);
+  --focus-offset: -2px;
+}
+
+[data-surface="selected-row"] {
+  --inline-link: var(--link);
+  --keyboard-focus: var(--text);
+  --focus-offset: -2px;
+}
+
+a:any-link {
+  color: var(--inline-link);
+  text-decoration: underline;
+}
+
+:where(input, textarea, select):focus,
+:focus-visible {
+  outline: 2px solid var(--keyboard-focus);
+  outline-offset: var(--focus-offset);
+}
