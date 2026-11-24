@@ -4,6 +4,7 @@ use crate::rest::RestConnection;
 
 #[cfg(any(target_os = "android", target_os = "macos"))]
 mod history;
+mod password_form;
 mod persistence;
 mod sign_out;
 
@@ -113,6 +114,7 @@ pub(crate) async fn exchange(
     assert_eq!(error.status_code, 403);
     assert_eq!(error.id.as_deref(), Some("logout.refused"));
     assert!(error.message.is_none());
+    password_form::check(&client).await?;
     persistence::check(&client, base).await?;
     sign_out::check(&client, base).await?;
     #[cfg(any(target_os = "android", target_os = "macos"))]
