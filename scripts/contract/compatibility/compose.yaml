@@ -42,10 +42,6 @@ services:
   probe:
     image: *node
     working_dir: /work
-    volumes:
-      - .:/work/scripts/contract/compatibility:ro
-      - ../../../vendor/mattermost:/work/vendor/mattermost:ro
-      - ../../../package.json:/work/package.json:ro
 
 networks:
   default:

@@ -13,6 +13,7 @@ import {
 } from "../../vendor/mattermost/index.js";
 import { checkAccountResponses } from "./account.ts";
 import { checkChannelHistory } from "./history.ts";
+import { checkPostContext } from "./post-context.ts";
 import { checkTeamReads } from "./team-reads.ts";
 
 function check(value: unknown, message: string): asserts value {
@@ -153,6 +154,7 @@ export async function checkGeneratedRequests(ports: string[]) {
     await checkAccountResponses(accountPrefix, userId, observed);
     await checkTeamReads(rootSession, signed);
     await checkChannelHistory(rootSession, signed, new Configuration(root));
+    await checkPostContext(rootSession, signed);
     const profile = await loadInstallationProfile(
       prefixed,
       new AbortController().signal,

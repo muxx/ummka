@@ -15,6 +15,10 @@ import {
 } from "./history-corrections.ts";
 import { type Fields, object } from "./objects.ts";
 import { checkPathParameters } from "./path-parameters.ts";
+import {
+  checkPostInfoOperation,
+  postInfoSchema,
+} from "./post-info-correction.ts";
 
 const methods = new Set([
   "get",
@@ -72,6 +76,11 @@ export function buildSpecification(
     const group = components[kind];
     if (Object.hasOwn(group, name)) return;
     const upstream = object(original[kind], `components/${kind}`);
+    if (kind === "schemas" && name === "PostInfo") {
+      group[name] = postInfoSchema(upstream, read("definitions-12.1.0.yaml"));
+      visit(group[name]);
+      return;
+    }
     if (!Object.hasOwn(upstream, name))
       throw new Error(`Missing component ${kind}/${name}`);
     const source = object(upstream[name], `components/${kind}/${name}`);
@@ -117,6 +126,8 @@ export function buildSpecification(
     const operation = object(sourcePath[method], `${method} ${path}`);
     if (operation.operationId !== id)
       throw new Error(`Expected operation ${id} at ${method} ${path}`);
+    if (id === "GetPostInfo")
+      checkPostInfoOperation(read("posts.yaml"), path, operation);
     checkPathParameters(path, sourcePath, operation, original);
     checkRequestBody(id, body, operation);
     paths[path] ??= Object.fromEntries(

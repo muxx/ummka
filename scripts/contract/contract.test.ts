@@ -23,6 +23,10 @@ import {
   correctHistorySchema,
 } from "./history-corrections.ts";
 import { object } from "./objects.ts";
+import {
+  checkPostInfoOperation,
+  postInfoSchema,
+} from "./post-info-correction.ts";
 import { buildSpecification, readSource } from "./schema.ts";
 
 const sources = process.env.UMMKA_CONTRACT_SOURCES;
@@ -177,6 +181,7 @@ test("retains the catalog operations, security and transitive models", () => {
       "FileInfo",
       "Post",
       "PostAcknowledgement",
+      "PostInfo",
       "PostList",
       "PostMetadata",
       "Reaction",
@@ -187,6 +192,31 @@ test("retains the catalog operations, security and transitive models", () => {
       "UserNotifyProps",
     ],
   );
+});
+
+test("imports precisely the missing post info contract and stops on drift", () => {
+  const path = "/api/v4/posts/{post_id}/info";
+  const op = object(at(read("posts-12.1.0.yaml"), [path, "get"]), path);
+  const reference = read("definitions-12.1.0.yaml");
+  const modelPath = ["components", "schemas", "PostInfo"];
+  assert.deepEqual(at(contract, modelPath), at(reference, modelPath));
+  assert.throws(
+    () => checkPostInfoOperation({ [path]: {} }, path, op),
+    /Review/,
+  );
+  const wrong = structuredClone(op);
+  object(
+    at(wrong, ["responses", "200", "content", "application/json"]),
+    "JSON",
+  ).schema = { type: "string" };
+  assert.throws(() => checkPostInfoOperation({}, path, wrong), /Review/);
+  assert.throws(() => postInfoSchema({ PostInfo: {} }, reference), /Review/);
+  const changed = structuredClone(reference);
+  object(
+    at(changed, [...modelPath, "properties", "has_joined_channel"]),
+    "field",
+  ).type = "string";
+  assert.throws(() => postInfoSchema({}, changed), /Review/);
 });
 
 test("builds identical JSON from the pinned sources", () => {
@@ -322,6 +352,7 @@ for (const { file, path, error } of removals) {
     for (const name of new Set([
       "introduction.yaml",
       "definitions.yaml",
+      "definitions-12.1.0.yaml",
       "posts-12.1.0.yaml",
       ...catalog.map(({ file }) => file),
     ])) {

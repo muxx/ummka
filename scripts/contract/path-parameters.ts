@@ -39,7 +39,8 @@ export function checkPathParameters(
     if (
       segment === "{user_id}" ||
       segment === "{team_id}" ||
-      segment === "{channel_id}"
+      segment === "{channel_id}" ||
+      segment === "{post_id}"
     )
       names.add(segment.slice(1, -1));
     else if (/[{}]/u.test(segment))
