@@ -12,6 +12,7 @@ import {
   UsersApi,
 } from "../../vendor/mattermost/index.js";
 import { checkAccountResponses } from "./account.ts";
+import { checkChannelRefresh } from "./channel-refresh.ts";
 import { checkChannelHistory } from "./history.ts";
 import { prepareHistoryLoads } from "./history-loads.ts";
 import { checkUnavailableHistoryServer } from "./local-history.ts";
@@ -156,6 +157,7 @@ export async function checkGeneratedRequests(ports: string[]) {
     );
     const rootSession = new Configuration(accountRoot);
     await checkAccountResponses(accountPrefix, userId, observed);
+    await checkChannelRefresh(accountPrefix, observed);
     await checkTeamReads(rootSession, signed);
     await checkChannelHistory(rootSession, signed, new Configuration(root));
     await checkPostContext(rootSession, signed);

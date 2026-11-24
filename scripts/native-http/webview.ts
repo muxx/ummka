@@ -5,6 +5,7 @@ import https from "node:https";
 import type { Socket } from "node:net";
 import { respondToAccount } from "./account.ts";
 import { respondToHistory } from "./history.ts";
+import { historyRefreshFixture } from "./history-refresh.ts";
 import { respondToPostContext } from "./post-context.ts";
 
 export function webviewServers(
@@ -23,6 +24,7 @@ export function webviewServers(
     "batch-body",
     "account-error-body",
     "account-retire",
+    "refresh-late",
   ];
   const events = new EventEmitter();
   // Each fixture signal fires once and has no error event.
@@ -45,6 +47,9 @@ export function webviewServers(
   let pingSocket: Socket | undefined;
   const settings = new Map<string, ServerResponse>();
   const userId = "Abc01234567890123456789012";
+  const refresh = historyRefreshFixture(userId, () =>
+    events.emit("refresh-late-received"),
+  );
   const teamId = "Team0123456789012345678901";
   const channelId = "c".repeat(26);
   const teamReads = new Map<
@@ -84,6 +89,7 @@ export function webviewServers(
   }
   const data = https.createServer(trusted, async (req, res) => {
     const url = new URL(req.url ?? "/", "https://localhost");
+    if (refresh.handle(req, res, url)) return;
     if (url.pathname.startsWith("/offline-history/")) {
       offlineHistoryRequests++;
       res.writeHead(503, { "Content-Type": "application/json" }).end(
@@ -313,6 +319,8 @@ export function webviewServers(
         "prepared, cancelled and refused requests must not open a socket",
       );
       before = true;
+    } else if (step === "release-history") {
+      refresh.release();
     } else if (step === "disconnect") {
       assert(disconnect);
       disconnect.destroy();
@@ -333,6 +341,7 @@ export function webviewServers(
   return {
     servers: [data, control, foreign],
     verify(platform: "macos" | "android") {
+      refresh.verify();
       assert.equal(
         offlineHistoryRequests,
         1,

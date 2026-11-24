@@ -13,6 +13,7 @@ import {
   resumeChannelsLink,
   routeChannelsLink,
 } from "../../src/mattermost/route-channels-link.ts";
+import { checkRefreshedAfterRestart } from "./channel-refresh.ts";
 import { verifyHistoryLoadsAfterRestart } from "./history-loads.ts";
 import { checkOfflineWindows } from "./local-history.ts";
 
@@ -52,6 +53,7 @@ export async function resumeRegistryCheck(): Promise<boolean> {
   const root = `https://127.0.0.1:${port}`;
   await checkOfflineWindows(root);
   await verifyHistoryLoadsAfterRestart(root);
+  await checkRefreshedAfterRestart(root);
   const firstId = "Abc01234567890123456789012";
   for (const base of [root, `${root}/team/chat`]) {
     if ((await listAccountIds(base)).join(",") !== firstId)

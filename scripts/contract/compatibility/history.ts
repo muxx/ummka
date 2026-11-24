@@ -15,6 +15,7 @@ import {
   PostToJSON,
   ResponseError,
 } from "../../../vendor/mattermost/index.js";
+import { verifyHistoryRefresh } from "./history-refresh.ts";
 
 const base = "http://mattermost:8065";
 const version = process.argv[2];
@@ -522,6 +523,19 @@ console.log(
 );
 
 // A failed local save must revoke only the new server session for this same user.
+await verifyHistoryRefresh(
+  readerPosts,
+  channelId,
+  root.id,
+  reply.id,
+  sinceEdit.since,
+  sinceDeletion.since,
+  [disposable.id, child.id],
+);
+console.log(
+  `Mattermost ${version} verified the generated requests and normalized writes for all five channel history refresh operations.`,
+);
+
 const secondLogin = await create("users/login", {
   login_id: username,
   password,
