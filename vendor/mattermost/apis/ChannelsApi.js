@@ -1,6 +1,7 @@
 import * as runtime from '../runtime.js';
 import { ChannelFromJSON, } from '../models/Channel.js';
 import { ChannelMemberFromJSON, } from '../models/ChannelMember.js';
+import { OrderedSidebarCategoriesFromJSON, } from '../models/OrderedSidebarCategories.js';
 export class ChannelsApi extends runtime.BaseAPI {
     async getChannelMembersForUserRequestOpts(requestParameters) {
         if (requestParameters['userId'] == null) {
@@ -76,6 +77,41 @@ export class ChannelsApi extends runtime.BaseAPI {
     }
     async getChannelsForTeamForUser(requestParameters, initOverrides) {
         const response = await this.getChannelsForTeamForUserRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async getSidebarCategoriesForTeamForUserRequestOpts(requestParameters) {
+        if (requestParameters['teamId'] == null) {
+            throw new runtime.RequiredError('teamId', 'Required parameter "teamId" was null or undefined when calling getSidebarCategoriesForTeamForUser().');
+        }
+        if (requestParameters['userId'] == null) {
+            throw new runtime.RequiredError('userId', 'Required parameter "userId" was null or undefined when calling getSidebarCategoriesForTeamForUser().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/users/{user_id}/teams/{team_id}/channels/categories`;
+        urlPath = urlPath.replace('{team_id}', encodeURIComponent(String(requestParameters['teamId'])));
+        urlPath = urlPath.replace('{user_id}', encodeURIComponent(String(requestParameters['userId'])));
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async getSidebarCategoriesForTeamForUserRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.getSidebarCategoriesForTeamForUserRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => OrderedSidebarCategoriesFromJSON(jsonValue));
+    }
+    async getSidebarCategoriesForTeamForUser(requestParameters, initOverrides) {
+        const response = await this.getSidebarCategoriesForTeamForUserRaw(requestParameters, initOverrides);
         return await response.value();
     }
 }

@@ -19,6 +19,10 @@ import {
   checkPostInfoOperation,
   postInfoSchema,
 } from "./post-info-correction.ts";
+import {
+  correctSidebarCategory,
+  correctSidebarResponse,
+} from "./sidebar-corrections.ts";
 
 const methods = new Set([
   "get",
@@ -84,10 +88,12 @@ export function buildSpecification(
     if (!Object.hasOwn(upstream, name))
       throw new Error(`Missing component ${kind}/${name}`);
     const source = object(upstream[name], `components/${kind}/${name}`);
-    const component =
-      kind === "schemas" ? correctHistorySchema(name, source) : source;
-    group[name] = component;
-    visit(component);
+    if (kind === "schemas" && name === "SidebarCategoryWithChannels")
+      group[name] = correctSidebarCategory(source);
+    else
+      group[name] =
+        kind === "schemas" ? correctHistorySchema(name, source) : source;
+    visit(group[name]);
   }
 
   function visit(value: unknown) {
@@ -133,10 +139,15 @@ export function buildSpecification(
     paths[path] ??= Object.fromEntries(
       Object.entries(sourcePath).filter(([key]) => !methods.has(key)),
     );
-    paths[path][method] =
-      id === "GetPostsForChannel"
-        ? correctHistoryQuery(operation, read("posts-12.1.0.yaml"), path)
-        : correctAuthentication(operation);
+    if (id === "GetPostsForChannel")
+      paths[path][method] = correctHistoryQuery(
+        operation,
+        read("posts-12.1.0.yaml"),
+        path,
+      );
+    else if (id === "GetSidebarCategoriesForTeamForUser")
+      paths[path][method] = correctSidebarResponse(operation);
+    else paths[path][method] = correctAuthentication(operation);
     if (Object.hasOwn(operation, "security"))
       includeSecurity(operation.security);
   }

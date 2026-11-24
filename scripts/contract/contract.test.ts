@@ -28,6 +28,10 @@ import {
   postInfoSchema,
 } from "./post-info-correction.ts";
 import { buildSpecification, readSource } from "./schema.ts";
+import {
+  correctSidebarCategory,
+  correctSidebarResponse,
+} from "./sidebar-corrections.ts";
 
 const sources = process.env.UMMKA_CONTRACT_SOURCES;
 const work = process.env.UMMKA_CONTRACT_WORK;
@@ -45,6 +49,7 @@ const system = read("system.yaml");
 const userRoute = "/api/v4/users/{user_id}";
 const users = read("users.yaml");
 const history = "/api/v4/channels/{channel_id}/posts";
+const sidebar = "/api/v4/users/{user_id}/teams/{team_id}/channels/categories";
 const threadFlags = [
   "skipFetchThreads",
   "collapsedThreads",
@@ -159,7 +164,11 @@ test("retains the catalog operations, security and transitive models", () => {
         reference.filter((p) => threadFlags.includes(p.name)),
       );
     }
-    assert.deepEqual(actual, at(read(file), key));
+    const source = object(at(read(file), key), path);
+    assert.deepEqual(
+      actual,
+      path === sidebar ? correctSidebarResponse(source) : source,
+    );
   }
   for (const path of definitionPaths) {
     assert.deepEqual(at(contract, path), at(definitions, path));
@@ -179,12 +188,15 @@ test("retains the catalog operations, security and transitive models", () => {
       "ChannelNotifyProps",
       "Emoji",
       "FileInfo",
+      "OrderedSidebarCategories",
       "Post",
       "PostAcknowledgement",
       "PostInfo",
       "PostList",
       "PostMetadata",
+      "Preference",
       "Reaction",
+      "SidebarCategoryWithChannels",
       "SystemStatusResponse",
       "Team",
       "Timezone",
@@ -192,6 +204,55 @@ test("retains the catalog operations, security and transitive models", () => {
       "UserNotifyProps",
     ],
   );
+});
+
+test("corrects the sidebar envelope and category fields without changing the upstream objects", () => {
+  const operation = object(
+    at(read("channels.yaml"), [sidebar, "get"]),
+    sidebar,
+  );
+  const success = ["responses", "200", "content", "application/json"];
+  const original = structuredClone(operation);
+  const corrected = correctSidebarResponse(operation);
+  assert.deepEqual(at(corrected, [...success, "schema"]), {
+    $ref: "#/components/schemas/OrderedSidebarCategories",
+  });
+  assert.deepEqual(operation, original);
+  assert.throws(
+    () => correctSidebarResponse(corrected),
+    /Review the sidebar response/,
+  );
+
+  const name = "SidebarCategoryWithChannels";
+  const schema = object(at(definitions, ["components", "schemas", name]), name);
+  const unchanged = structuredClone(schema);
+  const properties = object(schema.properties, name);
+  const output = object(
+    at(contract, ["components", "schemas", name, "properties"]),
+    name,
+  );
+  assert.deepEqual(output, {
+    ...properties,
+    type: {
+      type: "string",
+      enum: ["channels", "custom", "direct_messages", "favorites", "managed"],
+    },
+    sort_order: { type: "integer", format: "int64" },
+    sorting: { type: "string" },
+    muted: { type: "boolean" },
+    collapsed: { type: "boolean" },
+  });
+  for (const key of ["sort_order", "sorting", "muted", "collapsed", "type"]) {
+    const altered = {
+      ...schema,
+      properties: { ...properties, [key]: { type: "string" } },
+    };
+    assert.throws(
+      () => correctSidebarCategory(altered),
+      /Review the sidebar category/,
+    );
+  }
+  assert.deepEqual(schema, unchanged);
 });
 
 test("imports precisely the missing post info contract and stops on drift", () => {

@@ -54,7 +54,7 @@ export function webviewServers(
   const channelId = "c".repeat(26);
   const teamReads = new Map<
     string,
-    { name: string; query: string; body: object[] }
+    { name: string; query: string; body: object }
   >([
     [
       "/api/v4/users/me/teams",
@@ -78,6 +78,45 @@ export function webviewServers(
         name: "team-memberships",
         query: "",
         body: [{ channel_id: channelId, user_id: userId }],
+      },
+    ],
+    [
+      `/team/chat/api/v4/users/me/teams/${teamId}/channels/categories`,
+      {
+        name: "sidebar-categories",
+        query: "",
+        body: {
+          order: ["m".repeat(26)],
+          categories: [
+            {
+              id: "m".repeat(26),
+              user_id: userId,
+              team_id: teamId,
+              type: "managed",
+              display_name: "Managed channels",
+              channel_ids: [channelId],
+              sorting: "manual",
+              sort_order: 0,
+              muted: false,
+              collapsed: true,
+            },
+          ],
+        },
+      },
+    ],
+    [
+      "/team/chat/api/v4/users/me/preferences",
+      {
+        name: "sidebar-preferences",
+        query: "",
+        body: [
+          {
+            user_id: userId,
+            category: "direct_channel_show",
+            name: "d".repeat(26),
+            value: "false",
+          },
+        ],
       },
     ],
   ]);
@@ -380,6 +419,8 @@ export function webviewServers(
         "my-teams",
         "team-channels",
         "team-memberships",
+        "sidebar-categories",
+        "sidebar-preferences",
         "history-root",
         "history-prefixed",
         "history-focused-after",

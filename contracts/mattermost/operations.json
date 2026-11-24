@@ -42,6 +42,18 @@
     "id": "GetChannelMembersForUser"
   },
   {
+    "file": "channels.yaml",
+    "method": "GET",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/channels/categories",
+    "id": "GetSidebarCategoriesForTeamForUser"
+  },
+  {
+    "file": "preferences.yaml",
+    "method": "GET",
+    "path": "/api/v4/users/{user_id}/preferences",
+    "id": "GetPreferences"
+  },
+  {
     "file": "users.yaml",
     "method": "POST",
     "path": "/api/v4/users/ids",

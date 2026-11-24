@@ -16,6 +16,7 @@ import {
   ResponseError,
 } from "../../../vendor/mattermost/index.js";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
+import { checkSidebarReads } from "./sidebar.ts";
 
 const base = "http://mattermost:8065";
 const version = process.argv[2];
@@ -447,6 +448,17 @@ await create(
   `teams/${team.id}/members`,
   { team_id: team.id, user_id: reader.id },
   token,
+);
+await checkSidebarReads(
+  base,
+  readerToken,
+  reader.id,
+  user.id,
+  team.id,
+  channelId,
+);
+console.log(
+  `Mattermost ${version} verified personal sidebar categories, order, flags, preferences and ownership.`,
 );
 const disposable = await (
   await create(
