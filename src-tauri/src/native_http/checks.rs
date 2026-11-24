@@ -340,9 +340,9 @@ pub fn run_checks<'local>(
         let result = tauri::async_runtime::block_on(async {
             let registry = std::path::Path::new(&registry_path);
             crate::registry::checks::round_trip(registry)?;
-            crate::history::checks::round_trip(
-                registry.parent().ok_or("missing fixture directory")?,
-            )?;
+            let fixtures = registry.parent().ok_or("missing fixture directory")?;
+            crate::history::checks::round_trip(fixtures)?;
+            crate::history::checks::migrations::round_trip(fixtures)?;
             check_wire(NativeHttp::new()?, RestConnection::new, &ports).await
         });
         if let Err(error) = result {

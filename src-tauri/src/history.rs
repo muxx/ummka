@@ -1,4 +1,3 @@
-use crate::rest::is_mattermost_id;
 use crate::sessions::{Account, validate_installation};
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use sha2::{Digest, Sha256};
@@ -7,13 +6,7 @@ use std::{fmt, fmt::Write, fs, path::Path};
 #[cfg(any(test, all(target_os = "android", feature = "native-http-check")))]
 pub(crate) mod checks;
 
-const APPLICATION_ID: i64 = 0x554d4849; // UMHI
-const CREATE_OWNER: &str = "CREATE TABLE history_owner (
-    slot INTEGER PRIMARY KEY CHECK (slot = 1),
-    installation TEXT NOT NULL,
-    user_id TEXT NOT NULL,
-    generation BLOB NOT NULL CHECK (length(generation) = 16)
-) STRICT";
+mod schema;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum HistoryError {
@@ -55,6 +48,7 @@ pub struct HistoryOwner {
 pub struct HistoryDatabase {
     connection: Connection,
     installation: String,
+    version: i64,
 }
 
 fn filename(installation: &str) -> String {
@@ -76,55 +70,16 @@ fn stored_owner(connection: &Connection) -> rusqlite::Result<Option<(String, Str
         .optional()
 }
 
-#[derive(PartialEq, Eq)]
-enum Format {
-    Empty,
-    VersionOne,
-}
-
-fn inspect(connection: &Connection, installation: &str) -> Result<Format, HistoryError> {
-    let id: i64 = connection.pragma_query_value(None, "application_id", |row| row.get(0))?;
-    let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    if (id, version) == (0, 0) {
-        let empty: bool = connection.query_row(
-            "SELECT NOT EXISTS(SELECT 1 FROM sqlite_schema)",
-            [],
-            |row| row.get(0),
-        )?;
-        if empty {
-            return Ok(Format::Empty);
-        }
-    }
-    if (id, version) != (APPLICATION_ID, 1) {
-        return Err(HistoryError::UnsupportedSchema);
-    }
-
-    let recognized: bool = connection.query_row(
-        "SELECT count(*) = 1 AND count(*) FILTER (WHERE type = 'table' AND sql = ?1) = 1
-         FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'",
-        [CREATE_OWNER],
-        |row| row.get(0),
-    )?;
-    if !recognized {
-        return Err(HistoryError::UnsupportedSchema);
-    }
-    let vacuum: i64 = connection.pragma_query_value(None, "auto_vacuum", |row| row.get(0))?;
-    if vacuum != 2 {
-        return Err(HistoryError::UnsupportedSchema);
-    }
-    if let Some((url, user_id, _)) = stored_owner(connection)? {
-        if url != installation {
-            return Err(HistoryError::OwnerConflict);
-        }
-        if !is_mattermost_id(&user_id) {
-            return Err(HistoryError::UnsupportedSchema);
-        }
-    }
-    Ok(Format::VersionOne)
-}
-
 impl HistoryDatabase {
     pub fn open(private_root: &Path, installation: &str) -> Result<Self, HistoryError> {
+        Self::open_with(private_root, installation, schema::MIGRATIONS)
+    }
+
+    fn open_with(
+        private_root: &Path,
+        installation: &str,
+        migrations: &[schema::Migration],
+    ) -> Result<Self, HistoryError> {
         validate_installation(installation).map_err(|_| HistoryError::InvalidInstallation)?;
         let dir = std::path::absolute(private_root)
             .map_err(|_| HistoryError::Storage)?
@@ -135,33 +90,14 @@ impl HistoryDatabase {
         std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
         builder.create(&dir).map_err(|_| HistoryError::Storage)?;
         let mut connection = Connection::open(dir.join(filename(installation)))?;
+        connection.busy_timeout(std::time::Duration::from_secs(5))?;
         connection.pragma_update(None, "foreign_keys", true)?;
 
-        let snapshot = connection.transaction()?;
-        let format = inspect(&snapshot, installation)?;
-        snapshot.commit()?;
-        if format == Format::Empty {
-            // The page-map setting must precede both the first table and its transaction.
-            connection.pragma_update(None, "auto_vacuum", "INCREMENTAL")?;
-        }
-        let journal: String =
-            connection.query_row("PRAGMA journal_mode=WAL", [], |row| row.get(0))?;
-        if journal != "wal" {
-            return Err(HistoryError::Storage);
-        }
-        if format == Format::Empty {
-            let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            if inspect(&tx, installation)? == Format::Empty {
-                tx.execute(CREATE_OWNER, [])?;
-                tx.pragma_update(None, "application_id", APPLICATION_ID)?;
-                tx.pragma_update(None, "user_version", 1)?;
-                inspect(&tx, installation)?;
-            }
-            tx.commit()?;
-        }
+        let version = schema::upgrade(&mut connection, installation, migrations)?;
         Ok(Self {
             connection,
             installation: installation.to_owned(),
+            version,
         })
     }
 
@@ -179,10 +115,7 @@ impl HistoryDatabase {
         if self.installation != account.installation() {
             return Err(HistoryError::OwnerConflict);
         }
-        self.connection.pragma_update(None, "query_only", false)?;
-        let tx = self
-            .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = self.transaction(TransactionBehavior::Immediate)?;
         let generation = match stored_owner(&tx)? {
             None => tx.query_row(
                 "INSERT INTO history_owner VALUES (1, ?1, ?2, randomblob(16)) RETURNING generation",
@@ -224,6 +157,22 @@ impl HistoryDatabase {
         self.access(owner, TransactionBehavior::Immediate, operation)
     }
 
+    fn transaction(
+        &mut self,
+        behavior: TransactionBehavior,
+    ) -> Result<Transaction<'_>, HistoryError> {
+        self.connection.pragma_update(
+            None,
+            "query_only",
+            matches!(behavior, TransactionBehavior::Deferred),
+        )?;
+        let tx = self.connection.transaction_with_behavior(behavior)?;
+        if schema::version(&tx)? != self.version {
+            return Err(HistoryError::UnsupportedSchema);
+        }
+        Ok(tx)
+    }
+
     fn access<T>(
         &mut self,
         owner: &HistoryOwner,
@@ -233,12 +182,7 @@ impl HistoryDatabase {
         if self.installation != owner.account.installation() {
             return Err(HistoryError::StaleOwner);
         }
-        self.connection.pragma_update(
-            None,
-            "query_only",
-            matches!(behavior, TransactionBehavior::Deferred),
-        )?;
-        let tx = self.connection.transaction_with_behavior(behavior)?;
+        let tx = self.transaction(behavior)?;
         let current: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM history_owner WHERE slot = 1 AND installation = ?1 AND user_id = ?2 AND generation = ?3)",
             params![owner.account.installation(), owner.account.user_id(), owner.generation], |row| row.get(0))?;

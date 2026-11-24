@@ -1,3 +1,5 @@
+pub(crate) mod migrations;
+
 use super::{HistoryDatabase, HistoryError, HistoryOwner};
 use crate::sessions::Account;
 use std::{path::Path, sync::Barrier, thread};
@@ -111,7 +113,8 @@ pub(crate) fn round_trip(root: &Path) -> Result<(), HistoryError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::history::{APPLICATION_ID, CREATE_OWNER, filename};
+    use crate::history::filename;
+    use crate::history::schema::{APPLICATION_ID, CREATE_OWNER};
     use rusqlite::Connection;
     use std::fs;
     use tempfile::tempdir;
@@ -119,6 +122,11 @@ mod tests {
     #[test]
     fn isolates_installations_and_rotates_only_new_logins() {
         round_trip(tempdir().unwrap().path()).unwrap();
+    }
+
+    #[test]
+    fn upgrades_populated_files_across_releases_and_rolls_back_failed_steps() {
+        migrations::round_trip(tempdir().unwrap().path()).unwrap();
     }
 
     #[test]
@@ -154,6 +162,7 @@ mod tests {
             ("user_version", 1),
             ("foreign_keys", 1),
             ("auto_vacuum", 2),
+            ("busy_timeout", 5000),
         ] {
             assert_eq!(
                 db.connection
