@@ -23,10 +23,8 @@ impl Operation<'_> {
                 return false;
             };
             let matched = match expected {
-                "{user_id}" => {
-                    actual == "me"
-                        || (actual.len() == 26 && actual.bytes().all(|c| c.is_ascii_alphanumeric()))
-                }
+                "{user_id}" => actual == "me" || is_mattermost_id(actual),
+                "{team_id}" => is_mattermost_id(actual),
                 literal => actual == literal,
             };
             if !matched {
@@ -35,6 +33,10 @@ impl Operation<'_> {
         }
         segments.next().is_none()
     }
+}
+
+fn is_mattermost_id(value: &str) -> bool {
+    value.len() == 26 && value.bytes().all(|c| c.is_ascii_alphanumeric())
 }
 
 static OPERATIONS: LazyLock<Vec<Operation<'static>>> = LazyLock::new(|| {

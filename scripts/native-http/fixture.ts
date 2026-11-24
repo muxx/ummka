@@ -253,6 +253,9 @@ export async function startFixture(dir: string) {
           "license/client?format=old",
           "users/me",
           "users/Abc01234567890123456789012",
+          "users/me/teams",
+          "users/Abc01234567890123456789012/teams/Team0123456789012345678901/channels?include_deleted=false",
+          "users/me/teams/Team0123456789012345678901/channels/members",
         ].map((route) => ({
           method: "GET",
           path: `/Teams/Blue%20Sky//A%2FB/api/v4/${route}`,

@@ -47,6 +47,11 @@ const definitionPaths = [
   ["components", "responses", "BadRequest"],
   ["components", "responses", "NotImplemented"],
   ["components", "schemas", "AppError"],
+  ["components", "schemas", "Team"],
+  ["components", "schemas", "Channel"],
+  ["components", "schemas", "ChannelMember"],
+  ["components", "schemas", "ChannelNotifyProps"],
+  ["components", "responses", "Forbidden"],
   ["components", "schemas", "User"],
   ["components", "schemas", "UserNotifyProps"],
   ["components", "schemas", "Timezone"],
@@ -70,7 +75,17 @@ test("retains the catalog operations, security and transitive models", () => {
     Object.keys(
       object(at(contract, ["components", "schemas"]), "schemas"),
     ).sort(),
-    ["AppError", "SystemStatusResponse", "Timezone", "User", "UserNotifyProps"],
+    [
+      "AppError",
+      "Channel",
+      "ChannelMember",
+      "ChannelNotifyProps",
+      "SystemStatusResponse",
+      "Team",
+      "Timezone",
+      "User",
+      "UserNotifyProps",
+    ],
   );
 });
 
@@ -175,6 +190,34 @@ test("requires the declared user ID parameter and its supported whole-segment te
     assert.throws(
       () => buildUserRoute({ get: getUser }, path),
       /Unsupported native route template/,
+    );
+  }
+});
+
+test("matches both parameter names on team channel reads", () => {
+  const path = "/api/v4/users/{user_id}/teams/{team_id}/channels";
+  const channels = read("channels.yaml");
+  const operation = object(
+    at(channels, [path, "get"]),
+    "GetChannelsForTeamForUser",
+  );
+  const teamId = { ...parameter, name: "team_id" };
+  for (const parameters of [
+    [parameter],
+    [teamId],
+    [parameter, { ...teamId, in: "query" }],
+    [parameter, { ...teamId, name: "channel_id" }],
+  ]) {
+    const altered = {
+      ...channels,
+      [path]: { get: { ...operation, parameters } },
+    };
+    assert.throws(
+      () =>
+        buildSpecification((file) =>
+          file === "channels.yaml" ? altered : read(file),
+        ),
+      /path parameter/,
     );
   }
 });

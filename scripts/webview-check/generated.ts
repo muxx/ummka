@@ -8,6 +8,8 @@ import {
   UsersApi,
 } from "../../vendor/mattermost/index.js";
 
+import { checkTeamReads } from "./team-reads.ts";
+
 function check(value: unknown, message: string): asserts value {
   if (!value) throw Error(message);
 }
@@ -64,9 +66,11 @@ export async function checkGeneratedRequests(ports: string[]) {
       (await unauthenticated.response.json()).message === "session required",
       "generated-user-error-body",
     );
-    const users = new UsersApi(
-      new Configuration({ ...prefixed, accessToken: "synthetic-session" }),
-    );
+    const signed = new Configuration({
+      ...prefixed,
+      accessToken: "synthetic-session",
+    });
+    const users = new UsersApi(signed);
     const userId = "Abc01234567890123456789012";
     const user = await (await users.getUserRaw({ userId })).value();
     check(
@@ -74,6 +78,10 @@ export async function checkGeneratedRequests(ports: string[]) {
         user.firstName === "Ada" &&
         user.username === "fixture",
       "generated-user",
+    );
+    await checkTeamReads(
+      new Configuration({ ...root, accessToken: "synthetic-session" }),
+      signed,
     );
     const profile = await loadInstallationProfile(
       prefixed,
