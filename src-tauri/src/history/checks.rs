@@ -1,6 +1,7 @@
 pub(crate) mod migrations;
 pub(crate) mod posts;
 pub(crate) mod reclamation;
+pub(crate) mod windows;
 
 use super::{HistoryDatabase, HistoryError, HistoryOwner};
 use crate::sessions::Account;
@@ -166,7 +167,7 @@ mod tests {
         );
         for (key, expected) in [
             ("application_id", APPLICATION_ID),
-            ("user_version", 2),
+            ("user_version", 3),
             ("foreign_keys", 1),
             ("auto_vacuum", 2),
             ("busy_timeout", 5000),

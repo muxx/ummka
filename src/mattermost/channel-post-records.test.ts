@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import expected from "../../contracts/mattermost/fixtures/channel-post-changes.json";
+import windowPage from "../../contracts/mattermost/fixtures/channel-window-page.json";
 import { PostListFromJSON } from "../../vendor/mattermost/index.js";
+import { channelHistoryPage } from "./channel-history-page.ts";
 import { channelPostChanges } from "./channel-post-records.ts";
 
 const channel = "c".repeat(26);
@@ -31,24 +33,36 @@ function changes(posts: object) {
 
 describe("channel post records", () => {
   it("projects thread replies outside the order and strips all content on deletion", () => {
+    const dictionary = {
+      [root]: post,
+      [reply]: {
+        ...post,
+        id: reply,
+        root_id: root,
+        create_at: 101,
+        update_at: 101,
+        edit_at: 0,
+        message: "Reply #sky",
+        message_source: undefined,
+        hashtags: "#sky",
+        is_pinned: false,
+      },
+      [removed]: { ...post, id: removed, delete_at: 123 },
+    };
+    expect(changes(dictionary)).toEqual(expected);
+    const before = "e".repeat(26);
     expect(
-      changes({
-        [root]: post,
-        [reply]: {
-          ...post,
-          id: reply,
-          root_id: root,
-          create_at: 101,
-          update_at: 101,
-          edit_at: 0,
-          message: "Reply #sky",
-          message_source: undefined,
-          hashtags: "#sky",
-          is_pinned: false,
-        },
-        [removed]: { ...post, id: removed, delete_at: 123 },
-      }),
-    ).toEqual(expected);
+      channelHistoryPage(
+        { channelId: channel, collapsedThreads: true, before },
+        PostListFromJSON({
+          order: [root],
+          posts: dictionary,
+          prev_post_id: "",
+          next_post_id: before,
+          first_inaccessible_post_time: 0,
+        }),
+      ),
+    ).toEqual({ ...windowPage, changes: expected });
     expect(changes({})).toEqual([]);
     expect(() => channelPostChanges(channel, {})).toThrow(TypeError);
   });
