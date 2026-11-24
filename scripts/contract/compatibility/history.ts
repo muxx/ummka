@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
+import { assembleFocusedHistory } from "../../../src/mattermost/focused-history.ts";
 import {
   ChannelsApi,
   Configuration,
@@ -281,6 +282,35 @@ await assert.rejects(
 );
 console.log(
   `Mattermost ${version} verified thread order for root and reply, cursor pagination and thread errors.`,
+);
+
+const followingRoot = await message("Following root");
+for (const collapsedThreads of [false, true]) {
+  const query = { channelId, page: 0, perPage: 1, collapsedThreads };
+  const [after, thread, before] = await Promise.all([
+    memberPosts.getPostsForChannel({ ...query, after: root.id }),
+    memberPosts.getPostThread({ postId: root.id, collapsedThreads }),
+    memberPosts.getPostsForChannel({ ...query, before: root.id }),
+  ]);
+  const focused = assembleFocusedHistory({
+    anchorId: root.id,
+    after,
+    thread,
+    before,
+  });
+  assert.deepEqual(focused.order, [
+    collapsedThreads ? followingRoot.id : reply.id,
+    root.id,
+    image.id,
+  ]);
+  assert.equal(focused.posts?.[reply.id]?.rootId, root.id);
+  assert.equal(focused.posts?.[lastReply.id]?.message, "Second reply");
+  assert.equal(focused.nextPostId, after.nextPostId);
+  assert.equal(focused.prevPostId, before.prevPostId);
+  assert.equal(focused.firstInaccessiblePostTime, 0);
+}
+console.log(
+  `Mattermost ${version} verified the focused timeline with plain and collapsed threads.`,
 );
 
 // A failed local save must revoke only the new server session for this same user.
