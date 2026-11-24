@@ -81,6 +81,10 @@ jobs:
   android:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        task: [check-android-package, check-android-http]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -93,6 +97,11 @@ jobs:
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-37.0' 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358' 'platform-tools'
           echo "NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+      - name: Prepare the Android test emulator
+        if: matrix.task == 'check-android-http'
+        run: |
+          sudo setfacl -m "u:$(id -un):rw" /dev/kvm
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'emulator' 'system-images;android-36;default;x86_64'
       - name: Install Temurin 17.0.21.1+2
         working-directory: ${{ runner.temp }}
         run: |
@@ -102,21 +111,25 @@ jobs:
           tar -xzf jdk.tar.gz --strip-components=1 -C ummka-jdk
           echo "JAVA_HOME=$RUNNER_TEMP/ummka-jdk" >> "$GITHUB_ENV"
           echo "$RUNNER_TEMP/ummka-jdk/bin" >> "$GITHUB_PATH"
-      - run: rustup target add aarch64-linux-android
+      - run: rustup target add ${{ matrix.task == 'check-android-http' && 'x86_64-linux-android' || 'aarch64-linux-android' }}
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: src-tauri
           env-vars: NDK_HOME
+          key: ${{ matrix.task }}
           cache-bin: false
       - run: npm ci
       - name: Cache verified contract inputs
+        if: matrix.task == 'check-android-package'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .check-tools/mattermost-contract
           key: mattermost-contract-${{ hashFiles('scripts/check-contract.sh') }}
       - run: make check-contract
-      - run: make check-android
+        if: matrix.task == 'check-android-package'
+      - run: make ${{ matrix.task }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: matrix.task == 'check-android-package'
         with:
           name: ummka-android-arm64
           path: artifacts/ummka-android-arm64-debug.apk

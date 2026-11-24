@@ -1,6 +1,6 @@
 export PATH := $(CURDIR)/.check-tools:$(PATH)
 
-.PHONY: check check-macos check-android check-contract
+.PHONY: check check-macos check-android check-android-package check-android-http check-contract
 check: check-macos check-android check-contract
 
 check-contract:
@@ -18,13 +18,19 @@ check-macos: .check-tools/installed
 	npm test
 	npm run tauri -- build --bundles app -- --locked
 	cd src-tauri && cargo fmt --all -- --check
-	cd src-tauri && cargo clippy --all-targets --locked -- -D warnings
+	cd src-tauri && cargo clippy --all-targets --features native-http-check --locked -- -D warnings
 	cd src-tauri && cargo test --locked
+	npm run test:native-http -- macos
 	sh scripts/check-security.sh
 	ditto -c -k --keepParent src-tauri/target/release/bundle/macos/ummka.app artifacts/ummka-macos-arm64.zip
 
-check-android:
+check-android: check-android-package check-android-http
+
+check-android-package:
 	npm run tauri -- android build --debug --apk --target aarch64 -- --locked
 	mkdir -p artifacts
 	cp src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk artifacts/ummka-android-arm64-debug.apk
 	"$(ANDROID_HOME)/build-tools/36.0.0/apksigner" verify artifacts/ummka-android-arm64-debug.apk
+
+check-android-http:
+	npm run test:native-http -- android

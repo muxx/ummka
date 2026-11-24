@@ -1,4 +1,6 @@
 # Add project specific ProGuard rules here.
+-keep,includedescriptorclasses class org.rustls.platformverifier.** { *; }
+-keepnames class io.github.muxx.ummka.dev.UmmkaApplication
 # You can control the set of applied configuration files using the
 # proguardFiles setting in build.gradle.
 #

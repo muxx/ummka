@@ -9,12 +9,18 @@
     "npm": "11.20.0"
   },
   "packageManager": "npm@11.20.0",
+  "knip": {
+    "ignoreBinaries": [
+      "openssl"
+    ]
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "lint": "biome ci --error-on-warnings .",
     "unused": "knip",
     "test": "vitest run --environment jsdom src",
+    "test:native-http": "node scripts/native-http/check.ts",
     "contract:build": "node scripts/contract/schema.ts",
     "contract:test": "node --test scripts/contract/contract.test.ts scripts/contract/transport.test.ts",
     "tauri": "tauri"
