@@ -44,6 +44,8 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
             rest_ipc::read_rest_body,
             rest_ipc::cancel_rest_request,
             registry_ipc::list_installations,
+            registry_ipc::read_installation_selection,
+            registry_ipc::select_installation,
             registry_ipc::remember_installation,
             registry_ipc::forget_installation
         ])

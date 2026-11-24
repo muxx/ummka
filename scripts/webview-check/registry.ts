@@ -1,7 +1,9 @@
+import { getDeviceLaunchContext } from "../../src/mattermost/device-launch.ts";
 import {
   forgetInstallation,
   listInstallations,
   rememberInstallation,
+  selectInstallation,
 } from "../../src/mattermost/installation-registry.ts";
 import {
   getCurrentAccountId,
@@ -42,19 +44,20 @@ async function checkLink(server: string, saved: boolean) {
 
 // Each fresh host process must report the phase expected by the external runner.
 export async function resumeRegistryCheck(): Promise<boolean> {
-  let urls: string[];
+  let launch: Awaited<ReturnType<typeof getDeviceLaunchContext>>;
   try {
-    urls = await listInstallations();
+    launch = await getDeviceLaunchContext();
   } catch (error) {
     if (error !== "unsupported_schema") throw error;
     location.replace("/ipc-result.html?registry-unsupported");
     return true;
   }
+  if (launch.status === "first_launch") return false;
+  const urls = await listInstallations();
   if (urls.includes(signInLinkServer)) {
     await checkSystemLinks();
     return true;
   }
-  if (urls.length === 0) return false;
   const port = String(import.meta.env.VITE_UMMKA_CHECK_PORTS).split(",")[0];
   const root = `https://127.0.0.1:${port}`;
   await checkOfflineWindows(root);
@@ -90,6 +93,8 @@ export async function resumeRegistryCheck(): Promise<boolean> {
     throw Error("offline permalink lost its target or current account");
   }
   if (urls.length === 2 && urls[0] === first && urls[1] === second) {
+    if (launch.status !== "sign_in_required" || launch.serverUrl !== first)
+      throw Error("lost selected signed-out installation on restart");
     const pending = await routeChannelsLink(`${first}/team/pl/${message}`);
     if (
       pending?.status !== "sign_in_required" ||
@@ -106,6 +111,12 @@ export async function resumeRegistryCheck(): Promise<boolean> {
       throw Error("a removed installation still owns a pending link");
     location.replace("/ipc-result.html?registry-removed");
   } else if (urls.length === 1 && urls[0] === second) {
+    if (
+      launch.status !== "ready" ||
+      launch.serverUrl !== second ||
+      launch.userId !== firstId
+    )
+      throw Error("lost selected signed-in account on restart");
     await checkLink(first, false);
     await checkLink(second, true);
     await rememberInstallation(signInLinkServer);
@@ -119,6 +130,7 @@ export async function resumeRegistryCheck(): Promise<boolean> {
 export async function seedRegistry() {
   await rememberInstallation(second);
   await rememberInstallation(first);
+  await selectInstallation(first);
   const urls = await listInstallations();
   if (urls.length !== 2 || urls[0] !== first || urls[1] !== second) {
     throw Error("registry seed failed");

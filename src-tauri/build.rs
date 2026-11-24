@@ -18,6 +18,8 @@ fn main() {
         "read_rest_body",
         "cancel_rest_request",
         "list_installations",
+        "read_installation_selection",
+        "select_installation",
         "remember_installation",
         "forget_installation",
     ]);
