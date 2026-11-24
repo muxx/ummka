@@ -34,7 +34,7 @@ struct Exchange {
 impl Resource for Exchange {}
 
 pub(super) struct Session {
-    http: RestConnection,
+    pub(super) http: RestConnection,
     exchanges: Mutex<ResourceTable>,
     lifetime: CancellationToken,
 }

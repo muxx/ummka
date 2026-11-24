@@ -106,6 +106,30 @@ fn session<R: Runtime>(
 }
 
 #[tauri::command]
+pub(crate) async fn sign_out_account<R: Runtime>(
+    webview: Webview<R>,
+    rid: ResourceId,
+) -> Result<crate::authentication::SignOut, ExchangeError> {
+    session(&webview, rid)?
+        .http
+        .sign_out(&webview.state::<AccountSessions>())
+        .await
+        .map_err(ExchangeError::Transport)
+}
+
+#[tauri::command]
+pub(crate) async fn sign_out_on_device<R: Runtime>(
+    webview: Webview<R>,
+    rid: ResourceId,
+) -> Result<crate::credentials::Removal, ExchangeError> {
+    session(&webview, rid)?
+        .http
+        .sign_out_on_device(&webview.state::<AccountSessions>())
+        .await
+        .map_err(ExchangeError::Transport)
+}
+
+#[tauri::command]
 pub(crate) fn prepare_rest_request<R: Runtime>(
     webview: Webview<R>,
     connection: ResourceId,
@@ -188,9 +212,22 @@ pub(crate) fn seed_check_sessions(
                 "bbbbbbbbbbbbbbbbbbbbbbbbbb",
                 "fixture-second-session",
             ),
+            (
+                &prefixed,
+                "dddddddddddddddddddddddddd",
+                "fixture-exit-session",
+            ),
         ] {
             sessions.activate(base, account, token).await?;
         }
+        #[cfg(target_os = "android")]
+        sessions
+            .activate(
+                &format!("{root}/vault-refusal"),
+                "Abc01234567890123456789012",
+                "fixture-local-removal-failure",
+            )
+            .await?;
         Ok(())
     })
 }

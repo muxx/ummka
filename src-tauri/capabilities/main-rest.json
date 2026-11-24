@@ -9,6 +9,8 @@
     "allow-open-rest-connection",
     "allow-list-account-ids",
     "allow-forget-local-account",
+    "allow-sign-out-account",
+    "allow-sign-out-on-device",
     "allow-close-rest-connection",
     "allow-prepare-rest-request",
     "allow-send-rest-request",

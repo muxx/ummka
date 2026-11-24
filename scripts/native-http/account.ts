@@ -8,6 +8,33 @@ export function respondToAccount(
   firstId: string,
   event: (name: string) => void,
 ): string | undefined {
+  if (url.pathname === "/vault-refusal/api/v4/users/logout") {
+    assert.equal(request.method, "POST");
+    assert.equal(url.search, "");
+    assert.equal(request.headers.cookie, undefined);
+    assert.equal(
+      request.headers.authorization,
+      "Bearer fixture-local-removal-failure",
+    );
+    response.setHeader("X-Fixture-Diagnostic", "private-storage-diagnostic");
+    response.end(
+      JSON.stringify({ status: "OK", internal: "private-storage-diagnostic" }),
+    );
+    return "account-logout-local-failure";
+  }
+  if (url.pathname === "/team/chat/api/v4/users/logout") {
+    assert.equal(request.method, "POST");
+    assert.equal(url.search, "");
+    assert.equal(request.headers.cookie, undefined);
+    const auth = request.headers.authorization;
+    if (auth === "Bearer fixture-exit-session") {
+      response.end(JSON.stringify({ status: "OK" }));
+      return "account-logout-confirmed";
+    }
+    assert.equal(auth, "Bearer fixture-second-session");
+    response.writeHead(503).end(JSON.stringify({ id: "fixture.unavailable" }));
+    return "account-logout-unconfirmed";
+  }
   if (url.pathname !== "/team/chat/api/v4/users/me") return;
   assert.equal(request.method, "GET");
   assert.equal(url.search, "");

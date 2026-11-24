@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { EventEmitter, once } from "node:events";
+import { EventEmitter } from "node:events";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import https from "node:https";
 import type { Socket } from "node:net";
@@ -24,12 +24,15 @@ export function webviewServers(
     "account-retire",
   ];
   const events = new EventEmitter();
+  // Each fixture signal fires once and has no error event.
+  const signal = (event: string) =>
+    new Promise<void>((resolve) => events.once(event, resolve));
   const held = new Map(
     cases.map((name) => [
       name,
       {
-        received: once(events, `${name}-received`),
-        closed: once(events, `${name}-closed`),
+        received: signal(`${name}-received`),
+        closed: signal(`${name}-closed`),
       },
     ]),
   );
@@ -331,6 +334,8 @@ export function webviewServers(
         "ping-root",
         "user-me",
         "user-profile",
+        "account-logout-confirmed",
+        "account-logout-unconfirmed",
         "account-first",
         "account-second",
         "account-denied",
@@ -360,6 +365,7 @@ export function webviewServers(
         "ping-body",
       ];
       if (platform === "macos") expected.push("window");
+      if (platform === "android") expected.push("account-logout-local-failure");
       assert.deepEqual(visits.sort(), expected.sort());
     },
   };

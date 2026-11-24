@@ -26,6 +26,8 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
             rest_ipc::open_rest_connection,
             rest_ipc::list_account_ids,
             rest_ipc::forget_local_account,
+            rest_ipc::sign_out_account,
+            rest_ipc::sign_out_on_device,
             rest_ipc::close_rest_connection,
             rest_ipc::prepare_rest_request,
             rest_ipc::send_rest_request,

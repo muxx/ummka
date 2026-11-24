@@ -20,6 +20,28 @@ export async function checkAccountResponses(
   userId: string,
   observed: (step: string, name: string) => Promise<void>,
 ) {
+  const confirmed = await openAccountRestConnection(
+    first.basePath,
+    "d".repeat(26),
+  );
+  try {
+    const result = await confirmed.signOut();
+    check(
+      result.status === "signed_out" && Object.keys(result).length === 1,
+      "server-sign-out",
+    );
+    const old = await confirmed.signOut();
+    check(
+      old.status === "superseded" && Object.keys(old).length === 1,
+      "superseded-sign-out",
+    );
+    check(
+      (await confirmed.signOutOnDevice()) === "superseded",
+      "superseded-local-sign-out",
+    );
+  } finally {
+    await confirmed.close();
+  }
   const secondId = "b".repeat(26);
   const second = await openAccountRestConnection(first.basePath, secondId);
   try {
@@ -29,6 +51,27 @@ export async function checkAccountResponses(
       "restored-ids",
     );
     if (navigator.userAgent.includes("Android")) {
+      const base = `${new URL(first.basePath).origin}/vault-refusal`;
+      const locked = await openAccountRestConnection(base, userId);
+      try {
+        const result = await locked.signOut();
+        check(
+          result.status === "server_confirmed_local_removal_failed" &&
+            result.cause === "credential_storage_unavailable" &&
+            Object.keys(result).sort().join(",") === "cause,status",
+          "confirmed-with-local-error",
+        );
+        const error = await locked
+          .signOutOnDevice()
+          .catch((error: unknown) => error);
+        check(error === "credential_storage_unavailable", "local-retry-error");
+        check(
+          (await listAccountIds(base)).join(",") === userId,
+          "failed-removal-is-durable",
+        );
+      } finally {
+        await locked.close();
+      }
       const refusal = await forgetLocalAccount(first.basePath, userId).catch(
         (error: unknown) => error,
       );
@@ -103,6 +146,15 @@ export async function checkAccountResponses(
     check((await read) === reason, "error-stream-abort");
     await observed("closed", "account-error-body");
 
+    const choice = await second.signOut();
+    check(
+      choice.status === "unconfirmed" && Object.keys(choice).length === 1,
+      "unconfirmed-sign-out",
+    );
+    check(
+      (await listAccountIds(first.basePath)).includes(secondId),
+      "kept-until-choice",
+    );
     const pending = second
       .fetchApi(me, { headers: { "X-Test-Case": "retire" } })
       .catch((error: unknown) => error);
@@ -112,7 +164,10 @@ export async function checkAccountResponses(
         throw Error("account-retired-early");
       }),
     ]);
-    await forgetLocalAccount(first.basePath, secondId);
+    check(
+      (await second.signOutOnDevice()) === "removed",
+      "explicit-local-sign-out",
+    );
     const retired = await pending;
     check(
       retired instanceof TypeError && retired.cause === "cancelled",
