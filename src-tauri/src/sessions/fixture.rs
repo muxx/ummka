@@ -14,6 +14,15 @@ pub(crate) struct TestVault {
 }
 
 impl CredentialStore for Arc<TestVault> {
+    fn open_history(
+        &self,
+        _: &Account,
+        _: &SessionToken,
+    ) -> Result<crate::history::AccountHistory, CredentialError> {
+        // This in-memory vault exercises transport and cancellation. History tests use the platform vault.
+        Err(CredentialError::HistoryStorageUnavailable)
+    }
+
     fn read(&self, a: &Account) -> Result<Option<SessionToken>, CredentialError> {
         use std::sync::atomic::Ordering::SeqCst;
         self.reads.fetch_add(1, SeqCst);

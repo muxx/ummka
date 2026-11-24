@@ -48,7 +48,22 @@ fn size(path: &Path) -> u64 {
 
 pub(crate) fn round_trip(root: &Path) -> Result<(), HistoryError> {
     let root = root.join("reclaim");
-    let owner = fill(&root, URL)?;
+    let previous = fill(&root, URL)?;
+    let alice = account(URL, ALICE);
+    let mut existing = database(&root, URL)?;
+    assert_eq!(
+        existing.retire(&alice, false),
+        Err(HistoryError::OwnerConflict)
+    );
+    assert_eq!(existing.read(&previous, |tx| count(tx))?, ROWS);
+    existing.retire(&alice, true)?;
+    assert_eq!(
+        existing.write(&previous, |_| Ok(())),
+        Err(HistoryError::StaleOwner)
+    );
+    let owner = existing.restore(&alice)?;
+    assert_eq!(existing.read(&owner, |tx| count(tx))?, ROWS);
+    drop(existing);
     let peer = fill(&root, PEER)?;
     let path = root.join("history").join(filename(URL));
     let before = size(&path);

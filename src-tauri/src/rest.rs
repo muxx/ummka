@@ -115,6 +115,18 @@ impl RestConnection {
         Ok(self)
     }
 
+    /// Open local history for the confirmed durable login bound to this connection.
+    pub async fn open_history(
+        &self,
+        sessions: &AccountSessions,
+    ) -> Result<crate::history::AccountHistory, TransportError> {
+        let session = self
+            .account
+            .clone()
+            .ok_or(TransportError::SessionUnavailable)?;
+        sessions.open_history(session).await
+    }
+
     /// Ask the selected installation to sign out the login bound to this connection.
     pub async fn sign_out(
         &self,

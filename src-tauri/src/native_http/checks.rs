@@ -219,6 +219,7 @@ async fn check_wire(
     client: NativeHttp,
     connect: impl FnOnce(&str) -> Result<RestConnection, TransportError>,
     spec: &str,
+    fixture_dir: &std::path::Path,
 ) -> CheckResult {
     let ports = spec
         .split(',')
@@ -232,8 +233,13 @@ async fn check_wire(
     for path in ["team/chat/one", "team/chat/two"] {
         assert_eq!(expect_ok(&client, &base, path).await?, Version::HTTP_11);
     }
-    crate::authentication::checks::exchange(&client, &base, &format!("https://127.0.0.1:{other}"))
-        .await?;
+    crate::authentication::checks::exchange(
+        &client,
+        &base,
+        &format!("https://127.0.0.1:{other}"),
+        fixture_dir,
+    )
+    .await?;
     let prefix = "/Teams/Blue%20Sky//A%2FB";
     let selected = format!("https://127.0.0.1:{selected}{prefix}");
     let other = format!("https://127.0.0.1:{other}{prefix}");
@@ -310,6 +316,7 @@ async fn wire() -> CheckResult {
         http()?,
         |base| RestConnection::with_client(base, http),
         &std::env::var("UMMKA_HTTP_PORTS")?,
+        tempfile::tempdir()?.path(),
     )
     .await
 }
@@ -344,7 +351,7 @@ pub fn run_checks<'local>(
             crate::history::checks::round_trip(fixtures)?;
             crate::history::checks::migrations::round_trip(fixtures)?;
             crate::history::checks::reclamation::round_trip(fixtures)?;
-            check_wire(NativeHttp::new()?, RestConnection::new, &ports).await
+            check_wire(NativeHttp::new()?, RestConnection::new, &ports, fixtures).await
         });
         if let Err(error) = result {
             env.throw_new(

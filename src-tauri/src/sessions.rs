@@ -179,7 +179,7 @@ impl AccountSessions {
         Self::with_store(move || crate::credentials::for_application(&application_id))
     }
 
-    fn with_store(
+    pub(crate) fn with_store(
         open_store: impl Fn() -> Result<Box<dyn CredentialStore>, CredentialError>
         + Send
         + Sync
@@ -227,6 +227,24 @@ impl AccountSessions {
             (state.open_store)()?.save(&account, &token)?;
             state.replace(account, Some(next));
             Ok(())
+        })
+        .await
+    }
+
+    pub(crate) async fn open_history(
+        &self,
+        session: Arc<AccountSession>,
+    ) -> Result<crate::history::AccountHistory, TransportError> {
+        self.change(move |state| {
+            if !state
+                .active(&session.account)
+                .is_some_and(|current| Arc::ptr_eq(&current, &session))
+            {
+                return Err(TransportError::SessionUnavailable);
+            }
+            let guard = session.token.blocking_read();
+            let token = guard.as_ref().ok_or(TransportError::SessionUnavailable)?;
+            Ok((state.open_store)()?.open_history(&session.account, token)?)
         })
         .await
     }

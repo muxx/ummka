@@ -17,7 +17,12 @@ async fn login(
     Ok(open(client, sessions, USER).await?)
 }
 
-async fn control(client: &NativeAuthentication, base: &str, name: &str, step: &str) -> CheckResult {
+pub(super) async fn control(
+    client: &NativeAuthentication,
+    base: &str,
+    name: &str,
+    step: &str,
+) -> CheckResult {
     let mut req = Request::new(
         Method::GET,
         format!("{base}/auth-check/{name}/{step}").parse()?,

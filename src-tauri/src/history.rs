@@ -6,7 +6,9 @@ use std::{fmt, fmt::Write, fs, path::Path};
 #[cfg(any(test, all(target_os = "android", feature = "native-http-check")))]
 pub(crate) mod checks;
 
+mod lifecycle;
 mod reclamation;
+pub use lifecycle::AccountHistory;
 mod schema;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -40,13 +42,13 @@ impl From<rusqlite::Error> for HistoryError {
 
 /// Native access issued for one specific login on one installation.
 #[derive(Clone, PartialEq, Eq)]
-pub struct HistoryOwner {
+struct HistoryOwner {
     account: Account,
     generation: [u8; 16],
 }
 
 /// A file-backed history connection. Open it and execute its transactions on a blocking thread.
-pub struct HistoryDatabase {
+pub(crate) struct HistoryDatabase {
     connection: Connection,
     installation: String,
     version: i64,
@@ -72,7 +74,7 @@ fn stored_owner(connection: &Connection) -> rusqlite::Result<Option<(String, Str
 }
 
 impl HistoryDatabase {
-    pub fn open(private_root: &Path, installation: &str) -> Result<Self, HistoryError> {
+    fn open(private_root: &Path, installation: &str) -> Result<Self, HistoryError> {
         Self::open_with(private_root, installation, schema::MIGRATIONS)
     }
 
@@ -103,12 +105,12 @@ impl HistoryDatabase {
     }
 
     /// Recover the existing generation for a confirmed saved session, including offline.
-    pub fn restore(&mut self, account: &Account) -> Result<HistoryOwner, HistoryError> {
+    fn restore(&mut self, account: &Account) -> Result<HistoryOwner, HistoryError> {
         self.bind(account, Login::Restored)
     }
 
     /// Rotate the generation of a newly authenticated session while preserving that user's rows.
-    pub fn new_login(&mut self, account: &Account) -> Result<HistoryOwner, HistoryError> {
+    fn new_login(&mut self, account: &Account) -> Result<HistoryOwner, HistoryError> {
         self.bind(account, Login::New)
     }
 
@@ -142,7 +144,7 @@ impl HistoryDatabase {
         })
     }
 
-    pub fn read<T>(
+    fn read<T>(
         &mut self,
         owner: &HistoryOwner,
         operation: impl FnOnce(&Transaction<'_>) -> rusqlite::Result<T>,
@@ -150,7 +152,7 @@ impl HistoryDatabase {
         self.access(owner, TransactionBehavior::Deferred, operation)
     }
 
-    pub fn write<T>(
+    fn write<T>(
         &mut self,
         owner: &HistoryOwner,
         operation: impl FnOnce(&Transaction<'_>) -> rusqlite::Result<T>,

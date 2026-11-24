@@ -44,28 +44,9 @@ fn accounts_survive_processes_in_an_explicit_disposable_keychain() {
     );
     let cleanup = DisposableKeychain(keyfile.clone());
     let keyfile = keyfile.to_str().unwrap();
-    let run = |phase: &str| {
-        let result = Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "credentials::macos::tests::check_one_process",
-                "--nocapture",
-            ])
-            .env("UMMKA_TEST_KEYCHAIN_PATH", keyfile)
-            .env("UMMKA_TEST_KEYCHAIN_PHASE", phase)
-            .output()
-            .unwrap();
-        assert!(
-            result.status.success(),
-            "keychain phase {phase} failed: {}",
-            String::from_utf8_lossy(&result.stderr)
-        );
-        assert!(
-            String::from_utf8_lossy(&result.stdout)
-                .lines()
-                .any(|line| line == format!("UMMKA_KEYCHAIN {phase}"))
-        );
-    };
+    let run = |phase: &str| run_process(Path::new(keyfile), phase);
+    run("cut-first");
+    run("after-cut");
     run("seed");
     let writer = File::open(Path::new(keyfile).with_extension("writers.lock")).unwrap();
     assert_eq!(writer.metadata().unwrap().len(), 0);
@@ -77,7 +58,7 @@ fn accounts_survive_processes_in_an_explicit_disposable_keychain() {
         run("race-b");
     });
     run("race-confirm");
-    run("rotate");
+    run("held-across-rotation");
     keychain_command(&["lock-keychain", keyfile]);
     run("locked");
     keychain_command(&["unlock-keychain", "-p", password, keyfile]);
@@ -88,6 +69,29 @@ fn accounts_survive_processes_in_an_explicit_disposable_keychain() {
     assert!(
         original == keychain_command(&["list-keychains", "-d", "user"]),
         "temporary keychain changed the user's search list"
+    );
+}
+
+fn run_process(keyfile: &Path, phase: &str) {
+    let result = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "credentials::macos::tests::check_one_process",
+            "--nocapture",
+        ])
+        .env("UMMKA_TEST_KEYCHAIN_PATH", keyfile)
+        .env("UMMKA_TEST_KEYCHAIN_PHASE", phase)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "keychain phase {phase} failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&result.stdout)
+            .lines()
+            .any(|line| line == format!("UMMKA_KEYCHAIN {phase}"))
     );
 }
 
@@ -124,6 +128,49 @@ fn check_one_process() {
         );
     };
     match phase.as_str() {
+        "cut-first" => {
+            let _guard = store.write_guard().unwrap();
+            let ids = store.account_ids(BASE).unwrap();
+            super::super::allow_account(&first, &ids).unwrap();
+            HistoryDatabase::retire_existing(
+                store.private_root().unwrap(),
+                &first,
+                !ids.is_empty(),
+            )
+            .unwrap();
+            println!("UMMKA_KEYCHAIN {phase}");
+            // Exit at the boundary between independent stores, without running destructors.
+            std::process::exit(0);
+        }
+        "after-cut" => {
+            assert!(!store.private_root().unwrap().join("history").exists());
+            assert!(store.account_ids(BASE).unwrap().is_empty());
+            save(&store, &case_peer, "after-cut").unwrap();
+            verify(&store, &case_peer, "after-cut");
+            store.remove(&case_peer).unwrap();
+        }
+        "held-across-rotation" => {
+            let old = SessionToken::new("fixture-first").unwrap();
+            let mut history = store.open_history(&first, &old).unwrap();
+            run_process(Path::new(&file), "rotate");
+            assert_eq!(
+                history.write(|_| Ok(())),
+                Err(crate::history::HistoryError::StaleOwner)
+            );
+            assert!(matches!(
+                store.open_history(&first, &old),
+                Err(CredentialError::SessionUnavailable)
+            ));
+            assert_eq!(store.remove_matching(&first, &old), Ok(Removal::Superseded));
+            let current = SessionToken::new("fixture-updated").unwrap();
+            assert!(
+                store
+                    .open_history(&first, &current)
+                    .unwrap()
+                    .read(|_| Ok(()))
+                    .is_ok()
+            );
+        }
         "seed" => {
             assert!(store.account_ids(BASE).unwrap().is_empty());
             // The preceding release stored an ordinary generic password with these exact attributes.

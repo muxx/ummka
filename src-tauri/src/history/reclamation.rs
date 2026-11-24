@@ -4,14 +4,19 @@ use rusqlite::{Transaction, TransactionBehavior};
 impl HistoryDatabase {
     /// Revoke this login's history, drain older snapshots and return its pages to the filesystem.
     /// The session coordinator holds the credential writer while confirming an explicit sign-out.
-    pub fn purge(&mut self, owner: &HistoryOwner) -> Result<(), HistoryError> {
-        if self.installation != owner.account.installation() {
+    pub(super) fn purge(&mut self, owner: &HistoryOwner) -> Result<(), HistoryError> {
+        self.reclaim(Some(owner))
+    }
+
+    pub(super) fn reclaim(&mut self, expected: Option<&HistoryOwner>) -> Result<(), HistoryError> {
+        if expected.is_some_and(|owner| self.installation != owner.account.installation()) {
             return Err(HistoryError::StaleOwner);
         }
         self.connection
             .pragma_update(None, "secure_delete", "FAST")?;
         let tx = self.transaction(TransactionBehavior::Immediate)?;
         if let Some((url, user, generation)) = stored_owner(&tx)? {
+            let owner = expected.ok_or(HistoryError::StaleOwner)?;
             if url != owner.account.installation()
                 || user != owner.account.user_id()
                 || generation != owner.generation
