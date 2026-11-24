@@ -9,6 +9,10 @@ import {
   openAccountRestConnection,
 } from "../../src/mattermost/native-rest.ts";
 import { resolveChannelsLink } from "../../src/mattermost/resolve-channels-link.ts";
+import {
+  resumeChannelsLink,
+  routeChannelsLink,
+} from "../../src/mattermost/route-channels-link.ts";
 
 const first = "https://chat.example.test";
 const second = "https://chat.example.test/Team";
@@ -61,10 +65,33 @@ export async function resumeRegistryCheck(): Promise<boolean> {
   ).catch((error: unknown) => error);
   if (forgotten !== "session_unavailable")
     throw Error("forgotten account restored offline");
+  const message = "c18xpcpusjd88en1g4j7us31ur";
+  const signedIn = await routeChannelsLink(`${second}/_redirect/pl/${message}`);
+  if (
+    signedIn?.status !== "ready" ||
+    signedIn.userId !== firstId ||
+    signedIn.target.serverUrl !== second ||
+    signedIn.target.kind !== "permalink" ||
+    signedIn.target.team !== null ||
+    signedIn.target.postId !== message
+  ) {
+    throw Error("offline permalink lost its target or current account");
+  }
   if (urls.length === 2 && urls[0] === first && urls[1] === second) {
+    const pending = await routeChannelsLink(`${first}/team/pl/${message}`);
+    if (
+      pending?.status !== "sign_in_required" ||
+      pending.target.serverUrl !== first ||
+      pending.target.kind !== "permalink" ||
+      pending.target.team !== "team" ||
+      pending.target.postId !== message
+    )
+      throw Error("expected the original sign-in destination");
     await checkLink(first, true);
     await checkLink(second, true);
     await forgetInstallation(first);
+    if ((await resumeChannelsLink(pending)) !== null)
+      throw Error("a removed installation still owns a pending link");
     location.replace("/ipc-result.html?registry-removed");
   } else if (urls.length === 1 && urls[0] === second) {
     await checkLink(first, false);

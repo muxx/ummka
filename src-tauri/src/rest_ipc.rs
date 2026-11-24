@@ -214,21 +214,30 @@ pub(crate) fn seed_check_sessions(
     let confirmed = format!("{prefixed}/confirmed");
     tauri::async_runtime::block_on(async {
         for (base, account, token) in [
-            (&root, "Abc01234567890123456789012", "fixture-root-session"),
             (
-                &prefixed,
+                root.as_str(),
+                "Abc01234567890123456789012",
+                "fixture-root-session",
+            ),
+            (
+                prefixed.as_str(),
                 "Abc01234567890123456789012",
                 "fixture-prefixed-session",
             ),
             (
-                &secondary,
+                secondary.as_str(),
                 "bbbbbbbbbbbbbbbbbbbbbbbbbb",
                 "fixture-second-session",
             ),
             (
-                &confirmed,
+                confirmed.as_str(),
                 "dddddddddddddddddddddddddd",
                 "fixture-exit-session",
+            ),
+            (
+                "https://chat.example.test/Team",
+                "Abc01234567890123456789012",
+                "fixture-offline-link-session",
             ),
         ] {
             sessions.activate(base, account, token).await?;
