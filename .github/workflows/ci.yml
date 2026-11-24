@@ -47,6 +47,7 @@ jobs:
       - run: make check-macos
         env:
           UMMKA_CHECK_MACOS_OFFLINE: "1"
+          UMMKA_CHECK_MACOS_BROWSER: "1"
       - name: Open the unpacked app twice offline on the disposable runner
         shell: bash
         run: |

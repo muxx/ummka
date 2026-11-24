@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readFile, unlink } from "node:fs/promises";
+import { copyFile, cp, readFile, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { checkMacSystemLinks } from "./macos-links.ts";
@@ -70,6 +70,31 @@ export async function checkMacWebview(
       UMMKA_CHECK_SEED_ACCOUNTS: "1",
     });
     await launch("PASS", env);
+    // The ordinary build verifies the actual NSWindow without showing anything on a developer's Mac.
+    await launch("browser-anchor", {
+      ...env,
+      UMMKA_CHECK_BROWSER_PRESENTATION: "anchor",
+    });
+    if (process.env.UMMKA_CHECK_MACOS_BROWSER === "1") {
+      const bundle = join(dir, "BrowserCheck.app");
+      await cp("src-tauri/target/release/bundle/macos/ummka.app", bundle, {
+        recursive: true,
+      });
+      const executable = join(bundle, "Contents", "MacOS", "ummka");
+      await copyFile("src-tauri/target/release/ummka", executable);
+      await exec("/usr/bin/codesign", ["--force", "--sign", "-", bundle]);
+      const { stdout } = await exec(executable, [], {
+        timeout: 45_000,
+        env: { ...env, UMMKA_CHECK_BROWSER_PRESENTATION: "start" },
+      });
+      assert(
+        stdout.split(/\r?\n/u).includes("UMMKA_WEBVIEW_CHECK browser-started"),
+        stdout,
+      );
+      console.log(
+        "AuthenticationServices opened and cancelled a session anchored to the application window.",
+      );
+    }
     if (process.env.UMMKA_CHECK_MACOS_OFFLINE === "1") {
       const { stdout } = await exec(
         "bash",
