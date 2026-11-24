@@ -1,3 +1,4 @@
+import { loadInstallationProfile } from "../../src/mattermost/installation-profile.ts";
 import { openNativeRestConnection } from "../../src/mattermost/native-rest.ts";
 import {
   Configuration,
@@ -19,7 +20,7 @@ async function rejected(action: Promise<unknown>) {
   throw Error("generated request unexpectedly succeeded");
 }
 
-export async function checkGeneratedPing(ports: string[]) {
+export async function checkGeneratedRequests(ports: string[]) {
   const origin = `https://127.0.0.1:${ports[0]}`;
   const root = await openNativeRestConnection(origin);
   const prefixed = await openNativeRestConnection(`${origin}/team/chat///`);
@@ -49,6 +50,18 @@ export async function checkGeneratedPing(ports: string[]) {
     const first = await api.getPing(query);
     const second = await api.getPing(query);
     check(first.status === "OK" && second.status === "OK", "generated-prefix");
+    const profile = await loadInstallationProfile(
+      prefixed,
+      new AbortController().signal,
+    );
+    check(
+      profile.version === "10.10.1" &&
+        profile.siteName === "Fixture" &&
+        profile.ssoProviders.join(",") === "gitlab" &&
+        profile.passwordIdentifiers.length === 0 &&
+        !profile.guestMagicLink,
+      "generated-installation-profile",
+    );
     check(
       (await api.getPing(query, scenario("unhealthy"))).status === "UNHEALTHY",
       "generated-unhealthy",

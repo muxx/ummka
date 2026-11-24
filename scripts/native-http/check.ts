@@ -60,7 +60,7 @@ try {
     }
     fixture.verify(platform === "android");
     console.log(
-      `Generated Mattermost GetPing verified in the ${platform} WebView: root and prefixed installs, HTTP states, TLS and abort.`,
+      `Generated Mattermost GetPing and public installation profile verified in the ${platform} WebView: root and prefixed installs, HTTP states, TLS and abort.`,
     );
     console.log(
       `Native HTTP verified on ${platform}: installation scope, TLS, connection reuse, HTTP/2 streams, redirects, cookies, cancellation and disconnects.`,

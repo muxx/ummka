@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter, once } from "node:events";
+import type { ServerResponse } from "node:http";
 import https from "node:https";
 import type { Socket } from "node:net";
 
@@ -31,9 +32,35 @@ export function webviewServers(
   let before = false;
   let disconnect: Socket | undefined;
   let pingSocket: Socket | undefined;
+  const settings = new Map<string, ServerResponse>();
   const data = https.createServer(trusted, (req, res) => {
     const url = new URL(req.url ?? "/", "https://localhost");
     assert.equal(req.method, "GET");
+    const setting = /^\/team\/chat\/api\/v4\/(config|license)\/client$/.exec(
+      url.pathname,
+    )?.[1];
+    if (setting) {
+      assert.equal(url.search, "?format=old");
+      assert.equal(req.headers.authorization, undefined);
+      assert.equal(req.headers.cookie, undefined);
+      assert(!settings.has(setting), "each profile operation is sent once");
+      settings.set(setting, res);
+      if (settings.size === 2) {
+        for (const [name, response] of settings) {
+          const body =
+            name === "config"
+              ? {
+                  Version: "10.10.1",
+                  SiteName: "Fixture",
+                  EnableSignUpWithGitLab: "true",
+                }
+              : { IsLicensed: "false" };
+          response.writeHead(200, { "Content-Type": "application/json" });
+          response.end(JSON.stringify(body));
+        }
+      }
+      return;
+    }
     const rootPing = url.pathname === "/api/v4/system/ping";
     const generated = url.searchParams.has("use_rest_semantics");
     let name = url.searchParams.get("check") ?? "";
@@ -141,6 +168,7 @@ export function webviewServers(
     servers: [data, control, foreign],
     verify(platform: "macos" | "android") {
       assert(before);
+      assert.equal(settings.size, 2);
       assert.equal(untrustedRequests, 0);
       const expected = [
         "bytes",
