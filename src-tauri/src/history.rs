@@ -99,7 +99,7 @@ impl HistoryDatabase {
         std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
         builder.create(&dir).map_err(|_| HistoryError::Storage)?;
         let mut connection = Connection::open(dir.join(filename(installation)))?;
-        connection.busy_timeout(std::time::Duration::from_secs(5))?;
+        connection.busy_timeout(schema::LOCK_WAIT)?;
         connection.pragma_update(None, "foreign_keys", true)?;
 
         let version = schema::upgrade(&mut connection, installation, migrations)?;
