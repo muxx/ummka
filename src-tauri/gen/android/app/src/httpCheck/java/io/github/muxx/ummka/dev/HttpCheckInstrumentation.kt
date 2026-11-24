@@ -8,11 +8,12 @@ import android.content.ComponentName
 import android.os.Bundle
 import android.util.Base64
 import android.util.Log
+import java.io.File
 
 class HttpCheckAdmin : DeviceAdminReceiver()
 
 class HttpCheckInstrumentation : Instrumentation() {
-    private external fun runChecks(ports: String)
+    private external fun runChecks(ports: String, registryPath: String)
     private lateinit var arguments: Bundle
 
     override fun onCreate(arguments: Bundle?) {
@@ -31,7 +32,12 @@ class HttpCheckInstrumentation : Instrumentation() {
             val admin = ComponentName(app, HttpCheckAdmin::class.java)
             val ca = Base64.decode(requireNotNull(arguments.getString("ca")), Base64.DEFAULT)
             check(policies.installCaCert(admin, ca))
-            runChecks(requireNotNull(arguments.getString("ports")))
+            val registry = File.createTempFile("ummka-registry-", ".sqlite", app.cacheDir)
+            try {
+                runChecks(requireNotNull(arguments.getString("ports")), registry.absolutePath)
+            } finally {
+                registry.delete()
+            }
             result.putString("result", "PASS")
             finish(Activity.RESULT_OK, result)
         } catch (error: Throwable) {

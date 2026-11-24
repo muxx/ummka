@@ -1,3 +1,4 @@
+use crate::installation_url::{has_credentials, parse_canonical};
 use crate::native_http::NativeHttp;
 pub use crate::native_http::TransportError;
 use reqwest::header::{COOKIE, HOST};
@@ -32,17 +33,7 @@ impl RestConnection {
         base: &str,
         client: impl FnOnce() -> Result<NativeHttp, TransportError>,
     ) -> Result<Self, TransportError> {
-        let url = Url::parse(base).map_err(|_| TransportError::InvalidInstallation)?;
-        if !matches!(url.scheme(), "http" | "https")
-            || !url.has_host()
-            || has_credentials(&url)
-            || url.query().is_some()
-            || url.fragment().is_some()
-            || url.as_str().trim_end_matches('/') != base
-            || base.contains("%00")
-        {
-            return Err(TransportError::InvalidInstallation);
-        }
+        let url = parse_canonical(base).ok_or(TransportError::InvalidInstallation)?;
         Ok(Self {
             base: url,
             http: client()?,
@@ -79,10 +70,6 @@ impl RestConnection {
         }
         Ok(())
     }
-}
-
-fn has_credentials(url: &Url) -> bool {
-    !url.username().is_empty() || url.password().is_some()
 }
 
 #[cfg(test)]

@@ -209,10 +209,13 @@ pub fn run_checks<'local>(
     mut env: jni::EnvUnowned<'local>,
     _: jni::objects::JObject<'local>,
     ports: jni::objects::JString<'local>,
+    registry_path: jni::objects::JString<'local>,
 ) {
     env.with_env(|env| {
         let ports = ports.try_to_string(env)?;
+        let registry_path = registry_path.try_to_string(env)?;
         let result = tauri::async_runtime::block_on(async {
+            crate::registry::checks::round_trip(std::path::Path::new(&registry_path))?;
             check_wire(NativeHttp::new()?, RestConnection::new, &ports).await
         });
         if let Err(error) = result {

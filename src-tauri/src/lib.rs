@@ -1,4 +1,6 @@
+mod installation_url;
 mod native_http;
+pub mod registry;
 pub mod rest;
 mod rest_ipc;
 
