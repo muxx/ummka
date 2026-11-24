@@ -7,7 +7,15 @@ export function webviewServers(
   trusted: https.ServerOptions,
   untrusted: https.ServerOptions,
 ) {
-  const cases = ["headers", "body", "owner", "reload", "window"];
+  const cases = [
+    "headers",
+    "body",
+    "owner",
+    "reload",
+    "window",
+    "ping-headers",
+    "ping-body",
+  ];
   const events = new EventEmitter();
   const held = new Map(
     cases.map((name) => [
@@ -22,21 +30,58 @@ export function webviewServers(
   let connections = 0;
   let before = false;
   let disconnect: Socket | undefined;
+  let pingSocket: Socket | undefined;
   const data = https.createServer(trusted, (req, res) => {
     const url = new URL(req.url ?? "/", "https://localhost");
     assert.equal(req.method, "GET");
-    assert.equal(url.pathname, "/team/chat/api/v4/system/ping");
-    const name = url.searchParams.get("check") ?? "";
+    const rootPing = url.pathname === "/api/v4/system/ping";
+    const generated = url.searchParams.has("use_rest_semantics");
+    let name = url.searchParams.get("check") ?? "";
+    if (generated) {
+      assert.equal(url.search, "?use_rest_semantics=true");
+      assert.equal(req.headers.cookie, undefined);
+      assert.equal(req.headers.authorization, undefined);
+      name = `ping-${req.headers["x-test-case"] ?? (rootPing ? "root" : "prefix")}`;
+    }
+    if (!(generated && rootPing))
+      assert.equal(url.pathname, "/team/chat/api/v4/system/ping");
     visits.push(name);
     const wait = held.get(name);
     if (wait) {
       req.socket.once("close", () => events.emit(`${name}-closed`));
       events.emit(`${name}-received`);
-      if (name === "body")
+      if (name === "body" || name === "ping-body")
         res.writeHead(200, { "Content-Length": "100" }).write("A");
       return;
     }
-    if (name === "bytes") {
+    if (name === "ping-root" || name === "ping-prefix") {
+      if (name === "ping-prefix") {
+        if (pingSocket)
+          assert.equal(
+            req.socket,
+            pingSocket,
+            "sequential generated requests must reuse the connection",
+          );
+        pingSocket = req.socket;
+      }
+      res.setHeader("Set-Cookie", "previous=ignored; Path=/");
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ status: "OK" }));
+    } else if (name === "ping-unhealthy" || name === "ping-error") {
+      const failed = name === "ping-error";
+      res.writeHead(failed ? 503 : 200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify(
+          failed ? { message: "unavailable" } : { status: "UNHEALTHY" },
+        ),
+      );
+    } else if (name === "ping-redirect") {
+      res
+        .writeHead(302, {
+          Location: "/team/chat/api/v4/system/ping?check=ping-destination",
+        })
+        .end();
+    } else if (name === "bytes") {
       assert.equal(req.headers["x-fixture"], "café");
       res.setHeader("X-Fixture", "café");
       res.setHeader("Set-Cookie", "fixture=one; Path=/");
@@ -110,6 +155,14 @@ export function webviewServers(
         "body",
         "owner",
         "reload",
+        "ping-root",
+        "ping-prefix",
+        "ping-prefix",
+        "ping-unhealthy",
+        "ping-error",
+        "ping-redirect",
+        "ping-headers",
+        "ping-body",
       ];
       if (platform === "macos") expected.push("window");
       assert.deepEqual(visits.sort(), expected.sort());

@@ -1,0 +1,261 @@
+// @vitest-environment node
+import assert from "node:assert/strict";
+import { setTimeout as delay } from "node:timers/promises";
+import { afterEach, expect, test, vi } from "vitest";
+import {
+  Configuration,
+  FetchError,
+  SystemApi,
+} from "../../vendor/mattermost/index.js";
+import { nativeFetch } from "./native-fetch.ts";
+import { openNativeRestConnection } from "./native-rest.ts";
+
+const ipc = vi.hoisted(() =>
+  vi.fn<(command: string, args: Record<string, unknown>) => Promise<unknown>>(),
+);
+vi.mock("@tauri-apps/api/core", () => ({ invoke: ipc }));
+afterEach(() => {
+  ipc.mockReset();
+  vi.restoreAllMocks();
+});
+
+const url = "https://fixture.example.test/team/api/v4/system/ping";
+const head = { status: 200, headers: [["X-Test", "one"]], hasBody: true };
+const ids = { connection: 41, exchange: 29 };
+const chunk = () => new TextEncoder().encode("hello").buffer;
+function setup(overrides: Record<string, () => unknown> = {}) {
+  const handlers: Record<string, () => unknown> = {
+    open_rest_connection: () => ids.connection,
+    prepare_rest_request: () => ids.exchange,
+    send_rest_request: () => head,
+    read_rest_body: () => new ArrayBuffer(0),
+    cancel_rest_request: () => undefined,
+    ...overrides,
+  };
+  ipc.mockImplementation(async (command) => handlers[command]());
+}
+function gate<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { resolve, promise };
+}
+function readerOf(response: Response) {
+  assert(response.body);
+  return response.body.getReader();
+}
+function calls(command: string) {
+  return ipc.mock.calls.filter(([name]) => name === command);
+}
+
+test("an already aborted request and a body are rejected before allocation", async () => {
+  const reason = new Error("caller stopped");
+  await expect(
+    nativeFetch(41, url, { signal: AbortSignal.abort(reason) }),
+  ).rejects.toBe(reason);
+  await expect(
+    nativeFetch(41, url, { method: "POST", body: "x" }),
+  ).rejects.toMatchObject({ cause: "operation_denied" });
+  expect(ipc).not.toHaveBeenCalled();
+});
+
+test("abort during prepare releases the handle and never sends", async () => {
+  const prepare = gate<number>();
+  setup({ prepare_rest_request: () => prepare.promise });
+  const controller = new AbortController();
+  const reason = { cancelledBy: "caller" };
+  const result = nativeFetch(41, url, { signal: controller.signal });
+  controller.abort(reason);
+  prepare.resolve(29);
+  await expect(result).rejects.toBe(reason);
+  expect(ipc.mock.calls).toEqual([
+    ["prepare_rest_request", { connection: 41 }],
+    ["cancel_rest_request", ids],
+  ]);
+});
+
+test("a Request uses its effective headers and body demand controls IPC", async () => {
+  const chunks = [chunk(), new ArrayBuffer(0)];
+  setup({ read_rest_body: () => chunks.shift() });
+  const added = vi.spyOn(AbortSignal.prototype, "addEventListener");
+  const removed = vi.spyOn(AbortSignal.prototype, "removeEventListener");
+  const source = new AbortController();
+  const response = await nativeFetch(
+    41,
+    new Request(url, { headers: { "X-Input": "one" }, signal: source.signal }),
+    { headers: { "X-Input": "two" } },
+  );
+  const callback = added.mock.lastCall?.[1];
+  const signal = added.mock.contexts.at(-1);
+  expect(callback).toBeTypeOf("function");
+  expect(calls("send_rest_request")[0][1]).toEqual({
+    ...ids,
+    url,
+    method: "GET",
+    headers: [["x-input", "two"]],
+  });
+  expect(response.headers.get("x-test")).toBe("one");
+  await delay(0);
+  expect(calls("read_rest_body")).toHaveLength(0);
+  const reader = readerOf(response);
+  expect(new TextDecoder().decode((await reader.read()).value)).toBe("hello");
+  expect(calls("read_rest_body")).toHaveLength(1);
+  expect(await reader.read()).toEqual({ value: undefined, done: true });
+  expect(calls("read_rest_body")).toHaveLength(2);
+  const index = removed.mock.calls.findIndex(
+    ([name, fn]) => name === "abort" && fn === callback,
+  );
+  expect(index).toBeGreaterThanOrEqual(0);
+  expect(removed.mock.contexts[index]).toBe(signal);
+  source.abort();
+  expect(calls("cancel_rest_request")).toHaveLength(0);
+});
+
+test("clones share a single native response", async () => {
+  const chunks = [chunk(), new ArrayBuffer(0)];
+  setup({ read_rest_body: () => chunks.shift() });
+  const response = await nativeFetch(41, url);
+  const copy = response.clone();
+  expect(await Promise.all([response.text(), copy.text()])).toEqual([
+    "hello",
+    "hello",
+  ]);
+  expect(calls("send_rest_request")).toHaveLength(1);
+  expect(calls("read_rest_body")).toHaveLength(2);
+});
+
+test.each([204, 205, 304])(
+  "status %i has no body and releases the abort listener",
+  async (status) => {
+    setup({ send_rest_request: () => ({ ...head, status, hasBody: false }) });
+    const controller = new AbortController();
+    const response = await nativeFetch(41, url, { signal: controller.signal });
+    expect(response.status).toBe(status);
+    expect(response.body).toBeNull();
+    controller.abort();
+    expect(calls("read_rest_body")).toHaveLength(0);
+    expect(calls("cancel_rest_request")).toHaveLength(0);
+  },
+);
+
+test.each([false, true])(
+  "signal abort errors the body with its original reason, pending read %s",
+  async (read) => {
+    const part = gate<ArrayBuffer>();
+    const started = gate<void>();
+    setup({
+      read_rest_body: () => {
+        started.resolve();
+        return part.promise;
+      },
+    });
+    const controller = new AbortController();
+    const response = await nativeFetch(41, url, { signal: controller.signal });
+    const reader = readerOf(response);
+    const pending = read ? reader.read() : undefined;
+    if (read) await started.promise;
+    const reason = new DOMException("Stopped", "AbortError");
+    controller.abort(reason);
+    await expect(pending ?? reader.read()).rejects.toBe(reason);
+    part.resolve(chunk());
+    await delay(0);
+    expect(calls("cancel_rest_request")).toHaveLength(1);
+  },
+);
+
+test("reader cancellation waits for native cleanup and detaches its exact listener", async () => {
+  const cancelled = gate<void>();
+  const added = vi.spyOn(AbortSignal.prototype, "addEventListener");
+  const removed = vi.spyOn(AbortSignal.prototype, "removeEventListener");
+  setup({ cancel_rest_request: () => cancelled.promise });
+  const controller = new AbortController();
+  const response = await nativeFetch(41, url, { signal: controller.signal });
+  const signal = added.mock.contexts.at(-1);
+  const callback = added.mock.lastCall?.[1];
+  expect(callback).toBeTypeOf("function");
+  let done = false;
+  const pending = readerOf(response)
+    .cancel()
+    .then(() => {
+      done = true;
+    });
+  await delay(0);
+  expect(done).toBe(false);
+  const index = removed.mock.calls.findIndex(
+    ([name, fn]) => name === "abort" && fn === callback,
+  );
+  expect(index).toBeGreaterThanOrEqual(0);
+  expect(removed.mock.contexts[index]).toBe(signal);
+  controller.abort();
+  cancelled.resolve();
+  await pending;
+  expect(calls("cancel_rest_request")).toHaveLength(1);
+});
+
+test("a native failure reaches the generator as a transport error", async () => {
+  setup({ send_rest_request: () => Promise.reject("network") });
+  const connection = await openNativeRestConnection(
+    "https://fixture.example.test/team/",
+  );
+  const api = new SystemApi(new Configuration(connection));
+  const error: unknown = await api
+    .getPing({ useRestSemantics: true })
+    .catch((e: unknown) => e);
+  expect(error).toBeInstanceOf(FetchError);
+  expect(error).toMatchObject({
+    cause: { name: "TypeError", cause: "network" },
+  });
+  expect(calls("cancel_rest_request")).toHaveLength(0);
+});
+
+test("unexpected IPC messages are sanitized and invalid responses release native ownership", async () => {
+  setup({ send_rest_request: () => Promise.reject("secret query or header") });
+  await expect(nativeFetch(41, url)).rejects.toMatchObject({
+    message: "Native REST request failed",
+    cause: "ipc",
+  });
+  expect(calls("cancel_rest_request")).toHaveLength(1);
+  setup({ send_rest_request: () => ({ ...head, status: 101 }) });
+  await expect(nativeFetch(41, url)).rejects.toMatchObject({ cause: "ipc" });
+  expect(calls("cancel_rest_request")).toHaveLength(2);
+  setup({ read_rest_body: () => [65, 66] });
+  const response = await nativeFetch(41, url);
+  await expect(response.text()).rejects.toMatchObject({ cause: "ipc" });
+  expect(calls("cancel_rest_request")).toHaveLength(3);
+});
+
+test("a late head cannot revive an aborted request", async () => {
+  const headReady = gate<typeof head>();
+  const sending = gate<void>();
+  setup({
+    send_rest_request: () => {
+      sending.resolve();
+      return headReady.promise;
+    },
+    cancel_rest_request: () => Promise.reject("unknown_exchange"),
+  });
+  const controller = new AbortController();
+  const pending = nativeFetch(41, url, { signal: controller.signal });
+  await sending.promise;
+  controller.abort("user cancelled");
+  headReady.resolve(head);
+  await expect(pending).rejects.toBe("user cancelled");
+  expect(calls("cancel_rest_request")).toHaveLength(1);
+  expect(calls("read_rest_body")).toHaveLength(0);
+});
+
+test.each(["unknown_connection", "cancelled", "network"])(
+  "a native body read failure carries its code %s",
+  async (code) => {
+    setup({ read_rest_body: () => Promise.reject(code) });
+    const controller = new AbortController();
+    const response = await nativeFetch(41, url, { signal: controller.signal });
+    await expect(response.text()).rejects.toMatchObject({
+      name: "TypeError",
+      cause: code,
+    });
+    controller.abort();
+    expect(calls("cancel_rest_request")).toHaveLength(0);
+  },
+);

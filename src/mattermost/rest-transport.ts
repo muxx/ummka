@@ -1,6 +1,6 @@
 const invalidAddress = "Invalid Mattermost server URL";
 
-export function canonicalServerUrl(input: string): string {
+function canonicalServerUrl(input: string): string {
   const address = input.trim();
   const authority = /^https?:\/\/([^/]+)/iu.exec(address)?.[1];
   if (
