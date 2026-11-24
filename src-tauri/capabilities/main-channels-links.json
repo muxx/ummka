@@ -1,0 +1,7 @@
+{
+  "identifier": "main-channels-links",
+  "description": "The local main WebView can receive and acknowledge links handed to the application.",
+  "local": true,
+  "webviews": ["main"],
+  "permissions": ["allow-pending-channels-link", "allow-acknowledge-channels-link"]
+}

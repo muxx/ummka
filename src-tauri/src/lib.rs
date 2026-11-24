@@ -1,5 +1,6 @@
 mod app_error;
 pub mod authentication;
+mod channels_links;
 pub mod credentials;
 pub mod history;
 mod installation_url;
@@ -23,7 +24,10 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
     let sessions = sessions::AccountSessions::for_application(context.config().identifier.clone());
     builder
         .manage(sessions)
+        .manage(channels_links::ChannelsLinks::default())
         .invoke_handler(tauri::generate_handler![
+            channels_links::pending_channels_link,
+            channels_links::acknowledge_channels_link,
             rest_ipc::open_rest_connection,
             rest_ipc::get_current_account_id,
             rest_ipc::list_account_ids,
@@ -81,5 +85,5 @@ pub fn run() {
     }
     build(Builder::default(), config)
         .expect("could not start ummka")
-        .run(|_, _| {});
+        .run(channels_links::receive);
 }
