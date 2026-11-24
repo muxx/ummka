@@ -33,7 +33,7 @@ impl Operation<'_> {
             };
             let matched = match expected {
                 "{user_id}" => actual == "me" || is_mattermost_id(actual),
-                "{team_id}" | "{channel_id}" => is_mattermost_id(actual),
+                "{team_id}" | "{channel_id}" | "{post_id}" => is_mattermost_id(actual),
                 literal => actual == literal,
             };
             if !matched {

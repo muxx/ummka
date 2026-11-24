@@ -14,7 +14,11 @@ compose() {
     docker compose -p "$project" -f scripts/contract/compatibility/compose.yaml "$@"
 }
 compose config -q
-trap 'compose down --volumes' EXIT
+sources=$(mktemp)
+trap 'rm -f "$sources"; compose down --volumes' EXIT
 trap 'exit 1' HUP INT TERM
+# Snapshot the generated bindings and probe together. A macOS shared mount can
+# expose an old file length to Node's module loader after a binding is replaced.
+COPYFILE_DISABLE=1 tar -cf "$sources" package.json vendor/mattermost scripts/contract/compatibility/*.ts
 compose up -d --wait --wait-timeout 180 database images mattermost
-compose run --rm --no-deps probe node scripts/contract/compatibility/history.ts "$1"
+compose run --rm --no-deps -T probe sh -ec "tar -xf - && exec node scripts/contract/compatibility/history.ts '$1'" <"$sources"

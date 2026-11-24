@@ -6,6 +6,7 @@ export * from './Emoji.js';
 export * from './FileInfo.js';
 export * from './Post.js';
 export * from './PostAcknowledgement.js';
+export * from './PostInfo.js';
 export * from './PostList.js';
 export * from './PostMetadata.js';
 export * from './PostMetadataEmbedsInner.js';

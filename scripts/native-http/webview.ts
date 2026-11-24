@@ -5,6 +5,7 @@ import https from "node:https";
 import type { Socket } from "node:net";
 import { respondToAccount } from "./account.ts";
 import { respondToHistory } from "./history.ts";
+import { respondToPostContext } from "./post-context.ts";
 
 export function webviewServers(
   trusted: https.ServerOptions,
@@ -87,6 +88,11 @@ export function webviewServers(
     );
     if (account) {
       visits.push(account);
+      return;
+    }
+    const post = respondToPostContext(req, res, url, channelId, teamId);
+    if (post) {
+      visits.push(post);
       return;
     }
     const history = respondToHistory(req, res, url, channelId, userId);
@@ -351,6 +357,8 @@ export function webviewServers(
         "history-root",
         "history-prefixed",
         "history-anonymous",
+        "post-info-root",
+        "post-info-prefixed",
         "batch-signed",
         "batch-anonymous",
         "batch-text",

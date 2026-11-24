@@ -42,7 +42,12 @@ assert.equal((await me.json()).id, user.id);
 const team = await (
   await create(
     "teams",
-    { name: "fixture", display_name: "Fixture", type: "O" },
+    {
+      name: "fixture",
+      display_name: "Fixture",
+      type: "O",
+      allow_open_invite: true,
+    },
     token,
   )
 ).json();
@@ -133,6 +138,99 @@ for (const field of ["id", "message", "request_id"]) {
   assert.equal(typeof publicError[field], "string");
   assert.ok(publicError[field].length > 0);
 }
+// A public channel can be visible before joining. A DM has no team at all.
+const memberPosts = new PostsApi(session);
+const expectedContext = {
+  channelId,
+  channelType: channel.type,
+  channelDisplayName: channel.displayName,
+  hasJoinedChannel: true,
+  teamId: team.id,
+  teamType: "O",
+  teamDisplayName: team.display_name,
+  hasJoinedTeam: true,
+};
+for (const post of [root, reply])
+  assert.deepEqual(
+    await memberPosts.getPostInfo({ postId: post.id }),
+    expectedContext,
+  );
+
+const readerLogin = {
+  login_id: "context-reader",
+  password: `${randomBytes(24).toString("hex")}aA7!`,
+};
+const reader = await (
+  await create("users", {
+    username: readerLogin.login_id,
+    password: readerLogin.password,
+    email: "reader@example.test",
+  })
+).json();
+const readerToken = (await create("users/login", readerLogin)).headers.get(
+  "token",
+);
+assert.ok(readerToken);
+const readerPosts = new PostsApi(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+);
+const open = await readerPosts.getPostInfoRaw({ postId: root.id });
+assert.equal(open.raw.status, 200);
+assert.deepEqual(await open.value(), {
+  ...expectedContext,
+  hasJoinedChannel: false,
+  hasJoinedTeam: false,
+});
+
+const dm = await (
+  await create("channels/direct", [user.id, reader.id], token)
+).json();
+const dmPost = await (
+  await create("posts", { channel_id: dm.id, message: "Direct message" }, token)
+).json();
+const direct = await readerPosts.getPostInfo({ postId: dmPost.id });
+assert.deepEqual(direct, {
+  channelId: dm.id,
+  channelType: "D",
+  channelDisplayName: dm.display_name,
+  hasJoinedChannel: true,
+  teamId: "",
+  teamType: "",
+  teamDisplayName: "",
+  hasJoinedTeam: false,
+});
+
+const closed = await (
+  await create(
+    "channels",
+    {
+      team_id: team.id,
+      name: "closed-fixture",
+      display_name: "Closed fixture",
+      type: "P",
+    },
+    token,
+  )
+).json();
+const closedPost = await (
+  await create(
+    "posts",
+    { channel_id: closed.id, message: "Private fixture" },
+    token,
+  )
+).json();
+await assert.rejects(
+  readerPosts.getPostInfo({ postId: closedPost.id }),
+  (e: unknown) => e instanceof ResponseError && e.response.status === 404,
+);
+await assert.rejects(
+  anonymous.getPostInfo({ postId: root.id }),
+  (e: unknown) => e instanceof ResponseError && e.response.status === 401,
+);
+console.log(
+  `Mattermost ${version} verified post context for members, nonmembers, a DM, and private posts.`,
+);
+
 // A failed local save must revoke only the new server session for this same user.
 const secondLogin = await create("users/login", {
   login_id: username,

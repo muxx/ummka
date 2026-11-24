@@ -47,6 +47,7 @@ download teams.yaml "$upstream/teams.yaml" dc0723e5164d19b5d147ee9133db170fb83ee
 download channels.yaml "$upstream/channels.yaml" 34282bb7db184ae792493b97b384f9b47c0789d9f8dce7527cb2f3df9c09f9b3
 download posts.yaml "$upstream/posts.yaml" 83400ef682b755f3f3830dd4b622373b659bcc5b4d2d159756a735752b3b19ff
 download posts-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/posts.yaml" d133032e5ffa60c816a4fd084e46b761a04eba0a070b11175f6dee3ac0c71020
+download definitions-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/definitions.yaml" 77a45d4af02436a67a1a84983742db82c73d44d3e881370bc896d61cd9d5fd48
 download definitions.yaml "$upstream/definitions.yaml" 5c0f1f17fc06f6d7d105f59fdffe60204a9862c99593b7ad33cf908871660d96
 download "$generator" "https://repo.maven.apache.org/maven2/org/openapitools/openapi-generator-cli/7.27.0/$generator" db9c4b738727698748746144394cb7ee96512fe50166555baaeeca9311ee1dba
 
@@ -68,7 +69,7 @@ strict_tsc --declaration --removeComments --rootDir "$work/client" --outDir "$wo
 cat > "$work/transport-types.ts" <<'TS'
 import type { createRestTransport } from "../../src/mattermost/rest-transport.js";
 import type { ConfigurationParameters } from "./client/runtime.js";
-import type { GetPostsForChannelRequest, GetUsersByIdsRequest, Post, PostList } from "./compiled/index.js";
+import type { GetPostInfoRequest, GetPostsForChannelRequest, GetUsersByIdsRequest, Post, PostInfo, PostList } from "./compiled/index.js";
 declare const transport: ReturnType<typeof createRestTransport>;
 transport satisfies Required<Pick<ConfigurationParameters, "basePath" | "fetchApi">>;
 const ids: GetUsersByIdsRequest = { requestBody: ["an-id"], since: 123 };
@@ -81,6 +82,13 @@ const history: GetPostsForChannelRequest = {
 };
 // @ts-expect-error Thread switches are booleans.
 const badFlag: GetPostsForChannelRequest = { channelId: "an-id", collapsedThreads: "true" };
+const lookup: GetPostInfoRequest = { postId: "a-post-id" };
+// @ts-expect-error The request must identify one post.
+const unbound: GetPostInfoRequest = {};
+declare const info: PostInfo;
+info.hasJoinedTeam satisfies boolean | undefined;
+info.hasJoinedChannel satisfies boolean | undefined;
+info.channelId satisfies string | undefined;
 declare const page: PostList;
 declare const post: Post;
 page.firstInaccessiblePostTime satisfies number | undefined;
