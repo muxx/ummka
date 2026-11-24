@@ -1,0 +1,15 @@
+[
+  {
+    "file": "users.yaml",
+    "method": "POST",
+    "path": "/api/v4/users/login",
+    "id": "Login",
+    "body": "json"
+  },
+  {
+    "file": "users.yaml",
+    "method": "POST",
+    "path": "/api/v4/users/logout",
+    "id": "Logout"
+  }
+]

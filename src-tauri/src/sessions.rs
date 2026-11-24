@@ -8,6 +8,10 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
+pub(crate) fn contains_secret(bytes: &[u8], secret: &[u8]) -> bool {
+    !secret.is_empty() && bytes.windows(secret.len()).any(|part| part == secret)
+}
+
 pub(crate) fn is_credential_header(name: &str) -> bool {
     matches!(
         name,
@@ -84,8 +88,7 @@ impl SessionToken {
     }
 
     pub(crate) fn appears_in(&self, bytes: &[u8]) -> bool {
-        let raw = self.secret();
-        bytes.windows(raw.len()).any(|part| part == raw)
+        contains_secret(bytes, self.secret())
     }
 
     pub(crate) fn secret(&self) -> &[u8] {
@@ -204,11 +207,19 @@ impl AccountSessions {
         user_id: &str,
         raw: &str,
     ) -> Result<(), TransportError> {
-        let account = Account::new(base, user_id)?;
-        let token = SessionToken::new(raw)?;
+        self.activate_verified(Account::new(base, user_id)?, SessionToken::new(raw)?)
+            .await
+    }
+
+    pub(crate) async fn activate_verified(
+        &self,
+        account: Account,
+        token: SessionToken,
+    ) -> Result<(), TransportError> {
+        let next = AccountSession::new(token.clone());
         self.change(move |state| {
             (state.open_store)()?.save(&account, &token)?;
-            state.replace(account, Some(AccountSession::new(token)));
+            state.replace(account, Some(next));
             Ok(())
         })
         .await
@@ -254,6 +265,9 @@ impl AccountSessions {
         .await
     }
 }
+
+#[cfg(any(test, all(feature = "native-http-check", target_os = "android")))]
+pub(crate) mod fixture;
 
 #[cfg(test)]
 mod tests;

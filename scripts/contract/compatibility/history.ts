@@ -31,8 +31,14 @@ const user = await (
   await create("users", { username, password, email: "history@example.test" })
 ).json();
 const login = await create("users/login", { login_id: username, password });
+assert.equal(login.status, 200);
 const token =
   login.headers.get("token") ?? assert.fail("Missing fixture session");
+assert.equal((await login.json()).id, user.id);
+const authorization = { Authorization: `Bearer ${token}` };
+const me = await fetch(`${base}/api/v4/users/me`, { headers: authorization });
+assert.equal(me.status, 200);
+assert.equal((await me.json()).id, user.id);
 const team = await (
   await create(
     "teams",
@@ -127,6 +133,45 @@ for (const field of ["id", "message", "request_id"]) {
   assert.equal(typeof publicError[field], "string");
   assert.ok(publicError[field].length > 0);
 }
+// A failed local save must revoke only the new server session for this same user.
+const secondLogin = await create("users/login", {
+  login_id: username,
+  password,
+});
+assert.equal(secondLogin.status, 200);
+assert.equal((await secondLogin.json()).id, user.id);
+const secondToken = secondLogin.headers.get("token");
+assert.ok(secondToken && secondToken !== token, "Expected a distinct session");
+const secondAuthorization = { Authorization: `Bearer ${secondToken}` };
+const secondLogout = await fetch(`${base}/api/v4/users/logout`, {
+  method: "POST",
+  headers: secondAuthorization,
+});
+assert.equal(secondLogout.status, 200);
+assert.equal((await secondLogout.json()).status, "OK");
+assert.equal(
+  (await fetch(`${base}/api/v4/users/me`, { headers: secondAuthorization }))
+    .status,
+  401,
+);
+const previous = await fetch(`${base}/api/v4/users/me`, {
+  headers: authorization,
+});
+assert.equal(previous.status, 200);
+assert.equal((await previous.json()).id, user.id);
+const logout = await fetch(`${base}/api/v4/users/logout`, {
+  method: "POST",
+  headers: authorization,
+});
+assert.equal(logout.status, 200);
+assert.equal((await logout.json()).status, "OK");
+assert.equal(
+  (await fetch(`${base}/api/v4/users/me`, { headers: authorization })).status,
+  401,
+);
+console.log(
+  `Mattermost ${version} verified native Login and Logout, including independent sessions for the same account.`,
+);
 console.log(
   `Mattermost ${version} verified plain and collapsed history, thread participants, image dimensions and anonymous HTTP 401.`,
 );

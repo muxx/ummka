@@ -7,6 +7,7 @@ import http2 from "node:http2";
 import https from "node:https";
 import type { Server, Socket } from "node:net";
 import { join } from "node:path";
+import { authPrefix, checkAuthVisits, handleAuth } from "./authentication.ts";
 import { webviewServers } from "./webview.ts";
 
 function certificates(dir: string) {
@@ -93,9 +94,11 @@ function certificates(dir: string) {
 export async function startFixture(dir: string) {
   const certs = certificates(dir);
   const visits: string[] = [];
+  const authVisits: string[] = [];
   const pooled: Socket[] = [];
   const sockets = new Set<Socket>();
   const events = new EventEmitter();
+  const detachedRevoked = once(events, "detached-revoked");
   const receivedHeaders = once(events, "received-headers");
   const closedHeaders = once(events, "closed-headers");
   const closedBody = once(events, "closed-body");
@@ -113,6 +116,16 @@ export async function startFixture(dir: string) {
   const ok = (response: http.ServerResponse) => response.end("OK");
   const tls = https.createServer(certs.trusted, (request, response) => {
     const path = request.url;
+    if (path === "/auth-check/detached-revoked") {
+      void detachedRevoked.then(() => ok(response));
+      return;
+    }
+    if (path?.startsWith(authPrefix)) {
+      void handleAuth(request, response, authVisits).then((loggedOut) => {
+        if (loggedOut === "detached") events.emit("detached-revoked");
+      });
+      return;
+    }
     assert(path);
     visits.push(path);
     if (path.startsWith("/team/chat/")) {
@@ -246,6 +259,7 @@ export async function startFixture(dir: string) {
       ca: certs.ca,
       close,
       verify(android: boolean) {
+        checkAuthVisits(authVisits);
         webview.verify(android ? "android" : "macos");
         assert.deepEqual(checkpoints, [
           [0, 0, 0, 0],

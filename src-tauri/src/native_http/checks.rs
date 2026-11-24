@@ -75,6 +75,10 @@ async fn check_scope(
     }
     let mut post = get(selected, PING);
     *post.method_mut() = Method::POST;
+    let mut login = user_batch(selected);
+    *login.url_mut() = format!("{selected}/api/v4/users/login").parse()?;
+    let mut logout = get(selected, "api/v4/users/logout");
+    *logout.method_mut() = Method::POST;
     let mut cookie = get(selected, PING);
     cookie
         .headers_mut()
@@ -134,6 +138,8 @@ async fn check_scope(
             "api/v4/users/me/teams/Team0123456789012345678901/channels/categories",
         ),
         post,
+        login,
+        logout,
         cookie,
         authority,
     ] {
@@ -217,6 +223,8 @@ async fn check_wire(
         return Err("expected seven fixture ports".into());
     };
     let base = format!("https://127.0.0.1:{tls}");
+    crate::authentication::checks::exchange(&client, &base, &format!("https://127.0.0.1:{other}"))
+        .await?;
     let prefix = "/Teams/Blue%20Sky//A%2FB";
     let selected = format!("https://127.0.0.1:{selected}{prefix}");
     let other = format!("https://127.0.0.1:{other}{prefix}");

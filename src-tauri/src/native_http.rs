@@ -42,7 +42,26 @@ impl fmt::Display for TransportError {
 
 impl std::error::Error for TransportError {}
 
+/// Read only a complete document within the caller's budget, including chunked bodies.
+pub(crate) async fn limited_body(response: &mut Response, limit: usize) -> Option<Vec<u8>> {
+    if response
+        .content_length()
+        .is_some_and(|len| len > limit as u64)
+    {
+        return None;
+    }
+    let mut document = Vec::new();
+    while let Some(chunk) = response.chunk().await.ok()? {
+        if chunk.len() > limit - document.len() {
+            return None;
+        }
+        document.extend_from_slice(&chunk);
+    }
+    Some(document)
+}
+
 /// A connection pool shared by requests for one Mattermost installation.
+#[derive(Clone)]
 pub struct NativeHttp(Client);
 
 impl NativeHttp {

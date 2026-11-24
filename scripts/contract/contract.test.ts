@@ -11,9 +11,13 @@ import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { stringify } from "yaml";
+import nativeAuth from "../../contracts/mattermost/native-auth.json" with {
+  type: "json",
+};
 import catalog from "../../contracts/mattermost/operations.json" with {
   type: "json",
 };
+import { correctAuthentication } from "./authentication-corrections.ts";
 import {
   correctHistoryQuery,
   correctHistorySchema,
@@ -28,6 +32,9 @@ if (!sources || !work)
 const read = readSource.bind(null, sources);
 const serialized = readFileSync(join(work, "openapi.json"), "utf8");
 const contract = object(JSON.parse(serialized), "contract");
+const nativeContract = JSON.parse(
+  readFileSync(join(work, "native-auth.json"), "utf8"),
+);
 const definitions = read("definitions.yaml");
 const ping = "/api/v4/system/ping";
 const system = read("system.yaml");
@@ -49,6 +56,60 @@ function at(document: unknown, path: string[]) {
   }
   return value;
 }
+
+test("keeps native authentication outside the WebView and describes the actual wire contract", () => {
+  const auth = nativeContract;
+  assert.deepEqual(
+    auth,
+    JSON.parse(JSON.stringify(buildSpecification(read, nativeAuth))),
+  );
+  assert.deepEqual(Object.keys(auth.paths).sort(), [
+    "/api/v4/users/login",
+    "/api/v4/users/logout",
+  ]);
+  for (const { path } of nativeAuth) {
+    assert(!Object.hasOwn(object(contract.paths, "WebView paths"), path));
+    const operation = auth.paths[path].post;
+    assert.equal(operation.responses["201"], undefined);
+    assert.ok(
+      operation.responses["200"].content["application/json"].schema.$ref,
+    );
+  }
+  const login = auth.paths["/api/v4/users/login"].post;
+  assert.deepEqual(login.security, []);
+  assert.deepEqual(login.responses["200"].headers.Token, {
+    required: true,
+    schema: { type: "string" },
+  });
+  const fields =
+    login.requestBody.content["application/json"].schema.properties;
+  assert.deepEqual(fields.ldap_only, { type: "string" });
+  assert.equal(fields.password.format, "password");
+  assert.equal(fields.token.format, "password");
+});
+
+test("rejects an upstream change to a corrected login response or input", () => {
+  const login = object(at(users, ["/api/v4/users/login", "post"]), "Login");
+  const withStatus = structuredClone(login);
+  object(withStatus.responses, "responses")["200"] = {};
+  assert.throws(() => correctAuthentication(withStatus), /success response/);
+  for (const name of ["ldap_only", "token", "password"]) {
+    const changed = structuredClone(login);
+    const field = object(
+      at(changed, [
+        "requestBody",
+        "content",
+        "application/json",
+        "schema",
+        "properties",
+        name,
+      ]),
+      name,
+    );
+    field.type = "integer";
+    assert.throws(() => correctAuthentication(changed), /upstream/);
+  }
+});
 
 const definitionPaths = [
   ["security"],

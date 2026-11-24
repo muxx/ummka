@@ -50,8 +50,14 @@ download posts-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/matterm
 download definitions.yaml "$upstream/definitions.yaml" 5c0f1f17fc06f6d7d105f59fdffe60204a9862c99593b7ad33cf908871660d96
 download "$generator" "https://repo.maven.apache.org/maven2/org/openapitools/openapi-generator-cli/7.27.0/$generator" db9c4b738727698748746144394cb7ee96512fe50166555baaeeca9311ee1dba
 
-npm run contract:build -- "$cache" "$work/openapi.json"
+npm run contract:build -- "$cache" "$work/openapi.json" "$work/native-auth.json"
 "$JAVA_HOME/bin/java" -jar "$cache/$generator" validate -i "$work/openapi.json"
+"$JAVA_HOME/bin/java" -jar "$cache/$generator" validate -i "$work/native-auth.json"
+"$JAVA_HOME/bin/java" -jar "$cache/$generator" generate -g rust \
+    -i "$work/native-auth.json" -o "$work/native" \
+    --global-property models=Login_request,modelDocs=false,modelTests=false \
+    --type-mappings 'string+password=models::SecretInput'
+rustfmt --edition 2024 "$work/native/src/models/login_request.rs"
 "$JAVA_HOME/bin/java" -jar "$cache/$generator" generate -g typescript-fetch \
     -i "$work/openapi.json" -o "$work/client" --additional-properties=importFileExtension=.js
 strict_tsc() {
@@ -89,15 +95,18 @@ TS
 strict_tsc --noEmit --allowImportingTsExtensions "$work/transport-types.ts"
 UMMKA_CONTRACT_SOURCES="$cache" UMMKA_CONTRACT_WORK="$work" npm run contract:test
 bindings=vendor/mattermost
+native_bindings=vendor/mattermost-native
 if [ "${1-}" = "--write-bindings" ]; then
-    mkdir -p "$bindings"
+    mkdir -p "$bindings" "$native_bindings"
     rsync --recursive --checksum --delete-after --delay-updates "$work/compiled/" "$bindings/"
+    rsync --recursive --checksum --delete-after --delay-updates "$work/native/src/models/" "$native_bindings/"
 fi
-if ! diff -qr "$work/compiled" "$bindings"; then
+if ! diff -qr "$work/compiled" "$bindings" || ! diff -qr "$work/native/src/models" "$native_bindings"; then
     echo 'Mattermost bindings differ. Run make generate-bindings and review the changes.' >&2
     exit 1
 fi
 npm run test:rest
 spec="artifacts/mattermost-v$version.openapi.json"
 mv "$work/openapi.json" "$spec"
+mv "$work/native-auth.json" "artifacts/mattermost-v$version.native-auth.openapi.json"
 shasum -a 256 "$spec"

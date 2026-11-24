@@ -1,4 +1,4 @@
-use super::error_body;
+use crate::app_error;
 use crate::rest::TransportError;
 use crate::sessions::{AccountSession, SessionToken, is_credential_header};
 use reqwest::{Response, StatusCode};
@@ -84,11 +84,14 @@ impl ResponseBody {
                 }
             },
             Self::AccountError(response, account) => {
-                let bytes = account
-                    .dispatch(|token| async move { Ok(error_body::read(response, &token).await) })
+                let public = account
+                    .dispatch(|token| async move {
+                        Ok(app_error::read(response, |b| token.appears_in(b)).await)
+                    })
                     .await?;
                 *self = Self::End;
-                Ok(bytes)
+                Ok(serde_json::to_vec(&public)
+                    .expect("public strings and HTTP status serialize as JSON"))
             }
             Self::End => Ok(Vec::new()),
         }
