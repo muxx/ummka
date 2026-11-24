@@ -1,6 +1,8 @@
 use crate::sessions::{Account, SessionToken};
 use std::fmt;
 
+#[cfg(target_os = "android")]
+pub mod android;
 #[cfg(target_os = "macos")]
 pub mod macos;
 

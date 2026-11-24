@@ -9,11 +9,13 @@ import android.os.Bundle
 import android.util.Base64
 import android.util.Log
 import java.io.File
+import java.security.KeyStore
 
 class HttpCheckAdmin : DeviceAdminReceiver()
 
 class HttpCheckInstrumentation : Instrumentation() {
     private external fun runChecks(ports: String, registryPath: String)
+    private external fun checkVault(phase: String)
     private lateinit var arguments: Bundle
 
     override fun onCreate(arguments: Bundle?) {
@@ -28,6 +30,22 @@ class HttpCheckInstrumentation : Instrumentation() {
             // The target application initializes the native verifier on its main thread.
             waitForIdleSync()
             val app = targetContext
+            val phase = arguments.getString("vault")
+            if (phase != null) {
+                val keys = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+                val alias = "${app.packageName}.mattermost.sessions.v1"
+                if (phase == "seed") check(!keys.containsAlias(alias))
+                checkVault(phase)
+                check(keys.getKey(alias, null)?.let { it.encoded == null } == true)
+                if (phase == "confirm") {
+                    keys.deleteEntry(alias)
+                    checkVault("missing_key")
+                    check(!keys.containsAlias(alias))
+                }
+                result.putString("phase", "$phase ${android.os.Process.myPid()}")
+                finish(Activity.RESULT_OK, result)
+                return
+            }
             val policies = app.getSystemService(DevicePolicyManager::class.java)
             val admin = ComponentName(app, HttpCheckAdmin::class.java)
             val ca = Base64.decode(requireNotNull(arguments.getString("ca")), Base64.DEFAULT)

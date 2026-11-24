@@ -218,6 +218,30 @@ export async function checkAndroid(
       ),
       /Success/,
     );
+    const vaultProcesses = new Set<string>();
+    for (const phase of ["seed", "reject", "remove", "confirm"]) {
+      const result = await adb(
+        "shell",
+        "am",
+        "instrument",
+        "-w",
+        "-r",
+        "-e",
+        "vault",
+        phase,
+        `${component}HttpCheckInstrumentation`,
+      );
+      const verified = /^INSTRUMENTATION_RESULT: phase=(\w+) (\d+)\r?$/m.exec(
+        result,
+      );
+      assert(verified && verified[1] === phase, result);
+      assert.match(result, /^INSTRUMENTATION_CODE: -1\r?$/m);
+      vaultProcesses.add(verified[2]);
+      console.log(
+        `Android credential process ${verified[2]} verified ${phase}.`,
+      );
+    }
+    assert.equal(vaultProcesses.size, 4);
     const result = await adb(
       "shell",
       "am",
