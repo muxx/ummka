@@ -1,14 +1,20 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openNativeRestConnection } from "../../src/mattermost/native-rest.ts";
+import { beginExchanges, finishExchangesAfterReload } from "./exchanges.ts";
 
 const fetch = window.fetch.bind(window);
 let direct = 0;
 let blocked = 0;
+let androidBinary = 0;
 window.fetch = async (input, init) => {
-  if (!String(input).startsWith("ipc://localhost/")) return fetch(input, init);
+  const url = String(input);
+  const androidChannel = url.startsWith("http://ipc.localhost/");
+  if (!androidChannel && !url.startsWith("ipc://localhost/"))
+    return fetch(input, init);
   try {
     const response = await fetch(input, init);
-    direct++;
+    if (androidChannel) androidBinary++;
+    else direct++;
     return response;
   } catch (error) {
     blocked++;
@@ -35,6 +41,10 @@ async function expectClosed(close: () => Promise<void>) {
 }
 
 async function checkResources() {
+  if (await finishExchangesAfterReload()) {
+    location.replace("/ipc-result.html?pass");
+    return;
+  }
   const old = sessionStorage.getItem("rest-connection");
   const server = "https://chat.example.test:8443/Team/";
   if (old === null) {
@@ -57,7 +67,13 @@ async function checkResources() {
   await next.close();
   checkRoute(3);
   sessionStorage.removeItem("rest-connection");
-  location.replace("/ipc-result.html?pass");
+  await beginExchanges(() => {
+    if (
+      blocked !== 0 ||
+      (navigator.userAgent.includes("Android") && androidBinary === 0)
+    )
+      throw Error("binary-ipc-route");
+  });
 }
 
 checkResources().catch((error: unknown) => {

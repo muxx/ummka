@@ -44,7 +44,7 @@ impl NativeHttp {
         Self::from_builder(Client::builder())
     }
 
-    fn from_builder(builder: ClientBuilder) -> Result<Self, TransportError> {
+    pub(crate) fn from_builder(builder: ClientBuilder) -> Result<Self, TransportError> {
         builder
             .redirect(reqwest::redirect::Policy::none())
             .retry(reqwest::retry::never())

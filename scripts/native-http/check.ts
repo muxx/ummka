@@ -4,6 +4,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { buildWebviewFixture } from "../webview-check/build.ts";
+import { checkMacWebview } from "../webview-check/macos.ts";
 import { checkAndroid } from "./android.ts";
 import { startFixture } from "./fixture.ts";
 
@@ -16,8 +18,15 @@ const dir = await mkdtemp(join(tmpdir(), "ummka-http-"));
 try {
   const fixture = await startFixture(dir);
   try {
+    const config = await buildWebviewFixture(dir, fixture.webviewPorts);
     if (platform === "android")
-      await checkAndroid(dir, fixture.ports, fixture.ca);
+      await checkAndroid(
+        dir,
+        fixture.ports,
+        fixture.webviewPorts,
+        fixture.ca,
+        config,
+      );
     else {
       const result = await promisify(execFile)(
         "cargo",
@@ -43,6 +52,11 @@ try {
         },
       );
       assert.match(result.stdout, /1 passed/);
+      await checkMacWebview(
+        fixture.webviewPorts,
+        join(dir, "trusted.pem"),
+        config,
+      );
     }
     fixture.verify(platform === "android");
     console.log(

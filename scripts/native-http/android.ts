@@ -11,7 +11,13 @@ import { promisify } from "node:util";
 const exec = promisify(execFile);
 const app = "io.github.muxx.ummka.dev";
 
-export async function checkAndroid(dir: string, ports: number[], ca: Buffer) {
+export async function checkAndroid(
+  dir: string,
+  ports: number[],
+  webviewPorts: number[],
+  ca: Buffer,
+  config: string,
+) {
   const sdk = process.env.ANDROID_HOME;
   assert(sdk, "ANDROID_HOME is required");
   assert(
@@ -75,7 +81,7 @@ export async function checkAndroid(dir: string, ports: number[], ca: Buffer) {
       "--target",
       arm ? "aarch64" : "x86_64",
       "--config",
-      "src-tauri/tauri.webview-check.json",
+      config,
       "--features",
       "native-http-check,webview-check",
       "--",
@@ -83,7 +89,10 @@ export async function checkAndroid(dir: string, ports: number[], ca: Buffer) {
     ],
     {
       stdio: "inherit",
-      env: { ...process.env, ORG_GRADLE_PROJECT_ummkaNativeHttpCheck: "true" },
+      env: {
+        ...process.env,
+        ORG_GRADLE_PROJECT_ummkaNativeHttpCheck: "true",
+      },
     },
   );
   const apk =
@@ -166,7 +175,7 @@ export async function checkAndroid(dir: string, ports: number[], ca: Buffer) {
     }
     assert.equal((await adb("emu", "avd", "name")).split(/\r?\n/)[0], name);
     await adb("shell", "wm", "dismiss-keyguard");
-    for (const port of ports)
+    for (const port of [...ports, ...webviewPorts])
       await adb("reverse", `tcp:${port}`, `tcp:${port}`);
     assert.match(await adb("install", "-t", apk), /Success/);
     const component = `${app}.httpcheck/${app}.`;
