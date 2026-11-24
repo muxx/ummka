@@ -13,6 +13,7 @@ import {
 } from "../../vendor/mattermost/index.js";
 import { checkAccountResponses } from "./account.ts";
 import { checkChannelRefresh } from "./channel-refresh.ts";
+import { checkConnectServer } from "./connect-server.tsx";
 import { checkChannelHistory } from "./history.ts";
 import { prepareHistoryLoads } from "./history-loads.ts";
 import { checkUnavailableHistoryServer } from "./local-history.ts";
@@ -181,6 +182,7 @@ export async function checkGeneratedRequests(ports: string[]) {
     );
     await checkChannelHistory(rootSession, signed, new Configuration(root));
     await checkPostContext(rootSession, signed);
+    await checkConnectServer(origin);
     const profile = await inspectInstallation(
       `${prefixed.basePath.slice("https://".length)}/`,
       new AbortController().signal,
