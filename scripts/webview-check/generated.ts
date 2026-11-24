@@ -1,4 +1,4 @@
-import { loadInstallationProfile } from "../../src/mattermost/installation-profile.ts";
+import { inspectInstallation } from "../../src/mattermost/inspect-installation.ts";
 import {
   openAccountRestConnection,
   openNativeRestConnection,
@@ -181,12 +181,13 @@ export async function checkGeneratedRequests(ports: string[]) {
     );
     await checkChannelHistory(rootSession, signed, new Configuration(root));
     await checkPostContext(rootSession, signed);
-    const profile = await loadInstallationProfile(
-      prefixed,
+    const profile = await inspectInstallation(
+      `${prefixed.basePath.slice("https://".length)}/`,
       new AbortController().signal,
     );
     check(
-      profile.version === "10.10.1" &&
+      profile.serverUrl === prefixed.basePath &&
+        profile.version === "10.10.1" &&
         profile.siteName === "Fixture" &&
         profile.ssoProviders.join(",") === "gitlab" &&
         profile.passwordIdentifiers.length === 0 &&
