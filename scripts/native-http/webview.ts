@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter, once } from "node:events";
-import type { ServerResponse } from "node:http";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import https from "node:https";
 import type { Socket } from "node:net";
 
@@ -16,6 +16,8 @@ export function webviewServers(
     "window",
     "ping-headers",
     "ping-body",
+    "batch-headers",
+    "batch-body",
   ];
   const events = new EventEmitter();
   const held = new Map(
@@ -65,8 +67,63 @@ export function webviewServers(
       },
     ],
   ]);
-  const data = https.createServer(trusted, (req, res) => {
+  function hold(name: string, req: IncomingMessage, res: ServerResponse) {
+    req.socket.once("close", () => events.emit(`${name}-closed`));
+    events.emit(`${name}-received`);
+    if (name === "body" || name.endsWith("-body"))
+      res.writeHead(200, { "Content-Length": "100" }).write("A");
+  }
+  const data = https.createServer(trusted, async (req, res) => {
     const url = new URL(req.url ?? "/", "https://localhost");
+    if (
+      url.pathname === "/team/chat/api/v4/users/ids" ||
+      url.pathname === "/api/v4/users/ids"
+    ) {
+      const signed = url.pathname.startsWith("/team/chat/");
+      const name = `batch-${req.headers["x-test-case"] ?? (signed ? "signed" : "anonymous")}`;
+      visits.push(name);
+      assert.equal(req.method, "POST");
+      assert.equal(req.headers.cookie, undefined);
+      assert.equal(
+        req.headers.authorization,
+        signed ? "Bearer synthetic-session" : undefined,
+      );
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk);
+      if (name === "batch-text") {
+        assert.equal(url.search, "");
+        assert.equal(
+          req.headers["content-type"],
+          "application/json; charset=utf-8",
+        );
+        assert.deepEqual(
+          Buffer.concat(chunks),
+          Buffer.from('\ufeff ["Привет 👋"]\n'),
+        );
+        res.writeHead(204).end();
+        return;
+      }
+      const ids = [userId, "b".repeat(26)];
+      assert.equal(url.search, "?since=123");
+      assert.equal(req.headers["content-type"], "application/json");
+      assert.deepEqual(Buffer.concat(chunks), Buffer.from(JSON.stringify(ids)));
+      if (held.has(name)) {
+        hold(name, req, res);
+        return;
+      }
+      res.writeHead(signed ? 200 : 401, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify(
+          signed
+            ? [
+                { id: ids[1], first_name: "Юлия" },
+                { id: userId, first_name: "Ada" },
+              ]
+            : { message: "session required" },
+        ),
+      );
+      return;
+    }
     assert.equal(req.method, "GET");
     const teamRead = teamReads.get(url.pathname);
     if (teamRead) {
@@ -135,12 +192,8 @@ export function webviewServers(
     if (!(generated && rootPing))
       assert.equal(url.pathname, "/team/chat/api/v4/system/ping");
     visits.push(name);
-    const wait = held.get(name);
-    if (wait) {
-      req.socket.once("close", () => events.emit(`${name}-closed`));
-      events.emit(`${name}-received`);
-      if (name === "body" || name === "ping-body")
-        res.writeHead(200, { "Content-Length": "100" }).write("A");
+    if (held.has(name)) {
+      hold(name, req, res);
       return;
     }
     if (name === "ping-root" || name === "ping-prefix") {
@@ -251,6 +304,11 @@ export function webviewServers(
         "my-teams",
         "team-channels",
         "team-memberships",
+        "batch-signed",
+        "batch-anonymous",
+        "batch-text",
+        "batch-headers",
+        "batch-body",
         "ping-prefix",
         "ping-prefix",
         "ping-unhealthy",

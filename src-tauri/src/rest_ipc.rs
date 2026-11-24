@@ -79,9 +79,10 @@ pub(crate) async fn send_rest_request<R: Runtime>(
     method: String,
     url: String,
     headers: Vec<(String, String)>,
+    body: Option<String>,
 ) -> Result<ResponseHead, ExchangeError> {
     session(&webview, connection)?
-        .send(exchange, &method, &url, headers)
+        .send(exchange, &method, &url, headers, body)
         .await
 }
 

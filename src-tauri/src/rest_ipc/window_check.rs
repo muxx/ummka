@@ -48,6 +48,7 @@ async fn check<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<(), &'static str
                 "GET",
                 &format!("{base}/api/v4/system/ping?check=window"),
                 vec![],
+                None,
             )
             .await
     });

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { nativeFetch } from "../../src/mattermost/native-fetch.ts";
 import { openNativeRestConnection } from "../../src/mattermost/native-rest.ts";
 
 type Connection = Awaited<ReturnType<typeof openNativeRestConnection>>;
@@ -106,6 +107,45 @@ async function testPreparation(connection: number, control: Connection) {
     "operation_denied",
   );
   await expectCode(cancel(connection, bad), "unknown_exchange");
+  for (const partial of [false, true]) {
+    let notify!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      notify = resolve;
+    });
+    const abort = new AbortController();
+    const reason = new Error("stopped before dispatch");
+    let cancelled: unknown;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        if (partial) controller.enqueue(Uint8Array.of(0x5b));
+      },
+      pull() {
+        notify();
+      },
+      cancel(value) {
+        cancelled = value;
+        return new Promise<void>(() => {});
+      },
+    });
+    const init = {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+      duplex: "half" as const,
+      signal: abort.signal,
+    };
+    const attempt = nativeFetch(
+      connection,
+      `${base}/api/v4/users/ids`,
+      init,
+    ).catch((error: unknown) => error);
+    await waiting;
+    abort.abort(reason);
+    check(
+      (await attempt) === reason && cancelled === reason,
+      "abort-before-send",
+    );
+  }
   await acknowledge(control, "before");
 }
 

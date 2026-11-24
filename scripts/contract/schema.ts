@@ -32,6 +32,31 @@ export function readSource(directory: string, file: string): Fields {
   return object(source, file);
 }
 
+function checkRequestBody(
+  id: string,
+  kind: string | undefined,
+  operation: Fields,
+) {
+  if (kind === undefined) {
+    if (Object.hasOwn(operation, "requestBody"))
+      throw new Error(`Unexpected request body on ${id}`);
+    return;
+  }
+  if (kind !== "json") throw new Error(`Unsupported catalog body on ${id}`);
+  const body = object(operation.requestBody, `${id} requestBody`);
+  const content = object(body.content, `${id} requestBody.content`);
+  if (
+    body.required !== true ||
+    Object.keys(content).length !== 1 ||
+    !Object.hasOwn(content, "application/json")
+  )
+    throw new Error(`Expected a required application/json body on ${id}`);
+  object(
+    object(content["application/json"], id).schema,
+    `${id} request body schema`,
+  );
+}
+
 export function buildSpecification(
   read: (file: string) => Fields,
   operations = catalog,
@@ -80,7 +105,7 @@ export function buildSpecification(
   }
 
   includeSecurity(definitions.security);
-  for (const { file, path, method: verb, id } of operations) {
+  for (const { file, path, method: verb, id, body } of operations) {
     const method = verb.toLowerCase();
     if (!methods.has(method) || verb !== verb.toUpperCase())
       throw new Error(`Invalid HTTP method in the operation catalog: ${verb}`);
@@ -91,6 +116,7 @@ export function buildSpecification(
     if (operation.operationId !== id)
       throw new Error(`Expected operation ${id} at ${method} ${path}`);
     checkPathParameters(path, sourcePath, operation, original);
+    checkRequestBody(id, body, operation);
     paths[path] ??= Object.fromEntries(
       Object.entries(sourcePath).filter(([key]) => !methods.has(key)),
     );

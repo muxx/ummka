@@ -9,6 +9,17 @@ fn get(base: &str, path: &str) -> Request {
     Request::new(Method::GET, format!("{base}/{path}").parse().unwrap())
 }
 
+fn user_batch(base: &str) -> Request {
+    let mut request = get(base, "api/v4/users/ids?since=123");
+    *request.method_mut() = Method::POST;
+    request
+        .headers_mut()
+        .insert("content-type", "application/json".parse().unwrap());
+    *request.body_mut() =
+        Some(r#"["Abc01234567890123456789012","def01234567890123456789012"]"#.into());
+    request
+}
+
 async fn expect_ok(client: &NativeHttp, base: &str, path: &str) -> CheckResult<Version> {
     let response = client.send(get(base, path)).await?;
     assert_eq!(response.status(), StatusCode::OK, "{path}");
@@ -119,6 +130,34 @@ async fn check_scope(
             TransportError::OutsideInstallation
         );
     }
+    let mut missing = user_batch(selected);
+    *missing.body_mut() = None;
+    let mut wrong_type = user_batch(selected);
+    wrong_type
+        .headers_mut()
+        .insert("content-type", "text/plain".parse()?);
+    let mut get_with_body = get(selected, PING);
+    *get_with_body.body_mut() = Some("[]".into());
+    for invalid in [
+        missing,
+        wrong_type,
+        get_with_body,
+        get(selected, "api/v4/users/ids"),
+    ] {
+        assert_eq!(
+            connection.send(invalid).await.unwrap_err(),
+            TransportError::OperationDenied
+        );
+    }
+    for name in ["content-length", "transfer-encoding"] {
+        for mut request in [user_batch(selected), get(selected, PING)] {
+            request.headers_mut().insert(name, "0".parse()?);
+            assert_eq!(
+                connection.send(request).await.unwrap_err(),
+                TransportError::OperationDenied
+            );
+        }
+    }
     expect_ok(control, control_base, "scope-denied").await?;
     for _ in 0..2 {
         let mut request = get(
@@ -135,6 +174,9 @@ async fn check_scope(
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.text().await?, "OK");
     }
+    let response = connection.send(user_batch(selected)).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.text().await?, "OK");
     Ok(())
 }
 

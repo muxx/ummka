@@ -60,8 +60,14 @@ strict_tsc --declaration --removeComments --rootDir "$work/client" --outDir "$wo
 cat > "$work/transport-types.ts" <<'TS'
 import type { createRestTransport } from "../../src/mattermost/rest-transport.js";
 import type { ConfigurationParameters } from "./client/runtime.js";
+import type { GetUsersByIdsRequest } from "./compiled/index.js";
 declare const transport: ReturnType<typeof createRestTransport>;
 transport satisfies Required<Pick<ConfigurationParameters, "basePath" | "fetchApi">>;
+const ids: GetUsersByIdsRequest = { requestBody: ["an-id"], since: 123 };
+// @ts-expect-error Mattermost accepts string IDs only.
+const numbers: GetUsersByIdsRequest = { requestBody: [42] };
+// @ts-expect-error Generated callers must supply the array.
+const missing: GetUsersByIdsRequest = {};
 TS
 strict_tsc --noEmit --allowImportingTsExtensions "$work/transport-types.ts"
 UMMKA_CONTRACT_SOURCES="$cache" UMMKA_CONTRACT_WORK="$work" npm run contract:test

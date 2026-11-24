@@ -32,4 +32,39 @@ export class UsersApi extends runtime.BaseAPI {
         const response = await this.getUserRaw(requestParameters, initOverrides);
         return await response.value();
     }
+    async getUsersByIdsRequestOpts(requestParameters) {
+        if (requestParameters['requestBody'] == null) {
+            throw new runtime.RequiredError('requestBody', 'Required parameter "requestBody" was null or undefined when calling getUsersByIds().');
+        }
+        const queryParameters = {};
+        if (requestParameters['since'] != null) {
+            queryParameters['since'] = requestParameters['since'];
+        }
+        const headerParameters = {};
+        headerParameters['Content-Type'] = 'application/json';
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/users/ids`;
+        return {
+            path: urlPath,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+            body: requestParameters['requestBody'],
+        };
+    }
+    async getUsersByIdsRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.getUsersByIdsRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => jsonValue.map(UserFromJSON));
+    }
+    async getUsersByIds(requestParameters, initOverrides) {
+        const response = await this.getUsersByIdsRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
 }

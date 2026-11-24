@@ -1,15 +1,22 @@
 use crate::installation_url::{has_credentials, parse_canonical};
 use crate::native_http::NativeHttp;
 pub use crate::native_http::TransportError;
-use reqwest::header::{COOKIE, HOST};
+use reqwest::header::{CONTENT_LENGTH, CONTENT_TYPE, COOKIE, HOST, TRANSFER_ENCODING};
 use reqwest::{Request, Response, Url};
 use serde::Deserialize;
 use std::sync::LazyLock;
 
 #[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum BodyKind {
+    Json,
+}
+
+#[derive(Deserialize)]
 struct Operation<'a> {
     method: &'a str,
     path: &'a str,
+    body: Option<BodyKind>,
 }
 
 impl Operation<'_> {
@@ -33,6 +40,30 @@ impl Operation<'_> {
         }
         segments.next().is_none()
     }
+
+    fn accepts_body(&self, request: &Request) -> bool {
+        match self.body {
+            None => request.body().is_none(),
+            Some(BodyKind::Json) => request.body().is_some() && has_json_content_type(request),
+        }
+    }
+}
+
+fn has_json_content_type(request: &Request) -> bool {
+    let mut values = request.headers().get_all(CONTENT_TYPE).iter();
+    let (Some(value), None) = (values.next(), values.next()) else {
+        return false;
+    };
+    let Some(media) = value
+        .to_str()
+        .ok()
+        .and_then(|text| text.parse::<mime::Mime>().ok())
+    else {
+        return false;
+    };
+    media == mime::APPLICATION_JSON
+        || (media.essence_str() == "application/json"
+            && media.params().eq([(mime::CHARSET, mime::UTF_8)]))
 }
 
 fn is_mattermost_id(value: &str) -> bool {
@@ -87,12 +118,17 @@ impl RestConnection {
             .strip_prefix(self.base.path().trim_end_matches('/'))
             .filter(|path| path.starts_with("/api/v4/"))
             .ok_or(TransportError::OutsideInstallation)?;
-        if request.headers().contains_key(HOST)
-            || request.headers().contains_key(COOKIE)
-            || !OPERATIONS
-                .iter()
-                .any(|operation| operation.allows(request.method(), route))
+        if [HOST, COOKIE, CONTENT_LENGTH, TRANSFER_ENCODING]
+            .iter()
+            .any(|name| request.headers().contains_key(name))
         {
+            return Err(TransportError::OperationDenied);
+        }
+        let operation = OPERATIONS
+            .iter()
+            .find(|op| op.allows(request.method(), route))
+            .ok_or(TransportError::OperationDenied)?;
+        if !operation.accepts_body(request) {
             return Err(TransportError::OperationDenied);
         }
         Ok(())
@@ -102,6 +138,36 @@ impl RestConnection {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accepts_only_the_declared_json_media_type() {
+        let connection = RestConnection::new("https://chat.example.test").unwrap();
+        let url = "https://chat.example.test/api/v4/users/ids"
+            .parse::<Url>()
+            .unwrap();
+        for (types, allowed) in [
+            (vec!["application/json"], true),
+            (vec!["Application/JSON; CHARSET=\"UTF-8\""], true),
+            (vec![], false),
+            (vec!["text/json"], false),
+            (vec!["application/json; charset=us-ascii"], false),
+            (vec!["application/json; version=1"], false),
+            (vec!["application/json", "application/json"], false),
+            (
+                vec!["application/json; charset=utf-8; charset=utf-8"],
+                false,
+            ),
+        ] {
+            let mut request = Request::new(reqwest::Method::POST, url.clone());
+            *request.body_mut() = Some(String::new().into());
+            for ty in types {
+                request
+                    .headers_mut()
+                    .append(CONTENT_TYPE, ty.parse().unwrap());
+            }
+            assert_eq!(connection.check_request(&request).is_ok(), allowed);
+        }
+    }
 
     #[test]
     fn accepts_canonical_frontend_addresses() {

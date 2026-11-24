@@ -152,6 +152,64 @@ test("rejects a changed operation ID", () => {
   );
 });
 
+const bulkPath = "/api/v4/users/ids";
+const bulkOperation = object(at(users, [bulkPath, "post"]), "GetUsersByIds");
+const bulkBody = object(bulkOperation.requestBody, "requestBody");
+test("keeps the required string-array input and optional since filter", () => {
+  const operation = at(contract, ["paths", bulkPath, "post"]);
+  assert.deepEqual(
+    at(operation, ["requestBody", "content", "application/json", "schema"]),
+    {
+      type: "array",
+      items: { type: "string" },
+    },
+  );
+  const parameters = at(operation, ["parameters"]);
+  assert.ok(Array.isArray(parameters));
+  assert.equal(parameters.length, 1);
+  const since = object(parameters[0], "since");
+  assert.equal(since.name, "since");
+  assert.equal(since.in, "query");
+  assert.notEqual(since.required, true);
+  assert.equal(at(since, ["schema", "type"]), "integer");
+});
+
+test("requires the catalog body and its single JSON media type", () => {
+  for (const body of [
+    undefined,
+    { ...bulkBody, required: false },
+    { ...bulkBody, content: { "text/plain": {} } },
+    {
+      ...bulkBody,
+      content: { ...object(bulkBody.content, "content"), "text/plain": {} },
+    },
+    { ...bulkBody, content: { "application/json": {} } },
+  ]) {
+    const source = {
+      ...users,
+      [bulkPath]: { post: { ...bulkOperation, requestBody: body } },
+    };
+    assert.throws(
+      () =>
+        buildSpecification((file) =>
+          file === "users.yaml" ? source : read(file),
+        ),
+      /body/i,
+    );
+  }
+  const changed = catalog.map((op) =>
+    op.id === "GetUsersByIds" ? { ...op, body: undefined } : op,
+  );
+  assert.throws(
+    () => buildSpecification(read, changed),
+    /Unexpected request body/,
+  );
+  assert.throws(
+    () => buildSpecification(read, [{ ...catalog[0], body: "file" }]),
+    /Unsupported catalog body/,
+  );
+});
+
 function buildUserRoute(pathItem: Record<string, unknown>, path = userRoute) {
   const source = { ...users, [path]: pathItem };
   return buildSpecification(
