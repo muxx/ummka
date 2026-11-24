@@ -20,6 +20,17 @@ services:
       default:
         aliases: [images.example.test]
 
+  gitlab:
+    image: *node
+    command: ["node", "/fixtures/gitlab.ts"]
+    volumes:
+      - .:/fixtures:ro
+    environment:
+      UMMKA_FIXTURE_GITLAB_SECRET: ${UMMKA_FIXTURE_GITLAB_SECRET:?}
+    networks:
+      default:
+        aliases: [gitlab.example.test]
+
   mattermost:
     image: ${UMMKA_FIXTURE_SERVER_IMAGE:?}
     platform: linux/amd64
@@ -33,7 +44,14 @@ services:
       MM_SERVICESETTINGS_SITEURL: "http://mattermost:8065"
       MM_EMAILSETTINGS_REQUIREEMAILVERIFICATION: "false"
       MM_LOGSETTINGS_ENABLEDIAGNOSTICS: "false"
-      MM_SERVICESETTINGS_ALLOWEDUNTRUSTEDINTERNALCONNECTIONS: images.example.test
+      MM_SERVICESETTINGS_ALLOWEDUNTRUSTEDINTERNALCONNECTIONS: "images.example.test gitlab.example.test"
+      MM_NATIVEAPPSETTINGS_APPCUSTOMURLSCHEMES: "io.github.muxx.ummka.auth://"
+      MM_GITLABSETTINGS_ENABLE: "true"
+      MM_GITLABSETTINGS_ID: ummka-browser-fixture
+      MM_GITLABSETTINGS_SECRET: ${UMMKA_FIXTURE_GITLAB_SECRET:?}
+      MM_GITLABSETTINGS_AUTHENDPOINT: "http://gitlab.example.test:8080/authorize"
+      MM_GITLABSETTINGS_TOKENENDPOINT: "http://gitlab.example.test:8080/token"
+      MM_GITLABSETTINGS_USERAPIENDPOINT: "http://gitlab.example.test:8080/user"
     healthcheck:
       test: ["CMD", "/mattermost/bin/mmctl", "system", "status", "--local"]
       interval: 2s

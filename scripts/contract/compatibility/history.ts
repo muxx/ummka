@@ -15,6 +15,7 @@ import {
   PostToJSON,
   ResponseError,
 } from "../../../vendor/mattermost/index.js";
+import { checkBrowserSignIn } from "./browser-sign-in.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
 import {
   checkEmptyTeamDirectory,
@@ -654,3 +655,5 @@ console.log(
 console.log(
   `Mattermost ${version} verified plain and collapsed history, thread participants, image dimensions and anonymous HTTP 401.`,
 );
+
+await checkBrowserSignIn(base, version);
