@@ -25,6 +25,11 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: src-tauri
+          env-vars: DEVELOPER_DIR
+          cache-bin: false
       - run: npm ci
       - run: make check-macos
       - name: Open the unpacked app twice offline on the disposable runner
@@ -98,7 +103,17 @@ jobs:
           echo "JAVA_HOME=$RUNNER_TEMP/ummka-jdk" >> "$GITHUB_ENV"
           echo "$RUNNER_TEMP/ummka-jdk/bin" >> "$GITHUB_PATH"
       - run: rustup target add aarch64-linux-android
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: src-tauri
+          env-vars: NDK_HOME
+          cache-bin: false
       - run: npm ci
+      - name: Cache verified contract inputs
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .check-tools/mattermost-contract
+          key: mattermost-contract-${{ hashFiles('scripts/check-contract.sh') }}
       - run: make check-contract
       - run: make check-android
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
