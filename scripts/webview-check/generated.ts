@@ -13,6 +13,7 @@ import {
 } from "../../vendor/mattermost/index.js";
 import { checkAccountResponses } from "./account.ts";
 import { checkChannelHistory } from "./history.ts";
+import { checkUnavailableHistoryServer } from "./local-history.ts";
 import { checkPostContext } from "./post-context.ts";
 import { checkTeamReads } from "./team-reads.ts";
 
@@ -31,6 +32,7 @@ async function rejected(action: Promise<unknown>) {
 
 export async function checkGeneratedRequests(ports: string[]) {
   const origin = `https://127.0.0.1:${ports[0]}`;
+  await checkUnavailableHistoryServer(origin);
   const root = await openNativeRestConnection(origin);
   const prefixed = await openNativeRestConnection(`${origin}/team/chat///`);
   const control = await openNativeRestConnection(

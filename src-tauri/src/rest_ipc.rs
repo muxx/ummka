@@ -1,4 +1,13 @@
 mod exchange;
+pub(crate) mod history;
+#[cfg(all(
+    feature = "webview-check",
+    any(
+        target_os = "macos",
+        all(feature = "native-http-check", target_os = "android")
+    )
+))]
+mod history_check;
 mod response;
 #[cfg(all(feature = "webview-check", target_os = "macos"))]
 mod window_check;
@@ -242,6 +251,7 @@ pub(crate) fn seed_check_sessions(
         ] {
             sessions.activate(base, account, token).await?;
         }
+        history_check::seed(sessions, &root).await?;
         #[cfg(target_os = "android")]
         sessions
             .activate(

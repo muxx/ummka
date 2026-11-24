@@ -7,6 +7,7 @@ fn main() {
         "sign_out_account",
         "sign_out_on_device",
         "close_rest_connection",
+        "read_channel_window",
         "prepare_rest_request",
         "send_rest_request",
         "read_rest_body",

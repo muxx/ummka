@@ -12,6 +12,69 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const ipc = vi.mocked(invoke);
 beforeEach(() => ipc.mockReset());
 
+const localQuery = {
+  kind: "latest",
+  channelId: "c".repeat(26),
+  collapsedThreads: true,
+  limit: 20,
+} as const;
+
+test("a local read uses only this account's native resource and keeps an unknown window distinct", async () => {
+  ipc.mockResolvedValueOnce(27);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    "a".repeat(26),
+  );
+  ipc.mockResolvedValueOnce(null);
+  await expect(account.readChannelWindow(localQuery)).resolves.toBeNull();
+  expect(ipc).toHaveBeenLastCalledWith("read_channel_window", {
+    rid: 27,
+    query: localQuery,
+  });
+  ipc.mockRejectedValueOnce("history_storage_unavailable");
+  await expect(account.readChannelWindow(localQuery)).rejects.toBe(
+    "history_storage_unavailable",
+  );
+  ipc.mockResolvedValueOnce({ status: "unconfirmed" });
+  await account.signOut();
+  const empty = {
+    posts: [],
+    newer: { kind: "end" },
+    older: { kind: "end" },
+    firstInaccessiblePostTime: 0,
+  };
+  ipc.mockResolvedValueOnce(empty);
+  await expect(account.readChannelWindow(localQuery)).resolves.toEqual(empty);
+});
+
+test.each(["close", "signOut", "signOutOnDevice"] as const)(
+  "%s discards native results that were already in transit to the renderer",
+  async (operation) => {
+    ipc.mockResolvedValueOnce(41);
+    const account = await openAccountRestConnection(
+      "https://chat.example.test",
+      "a".repeat(26),
+    );
+    let finish!: (value: unknown) => void;
+    ipc.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const read = account.readChannelWindow(localQuery);
+    ipc.mockResolvedValueOnce(
+      operation === "signOut" ? { status: "signed_out" } : "removed",
+    );
+    await account[operation]();
+    finish({ posts: [] });
+    await expect(read).rejects.toBe("cancelled");
+    await expect(account.readChannelWindow(localQuery)).rejects.toBe(
+      operation === "close" ? "unknown_connection" : "cancelled",
+    );
+    expect(ipc).toHaveBeenCalledTimes(3);
+  },
+);
+
 test("lists and forgets accounts for the exact canonical installation", async () => {
   const server = "https://CHAT.example.test/Team///";
   const serverUrl = "https://chat.example.test/Team";
@@ -61,6 +124,7 @@ test("passes the canonical installation and closes the exact native handle", asy
   expect(connection.rid).toBe(41);
   expect(ipc).toHaveBeenNthCalledWith(1, "open_rest_connection", { basePath });
   expect("signOut" in connection).toBe(false);
+  expect("readChannelWindow" in connection).toBe(false);
   await connection.close();
   expect(ipc).toHaveBeenNthCalledWith(2, "close_rest_connection", { rid: 41 });
   expect(ipc).toHaveBeenCalledTimes(2);
@@ -86,6 +150,7 @@ test("opens a native account by installation and user ID", async () => {
     "basePath",
     "close",
     "fetchApi",
+    "readChannelWindow",
     "rid",
     "signOut",
     "signOutOnDevice",

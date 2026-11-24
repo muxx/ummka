@@ -38,6 +38,7 @@ export function webviewServers(
     ]),
   );
   const visits: string[] = [];
+  let offlineHistoryRequests = 0;
   let connections = 0;
   let before = false;
   let disconnect: Socket | undefined;
@@ -83,6 +84,17 @@ export function webviewServers(
   }
   const data = https.createServer(trusted, async (req, res) => {
     const url = new URL(req.url ?? "/", "https://localhost");
+    if (url.pathname.startsWith("/offline-history/")) {
+      offlineHistoryRequests++;
+      res.writeHead(503, { "Content-Type": "application/json" }).end(
+        JSON.stringify({
+          id: "fixture.unavailable",
+          message: "Offline history fixture",
+          status_code: 503,
+        }),
+      );
+      return;
+    }
     const account = respondToAccount(req, res, url, userId, (name) =>
       events.emit(name),
     );
@@ -321,6 +333,11 @@ export function webviewServers(
   return {
     servers: [data, control, foreign],
     verify(platform: "macos" | "android") {
+      assert.equal(
+        offlineHistoryRequests,
+        1,
+        "only the online control may reach the offline fixture",
+      );
       assert(before);
       assert.equal(settings.size, 2);
       assert.equal(untrustedRequests, 0);

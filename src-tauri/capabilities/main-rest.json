@@ -13,6 +13,7 @@
     "allow-sign-out-account",
     "allow-sign-out-on-device",
     "allow-close-rest-connection",
+    "allow-read-channel-window",
     "allow-prepare-rest-request",
     "allow-send-rest-request",
     "allow-read-rest-body",

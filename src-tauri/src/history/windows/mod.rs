@@ -1,6 +1,6 @@
 use super::{HistoryError, PostChange, StoredPost};
 use crate::rest::is_mattermost_id;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 mod order;
@@ -117,7 +117,8 @@ impl ChannelHistoryPage {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", content = "postId", rename_all = "camelCase")]
 pub enum WindowEdge {
     Unknown,
     End,
@@ -134,7 +135,8 @@ impl From<Option<String>> for WindowEdge {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WindowSlice {
     pub posts: Vec<StoredPost>,
     pub newer: WindowEdge,
