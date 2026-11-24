@@ -12,6 +12,9 @@
   "knip": {
     "ignoreBinaries": [
       "openssl"
+    ],
+    "ignore": [
+      "vendor/mattermost/**"
     ]
   },
   "scripts": {
@@ -19,10 +22,11 @@
     "build": "tsc --noEmit && vite build",
     "lint": "biome ci --error-on-warnings .",
     "unused": "knip",
-    "test": "vitest run --environment jsdom src",
+    "test": "vitest run --environment jsdom src && npm run test:rest",
+    "test:rest": "node --test scripts/contract/transport.test.ts",
     "test:native-http": "node scripts/native-http/check.ts",
     "contract:build": "node scripts/contract/schema.ts",
-    "contract:test": "node --test scripts/contract/contract.test.ts scripts/contract/transport.test.ts",
+    "contract:test": "node --test scripts/contract/contract.test.ts",
     "tauri": "tauri"
   },
   "dependencies": {
