@@ -1,9 +1,13 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "yaml";
+import nativeAuth from "../../contracts/mattermost/native-auth.json" with {
+  type: "json",
+};
 import catalog from "../../contracts/mattermost/operations.json" with {
   type: "json",
 };
+import { correctAuthentication } from "./authentication-corrections.ts";
 
 import {
   correctHistoryQuery,
@@ -121,7 +125,7 @@ export function buildSpecification(
     paths[path][method] =
       id === "GetPostsForChannel"
         ? correctHistoryQuery(operation, read("posts-12.1.0.yaml"), path)
-        : operation;
+        : correctAuthentication(operation);
     if (Object.hasOwn(operation, "security"))
       includeSecurity(operation.security);
   }
@@ -138,11 +142,18 @@ export function buildSpecification(
 }
 
 if (import.meta.main) {
-  const [directory, destination] = process.argv.slice(2);
+  const [directory, destination, nativeDestination] = process.argv.slice(2);
   if (!directory || !destination)
     throw new Error("Expected a source directory and output file");
   const specification = buildSpecification((file) =>
     readSource(directory, file),
   );
   writeFileSync(destination, `${JSON.stringify(specification, null, 2)}\n`);
+  if (nativeDestination) {
+    const auth = buildSpecification(
+      (file) => readSource(directory, file),
+      nativeAuth,
+    );
+    writeFileSync(nativeDestination, `${JSON.stringify(auth, null, 2)}\n`);
+  }
 }

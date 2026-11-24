@@ -75,6 +75,10 @@ async fn check_scope(
     }
     let mut post = get(selected, PING);
     *post.method_mut() = Method::POST;
+    let mut login = user_batch(selected);
+    *login.url_mut() = format!("{selected}/api/v4/users/login").parse()?;
+    let mut logout = get(selected, "api/v4/users/logout");
+    *logout.method_mut() = Method::POST;
     let mut cookie = get(selected, PING);
     cookie
         .headers_mut()
@@ -134,6 +138,8 @@ async fn check_scope(
             "api/v4/users/me/teams/Team0123456789012345678901/channels/categories",
         ),
         post,
+        login,
+        logout,
         cookie,
         authority,
     ] {

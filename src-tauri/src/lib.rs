@@ -2,6 +2,7 @@ pub mod credentials;
 mod installation_url;
 #[cfg(all(test, desktop))]
 mod ipc_test;
+pub mod models;
 mod native_http;
 pub mod registry;
 mod registry_ipc;
