@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import {
+  loadAccountDirectory,
+  loadTeamDirectory,
+} from "../../../src/mattermost/navigation-data.ts";
+import {
   ChannelsApi,
   Configuration,
   ResponseError,
@@ -13,6 +17,7 @@ export async function checkNavigationMemberships(
   keepTeamId: string,
   leaveTeamId: string,
   channelId: string,
+  directId: string,
   leaveTeam: () => Promise<Response>,
 ) {
   const teams = new TeamsApi(session);
@@ -30,6 +35,29 @@ export async function checkNavigationMemberships(
   );
   const member = active.find((m) => m.teamId === leaveTeamId);
   assert.ok(member);
+  const joined = await loadAccountDirectory(session, userId);
+  for (const teamId of [keepTeamId, leaveTeamId]) {
+    const directory = await loadTeamDirectory(session, userId, teamId);
+    const dm = directory.channels.find((row) => row.channel.id === directId);
+    assert.ok(
+      dm &&
+        dm.channel.type === "D" &&
+        dm.channel.teamId === "" &&
+        dm.membership.userId === userId,
+    );
+    assert.ok(
+      directory.categories
+        .find((c) => c.type === "direct_messages")
+        ?.channelIds?.includes(directId),
+    );
+  }
+  assert.deepEqual(
+    joined.teams.find(({ team }) => team.id === leaveTeamId)?.membership,
+    member,
+  );
+  assert.ok(
+    joined.preferences.every((preference) => preference.userId === userId),
+  );
   assert.deepEqual(member, {
     teamId: leaveTeamId,
     userId,
@@ -67,6 +95,13 @@ export async function checkNavigationMemberships(
   const removed = after.find((m) => m.teamId === leaveTeamId);
   assert.ok(removed?.deleteAt && removed.deleteAt > 0);
   assert.equal(after.find((m) => m.teamId === keepTeamId)?.deleteAt, 0);
+  const remaining = await loadAccountDirectory(session, userId);
+  assert.ok(remaining.teams.some(({ team }) => team.id === keepTeamId));
+  assert.ok(!remaining.teams.some(({ team }) => team.id === leaveTeamId));
+  await assert.rejects(
+    loadTeamDirectory(session, userId, leaveTeamId),
+    (e: unknown) => e instanceof ResponseError && e.response.status === 403,
+  );
   assert.ok(
     !(await teams.getTeamsForUser(own)).some((team) => team.id === leaveTeamId),
   );
@@ -76,5 +111,30 @@ export async function checkNavigationMemberships(
   await assert.rejects(
     anonymous.getTeamMembersForUser(own),
     (e: unknown) => e instanceof ResponseError && e.response.status === 401,
+  );
+}
+
+export async function checkEmptyTeamDirectory(
+  session: Configuration,
+  userId: string,
+  teamId: string,
+) {
+  const channels = new ChannelsApi(session);
+  const scope = { userId: "me", teamId };
+  await assert.rejects(
+    channels.getChannelsForTeamForUser({ ...scope, includeDeleted: true }),
+    (error: unknown) =>
+      error instanceof ResponseError && error.response.status === 404,
+  );
+  const actual = await loadTeamDirectory(session, userId, teamId);
+  const expectedSidebar =
+    await channels.getSidebarCategoriesForTeamForUser(scope);
+  assert.deepEqual(actual.channels, []);
+  assert.deepEqual(
+    actual.categories.map((category) => category.id),
+    expectedSidebar.order,
+  );
+  assert.ok(
+    actual.categories.every((category) => category.channelIds?.length === 0),
   );
 }

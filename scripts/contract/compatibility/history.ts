@@ -16,7 +16,10 @@ import {
   ResponseError,
 } from "../../../vendor/mattermost/index.js";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
-import { checkNavigationMemberships } from "./memberships.ts";
+import {
+  checkEmptyTeamDirectory,
+  checkNavigationMemberships,
+} from "./memberships.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
 
@@ -196,6 +199,16 @@ assert.deepEqual(await open.value(), {
   hasJoinedChannel: false,
   hasJoinedTeam: false,
 });
+
+// The fixture administrator can view a recently created team before joining any of its channels.
+const emptyTeam = await (
+  await create(
+    "teams",
+    { name: "directory-empty", display_name: "Empty", type: "O" },
+    readerToken,
+  )
+).json();
+await checkEmptyTeamDirectory(session, user.id, emptyTeam.id);
 
 const dm = await (
   await create("channels/direct", [user.id, reader.id], token)
@@ -475,6 +488,7 @@ await checkNavigationMemberships(
   team.id,
   extraTeam.id,
   channelId,
+  dm.id,
   () =>
     fetch(`${base}/api/v4/teams/${extraTeam.id}/members/${reader.id}`, {
       method: "DELETE",

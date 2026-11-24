@@ -3,11 +3,11 @@ import type {
   PostsApi,
 } from "../../vendor/mattermost/index.js";
 import { channelHistoryPage } from "./channel-history-page.ts";
-import { isHistoryId, isHistoryTime } from "./channel-post-records.ts";
 import {
   assembleFocusedHistory,
   readFocusedNeighbors,
 } from "./focused-history.ts";
+import { isMattermostId, isMattermostTime } from "./model-fields.ts";
 
 export type ChannelRefreshRequest = {
   channelId: string;
@@ -35,7 +35,7 @@ interface ChannelHistoryWriter {
 
 function checkRequest(request: ChannelRefreshRequest) {
   if (
-    !isHistoryId(request.channelId) ||
+    !isMattermostId(request.channelId) ||
     typeof request.collapsedThreads !== "boolean" ||
     [request.skipFetchThreads, request.collapsedThreadsExtended].some(
       (flag) => flag !== undefined && typeof flag !== "boolean",
@@ -43,13 +43,13 @@ function checkRequest(request: ChannelRefreshRequest) {
   )
     throw new TypeError("Invalid Mattermost channel or thread mode.");
   if (request.kind === "since") {
-    if (!isHistoryTime(request.since, 1))
+    if (!isMattermostTime(request.since, 1))
       throw new RangeError("Invalid history update time.");
     return;
   }
   if (!["latest", "focused", "before", "after"].includes(request.kind))
     throw new TypeError("Invalid history operation.");
-  if (request.kind !== "latest" && !isHistoryId(request.postId))
+  if (request.kind !== "latest" && !isMattermostId(request.postId))
     throw new TypeError("Invalid history anchor.");
   const size = request.perPage ?? 60;
   if (!Number.isInteger(size) || size < 1 || size > 200)

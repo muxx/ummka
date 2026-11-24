@@ -1,4 +1,4 @@
-import { loadInstallationProfile } from "../../src/mattermost/installation-profile.ts";
+import { inspectInstallation } from "../../src/mattermost/inspect-installation.ts";
 import {
   openAccountRestConnection,
   openNativeRestConnection,
@@ -159,14 +159,35 @@ export async function checkGeneratedRequests(ports: string[]) {
     await checkAccountResponses(accountPrefix, userId, observed);
     await checkChannelRefresh(accountPrefix, observed);
     await checkTeamReads(rootSession, signed);
+    const directory = await accountPrefix.readAccountDirectory();
+    check(
+      directory.teams.length === 1 &&
+        directory.teams[0]?.team.name === "fixture" &&
+        directory.teams[0]?.membership.schemeGuest === true &&
+        directory.preferences[0]?.value === "false",
+      "account-navigation-directory",
+    );
+    const teamDirectory = await accountPrefix.readTeamDirectory(
+      "Team0123456789012345678901",
+    );
+    const [row] = teamDirectory.channels;
+    check(
+      row?.channel.name === "town-square" &&
+        row.channel.lastRootPostAt === 300 &&
+        row.membership.mentionCountRoot === 2 &&
+        teamDirectory.categories[0]?.type === "managed" &&
+        teamDirectory.categories[0]?.channelIds?.[0] === row.channel.id,
+      "team-navigation-directory",
+    );
     await checkChannelHistory(rootSession, signed, new Configuration(root));
     await checkPostContext(rootSession, signed);
-    const profile = await loadInstallationProfile(
-      prefixed,
+    const profile = await inspectInstallation(
+      `${prefixed.basePath.slice("https://".length)}/`,
       new AbortController().signal,
     );
     check(
-      profile.version === "10.10.1" &&
+      profile.serverUrl === prefixed.basePath &&
+        profile.version === "10.10.1" &&
         profile.siteName === "Fixture" &&
         profile.ssoProviders.join(",") === "gitlab" &&
         profile.passwordIdentifiers.length === 0 &&

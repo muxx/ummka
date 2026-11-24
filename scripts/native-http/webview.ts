@@ -52,23 +52,32 @@ export function webviewServers(
   );
   const teamId = "Team0123456789012345678901";
   const channelId = "c".repeat(26);
-  const teamReads = new Map<
-    string,
-    { name: string; query: string; body: object }
-  >([
+  const teamReads = new Map<string, { name: string; body: object }>([
     [
       "/api/v4/users/me/teams",
       {
         name: "my-teams",
-        query: "",
         body: [{ id: teamId, display_name: "Fixture Team" }],
+      },
+    ],
+    [
+      "/team/chat/api/v4/users/me/teams",
+      {
+        name: "directory-teams",
+        body: [
+          {
+            id: teamId,
+            name: "fixture",
+            display_name: "Fixture Team",
+            delete_at: 0,
+          },
+        ],
       },
     ],
     [
       "/team/chat/api/v4/users/me/teams/members",
       {
         name: "my-team-members",
-        query: "",
         body: [
           {
             team_id: teamId,
@@ -84,10 +93,9 @@ export function webviewServers(
       },
     ],
     [
-      `/team/chat/api/v4/users/me/teams/${teamId}/channels`,
+      `/team/chat/api/v4/users/me/teams/${teamId}/channels?include_deleted=false&last_delete_at=123`,
       {
         name: "team-channels",
-        query: "?include_deleted=false&last_delete_at=123",
         body: [{ id: channelId, team_id: teamId, name: "town-square" }],
       },
     ],
@@ -95,7 +103,6 @@ export function webviewServers(
       `/team/chat/api/v4/users/${userId}/teams/${teamId}/channels/members`,
       {
         name: "team-memberships",
-        query: "",
         body: [{ channel_id: channelId, user_id: userId }],
       },
     ],
@@ -103,7 +110,6 @@ export function webviewServers(
       `/team/chat/api/v4/users/me/teams/${teamId}/channels/categories`,
       {
         name: "sidebar-categories",
-        query: "",
         body: {
           order: ["m".repeat(26)],
           categories: [
@@ -127,7 +133,6 @@ export function webviewServers(
       "/team/chat/api/v4/users/me/preferences",
       {
         name: "sidebar-preferences",
-        query: "",
         body: [
           {
             user_id: userId,
@@ -135,6 +140,32 @@ export function webviewServers(
             name: "d".repeat(26),
             value: "false",
           },
+        ],
+      },
+    ],
+    [
+      `/team/chat/api/v4/users/me/teams/${teamId}/channels?include_deleted=true`,
+      {
+        name: "directory-channels",
+        body: [
+          {
+            id: channelId,
+            type: "O",
+            team_id: teamId,
+            name: "town-square",
+            display_name: "Town Square",
+            delete_at: 0,
+            last_root_post_at: 300,
+          },
+        ],
+      },
+    ],
+    [
+      `/team/chat/api/v4/users/me/teams/${teamId}/channels/members`,
+      {
+        name: "directory-channel-members",
+        body: [
+          { channel_id: channelId, user_id: userId, mention_count_root: 2 },
         ],
       },
     ],
@@ -226,10 +257,9 @@ export function webviewServers(
       return;
     }
     assert.equal(req.method, "GET");
-    const teamRead = teamReads.get(url.pathname);
+    const teamRead = teamReads.get(url.pathname + url.search);
     if (teamRead) {
       visits.push(teamRead.name);
-      assert.equal(url.search, teamRead.query);
       assert.equal(
         req.headers.authorization,
         url.pathname.startsWith("/team/chat/")
@@ -437,7 +467,13 @@ export function webviewServers(
         "account-retire",
         "my-teams",
         "my-team-members",
+        "directory-teams",
+        "my-team-members",
+        "sidebar-preferences",
         "team-channels",
+        "directory-channels",
+        "directory-channel-members",
+        "sidebar-categories",
         "team-memberships",
         "sidebar-categories",
         "sidebar-preferences",
