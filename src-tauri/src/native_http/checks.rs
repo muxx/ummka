@@ -36,7 +36,9 @@ async fn check_scope(
     control_base: &str,
 ) -> CheckResult {
     const PING: &str = "api/v4/system/ping";
-    const READ_ROUTES: [&str; 7] = [
+    const HISTORY: &str =
+        "api/v4/channels/Channel0123456789012345678/posts?page=0&per_page=60&collapsedThreads=true";
+    const READ_ROUTES: [&str; 8] = [
         "api/v4/config/client?format=old",
         "api/v4/license/client?format=old",
         "api/v4/users/me",
@@ -44,6 +46,7 @@ async fn check_scope(
         "api/v4/users/me/teams",
         "api/v4/users/Abc01234567890123456789012/teams/Team0123456789012345678901/channels?include_deleted=false",
         "api/v4/users/me/teams/Team0123456789012345678901/channels/members",
+        HISTORY,
     ];
     expect_ok(control, control_base, "scope-created").await?;
     let mut fragment = get(selected, PING);
@@ -80,6 +83,8 @@ async fn check_scope(
     authority
         .headers_mut()
         .insert("host", "elsewhere.invalid".parse()?);
+    let mut history_with_body = get(selected, HISTORY);
+    *history_with_body.body_mut() = Some("[]".into());
     for request in [
         get(selected, "api/v4/unknown?private=value"),
         get(selected, "api/v4/config"),
@@ -91,6 +96,25 @@ async fn check_scope(
         get(selected, "api/v4/users/me%2Fimage"),
         get(selected, "api/v4/users/me/image"),
         get(selected, "api/v4/users/me/"),
+        get(selected, "api/v4/channels/me/posts"),
+        get(selected, "api/v4/channels/short/posts"),
+        get(
+            selected,
+            "api/v4/channels/Channel0123456789012345678%2F/posts",
+        ),
+        get(
+            selected,
+            "api/v4/channels/%43hannel0123456789012345678/posts",
+        ),
+        get(
+            selected,
+            "api/v4/channels/Channel0123456789012345678/posts/unread",
+        ),
+        get(
+            selected,
+            "api/v4/channels/Channel0123456789012345678/pinned",
+        ),
+        history_with_body,
         get(selected, "api/v4/users/me/teams/me/channels"),
         get(
             selected,
