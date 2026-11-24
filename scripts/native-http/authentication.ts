@@ -25,9 +25,28 @@ export async function handleAuth(
           "out-new",
           "history-a",
           "form-mfa",
+          "browser-ten",
+          "browser-expired",
+          "browser-invalid",
+          "browser-not-saved",
+          "browser-twelve",
         ].some((name) => auth === `Bearer fixture-grant-${name}`),
     );
     visits.push(`me-${auth.slice("Bearer fixture-grant-".length)}`);
+    if (auth === "Bearer fixture-grant-browser-expired") {
+      response.writeHead(401, { "Content-Type": "application/json" }).end(
+        JSON.stringify({
+          id: "sign_in.expired",
+          message: "synthetic-browser-csrf",
+          detailed_error: auth,
+        }),
+      );
+      return;
+    }
+    if (auth === "Bearer fixture-grant-browser-invalid") {
+      response.end(JSON.stringify({ id: "invalid-id" }));
+      return;
+    }
     response.end(
       JSON.stringify({
         id:
@@ -173,6 +192,15 @@ export function checkAuthVisits(visits: string[]) {
     "login-form-mfa",
     "me-form-mfa",
     "form-challenge",
+    "me-browser-ten",
+    "me-browser-ten",
+    "me-browser-expired",
+    "me-browser-invalid",
+    "me-browser-not-saved",
+    "logout-browser-not-saved",
+    "me-browser-ten",
+    "me-browser-twelve",
+    "me-browser-twelve",
     "login-saved",
     "me-saved",
     "login-mfa",
