@@ -14,6 +14,11 @@ val tauriProperties = Properties().apply {
     }
 }
 
+val httpCheck = providers.gradleProperty("ummkaNativeHttpCheck").orNull == "true"
+if (httpCheck) {
+    layout.buildDirectory.set(layout.projectDirectory.dir("build/native-http-check"))
+}
+
 android {
     compileSdk = 37
     ndkVersion = "28.2.13676358"
@@ -40,6 +45,10 @@ android {
             }
         }
         getByName("release") {
+            if (httpCheck) {
+                applicationIdSuffix = ".httpcheck"
+                signingConfig = signingConfigs.getByName("debug")
+            }
             optimization {
                enable = true
             }
@@ -49,6 +58,13 @@ android {
                   exclude("build/**")
                 }.files.toTypedArray()
             )
+        }
+    }
+    if (httpCheck) {
+        sourceSets.getByName("release") {
+            manifest.srcFile("src/httpCheck/AndroidManifest.xml")
+            java.srcDir("src/httpCheck/java")
+            res.srcDir("src/httpCheck/res")
         }
     }
     compileOptions {
@@ -77,6 +93,11 @@ dependencyLocking {
 tasks.matching { it.name == "assembleUniversalDebug" }.configureEach {
     finalizedBy("lintUniversalDebug")
 }
+if (httpCheck) {
+    tasks.matching { it.name == "assembleUniversalRelease" }.configureEach {
+        finalizedBy("lintUniversalRelease")
+    }
+}
 
 // AGP resolves Lint and device-test utilities on their own JVM classpaths.
 val androidToolVersions = configurations.dependencyScope("androidToolVersions")
@@ -84,6 +105,10 @@ configurations.matching { it.name == "androidLintTool" || it.name.startsWith("un
     .configureEach { extendsFrom(androidToolVersions.get()) }
 
 dependencies {
+    val cargoLock = providers.fileContents(layout.projectDirectory.file("../../../Cargo.lock")).asText.get()
+    val verifierVersion = Regex("""(?m)^name = "rustls-platform-verifier-android"\r?\nversion = "([^"]+)"$""")
+        .find(cargoLock)?.groupValues?.get(1) ?: error("Missing Android verifier in Cargo.lock")
+    implementation("org.rustls:rustls-platform-verifier:$verifierVersion")
     implementation(platform("com.fasterxml.jackson:jackson-bom:2.18.12"))
     add(androidToolVersions.name, platform("io.netty:netty-bom:4.1.141.Final"))
     constraints {

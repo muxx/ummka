@@ -3,6 +3,7 @@
     "includes": [
       "src/**",
       "scripts/contract/**",
+      "scripts/native-http/**",
       "vite.config.ts",
       "tsconfig.json",
       "biome.json",

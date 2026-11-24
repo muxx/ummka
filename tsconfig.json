@@ -13,5 +13,10 @@
     "skipLibCheck": true,
     "types": ["node", "vite/client"]
   },
-  "include": ["src", "scripts/contract", "vite.config.ts"]
+  "include": [
+    "src",
+    "scripts/contract",
+    "scripts/native-http",
+    "vite.config.ts"
+  ]
 }

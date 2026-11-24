@@ -34,11 +34,20 @@ The first run downloads pinned versions of actionlint, ShellCheck, Trivy and jq 
   'ndk;28.2.13676358' 'platform-tools'
 export NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
 rustup target add aarch64-linux-android
-make check-android
+make check-android-package
 "$ANDROID_HOME/platform-tools/adb" install -r artifacts/ummka-android-arm64-debug.apk
 ```
 
-The APK uses Gradle's local debug signing key. Open **ummka** from the launcher on an ARM64 device or emulator. For the acceptance test, use an Android API 36 emulator, switch on airplane mode and open the app twice, stopping its process between launches.
+The APK uses Gradle's local debug signing key. Open **ummka** from the launcher on an ARM64 device or emulator.
+
+`make check-android` builds the APK and verifies the native HTTP client on a disposable Android API 36 emulator. The network tests use the system OpenSSL CLI to generate temporary certificates. Install the emulator and its system image, replacing `arm64-v8a` with `x86_64` on an x86_64 host. On x86_64, also run `rustup target add x86_64-linux-android`.
+
+```sh
+"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'emulator' 'system-images;android-36;default;arm64-v8a'
+make check-android
+```
+
+The network test builds a separate optimized APK and installs its temporary TLS root on that emulator. Run `make check-android-http` to repeat it. For the offline startup check, open the distributable APK twice in airplane mode, stopping its process between launches.
 
 After `npm ci`, point `JAVA_HOME` at Temurin 17 and run `make check-contract` to build the supported REST operations from the pinned Mattermost 10.10.1 sources. It validates the OpenAPI document, generates a test client and checks its requests in memory and against a local HTTP server. The verified document is written to `artifacts/mattermost-v10.10.1.openapi.json`.
 
