@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { openNativeRestConnection } from "../../src/mattermost/native-rest.ts";
 import { beginExchanges, finishExchangesAfterReload } from "./exchanges.ts";
 import { checkGeneratedRequests } from "./generated.ts";
+import { checkPaletteSurfaces } from "./palette.ts";
 
 import { resumeRegistryCheck, seedRegistry } from "./registry.ts";
 
@@ -46,6 +47,7 @@ async function expectClosed(close: () => Promise<void>) {
 }
 
 async function checkResources() {
+  checkPaletteSurfaces();
   if (await resumeRegistryCheck()) return;
   if (await finishExchangesAfterReload()) {
     await checkGeneratedRequests(
