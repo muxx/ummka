@@ -47,7 +47,7 @@ The APK uses Gradle's local debug signing key. Open **ummka** from the launcher 
 make check-android
 ```
 
-The network test builds a separate optimized APK and installs its temporary TLS root on that emulator. The same APK opens and closes native REST connections from Android WebView and checks their lifetime across a reload. Run `make check-android-http` to repeat both checks. On macOS, `make check-macos` exercises the same page in a hidden WKWebView. For the offline Android startup check, open the distributable APK twice in airplane mode, stopping its process between launches.
+The network test builds a separate optimized APK and installs its temporary TLS root on that emulator. The same APK uses Android WebView to read a binary HTTPS response, cancel in-flight requests and check cleanup across a reload. Run `make check-android-http` to repeat both checks. On macOS, `make check-macos` exercises the same page in WKWebView and closes a hidden window with a pending request. The test root is limited to the test client on macOS. For the offline Android startup check, open the distributable APK twice in airplane mode, stopping its process between launches.
 
 The frontend and its REST tests use the generated ES modules and TypeScript declarations in `vendor/mattermost/`. After `npm ci`, run `npm test` or `npm run build`.
 

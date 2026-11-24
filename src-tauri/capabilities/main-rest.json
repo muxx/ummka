@@ -1,7 +1,16 @@
 {
   "identifier": "main-rest",
-  "description": "The local main WebView owns its native Mattermost connections.",
+  "description": "The local main WebView manages its own Mattermost REST connections and exchanges.",
   "local": true,
-  "webviews": ["main"],
-  "permissions": ["allow-open-rest-connection", "allow-close-rest-connection"]
+  "webviews": [
+    "main"
+  ],
+  "permissions": [
+    "allow-open-rest-connection",
+    "allow-close-rest-connection",
+    "allow-prepare-rest-request",
+    "allow-send-rest-request",
+    "allow-read-rest-body",
+    "allow-cancel-rest-request"
+  ]
 }

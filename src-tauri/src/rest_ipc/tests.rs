@@ -68,6 +68,16 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
         for (command, body) in [
             ("open_rest_connection", json!({"basePath": SERVER})),
             ("close_rest_connection", json!({"rid": 0})),
+            ("prepare_rest_request", json!({"connection": 0})),
+            (
+                "send_rest_request",
+                json!({"connection": 0, "exchange": 0, "method":"GET","url":SERVER,"headers":[]}),
+            ),
+            ("read_rest_body", json!({"connection": 0, "exchange": 0})),
+            (
+                "cancel_rest_request",
+                json!({"connection": 0, "exchange": 0}),
+            ),
         ] {
             let error = invoke(view, command, origin, body).unwrap_err();
             assert!(error.as_str().unwrap().contains("not allowed"), "{error}");
@@ -88,7 +98,7 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
 
     let foreign = sibling
         .resources_table()
-        .add(RestConnection::new(SERVER).unwrap());
+        .add(Session::new(RestConnection::new(SERVER).unwrap()));
     assert_eq!(close(main, foreign).unwrap_err(), "unknown_connection");
 
     let first = open(main, SERVER);
@@ -96,11 +106,7 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
     assert_ne!(first, remaining);
     close(main, first).unwrap();
     assert_eq!(close(main, first).unwrap_err(), "unknown_connection");
-    assert!(
-        main.resources_table()
-            .get::<RestConnection>(remaining)
-            .is_ok()
-    );
+    assert!(main.resources_table().get::<Session>(remaining).is_ok());
 
     let marker = main.resources_table().add(Marker);
     assert_eq!(close(main, marker).unwrap_err(), "unknown_connection");
@@ -110,11 +116,6 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
     assert_eq!(close(main, remaining).unwrap_err(), "unknown_connection");
     assert_eq!(close(main, another).unwrap_err(), "unknown_connection");
     assert!(main.resources_table().get::<Marker>(marker).is_ok());
-    assert!(
-        sibling
-            .resources_table()
-            .get::<RestConnection>(foreign)
-            .is_ok()
-    );
+    assert!(sibling.resources_table().get::<Session>(foreign).is_ok());
     close(main, open(main, SERVER)).unwrap();
 }

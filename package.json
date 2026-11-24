@@ -11,8 +11,7 @@
   "packageManager": "npm@11.20.0",
   "knip": {
     "entry": [
-      "scripts/webview-check/check.ts",
-      "scripts/webview-check/macos.ts"
+      "scripts/webview-check/check.ts"
     ],
     "ignoreBinaries": [
       "openssl"
@@ -24,7 +23,6 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "build:webview-check": "vite build scripts/webview-check --outDir ../../artifacts/webview-ui --emptyOutDir",
     "lint": "biome ci --error-on-warnings .",
     "unused": "knip",
     "test": "vitest run --environment jsdom src && npm run test:rest",

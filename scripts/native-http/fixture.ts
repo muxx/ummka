@@ -7,6 +7,7 @@ import http2 from "node:http2";
 import https from "node:https";
 import type { Server, Socket } from "node:net";
 import { join } from "node:path";
+import { webviewServers } from "./webview.ts";
 
 function certificates(dir: string) {
   const openssl = (...args: string[]) =>
@@ -206,7 +207,9 @@ export async function startFixture(dir: string) {
       scopedConnections[i]++;
     });
   }
-  const servers: Server[] = [tls, unknown, wrong, h2, plain, selected, other];
+  const native = [tls, unknown, wrong, h2, plain, selected, other];
+  const webview = webviewServers(certs.trusted, certs.untrusted);
+  const servers: Server[] = [...native, ...webview.servers];
   const close = () => {
     for (const server of servers) server.close();
     for (const socket of sockets) socket.destroy();
@@ -226,10 +229,12 @@ export async function startFixture(dir: string) {
       }),
     );
     return {
-      ports,
+      ports: ports.slice(0, native.length),
+      webviewPorts: ports.slice(native.length),
       ca: certs.ca,
       close,
       verify(android: boolean) {
+        webview.verify(android ? "android" : "macos");
         assert.deepEqual(checkpoints, [
           [0, 0, 0, 0],
           [0, 0, 0, 0],

@@ -8,8 +8,20 @@ fn build<R: Runtime>(builder: Builder<R>) -> tauri::Result<App<R>> {
     builder
         .invoke_handler(tauri::generate_handler![
             rest_ipc::open_rest_connection,
-            rest_ipc::close_rest_connection
+            rest_ipc::close_rest_connection,
+            rest_ipc::prepare_rest_request,
+            rest_ipc::send_rest_request,
+            rest_ipc::read_rest_body,
+            rest_ipc::cancel_rest_request
         ])
+        .setup(|app| {
+            use tauri::Manager;
+            let main = app
+                .get_webview_window("main")
+                .ok_or("missing main WebView")?;
+            rest_ipc::watch_window(main.as_ref());
+            Ok(())
+        })
         .on_page_load(|webview, load| {
             if load.event() == tauri::webview::PageLoadEvent::Started {
                 rest_ipc::clear_connections(webview);

@@ -24,8 +24,6 @@ check-macos: .check-tools/installed
 	cd src-tauri && cargo clippy --all-targets --all-features --locked -- -D warnings
 	cd src-tauri && cargo test --locked
 	npm run test:native-http -- macos
-	npm run tauri -- build --no-bundle --config src-tauri/tauri.webview-check.json --features webview-check -- --locked
-	node scripts/webview-check/macos.ts
 	sh scripts/check-security.sh
 	ditto -c -k --keepParent src-tauri/target/release/bundle/macos/ummka.app artifacts/ummka-macos-arm64.zip
 
