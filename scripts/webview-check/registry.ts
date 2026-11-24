@@ -4,8 +4,28 @@ import {
   rememberInstallation,
 } from "../../src/mattermost/installation-registry.ts";
 
+import { resolveChannelsLink } from "../../src/mattermost/resolve-channels-link.ts";
+
 const first = "https://chat.example.test";
 const second = "https://chat.example.test/Team";
+
+async function checkLink(server: string, saved: boolean) {
+  const target = await resolveChannelsLink(`${server}/team/messages/%40Ada`);
+  if (saved) {
+    if (
+      target?.kind !== "conversation" ||
+      target.serverUrl !== server ||
+      target.team !== "team" ||
+      target.route !== "messages" ||
+      target.identifier !== "@Ada" ||
+      target.postId !== null
+    ) {
+      throw Error("unexpected Channels target");
+    }
+  } else if (target !== null) {
+    throw Error("forgotten installation still handles Channels links");
+  }
+}
 
 // Each fresh host process must report the phase expected by the external runner.
 export async function resumeRegistryCheck(): Promise<boolean> {
@@ -19,9 +39,13 @@ export async function resumeRegistryCheck(): Promise<boolean> {
   }
   if (urls.length === 0) return false;
   if (urls.length === 2 && urls[0] === first && urls[1] === second) {
+    await checkLink(first, true);
+    await checkLink(second, true);
     await forgetInstallation(first);
     location.replace("/ipc-result.html?registry-removed");
   } else if (urls.length === 1 && urls[0] === second) {
+    await checkLink(first, false);
+    await checkLink(second, true);
     location.replace("/ipc-result.html?registry-confirmed");
   } else {
     throw Error("unexpected persisted installations");
