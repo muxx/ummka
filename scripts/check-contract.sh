@@ -43,9 +43,18 @@ npm run contract:build -- "$cache" "$work/openapi.json"
 "$JAVA_HOME/bin/java" -jar "$cache/$generator" validate -i "$work/openapi.json"
 "$JAVA_HOME/bin/java" -jar "$cache/$generator" generate -g typescript-fetch \
     -i "$work/openapi.json" -o "$work/client" --additional-properties=importFileExtension=.js
-node_modules/.bin/tsc --ignoreConfig --strict --target ES2022 --module NodeNext \
-    --lib ES2022,DOM,DOM.Iterable --types node --rootDir "$work/client" \
-    --outDir "$work/compiled" "$work/client/index.ts"
+strict_tsc() {
+    node_modules/.bin/tsc --ignoreConfig --strict --target ES2022 --module NodeNext \
+        --lib ES2022,DOM,DOM.Iterable --types node "$@"
+}
+strict_tsc --rootDir "$work/client" --outDir "$work/compiled" "$work/client/index.ts"
+cat > "$work/transport-types.ts" <<'TS'
+import type { createRestTransport } from "../../src/mattermost/rest-transport.js";
+import type { ConfigurationParameters } from "./client/runtime.js";
+declare const transport: ReturnType<typeof createRestTransport>;
+transport satisfies Required<Pick<ConfigurationParameters, "basePath" | "fetchApi">>;
+TS
+strict_tsc --noEmit "$work/transport-types.ts"
 UMMKA_CONTRACT_SOURCES="$cache" UMMKA_CONTRACT_WORK="$work" npm run contract:test
 spec="artifacts/mattermost-v$version.openapi.json"
 mv "$work/openapi.json" "$spec"

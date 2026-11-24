@@ -16,7 +16,7 @@
     "unused": "knip",
     "test": "vitest run --environment jsdom src",
     "contract:build": "node scripts/contract/schema.ts",
-    "contract:test": "node --test scripts/contract/contract.test.ts",
+    "contract:test": "node --test scripts/contract/contract.test.ts scripts/contract/transport.test.ts",
     "tauri": "tauri"
   },
   "dependencies": {
