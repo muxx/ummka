@@ -32,10 +32,9 @@ on containsServerField(node, insideWebArea)
 end containsServerField
 
 on hasNativeControls(win)
-    tell application "System Events"
-        set types to subrole of every button of win
-        return types contains "AXCloseButton" and types contains "AXMinimizeButton" and (types contains "AXFullScreenButton" or types contains "AXZoomButton")
-    end tell
+    local controlSubroles
+    tell application "System Events" to set controlSubroles to get subrole of every button of win
+    return controlSubroles contains "AXCloseButton" and controlSubroles contains "AXMinimizeButton" and (controlSubroles contains "AXFullScreenButton" or controlSubroles contains "AXZoomButton")
 end hasNativeControls
 
 on run argv
