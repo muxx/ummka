@@ -153,6 +153,7 @@ impl Session {
         method: &str,
         url: &str,
         headers: Vec<(String, String)>,
+        body: Option<String>,
     ) -> Result<ResponseHead, ExchangeError> {
         let exchange = self.exchange(id)?;
         let mut phase = exchange
@@ -162,7 +163,7 @@ impl Session {
         if !matches!(*phase, Phase::Prepared) {
             return Err(ExchangeError::InvalidExchangeState);
         }
-        let request = async { self.http.send(request(method, url, headers)?).await };
+        let request = async { self.http.send(request(method, url, headers, body)?).await };
         let response = tokio::select! {
             biased;
             _ = exchange.cancel.cancelled() => return Err(ExchangeError::Cancelled),
@@ -213,6 +214,7 @@ fn request(
     method: &str,
     url: &str,
     headers: Vec<(String, String)>,
+    body: Option<String>,
 ) -> Result<Request, TransportError> {
     let method =
         Method::from_bytes(method.as_bytes()).map_err(|_| TransportError::OperationDenied)?;
@@ -229,6 +231,7 @@ fn request(
         let value = HeaderValue::from_bytes(&bytes).map_err(|_| TransportError::OperationDenied)?;
         request.headers_mut().append(name, value);
     }
+    *request.body_mut() = body.map(Into::into);
     Ok(request)
 }
 
@@ -236,6 +239,23 @@ fn request(
 mod tests {
     use super::*;
     use tokio::sync::oneshot;
+
+    #[test]
+    fn request_body_preserves_absence_empty_text_and_original_utf8_bytes() {
+        for text in [None, Some(""), Some("\u{feff}  [\"Привет 👋\"]\n")] {
+            let req = request(
+                "POST",
+                "https://fixture.invalid/api/v4/users/ids",
+                vec![],
+                text.map(str::to_owned),
+            )
+            .unwrap();
+            assert_eq!(
+                req.body().and_then(reqwest::Body::as_bytes),
+                text.map(str::as_bytes)
+            );
+        }
+    }
 
     #[tokio::test]
     async fn cleanup_wins_over_a_late_completion() {

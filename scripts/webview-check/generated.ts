@@ -3,6 +3,7 @@ import { openNativeRestConnection } from "../../src/mattermost/native-rest.ts";
 import {
   Configuration,
   FetchError,
+  type InitOverrideFunction,
   ResponseError,
   SystemApi,
   UsersApi,
@@ -35,17 +36,55 @@ export async function checkGeneratedRequests(ports: string[]) {
   );
   const query = { useRestSemantics: true };
   const api = new SystemApi(new Configuration(prefixed));
-  function scenario(name: string) {
-    return { headers: { "X-Test-Case": name } };
+  function scenario(name: string, signal?: AbortSignal): InitOverrideFunction {
+    return async ({ init }) => {
+      const headers = new Headers(init.headers);
+      headers.set("X-Test-Case", name);
+      return { headers, signal };
+    };
   }
   async function observed(step: string, name: string) {
     const response = await control.fetchApi(
-      `${control.basePath}/api/v4/system/ping?step=${step}&case=ping-${name}`,
+      `${control.basePath}/api/v4/system/ping?step=${step}&case=${name}`,
     );
     check(
       response.status === 204 && response.body === null,
       "generated-control",
     );
+  }
+  async function checkAbort(
+    name: string,
+    send: (overrides: InitOverrideFunction) => Promise<{ raw: Response }>,
+  ) {
+    const beforeHeaders = new AbortController();
+    const pending = rejected(send(scenario("headers", beforeHeaders.signal)));
+    await Promise.race([
+      observed("received", `${name}-headers`),
+      pending.then(() => {
+        throw Error(`${name}-ended-before-server-received`);
+      }),
+    ]);
+    const reason = new Error("fixture cancelled");
+    beforeHeaders.abort(reason);
+    const stopped = await pending;
+    check(
+      stopped instanceof FetchError && stopped.cause === reason,
+      `${name}-abort-headers`,
+    );
+    await observed("closed", `${name}-headers`);
+
+    const duringBody = new AbortController();
+    const { raw } = await send(scenario("body", duringBody.signal));
+    check(raw.body, `${name}-missing-body`);
+    const reader = raw.body.getReader();
+    check(
+      new TextDecoder().decode((await reader.read()).value) === "A",
+      `${name}-first-byte`,
+    );
+    const tail = rejected(reader.read());
+    duringBody.abort(reason);
+    check((await tail) === reason, `${name}-abort-body`);
+    await observed("closed", `${name}-body`);
   }
   try {
     const atRoot = await new SystemApi(new Configuration(root)).getPing(query);
@@ -72,6 +111,31 @@ export async function checkGeneratedRequests(ports: string[]) {
     });
     const users = new UsersApi(signed);
     const userId = "Abc01234567890123456789012";
+    const batch = { requestBody: [userId, "b".repeat(26)], since: 123 };
+    const profiles = await (await users.getUsersByIdsRaw(batch)).value();
+    check(
+      profiles.length === 2 &&
+        profiles[0]?.id === batch.requestBody[1] &&
+        profiles[0].firstName === "Юлия" &&
+        profiles[1]?.id === userId,
+      "generated-user-batch",
+    );
+    const unsignedBatch = await rejected(anonymousUser.getUsersByIdsRaw(batch));
+    check(
+      unsignedBatch instanceof ResponseError &&
+        unsignedBatch.response.status === 401 &&
+        (await unsignedBatch.response.json()).message === "session required",
+      "generated-user-batch-auth",
+    );
+    const rawText = await root.fetchApi(`${root.basePath}/api/v4/users/ids`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Test-Case": "text",
+      },
+      body: '\ufeff ["Привет 👋"]\n',
+    });
+    check(rawText.status === 204 && rawText.body === null, "native-utf8-body");
     const user = await (await users.getUserRaw({ userId })).value();
     check(
       user.id === userId &&
@@ -125,38 +189,8 @@ export async function checkGeneratedRequests(ports: string[]) {
       "generated-tls",
     );
 
-    const beforeHeaders = new AbortController();
-    const pending = rejected(
-      api.getPing(query, {
-        ...scenario("headers"),
-        signal: beforeHeaders.signal,
-      }),
-    );
-    await observed("received", "headers");
-    const reason = new Error("fixture cancelled");
-    beforeHeaders.abort(reason);
-    const stopped = await pending;
-    check(
-      stopped instanceof FetchError && stopped.cause === reason,
-      "generated-abort-headers",
-    );
-    await observed("closed", "headers");
-
-    const duringBody = new AbortController();
-    const { raw } = await api.getPingRaw(query, {
-      ...scenario("body"),
-      signal: duringBody.signal,
-    });
-    check(raw.body, "generated-missing-body");
-    const reader = raw.body.getReader();
-    check(
-      new TextDecoder().decode((await reader.read()).value) === "A",
-      "generated-first-byte",
-    );
-    const tail = rejected(reader.read());
-    duringBody.abort(reason);
-    check((await tail) === reason, "generated-abort-body");
-    await observed("closed", "body");
+    await checkAbort("ping", (init) => api.getPingRaw(query, init));
+    await checkAbort("batch", (init) => users.getUsersByIdsRaw(batch, init));
   } finally {
     await Promise.all([
       root.close(),

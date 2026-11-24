@@ -49,7 +49,7 @@ function calls(command: string) {
   return ipc.mock.calls.filter(([name]) => name === command);
 }
 
-test("an already aborted request and a body are rejected before allocation", async () => {
+test("an already aborted request and a non-JSON body are rejected before allocation", async () => {
   const reason = new Error("caller stopped");
   await expect(
     nativeFetch(41, url, { signal: AbortSignal.abort(reason) }),
@@ -59,6 +59,93 @@ test("an already aborted request and a body are rejected before allocation", asy
   ).rejects.toMatchObject({ cause: "operation_denied" });
   expect(ipc).not.toHaveBeenCalled();
 });
+
+const batchUrl = "https://fixture.example.test/team/api/v4/users/ids";
+function postBody(body: BodyInit, signal?: AbortSignal) {
+  return {
+    method: "POST",
+    body,
+    signal,
+    duplex: "half" as const,
+    headers: { "Content-Type": "application/json; charset=utf-8" },
+  };
+}
+
+test("keeps the exact UTF-8 text and an explicitly empty body in one send", async () => {
+  setup({
+    send_rest_request: () => ({ status: 204, headers: [], hasBody: false }),
+  });
+  const text = '\ufeff  ["Привет 👋"]\n';
+  const bytes = new TextEncoder().encode(text);
+  const chunks = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const byte of bytes) controller.enqueue(Uint8Array.of(byte));
+      controller.close();
+    },
+  });
+  await nativeFetch(41, new Request(batchUrl, postBody(chunks)));
+  await nativeFetch(41, batchUrl, postBody(""));
+  const sent = calls("send_rest_request").map(([, args]) => args);
+  expect(sent.map((args) => args.body)).toEqual([text, ""]);
+  expect(sent[0]).toEqual({
+    ...ids,
+    method: "POST",
+    url: batchUrl,
+    headers: [["content-type", "application/json; charset=utf-8"]],
+    body: text,
+  });
+  expect(calls("prepare_rest_request")).toHaveLength(2);
+});
+
+test("malformed UTF-8 and failed streams expose no payload or exchange", async () => {
+  const broken = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.error(new Error("private payload"));
+    },
+  });
+  for (const body of [Uint8Array.of(0xff), Uint8Array.of(0xe2, 0x82), broken]) {
+    const error: unknown = await nativeFetch(
+      41,
+      batchUrl,
+      postBody(body),
+    ).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(TypeError);
+    expect(error).toMatchObject({ message: "Invalid REST request body" });
+    expect(error).not.toHaveProperty("cause");
+  }
+  expect(ipc).not.toHaveBeenCalled();
+});
+
+test.each([false, true])(
+  "abort stops the input without waiting for source cleanup, partial %s",
+  async (partial) => {
+    const abort = new AbortController();
+    const stalled = gate<void>();
+    const cleanup = gate<void>();
+    const cancel = vi.fn(() => cleanup.promise);
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        if (partial) controller.enqueue(Uint8Array.of(0x5b));
+      },
+      pull() {
+        stalled.resolve();
+      },
+      cancel,
+    });
+    const result = nativeFetch(41, batchUrl, postBody(body, abort.signal));
+    await stalled.promise;
+    const reason = new Error("user stopped");
+    abort.abort(reason);
+    try {
+      await expect(result).rejects.toBe(reason);
+      expect(cancel).toHaveBeenCalledExactlyOnceWith(reason);
+      expect(ipc).not.toHaveBeenCalled();
+      expect(body.locked).toBe(false);
+    } finally {
+      cleanup.resolve();
+    }
+  },
+);
 
 test("abort during prepare releases the handle and never sends", async () => {
   const prepare = gate<number>();

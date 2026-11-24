@@ -23,6 +23,45 @@ function failure(code: unknown) {
   });
 }
 
+async function readJsonBody(
+  request: Request,
+  body: ReadableStream<Uint8Array>,
+) {
+  const type = request.headers.get("content-type")?.split(";", 1)[0];
+  if (type?.trim().toLowerCase() !== "application/json")
+    throw failure("operation_denied");
+  const { signal } = request;
+  const reader = body.getReader();
+  const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+  const parts: string[] = [];
+  function cancel(reason: unknown) {
+    // Source cleanup can outlive the request. The caller owns the abort reason.
+    void reader.cancel(reason).catch(() => {});
+  }
+  function onAbort() {
+    cancel(signal.reason);
+  }
+  signal.addEventListener("abort", onAbort, { once: true });
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      signal.throwIfAborted();
+      if (done) break;
+      parts.push(decoder.decode(value, { stream: true }));
+    }
+    parts.push(decoder.decode());
+    return parts.join("");
+  } catch {
+    signal.throwIfAborted();
+    const error = new TypeError("Invalid REST request body");
+    cancel(error);
+    throw error;
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+    reader.releaseLock();
+  }
+}
+
 export async function nativeFetch(
   connection: number,
   input: RequestInfo | URL,
@@ -36,7 +75,11 @@ export async function nativeFetch(
   }
   const { signal } = request;
   signal.throwIfAborted();
-  if (request.body !== null) throw failure("operation_denied");
+  const body =
+    request.body === null
+      ? undefined
+      : await readJsonBody(request, request.body);
+  signal.throwIfAborted();
   const exchange = await invoke<number>("prepare_rest_request", {
     connection,
   }).catch((error: unknown) => {
@@ -88,6 +131,7 @@ export async function nativeFetch(
         method: request.method,
         url: request.url,
         headers: [...request.headers],
+        ...(body === undefined ? {} : { body }),
       }).then(resolve, reject);
     });
     signal.throwIfAborted();
