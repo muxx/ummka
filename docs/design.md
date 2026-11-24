@@ -4,18 +4,21 @@ People spend hours reading Channels. Make a conversation easy to scan, comfortab
 
 ## Layout and type
 
-- On desktop, keep channels on the left, the conversation in the center and the open thread on the right. On a phone, give the conversation and the thread their own screens. Back returns to the message that opened the thread.
+- On desktop, keep channels on the left, the conversation in the center and the open thread on the right. On a phone, give the conversation and the thread their own screens. Back returns to the message or list row that opened the thread.
 - Give message text the clearest reading contrast. Keep authors easy to scan and timestamps quieter but legible. Choose type with distinct Latin and Cyrillic glyphs. Use consistent roles for headings, message text, metadata and code. Respect text scaling.
-- Align message bodies on a common edge. Use spacing to group a reply with its author and to separate speakers. Allow long names, links and paragraphs to wrap. Keep horizontal scrolling inside wide code blocks.
+- Align message bodies on a common edge. Use spacing to group a reply with its author and to separate speakers. Let long names, links and paragraphs wrap. Confine horizontal scrolling to wide code blocks and tables. At narrow pane widths and on 320 px screens, keep row actions reachable by tightening spacing and moving secondary details into the metadata line.
 - Reserve space for attachments as they load. Revealing message actions, loading older history or receiving new posts must preserve the reader’s place.
+- Where a decorative gradient meets a resizable column, blend it into the column color along the shared edge. Keep the blend aligned as the column moves.
 
 ## Interaction and motion
 
-- A link to a post brings its surrounding messages into view and briefly marks the target. Opening a thread moves keyboard focus into it. Closing it restores focus to the opener and preserves its position in the feed.
+- A link to a post brings its surrounding messages into view and briefly marks the target. Opening a thread from a message moves focus to its reply field on desktop and to its heading on a phone. Arrow keys in a list of threads change the open thread while focus stays in the list. Closing a thread restores focus to the opener, marks it briefly and preserves its position.
 - Make message actions reachable by pointer, keyboard and touch. Give icon buttons accessible names. Use visible keyboard focus and follow the platform’s Back and dismissal conventions.
+- Keep an open popover anchored as the window resizes. At phone width, adapt it to a sheet and preserve the current input and focus.
+- The channel switcher opens conversations and accepts pasted message links. On desktop, choosing a conversation focuses its draft. The header search finds messages and files on submit. Show results beside the conversation on desktop and on a separate screen on a phone. Preserve the draft and reading position. After stepping through matches, Back returns to the results at the last opened match.
 - Give the current row a persistent fill and a second cue, such as a change in label weight. Use a distinct hover fill so a neighboring row stays distinguishable. Keep the keyboard focus outline visible over both states. Vertical accent bars are prohibited as selection markers.
 - Pair meaningful colors with another cue, such as a shape for presence or a count for mentions. Unread activity has its own indicator so readers can see which other conversations have new messages.
-- Use motion to show what opened, closed or received focus. Input works as soon as the control appears. With reduced motion, show the destination immediately and keep a static cue. Keep typing and scrolling responsive while the feed updates.
+- Use motion to show what opened, closed or received focus. Play the effect once for the action that triggered it. Input works as soon as the control appears. With reduced motion, show the destination immediately and keep a static cue. Keep typing and scrolling responsive while the feed updates.
 - Use Telegram as a reference for how quickly people can continue an action. Try typing immediately after switching conversations, returning to a half-written reply, and dismissing an image back to the same line of a thread. Keep a separate draft for each channel and thread.
 
 ## Themes and appearance
@@ -35,6 +38,16 @@ Components use colors by purpose, including reading surfaces, text, links, borde
 
 Keep normal text at a contrast ratio of at least 4.5:1, large text at 3:1, and essential control outlines and state indicators at 3:1 against adjacent colors. Check custom palettes on their actual surfaces, including text on a selected row and counts inside badges. Show which color pair needs adjustment before saving an inaccessible combination. [Text contrast](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html) · [Control and state contrast](https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html)
 
+Underline inline links on hover and keyboard focus. A link distinguished by color at rest needs at least 3:1 against adjacent text. Where muted text makes that distinction too weak, keep the underline at rest. Check link readability against hover, selection and message highlight fills as well as the reading surface. [Distinguishing inline links](https://www.w3.org/WAI/WCAG22/Techniques/general/G183)
+
+## Native sign-in forms
+
+- Above the fields, name the server and show its full address, including any path prefix. Use visible labels and platform autofill hints for the username, current password and one-time code.
+- Show missing values and invalid one-time codes under their fields. Focus the first field that needs attention. Show rejected credentials above the fields and keep the username for the next attempt.
+- While a request is pending, make fields read-only, show progress on the primary button and ignore repeated submissions. Back and Cancel stay unavailable until it settles. After a connection failure, send again only when the person chooses Retry.
+- Report success only after the result is saved on the device. Ask for a second factor only when the server requires it, and accept a pasted code with spaces or dashes in a single field.
+- Back returns one step. Cancel clears the form and confirms cancellation. On desktop, Escape goes back and Return in the username field moves to the password field when it is empty.
+
 ## Review in context
 
-Use the same populated channel in both appearances. Include Cyrillic and Latin text, a long message, a link, code, an attachment and a thread. Follow a link, read the neighboring messages, open the replies and return. Repeat with the keyboard, larger text, reduced motion and a narrow viewport. Change appearance midway and check that reading can continue from the same line.
+Use the same populated channel in both appearances. Include Cyrillic and Latin text, a long message, a link, code, an attachment and a thread. Follow a link, read the neighboring messages, open the replies and return. Repeat with the keyboard, larger text, reduced motion, a narrow viewport and the narrowest column the panes allow. Change appearance midway and check that reading can continue from the same line.
