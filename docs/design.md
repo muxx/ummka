@@ -13,7 +13,8 @@ People spend hours reading Channels. Make a conversation easy to scan, comfortab
 
 - A link to a post brings its surrounding messages into view and briefly marks the target. Opening a thread moves keyboard focus into it. Closing it restores focus to the opener and preserves its position in the feed.
 - Make message actions reachable by pointer, keyboard and touch. Give icon buttons accessible names. Use visible keyboard focus and follow the platform’s Back and dismissal conventions.
-- Distinguish hover, focus, selection and unread status. Pair meaningful colors with another cue, such as a count for mentions, a shape for presence or a marker for selection.
+- Give the current row a persistent fill and a second cue, such as a change in label weight. Use a distinct hover fill so a neighboring row stays distinguishable. Keep the keyboard focus outline visible over both states. Vertical accent bars are prohibited as selection markers.
+- Pair meaningful colors with another cue, such as a shape for presence or a count for mentions. Unread activity has its own indicator so readers can see which other conversations have new messages.
 - Use motion to show what opened, closed or received focus. Input works as soon as the control appears. With reduced motion, show the destination immediately and keep a static cue. Keep typing and scrolling responsive while the feed updates.
 - Use Telegram as a reference for how quickly people can continue an action. Try typing immediately after switching conversations, returning to a half-written reply, and dismissing an image back to the same line of a thread. Keep a separate draft for each channel and thread.
 
