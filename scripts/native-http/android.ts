@@ -10,6 +10,7 @@ import { promisify } from "node:util";
 
 const exec = promisify(execFile);
 const app = "io.github.muxx.ummka.dev";
+const deviceProfile = "pixel_6";
 
 export async function checkAndroid(
   dir: string,
@@ -110,7 +111,7 @@ export async function checkAndroid(
       "-k",
       `system-images;android-36;default;${abi}`,
       "-d",
-      "pixel_6",
+      deviceProfile,
     ],
     { input: "no\n", env },
   );
@@ -142,6 +143,15 @@ export async function checkAndroid(
     { env, stdio: ["ignore", fd, fd] },
   );
   closeSync(fd);
+  const stopOnExit = () => emulator.kill("SIGKILL");
+  const stopOnSignal = (signal: NodeJS.Signals) => {
+    stopOnExit();
+    // The once listener has been removed. Preserve the caller's signal status.
+    process.kill(process.pid, signal);
+  };
+  process.once("exit", stopOnExit);
+  process.once("SIGINT", stopOnSignal);
+  process.once("SIGTERM", stopOnSignal);
   const ended = new Promise<void>((resolve) =>
     emulator.once("close", () => resolve()),
   );
@@ -179,17 +189,21 @@ export async function checkAndroid(
       await adb("reverse", `tcp:${port}`, `tcp:${port}`);
     assert.match(await adb("install", "-t", apk), /Success/);
     const component = `${app}.httpcheck/${app}.`;
-    // API 36 computes account eligibility asynchronously after BOOT_COMPLETED.
-    // Until that finishes, device policy reports an incompatible account even on a fresh AVD.
-    const policyDeadline = Date.now() + 90_000;
+    // After BOOT_COMPLETED, API 36 checks device owner eligibility and applies the
+    // hardware profile overlay. Applying it recreates an already running activity.
+    const overlay = `com.android.internal.emulation.${deviceProfile}`;
+    const bootDeadline = Date.now() + 90_000;
     while (
       !(await adb("logcat", "-d", "-s", "DevicePolicyManager:I")).includes(
         "Finished calculating hasIncompatibleAccountsTask",
-      )
+      ) ||
+      (
+        await adb("shell", "cmd", "overlay", "list", "--user", "0", overlay)
+      ).trim() !== `[x] ${overlay}`
     ) {
       assert(
-        Date.now() < policyDeadline,
-        "device policy did not finish account initialization",
+        Date.now() < bootDeadline,
+        "Android did not finish device policy and hardware profile initialization",
       );
       await delay(500);
     }
@@ -258,6 +272,9 @@ export async function checkAndroid(
       await ended;
     } finally {
       clearTimeout(kill);
+      process.off("exit", stopOnExit);
+      process.off("SIGINT", stopOnSignal);
+      process.off("SIGTERM", stopOnSignal);
     }
   }
 }
