@@ -1,0 +1,31 @@
+import type { Timezone } from './Timezone.js';
+import type { UserNotifyProps } from './UserNotifyProps.js';
+export interface User {
+    id?: string;
+    createAt?: number;
+    updateAt?: number;
+    deleteAt?: number;
+    username?: string;
+    firstName?: string;
+    lastName?: string;
+    nickname?: string;
+    email?: string;
+    emailVerified?: boolean;
+    authService?: string;
+    roles?: string;
+    locale?: string;
+    notifyProps?: UserNotifyProps;
+    props?: object;
+    lastPasswordUpdate?: number;
+    lastPictureUpdate?: number;
+    failedAttempts?: number;
+    mfaActive?: boolean;
+    timezone?: Timezone;
+    termsOfServiceId?: string;
+    termsOfServiceCreateAt?: number;
+}
+export declare function instanceOfUser(value: object): value is User;
+export declare function UserFromJSON(json: any): User;
+export declare function UserFromJSONTyped(json: any, ignoreDiscriminator: boolean): User;
+export declare function UserToJSON(json: any): User;
+export declare function UserToJSONTyped(value?: User | null, ignoreDiscriminator?: boolean): any;

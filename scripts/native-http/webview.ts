@@ -36,6 +36,27 @@ export function webviewServers(
   const data = https.createServer(trusted, (req, res) => {
     const url = new URL(req.url ?? "/", "https://localhost");
     assert.equal(req.method, "GET");
+    const userId = "Abc01234567890123456789012";
+    if (url.pathname === "/api/v4/users/me") {
+      visits.push("user-me");
+      assert.equal(url.search, "");
+      assert.equal(req.headers.authorization, undefined);
+      assert.equal(req.headers.cookie, undefined);
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ message: "session required" }));
+      return;
+    }
+    if (url.pathname === `/team/chat/api/v4/users/${userId}`) {
+      visits.push("user-profile");
+      assert.equal(url.search, "");
+      assert.equal(req.headers.authorization, "Bearer synthetic-session");
+      assert.equal(req.headers.cookie, undefined);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({ id: userId, username: "fixture", first_name: "Ada" }),
+      );
+      return;
+    }
     const setting = /^\/team\/chat\/api\/v4\/(config|license)\/client$/.exec(
       url.pathname,
     )?.[1];
@@ -184,6 +205,8 @@ export function webviewServers(
         "owner",
         "reload",
         "ping-root",
+        "user-me",
+        "user-profile",
         "ping-prefix",
         "ping-prefix",
         "ping-unhealthy",

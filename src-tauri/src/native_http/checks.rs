@@ -25,9 +25,11 @@ async fn check_scope(
     control_base: &str,
 ) -> CheckResult {
     const PING: &str = "api/v4/system/ping";
-    const SETTINGS: [&str; 2] = [
+    const READ_ROUTES: [&str; 4] = [
         "api/v4/config/client?format=old",
         "api/v4/license/client?format=old",
+        "api/v4/users/me",
+        "api/v4/users/Abc01234567890123456789012",
     ];
     expect_ok(control, control_base, "scope-created").await?;
     let mut fragment = get(selected, PING);
@@ -67,6 +69,14 @@ async fn check_scope(
     for request in [
         get(selected, "api/v4/unknown?private=value"),
         get(selected, "api/v4/config"),
+        get(selected, "api/v4/users/stats"),
+        get(selected, "api/v4/users/login"),
+        get(selected, "api/v4/users/short"),
+        get(selected, "api/v4/users/Abc012345678901234567890123"),
+        get(selected, "api/v4/users/%6de"),
+        get(selected, "api/v4/users/me%2Fimage"),
+        get(selected, "api/v4/users/me/image"),
+        get(selected, "api/v4/users/me/"),
         post,
         cookie,
         authority,
@@ -76,7 +86,7 @@ async fn check_scope(
         assert_eq!(error.to_string(), "REST operation is not allowed");
         assert_eq!(format!("{error:?}"), "OperationDenied");
     }
-    for path in SETTINGS {
+    for path in READ_ROUTES {
         let mut post = get(selected, path);
         *post.method_mut() = Method::POST;
         assert_eq!(
@@ -99,7 +109,7 @@ async fn check_scope(
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.text().await?, "OK");
     }
-    for path in SETTINGS {
+    for path in READ_ROUTES {
         let response = connection.send(get(selected, path)).await?;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.text().await?, "OK");

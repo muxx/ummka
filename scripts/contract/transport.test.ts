@@ -3,7 +3,11 @@ import type { IncomingMessage } from "node:http";
 import { test } from "node:test";
 import { createRestTransport } from "../../src/mattermost/rest-transport.ts";
 import { createSystemApi } from "../../src/mattermost/system-api.ts";
-import { ResponseError } from "../../vendor/mattermost/index.js";
+import {
+  Configuration,
+  ResponseError,
+  UsersApi,
+} from "../../vendor/mattermost/index.js";
 import { listen } from "./test-server.ts";
 
 test("canonicalizes the installation address and preserves its path and port", () => {
@@ -247,4 +251,51 @@ test("both settings operations retain an HTTP error body", async (t) => {
     assert.equal(error.response.status, 503);
     assert.deepEqual(await error.response.json(), { message: "offline" });
   }
+});
+
+test("GetUser uses the installation prefix, a single user ID segment and the original HTTP status", async (t) => {
+  const visits: string[] = [];
+  const id = "Abc01234567890123456789012";
+  const { base } = await listen(t, (req, res) => {
+    assert.equal(req.method, "GET");
+    assert.equal(req.headers.cookie, undefined);
+    visits.push(req.url ?? "");
+    const signed = req.headers.authorization === "Bearer synthetic-session";
+    res.writeHead(signed ? 200 : 401, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify(
+        signed
+          ? { id, username: "fixture", first_name: "Ada" }
+          : { message: "session required" },
+      ),
+    );
+  });
+  for (const prefix of ["", "/team/chat"]) {
+    const transport = createRestTransport(base + prefix, fetch);
+    const signed = new UsersApi(
+      new Configuration({ ...transport, accessToken: "synthetic-session" }),
+    );
+    for (const userId of ["me", id]) {
+      const response = await signed.getUserRaw({ userId });
+      assert.equal(response.raw.status, 200);
+      const user = await response.value();
+      assert.equal(user.id, id);
+      assert.equal(user.firstName, "Ada");
+    }
+    const anonymous = new UsersApi(new Configuration(transport));
+    await assert.rejects(
+      anonymous.getUserRaw({ userId: "me" }),
+      (asyncError) => {
+        assert(asyncError instanceof ResponseError);
+        assert.equal(asyncError.response.status, 401);
+        return true;
+      },
+    );
+  }
+  assert.deepEqual(
+    visits,
+    ["", "/team/chat"].flatMap((prefix) =>
+      ["me", id, "me"].map((userId) => `${prefix}/api/v4/users/${userId}`),
+    ),
+  );
 });

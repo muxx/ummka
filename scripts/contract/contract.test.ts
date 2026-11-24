@@ -26,6 +26,8 @@ const contract = object(JSON.parse(serialized), "contract");
 const definitions = read("definitions.yaml");
 const ping = "/api/v4/system/ping";
 const system = read("system.yaml");
+const userRoute = "/api/v4/users/{user_id}";
+const users = read("users.yaml");
 
 function at(document: unknown, path: string[]) {
   let value = document;
@@ -45,6 +47,11 @@ const definitionPaths = [
   ["components", "responses", "BadRequest"],
   ["components", "responses", "NotImplemented"],
   ["components", "schemas", "AppError"],
+  ["components", "schemas", "User"],
+  ["components", "schemas", "UserNotifyProps"],
+  ["components", "schemas", "Timezone"],
+  ["components", "responses", "Unauthorized"],
+  ["components", "responses", "NotFound"],
 ];
 
 test("retains the catalog operations, security and transitive models", () => {
@@ -63,7 +70,7 @@ test("retains the catalog operations, security and transitive models", () => {
     Object.keys(
       object(at(contract, ["components", "schemas"]), "schemas"),
     ).sort(),
-    ["AppError", "SystemStatusResponse"],
+    ["AppError", "SystemStatusResponse", "Timezone", "User", "UserNotifyProps"],
   );
 });
 
@@ -95,11 +102,11 @@ const fixturePrefix = join(work, "incomplete-");
 for (const { file, path, error } of removals) {
   test(`the builder rejects ${file} without ${path.join(" > ")}`, () => {
     const fixture = mkdtempSync(fixturePrefix);
-    for (const name of [
+    for (const name of new Set([
       "introduction.yaml",
-      "system.yaml",
       "definitions.yaml",
-    ]) {
+      ...catalog.map(({ file }) => file),
+    ])) {
       copyFileSync(join(sourceDirectory, name), join(fixture, name));
     }
     const altered = readSource(fixture, file);
@@ -130,12 +137,112 @@ test("rejects a changed operation ID", () => {
   );
 });
 
-test("rejects a route template before publishing an unsupported native route", () => {
-  const operation = { ...catalog[0], path: "/api/v4/users/{user_id}" };
-  assert.throws(() => buildSpecification(read, [operation]), {
-    message:
-      "Native routing requires a literal REST v4 path: /api/v4/users/{user_id}",
-  });
+function buildUserRoute(pathItem: Record<string, unknown>, path = userRoute) {
+  const source = { ...users, [path]: pathItem };
+  return buildSpecification(
+    (file) => (file === "users.yaml" ? source : read(file)),
+    [{ file: "users.yaml", path, method: "GET", id: "GetUser" }],
+  );
+}
+
+const getUser = object(at(users, [userRoute, "get"]), "GetUser");
+const parameter = {
+  in: "path",
+  name: "user_id",
+  required: true,
+  schema: { type: "string" },
+};
+test("requires the declared user ID parameter and its supported whole-segment template", () => {
+  for (const candidate of [
+    [],
+    [{ ...parameter, in: "query" }],
+    [{ ...parameter, name: "other" }],
+    [{ ...parameter, required: false }],
+    [{ ...parameter, schema: { type: "integer" } }],
+    [parameter, { ...parameter, name: "other" }],
+    [parameter, parameter],
+  ]) {
+    assert.throws(
+      () => buildUserRoute({ get: { ...getUser, parameters: candidate } }),
+      /path parameter/,
+    );
+  }
+  for (const path of [
+    "/api/v4/users/u{user_id}",
+    "/api/v4/users/{unknown}",
+    "/api/v4/users/{user_id",
+  ]) {
+    assert.throws(
+      () => buildUserRoute({ get: getUser }, path),
+      /Unsupported native route template/,
+    );
+  }
+});
+
+test("an operation overrides only a matching parameter from its path", () => {
+  const wrong = { ...parameter, required: false };
+  assert.doesNotThrow(() =>
+    buildUserRoute({
+      parameters: [parameter],
+      get: { ...getUser, parameters: [] },
+    }),
+  );
+  assert.doesNotThrow(() =>
+    buildUserRoute({ parameters: [wrong], get: getUser }),
+  );
+  assert.throws(
+    () =>
+      buildUserRoute({
+        parameters: [parameter],
+        get: { ...getUser, parameters: [wrong] },
+      }),
+    /required string path parameter/,
+  );
+  assert.throws(
+    () =>
+      buildUserRoute({
+        parameters: [wrong],
+        get: { ...getUser, parameters: [{ ...parameter, in: "query" }] },
+      }),
+    /required string path parameter/,
+  );
+});
+
+test("uses referenced parameters and schemas without broadening the path", () => {
+  const defs = structuredClone(definitions);
+  const groups = object(defs.components, "components");
+  groups.parameters = {
+    userId: { ...parameter, schema: { $ref: "#/components/schemas/RouteId" } },
+  };
+  object(groups.schemas, "schemas").RouteId = { type: "string" };
+  const reference = { $ref: "#/components/parameters/userId" };
+  const source = {
+    ...users,
+    [userRoute]: {
+      parameters: [reference],
+      get: { ...getUser, parameters: [] },
+    },
+  };
+  const build = () =>
+    buildSpecification((file) =>
+      file === "definitions.yaml"
+        ? defs
+        : file === "users.yaml"
+          ? source
+          : read(file),
+    );
+  assert.doesNotThrow(build);
+  object(groups.schemas, "schemas").RouteId = { type: "integer" };
+  assert.throws(build, /required string path parameter/);
+  groups.parameters = { userId: reference };
+  assert.throws(build, /Invalid OpenAPI parameters reference/);
+});
+
+test("rejects a changed GetUser operation ID", () => {
+  assert.throws(
+    () => buildUserRoute({ get: { ...getUser, operationId: "DifferentUser" } }),
+    /Expected operation GetUser/,
+  );
 });
 
 test("requires the HTTP verb in its wire spelling", () => {

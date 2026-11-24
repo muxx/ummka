@@ -12,6 +12,31 @@ struct Operation<'a> {
     path: &'a str,
 }
 
+impl Operation<'_> {
+    fn allows(&self, method: &reqwest::Method, route: &str) -> bool {
+        if self.method != method.as_str() {
+            return false;
+        }
+        let mut segments = route.split('/');
+        for expected in self.path.split('/') {
+            let Some(actual) = segments.next() else {
+                return false;
+            };
+            let matched = match expected {
+                "{user_id}" => {
+                    actual == "me"
+                        || (actual.len() == 26 && actual.bytes().all(|c| c.is_ascii_alphanumeric()))
+                }
+                literal => actual == literal,
+            };
+            if !matched {
+                return false;
+            }
+        }
+        segments.next().is_none()
+    }
+}
+
 static OPERATIONS: LazyLock<Vec<Operation<'static>>> = LazyLock::new(|| {
     serde_json::from_str(include_str!("../../contracts/mattermost/operations.json"))
         .expect("the verified Mattermost operation catalog must be valid")
@@ -62,9 +87,9 @@ impl RestConnection {
             .ok_or(TransportError::OutsideInstallation)?;
         if request.headers().contains_key(HOST)
             || request.headers().contains_key(COOKIE)
-            || !OPERATIONS.iter().any(|operation| {
-                operation.method == request.method().as_str() && operation.path == route
-            })
+            || !OPERATIONS
+                .iter()
+                .any(|operation| operation.allows(request.method(), route))
         {
             return Err(TransportError::OperationDenied);
         }
