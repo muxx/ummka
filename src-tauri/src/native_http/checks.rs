@@ -343,6 +343,7 @@ pub fn run_checks<'local>(
             let fixtures = registry.parent().ok_or("missing fixture directory")?;
             crate::history::checks::round_trip(fixtures)?;
             crate::history::checks::migrations::round_trip(fixtures)?;
+            crate::history::checks::reclamation::round_trip(fixtures)?;
             check_wire(NativeHttp::new()?, RestConnection::new, &ports).await
         });
         if let Err(error) = result {

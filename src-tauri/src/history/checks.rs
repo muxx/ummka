@@ -1,4 +1,5 @@
 pub(crate) mod migrations;
+pub(crate) mod reclamation;
 
 use super::{HistoryDatabase, HistoryError, HistoryOwner};
 use crate::sessions::Account;
@@ -127,6 +128,11 @@ mod tests {
     #[test]
     fn upgrades_populated_files_across_releases_and_rolls_back_failed_steps() {
         migrations::round_trip(tempdir().unwrap().path()).unwrap();
+    }
+
+    #[test]
+    fn purges_only_the_matching_history_and_reclaims_its_pages() {
+        reclamation::round_trip(tempdir().unwrap().path()).unwrap();
     }
 
     #[test]
