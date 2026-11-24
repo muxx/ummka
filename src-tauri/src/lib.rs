@@ -1,3 +1,4 @@
+pub mod credentials;
 mod installation_url;
 #[cfg(all(test, desktop))]
 mod ipc_test;

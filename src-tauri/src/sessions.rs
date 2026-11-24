@@ -23,17 +23,14 @@ pub(crate) fn is_credential_header(name: &str) -> bool {
 }
 
 #[derive(Eq, Hash, PartialEq)]
-struct Account {
+pub struct Account {
     installation: String,
     user_id: String,
 }
 
 impl Account {
-    fn new(base: &str, user_id: &str) -> Result<Self, TransportError> {
-        let url = parse_canonical(base).ok_or(TransportError::InvalidInstallation)?;
-        if url.scheme() != "https" {
-            return Err(TransportError::CleartextDenied);
-        }
+    pub fn new(base: &str, user_id: &str) -> Result<Self, TransportError> {
+        validate_installation(base)?;
         if !is_mattermost_id(user_id) {
             return Err(TransportError::InvalidAccount);
         }
@@ -42,13 +39,29 @@ impl Account {
             user_id: user_id.to_owned(),
         })
     }
+
+    pub fn installation(&self) -> &str {
+        &self.installation
+    }
+
+    pub fn user_id(&self) -> &str {
+        &self.user_id
+    }
+}
+
+pub(crate) fn validate_installation(base: &str) -> Result<(), TransportError> {
+    let url = parse_canonical(base).ok_or(TransportError::InvalidInstallation)?;
+    if url.scheme() != "https" {
+        return Err(TransportError::CleartextDenied);
+    }
+    Ok(())
 }
 
 #[derive(Clone)]
-pub(crate) struct SessionToken(HeaderValue);
+pub struct SessionToken(HeaderValue);
 
 impl SessionToken {
-    pub(crate) fn new(raw: &str) -> Result<Self, TransportError> {
+    pub fn new(raw: &str) -> Result<Self, TransportError> {
         let unpadded = raw.trim_end_matches('=');
         if unpadded.is_empty()
             || !unpadded
@@ -70,8 +83,12 @@ impl SessionToken {
     }
 
     pub(crate) fn appears_in(&self, bytes: &[u8]) -> bool {
-        let raw = &self.0.as_bytes()[b"Bearer ".len()..];
+        let raw = self.secret();
         bytes.windows(raw.len()).any(|part| part == raw)
+    }
+
+    pub(crate) fn secret(&self) -> &[u8] {
+        &self.0.as_bytes()[b"Bearer ".len()..]
     }
 }
 
