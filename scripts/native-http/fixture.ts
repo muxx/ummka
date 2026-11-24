@@ -190,6 +190,8 @@ export async function startFixture(dir: string) {
   });
 
   const selected = https.createServer(certs.trusted, (req, res) => {
+    assert.equal(req.headers.authorization, undefined);
+    assert.equal(req.headers.cookie, undefined);
     scopedSockets.push(req.socket);
     scopedRequests.push({
       method: req.method,
@@ -246,7 +248,12 @@ export async function startFixture(dir: string) {
           path: "/Teams/Blue%20Sky//A%2FB/api/v4/system/ping?use_rest_semantics=true&device_id=wire%20check",
           header: "scoped",
         };
-        assert.deepEqual(scopedRequests, [ping, ping]);
+        const settings = ["config", "license"].map((group) => ({
+          method: "GET",
+          path: `/Teams/Blue%20Sky//A%2FB/api/v4/${group}/client?format=old`,
+          header: undefined,
+        }));
+        assert.deepEqual(scopedRequests, [ping, ping, ...settings]);
         assert.equal(
           scopedSockets[0],
           scopedSockets[1],

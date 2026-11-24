@@ -42,18 +42,23 @@ const definitionPaths = [
   ["components", "securitySchemes", "bearerAuth"],
   ["components", "schemas", "SystemStatusResponse"],
   ["components", "responses", "InternalServerError"],
+  ["components", "responses", "BadRequest"],
+  ["components", "responses", "NotImplemented"],
   ["components", "schemas", "AppError"],
 ];
 
-test("retains the selected operation, its security and its transitive models", () => {
-  assert.deepEqual(
-    at(contract, ["paths", ping, "get"]),
-    at(system, [ping, "get"]),
-  );
+test("retains the catalog operations, security and transitive models", () => {
+  for (const { file, path, method } of catalog) {
+    const key = [path, method.toLowerCase()];
+    assert.deepEqual(at(contract, ["paths", ...key]), at(read(file), key));
+  }
   for (const path of definitionPaths) {
     assert.deepEqual(at(contract, path), at(definitions, path));
   }
-  assert.deepEqual(Object.keys(object(contract.paths, "paths")), [ping]);
+  assert.deepEqual(
+    Object.keys(object(contract.paths, "paths")).sort(),
+    [...new Set(catalog.map(({ path }) => path))].sort(),
+  );
   assert.deepEqual(
     Object.keys(
       object(at(contract, ["components", "schemas"]), "schemas"),
@@ -70,11 +75,11 @@ test("builds identical JSON from the pinned sources", () => {
 });
 
 const removals = [
-  {
-    file: "system.yaml",
-    path: [ping, "get"],
-    error: `Expected OpenAPI object get ${ping}`,
-  },
+  ...catalog.map(({ file, path, method }) => ({
+    file,
+    path: [path, method.toLowerCase()],
+    error: `Expected OpenAPI object ${method.toLowerCase()} ${path}`,
+  })),
   ...definitionPaths.map((path) => ({
     file: "definitions.yaml",
     path,
