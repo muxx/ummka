@@ -2,13 +2,16 @@ import type { PostList } from "../../vendor/mattermost/index.js";
 
 const idPattern = /^[A-Za-z0-9]{26}$/u;
 
-function isId(value: unknown): value is string {
+export function isHistoryId(value: unknown): value is string {
   return (
     typeof value === "string" && value.length === 26 && idPattern.test(value)
   );
 }
 
-function isTime(value: unknown, minimum: number): value is number {
+export function isHistoryTime(
+  value: unknown,
+  minimum: number,
+): value is number {
   return (
     typeof value === "number" && Number.isSafeInteger(value) && value >= minimum
   );
@@ -18,7 +21,7 @@ function isTime(value: unknown, minimum: number): value is number {
 export function channelPostChanges(channelId: string, page: PostList) {
   const posts = page.posts;
   if (
-    !isId(channelId) ||
+    !isHistoryId(channelId) ||
     !posts ||
     typeof posts !== "object" ||
     Array.isArray(posts)
@@ -27,10 +30,10 @@ export function channelPostChanges(channelId: string, page: PostList) {
   }
   return Object.entries(posts).map(([id, post]) => {
     if (
-      !isId(id) ||
+      !isHistoryId(id) ||
       post?.id !== id ||
       post.channelId !== channelId ||
-      !isTime(post.deleteAt, 0)
+      !isHistoryTime(post.deleteAt, 0)
     ) {
       throw new TypeError("Invalid Mattermost post identity or deletion time.");
     }
@@ -49,12 +52,12 @@ export function channelPostChanges(channelId: string, page: PostList) {
       isPinned,
     } = post;
     if (
-      !isId(userId) ||
-      (rootId !== "" && !isId(rootId)) ||
+      !isHistoryId(userId) ||
+      (rootId !== "" && !isHistoryId(rootId)) ||
       rootId === id ||
-      !isTime(createAt, 1) ||
-      !isTime(updateAt, 1) ||
-      !isTime(editAt, 0) ||
+      !isHistoryTime(createAt, 1) ||
+      !isHistoryTime(updateAt, 1) ||
+      !isHistoryTime(editAt, 0) ||
       typeof type !== "string" ||
       typeof message !== "string" ||
       (messageSource !== undefined && typeof messageSource !== "string") ||

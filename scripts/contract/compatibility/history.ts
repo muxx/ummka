@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
+import { channelHistoryPage } from "../../../src/mattermost/channel-history-page.ts";
 import { channelPostChanges } from "../../../src/mattermost/channel-post-records.ts";
 import {
   assembleFocusedHistory,
@@ -332,6 +333,33 @@ for (const collapsedThreads of [false, true]) {
   assert.equal(focused.nextPostId, after.nextPostId);
   assert.equal(focused.prevPostId, before.prevPostId);
   assert.equal(focused.firstInaccessiblePostTime, 0);
+  const focusedPage = channelHistoryPage(
+    { channelId, collapsedThreads, focusedPostId: root.id },
+    focused,
+  );
+  assert.deepEqual(focusedPage.source, { kind: "focused", postId: root.id });
+  assert.deepEqual(focusedPage.order, focused.order);
+  for (const direction of ["before", "after"] as const) {
+    const request = {
+      ...page,
+      perPage: 2,
+      collapsedThreads,
+      [direction]: root.id,
+    };
+    const result = await posts.getPostsForChannel(request);
+    const visible = channelHistoryPage(request, result);
+    assert.deepEqual(visible.source, { kind: direction, postId: root.id });
+    assert.equal(visible.collapsedThreads, collapsedThreads);
+    assert.deepEqual(visible.order, result.order);
+    assert.equal(visible.prevPostId, result.prevPostId);
+    assert.equal(visible.nextPostId, result.nextPostId);
+    if (direction === "after")
+      assert.equal(
+        visible.order.at(-1),
+        collapsedThreads ? followingRoot.id : reply.id,
+      );
+    else assert.equal(visible.order[0], image.id);
+  }
 }
 console.log(
   `Mattermost ${version} verified the focused timeline with plain and collapsed threads.`,
@@ -443,19 +471,19 @@ assert.equal(
   ).status,
   200,
 );
-const delta = channelPostChanges(
-  channelId,
-  await readerPosts.getPostsForChannel({
-    ...page,
-    since: disposable.create_at - 1,
-  }),
+const sinceDeletion = { ...page, since: disposable.create_at - 1 };
+const changed = channelHistoryPage(
+  sinceDeletion,
+  await readerPosts.getPostsForChannel(sinceDeletion),
 );
+const delta = changed.changes;
 const fresh = channelPostChanges(
   channelId,
   await readerPosts.getPostsForChannel(page),
 );
 const earlier = channelPostChanges(channelId, previousPage);
 for (const post of [disposable, child]) {
+  assert.ok(changed.order.includes(post.id));
   assert.deepEqual(
     delta.find((change) => change.id === post.id),
     { kind: "remove", id: post.id, channelId },
@@ -472,6 +500,25 @@ for (const post of [disposable, child]) {
 }
 console.log(
   `Mattermost ${version} verified ordinary-member root and reply removal in channel records.`,
+);
+
+const newest = await message("New post for a sparse change page");
+const edit = await fetch(`${base}/api/v4/posts/${root.id}/patch`, {
+  method: "PUT",
+  headers: { ...authorization, "Content-Type": "application/json" },
+  body: JSON.stringify({ id: root.id, message: "Edited earlier root" }),
+});
+assert.equal(edit.status, 200);
+const sinceEdit = { channelId, since: newest.create_at - 1 };
+const sparse = channelHistoryPage(
+  sinceEdit,
+  await posts.getPostsForChannel(sinceEdit),
+);
+assert.deepEqual(sparse.source, { kind: "since", since: sinceEdit.since });
+assert.ok(sparse.order.includes(root.id) && sparse.order.includes(newest.id));
+assert.ok(!sparse.order.includes(reply.id));
+console.log(
+  `Mattermost ${version} verified page origin, visible neighbors and a sparse history update.`,
 );
 
 // A failed local save must revoke only the new server session for this same user.
