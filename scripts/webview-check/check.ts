@@ -1,13 +1,16 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openNativeRestConnection } from "../../src/mattermost/native-rest.ts";
 import { beginExchanges, finishExchangesAfterReload } from "./exchanges.ts";
+import { checkGeneratedPing } from "./generated.ts";
 
 const fetch = window.fetch.bind(window);
 let direct = 0;
 let blocked = 0;
 let androidBinary = 0;
 window.fetch = async (input, init) => {
-  const url = String(input);
+  const url = input instanceof Request ? input.url : String(input);
+  if (url.startsWith("https://127.0.0.1:"))
+    throw Error("unexpected-webview-network");
   const androidChannel = url.startsWith("http://ipc.localhost/");
   if (!androidChannel && !url.startsWith("ipc://localhost/"))
     return fetch(input, init);
@@ -42,6 +45,9 @@ async function expectClosed(close: () => Promise<void>) {
 
 async function checkResources() {
   if (await finishExchangesAfterReload()) {
+    await checkGeneratedPing(
+      String(import.meta.env.VITE_UMMKA_CHECK_PORTS).split(","),
+    );
     location.replace("/ipc-result.html?pass");
     return;
   }
