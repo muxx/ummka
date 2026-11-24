@@ -13,10 +13,11 @@ export interface Post {
     message?: string;
     type?: string;
     props?: object;
-    hashtag?: string;
     fileIds?: Array<string>;
     pendingPostId?: string;
     metadata?: PostMetadata;
+    hashtags?: string;
+    isPinned?: boolean;
     replyCount?: number;
     lastReplyAt?: number;
     participants?: Array<User> | null;

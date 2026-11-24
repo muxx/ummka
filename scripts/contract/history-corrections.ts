@@ -66,18 +66,32 @@ export function correctHistorySchema(name: string, schema: Fields): Fields {
     return addProperties(name, schema, {
       first_inaccessible_post_time: { ...integer64 },
     });
-  // https://github.com/mattermost/mattermost/blob/v10.10.1/server/public/model/post.go#L115-L122
-  if (name === "Post")
-    return addProperties(name, schema, {
-      reply_count: { ...integer64 },
-      last_reply_at: { ...integer64 },
-      participants: {
-        type: "array",
-        nullable: true,
-        items: { $ref: "#/components/schemas/User" },
+  // https://github.com/mattermost/mattermost/blob/v10.10.1/server/public/model/post.go#L90-L122
+  if (name === "Post") {
+    const { hashtag, ...properties } = object(schema.properties, name);
+    if (
+      !isDeepStrictEqual(hashtag, { type: "string" }) ||
+      (Array.isArray(schema.required) && schema.required.includes("hashtag"))
+    ) {
+      throw Error("Review the Post hashtag field against the baseline");
+    }
+    return addProperties(
+      name,
+      { ...schema, properties },
+      {
+        hashtags: hashtag,
+        is_pinned: { type: "boolean" },
+        reply_count: { ...integer64 },
+        last_reply_at: { ...integer64 },
+        participants: {
+          type: "array",
+          nullable: true,
+          items: { $ref: "#/components/schemas/User" },
+        },
+        is_following: { type: "boolean" },
       },
-      is_following: { type: "boolean" },
-    });
+    );
+  }
   if (name !== "PostMetadata") return schema;
   // https://github.com/mattermost/mattermost/blob/v10.10.1/server/public/model/post_metadata.go#L18-L63
   const properties = object(schema.properties, name);
