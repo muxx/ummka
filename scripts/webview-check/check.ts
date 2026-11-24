@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openNativeRestConnection } from "../../src/mattermost/native-rest.ts";
 import { beginExchanges, finishExchangesAfterReload } from "./exchanges.ts";
-import { checkGeneratedPing } from "./generated.ts";
+import { checkGeneratedRequests } from "./generated.ts";
 
 const fetch = window.fetch.bind(window);
 let direct = 0;
@@ -45,7 +45,7 @@ async function expectClosed(close: () => Promise<void>) {
 
 async function checkResources() {
   if (await finishExchangesAfterReload()) {
-    await checkGeneratedPing(
+    await checkGeneratedRequests(
       String(import.meta.env.VITE_UMMKA_CHECK_PORTS).split(","),
     );
     location.replace("/ipc-result.html?pass");

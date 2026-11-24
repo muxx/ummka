@@ -1,29 +1,10 @@
 import assert from "node:assert/strict";
-import { once } from "node:events";
-import {
-  createServer,
-  type IncomingMessage,
-  type RequestListener,
-} from "node:http";
-import { type TestContext, test } from "node:test";
+import type { IncomingMessage } from "node:http";
+import { test } from "node:test";
 import { createRestTransport } from "../../src/mattermost/rest-transport.ts";
 import { createSystemApi } from "../../src/mattermost/system-api.ts";
 import { ResponseError } from "../../vendor/mattermost/index.js";
-
-async function listen(t: TestContext, handler?: RequestListener) {
-  const server = createServer(handler);
-  server.listen(0, "127.0.0.1");
-  await once(server, "listening");
-  t.after(async () => {
-    const closed = once(server, "close");
-    server.close();
-    server.closeAllConnections();
-    await closed;
-  });
-  const address = server.address();
-  assert.ok(address && typeof address !== "string");
-  return { server, base: `http://127.0.0.1:${address.port}` };
-}
+import { listen } from "./test-server.ts";
 
 test("canonicalizes the installation address and preserves its path and port", () => {
   for (const [input, expected] of [
