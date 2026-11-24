@@ -1,10 +1,13 @@
 export PATH := $(CURDIR)/.check-tools:$(PATH)
 
-.PHONY: check check-macos check-android check-android-package check-android-http check-contract
+.PHONY: check check-macos check-android check-android-package check-android-http check-contract generate-bindings
 check: check-macos check-android check-contract
 
 check-contract:
 	sh scripts/check-contract.sh
+
+generate-bindings:
+	sh scripts/check-contract.sh --write-bindings
 
 .check-tools/installed: scripts/install-check-tools.sh
 	sh scripts/install-check-tools.sh

@@ -49,6 +49,8 @@ make check-android
 
 The network test builds a separate optimized APK and installs its temporary TLS root on that emulator. Run `make check-android-http` to repeat it. For the offline startup check, open the distributable APK twice in airplane mode, stopping its process between launches.
 
-After `npm ci`, point `JAVA_HOME` at Temurin 17 and run `make check-contract` to build the supported REST operations from the pinned Mattermost 10.10.1 sources. It validates the OpenAPI document, generates a test client and checks its requests in memory and against a local HTTP server. The verified document is written to `artifacts/mattermost-v10.10.1.openapi.json`.
+The frontend and its REST tests use the generated ES modules and TypeScript declarations in `vendor/mattermost/`. After `npm ci`, run `npm test` or `npm run build`.
+
+To verify the bindings, set `JAVA_HOME` to Temurin 17 and run `make check-contract`. It rebuilds the supported operations from pinned Mattermost 10.10.1 sources, compares the generated files and tests requests against a local HTTP server. It writes the verified document to `artifacts/mattermost-v10.10.1.openapi.json`. When updating the contract, run `make generate-bindings` with rsync installed and review the generated changes.
 
 On a Mac with both native toolchains, `make check` runs the two builds and the contract check used in GitHub Actions. The dependency scan covers npm, Cargo and Gradle. Its full report is written to `artifacts/trivy.json`. The disposable macOS runner also opens the unpacked application twice with its network interface disabled.

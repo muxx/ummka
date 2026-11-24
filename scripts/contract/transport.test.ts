@@ -5,20 +5,9 @@ import {
   type IncomingMessage,
   type RequestListener,
 } from "node:http";
-import { resolve } from "node:path";
 import { type TestContext, test } from "node:test";
-import { pathToFileURL } from "node:url";
 import { createRestTransport } from "../../src/mattermost/rest-transport.ts";
-
-const work = process.env.UMMKA_CONTRACT_WORK;
-if (!work) throw new Error("Run make check-contract to generate the client");
-const { Configuration, SystemApi } = await import(
-  pathToFileURL(resolve(work, "compiled/index.js")).href
-);
-
-function pingClient(address: string) {
-  return new SystemApi(new Configuration(createRestTransport(address, fetch)));
-}
+import { createSystemApi } from "../../src/mattermost/system-api.ts";
 
 async function listen(t: TestContext, handler?: RequestListener) {
   const server = createServer(handler);
@@ -97,8 +86,10 @@ test("passes the generated request to the selected sender with explicit Fetch po
     signal: controller.signal,
     headers: { "X-Test": "ping" },
   };
-  const api = new SystemApi(new Configuration(transport));
+  const api = createSystemApi(transport.basePath, send);
+  assert.equal(requests.length, 0);
   await api.getPing({ useRestSemantics: true }, overrides);
+  assert.equal(requests.length, 1);
   assert.equal(requests[0].method, "GET");
   assert.equal(requests[0].headers.get("X-Test"), "ping");
 
@@ -131,7 +122,7 @@ test("GetPing sends the exact URL once and reads health independently of HTTP 20
   ]) {
     status = health;
     const before = received.length;
-    const result = await pingClient(base + input).getPing({
+    const result = await createSystemApi(base + input, fetch).getPing({
       useRestSemantics: true,
     });
     assert.equal(result.status, health);
@@ -153,7 +144,7 @@ test("preserves the HTTP error status", async (t) => {
     res.end('{"message":"unavailable"}');
   });
   await assert.rejects(
-    pingClient(base).getPing({ useRestSemantics: true }),
+    createSystemApi(base, fetch).getPing({ useRestSemantics: true }),
     (error: unknown) =>
       error instanceof Error &&
       error.name === "ResponseError" &&
@@ -174,9 +165,12 @@ test("stops at a redirect without contacting the destination", async (t) => {
     redirects++;
     res.writeHead(302, { Location: `${destination.base}/target` }).end();
   });
-  await assert.rejects(pingClient(base).getPing({ useRestSemantics: true }), {
-    name: "FetchError",
-  });
+  await assert.rejects(
+    createSystemApi(base, fetch).getPing({ useRestSemantics: true }),
+    {
+      name: "FetchError",
+    },
+  );
   assert.equal(redirects, 1);
   assert.equal(destinationHits, 0);
 });
@@ -193,7 +187,7 @@ test("aborting a pending GetPing closes the request on the server", {
     });
   });
   await assert.rejects(
-    pingClient(base).getPing(
+    createSystemApi(base, fetch).getPing(
       { useRestSemantics: true },
       { signal: controller.signal },
     ),
@@ -209,7 +203,7 @@ test("aborting a pending GetPing closes the request on the server", {
 test("reports a disconnected socket as a transport error", async (t) => {
   const { base } = await listen(t, (_req, res) => res.destroy());
   await assert.rejects(
-    pingClient(base).getPing({ useRestSemantics: true }),
+    createSystemApi(base, fetch).getPing({ useRestSemantics: true }),
     (error: unknown) =>
       error instanceof Error &&
       error.name === "FetchError" &&

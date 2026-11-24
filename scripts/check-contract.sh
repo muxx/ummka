@@ -1,6 +1,11 @@
 #!/bin/sh
 set -eu
 
+case "$#:${1-}" in
+    0:|1:--write-bindings) ;;
+    *) echo 'Usage: check-contract.sh [--write-bindings]' >&2; exit 1 ;;
+esac
+
 : "${JAVA_HOME:?Set JAVA_HOME to the JDK used for the Android build}"
 if [ ! -x "$JAVA_HOME/bin/java" ]; then
     echo 'JAVA_HOME must contain bin/java.' >&2
@@ -48,7 +53,7 @@ strict_tsc() {
     node_modules/.bin/tsc --ignoreConfig --strict --target ES2022 --module NodeNext \
         --lib ES2022,DOM,DOM.Iterable --types node "$@"
 }
-strict_tsc --rootDir "$work/client" --outDir "$work/compiled" "$work/client/index.ts"
+strict_tsc --declaration --removeComments --rootDir "$work/client" --outDir "$work/compiled" "$work/client/index.ts"
 cat > "$work/transport-types.ts" <<'TS'
 import type { createRestTransport } from "../../src/mattermost/rest-transport.js";
 import type { ConfigurationParameters } from "./client/runtime.js";
@@ -57,6 +62,16 @@ transport satisfies Required<Pick<ConfigurationParameters, "basePath" | "fetchAp
 TS
 strict_tsc --noEmit "$work/transport-types.ts"
 UMMKA_CONTRACT_SOURCES="$cache" UMMKA_CONTRACT_WORK="$work" npm run contract:test
+bindings=vendor/mattermost
+if [ "${1-}" = "--write-bindings" ]; then
+    mkdir -p "$bindings"
+    rsync --recursive --checksum --delete-after --delay-updates "$work/compiled/" "$bindings/"
+fi
+if ! diff -qr "$work/compiled" "$bindings"; then
+    echo 'Mattermost bindings differ. Run make generate-bindings and review the changes.' >&2
+    exit 1
+fi
+npm run test:rest
 spec="artifacts/mattermost-v$version.openapi.json"
 mv "$work/openapi.json" "$spec"
 shasum -a 256 "$spec"
