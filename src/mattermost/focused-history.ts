@@ -1,4 +1,50 @@
-import type { PostList } from "../../vendor/mattermost/index.js";
+import type { PostList, PostsApi } from "../../vendor/mattermost/index.js";
+
+interface FocusedNeighborsRequest {
+  channelId: string;
+  anchorId: string;
+  collapsedThreads: boolean;
+  perPage?: number;
+  skipFetchThreads?: boolean;
+  collapsedThreadsExtended?: boolean;
+}
+
+/** Read the two sides with the caller's account client; the focus thread is already available. */
+export async function readFocusedNeighbors(
+  api: PostsApi,
+  {
+    channelId,
+    anchorId,
+    collapsedThreads,
+    perPage = 30,
+    skipFetchThreads = false,
+    collapsedThreadsExtended = false,
+  }: FocusedNeighborsRequest,
+  signal?: AbortSignal,
+) {
+  signal?.throwIfAborted();
+  if (!channelId.trim() || !anchorId.trim()) {
+    throw new TypeError("Focused history requires a channel ID and a post ID.");
+  }
+  if (!Number.isSafeInteger(perPage) || perPage < 1) {
+    throw new RangeError(
+      "The number of history neighbors must be a positive integer.",
+    );
+  }
+  const page = {
+    channelId,
+    page: 0,
+    perPage,
+    skipFetchThreads,
+    collapsedThreads,
+    collapsedThreadsExtended,
+  };
+  const [after, before] = await Promise.all([
+    api.getPostsForChannel({ ...page, after: anchorId }, { signal }),
+    api.getPostsForChannel({ ...page, before: anchorId }, { signal }),
+  ]);
+  return { after, before };
+}
 
 interface FocusedHistoryParts {
   anchorId: string;

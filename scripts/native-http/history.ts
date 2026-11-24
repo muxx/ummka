@@ -29,6 +29,26 @@ export function respondToHistory(
     request.headers.authorization,
     prefix ? "Bearer fixture-prefixed-session" : "Bearer fixture-root-session",
   );
+  if (prefix && (query.after === root || query.before === root)) {
+    const direction = query.after === root ? "after" : "before";
+    assert.deepEqual(query, {
+      [direction]: root,
+      page: "0",
+      per_page: "1",
+      skipFetchThreads: "false",
+      collapsedThreads: "true",
+      collapsedThreadsExtended: "false",
+    });
+    const id = (direction === "after" ? "n" : "o").repeat(26);
+    const page = {
+      order: [id],
+      posts: { [id]: { id, channel_id: channelId } },
+    };
+    response
+      .writeHead(200, { "Content-Type": "application/json" })
+      .end(JSON.stringify(page));
+    return `history-focused-${direction}`;
+  }
   assert.deepEqual(
     query,
     prefix

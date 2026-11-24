@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { assembleFocusedHistory } from "../../../src/mattermost/focused-history.ts";
+import {
+  assembleFocusedHistory,
+  readFocusedNeighbors,
+} from "../../../src/mattermost/focused-history.ts";
 import {
   ChannelsApi,
   Configuration,
@@ -286,12 +289,18 @@ console.log(
 
 const followingRoot = await message("Following root");
 for (const collapsedThreads of [false, true]) {
-  const query = { channelId, page: 0, perPage: 1, collapsedThreads };
-  const [after, thread, before] = await Promise.all([
-    memberPosts.getPostsForChannel({ ...query, after: root.id }),
-    memberPosts.getPostThread({ postId: root.id, collapsedThreads }),
-    memberPosts.getPostsForChannel({ ...query, before: root.id }),
-  ]);
+  const start = queries.length;
+  const thread = await posts.getPostThread({
+    postId: root.id,
+    collapsedThreads,
+  });
+  const { after, before } = await readFocusedNeighbors(posts, {
+    channelId,
+    anchorId: root.id,
+    perPage: 1,
+    collapsedThreads,
+  });
+  assert.equal(queries.length - start, 3);
   const focused = assembleFocusedHistory({
     anchorId: root.id,
     after,

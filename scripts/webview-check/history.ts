@@ -1,3 +1,4 @@
+import { readFocusedNeighbors } from "../../src/mattermost/focused-history.ts";
 import {
   type Configuration,
   PostsApi,
@@ -55,6 +56,18 @@ export async function checkChannelHistory(
     summary.participants?.[0]?.username !== "fixture"
   )
     throw Error("generated collapsed channel history");
+
+  const neighbors = await readFocusedNeighbors(new PostsApi(prefixed), {
+    channelId,
+    anchorId: rootId,
+    perPage: 1,
+    collapsedThreads: true,
+  });
+  if (
+    neighbors.after.order?.join(",") !== "n".repeat(26) ||
+    neighbors.before.order?.join(",") !== "o".repeat(26)
+  )
+    throw Error("Account history lost the neighbors around its focus");
 
   try {
     await new PostsApi(anonymous).getPostsForChannelRaw({ channelId });
