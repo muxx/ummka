@@ -15,6 +15,7 @@ use tokio_util::sync::CancellationToken;
 pub(crate) enum ExchangeError {
     UnknownConnection,
     UnknownExchange,
+    InvalidHistoryRequest,
     InvalidExchangeState,
     Cancelled,
     #[serde(untagged)]
@@ -36,7 +37,8 @@ impl Resource for Exchange {}
 pub(super) struct Session {
     pub(super) http: RestConnection,
     exchanges: Mutex<ResourceTable>,
-    lifetime: CancellationToken,
+    pub(super) history: super::history::LocalHistory,
+    pub(super) lifetime: CancellationToken,
 }
 
 impl Resource for Session {
@@ -47,12 +49,19 @@ impl Resource for Session {
     }
 }
 
+impl Drop for Session {
+    fn drop(&mut self) {
+        self.lifetime.cancel();
+    }
+}
+
 impl Session {
     pub(super) fn new(http: RestConnection) -> Self {
         let lifetime = http.lifetime();
         Self {
             http,
             exchanges: Mutex::default(),
+            history: super::history::LocalHistory::new(),
             lifetime,
         }
     }
@@ -66,6 +75,17 @@ impl Session {
             phase: AsyncMutex::new(Phase::Prepared),
             cancel: self.lifetime.child_token(),
         }))
+    }
+
+    pub(super) fn finish_if_open<T>(
+        &self,
+        value: Result<T, ExchangeError>,
+    ) -> Result<T, ExchangeError> {
+        let _guard = self.exchanges.lock().unwrap();
+        if self.lifetime.is_cancelled() {
+            return Err(ExchangeError::Cancelled);
+        }
+        value
     }
 
     fn exchange(&self, id: ResourceId) -> Result<Arc<Exchange>, ExchangeError> {

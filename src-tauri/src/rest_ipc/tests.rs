@@ -45,6 +45,10 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
             ),
             ("sign_out_account", json!({"rid": 0})),
             ("sign_out_on_device", json!({"rid": 0})),
+            (
+                "read_channel_window",
+                json!({"rid":0,"query":{"kind":"latest","channelId":"c".repeat(26),"collapsedThreads":false,"limit":1}}),
+            ),
             ("close_rest_connection", json!({"rid": 0})),
             ("prepare_rest_request", json!({"connection": 0})),
             (
@@ -119,6 +123,13 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
     let first = open(main, SERVER);
     let remaining = open(main, "https://other.example.test/path");
     assert_ne!(first, remaining);
+    let read = |rid| {
+        invoke(main, "read_channel_window", LOCAL, json!({
+        "rid": rid, "query": {"kind":"latest","channelId":"c".repeat(26),"collapsedThreads":false,"limit":1}
+    })).map(drop)
+    };
+    assert_eq!(read(foreign).unwrap_err(), "unknown_connection");
+    assert_eq!(read(first).unwrap_err(), "session_unavailable");
     for command in ["sign_out_account", "sign_out_on_device"] {
         assert_eq!(
             invoke(main, command, LOCAL, json!({"rid":foreign})).unwrap_err(),
@@ -130,6 +141,7 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
         );
     }
     close(main, first).unwrap();
+    assert_eq!(read(first).unwrap_err(), "unknown_connection");
     for command in ["sign_out_account", "sign_out_on_device"] {
         assert_eq!(
             invoke(main, command, LOCAL, json!({"rid":first})).unwrap_err(),
