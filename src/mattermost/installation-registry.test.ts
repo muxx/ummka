@@ -3,7 +3,9 @@ import { beforeEach, expect, test, vi } from "vitest";
 import {
   forgetInstallation,
   listInstallations,
+  readInstallationSelection,
   rememberInstallation,
+  selectInstallation,
 } from "./installation-registry.ts";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -18,6 +20,7 @@ test("returns the host's ordered addresses through a single local call", async (
 });
 
 test.each([
+  ["select_installation", selectInstallation],
   ["remember_installation", rememberInstallation],
   ["forget_installation", forgetInstallation],
 ] as const)("%s sends only the canonical address", async (command, change) => {
@@ -44,4 +47,15 @@ test("preserves the host's error codes", async () => {
   await expect(forgetInstallation("https://chat.example.test")).rejects.toBe(
     "invalid_installation",
   );
+});
+
+test("returns one persisted installation snapshot", async () => {
+  const selected = "https://chat.example.test/team";
+  const snapshot = {
+    installations: ["https://chat.example.test", selected],
+    selected,
+  };
+  ipc.mockResolvedValueOnce(snapshot);
+  await expect(readInstallationSelection()).resolves.toEqual(snapshot);
+  expect(ipc).toHaveBeenCalledExactlyOnceWith("read_installation_selection");
 });

@@ -5,6 +5,18 @@ export function listInstallations(): Promise<string[]> {
   return invoke<string[]>("list_installations");
 }
 
+export function readInstallationSelection() {
+  return invoke<{ installations: string[]; selected: string | null }>(
+    "read_installation_selection",
+  );
+}
+
+export async function selectInstallation(serverUrl: string): Promise<void> {
+  return invoke<void>("select_installation", {
+    serverUrl: canonicalServerUrl(serverUrl),
+  });
+}
+
 export async function rememberInstallation(serverUrl: string): Promise<void> {
   return invoke<void>("remember_installation", {
     serverUrl: canonicalServerUrl(serverUrl),

@@ -24,6 +24,8 @@ fn only_local_main_can_open_and_change_the_private_registry() {
     for (view, origin) in [(&sibling, LOCAL), (main, "https://remote.example.test/")] {
         for (command, body) in [
             ("list_installations", json!({})),
+            ("read_installation_selection", json!({})),
+            ("select_installation", change.clone()),
             ("remember_installation", change.clone()),
             ("forget_installation", change.clone()),
         ] {
@@ -40,7 +42,24 @@ fn only_local_main_can_open_and_change_the_private_registry() {
             .map(|v| v.deserialize::<Vec<String>>().unwrap())
     };
     assert!(list().unwrap().is_empty());
-    for command in ["remember_installation", "forget_installation"] {
+    let selection = || {
+        invoke(main, "read_installation_selection", LOCAL, json!({}))
+            .map(|v| v.deserialize::<serde_json::Value>().unwrap())
+    };
+    assert_eq!(
+        selection().unwrap(),
+        json!({"installations": [], "selected": null})
+    );
+    assert!(list().unwrap().is_empty());
+    assert!(
+        !file.exists(),
+        "reading must not create a first-run database"
+    );
+    for command in [
+        "remember_installation",
+        "forget_installation",
+        "select_installation",
+    ] {
         let invalid = json!({"serverUrl": "https://private-marker@chat.example.test"});
         assert_eq!(
             invoke(main, command, LOCAL, invalid).unwrap_err(),
@@ -50,6 +69,21 @@ fn only_local_main_can_open_and_change_the_private_registry() {
     assert!(list().unwrap().is_empty());
     invoke(main, "remember_installation", LOCAL, change.clone()).unwrap();
     assert_eq!(list().unwrap(), [address]);
+    assert_eq!(
+        selection().unwrap(),
+        json!({"installations": [address], "selected": address})
+    );
+    assert_eq!(
+        invoke(
+            main,
+            "select_installation",
+            LOCAL,
+            json!({"serverUrl":"https://unknown.example.test"})
+        )
+        .unwrap_err(),
+        "unknown_installation"
+    );
+    invoke(main, "select_installation", LOCAL, change.clone()).unwrap();
     invoke(main, "forget_installation", LOCAL, change).unwrap();
     assert!(list().unwrap().is_empty());
     std::fs::remove_file(&file).unwrap();
@@ -59,6 +93,7 @@ fn only_local_main_can_open_and_change_the_private_registry() {
     }
     let before = std::fs::read(&file).unwrap();
     assert_eq!(list().unwrap_err(), "unsupported_schema");
+    assert_eq!(selection().unwrap_err(), "unsupported_schema");
     assert_eq!(std::fs::read(&file).unwrap(), before);
     std::fs::remove_dir_all(&root).unwrap();
     std::fs::write(root, b"not a directory").unwrap();

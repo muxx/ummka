@@ -11,14 +11,29 @@ pub(crate) fn round_trip(path: &Path) -> Result<(), RegistryError> {
         registry.remember(second)?;
         registry.remember(first)?;
         registry.remember(second)?;
+        assert_eq!(
+            InstallationRegistry::read_selection(path)?
+                .selected
+                .as_deref(),
+            Some(second)
+        );
+        registry.select(first)?;
     }
     {
         let registry = InstallationRegistry::open(path)?;
         assert_eq!(registry.list()?, [first, second]);
+        assert_eq!(
+            InstallationRegistry::read_selection(path)?
+                .selected
+                .as_deref(),
+            Some(first)
+        );
         registry.forget(first)?;
         registry.forget(first)?;
     }
-    assert_eq!(InstallationRegistry::open(path)?.list()?, [second]);
+    let selected = InstallationRegistry::read_selection(path)?;
+    assert_eq!(selected.installations, [second]);
+    assert_eq!(selected.selected.as_deref(), Some(second));
     Ok(())
 }
 
@@ -93,7 +108,7 @@ mod tests {
         let version: i64 = sqlite
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 1);
+        assert_eq!(version, 2);
     }
 
     #[test]
@@ -177,6 +192,7 @@ mod tests {
             (0, RegistryError::UnsupportedSchema),
             (1, RegistryError::UnsupportedSchema),
             (2, RegistryError::UnsupportedSchema),
+            (3, RegistryError::UnsupportedSchema),
         ] {
             let path = dir.path().join(format!("version-{version}.sqlite"));
             {
@@ -207,3 +223,6 @@ mod tests {
         assert!(InstallationRegistry::open(Path::new("")).is_err());
     }
 }
+
+#[cfg(test)]
+mod selection;
