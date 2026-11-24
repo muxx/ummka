@@ -18,6 +18,7 @@ export interface Post {
     metadata?: PostMetadata;
     hashtags?: string;
     isPinned?: boolean;
+    messageSource?: string;
     replyCount?: number;
     lastReplyAt?: number;
     participants?: Array<User> | null;

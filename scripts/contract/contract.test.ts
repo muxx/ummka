@@ -230,6 +230,7 @@ test("changes only the confirmed history fields in the selected models", () => {
   const additions = {
     Post: [
       "is_pinned",
+      "message_source",
       "reply_count",
       "last_reply_at",
       "participants",
@@ -378,6 +379,7 @@ test("preserves the verified artifact if a corrected Post field drifts", () => {
     "new type",
     "hashtags exists",
     "is_pinned exists",
+    "message_source exists",
     "hashtag required",
   ]) {
     const fixture = copySources();
@@ -399,6 +401,9 @@ test("preserves the verified artifact if a corrected Post field drifts", () => {
         break;
       case "is_pinned exists":
         fields.is_pinned = { type: "boolean" };
+        break;
+      case "message_source exists":
+        fields.message_source = { type: "string" };
         break;
       case "hashtag required":
         schema.required = ["hashtag"];

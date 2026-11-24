@@ -81,6 +81,7 @@ export function correctHistorySchema(name: string, schema: Fields): Fields {
       {
         hashtags: hashtag,
         is_pinned: { type: "boolean" },
+        message_source: { type: "string" },
         reply_count: { ...integer64 },
         last_reply_at: { ...integer64 },
         participants: {

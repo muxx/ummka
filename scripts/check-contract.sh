@@ -94,6 +94,7 @@ const thread: GetPostThreadRequest = { postId: "a-post-id", fromCreateAt: 12, pe
 const badCursor: GetPostThreadRequest = { postId: "a-post-id", fromCreateAt: "12" };
 declare const page: PostList;
 declare const post: Post;
+post.messageSource satisfies string | undefined;
 page.firstInaccessiblePostTime satisfies number | undefined;
 post.replyCount satisfies number | undefined;
 post.lastReplyAt satisfies number | undefined;

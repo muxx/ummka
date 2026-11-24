@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
+import { channelPostChanges } from "../../../src/mattermost/channel-post-records.ts";
 import {
   assembleFocusedHistory,
   readFocusedNeighbors,
@@ -7,6 +8,7 @@ import {
 import {
   ChannelsApi,
   Configuration,
+  type Post,
   PostFromJSON,
   PostsApi,
   PostToJSON,
@@ -99,6 +101,8 @@ assert.equal(ordinary.posts?.[reply.id]?.rootId, root.id);
 assert.equal(ordinary.firstInaccessiblePostTime, 0);
 const size = ordinary.posts?.[image.id]?.metadata?.images?.[imageUrl];
 assert.deepEqual(size, { height: 3, width: 4, format: "png", frameCount: 0 });
+assert.equal(ordinary.posts?.[image.id]?.message, image.message);
+assert.equal(ordinary.posts?.[image.id]?.messageSource, undefined);
 
 const collapsed = await posts.getPostsForChannel({
   ...page,
@@ -316,6 +320,15 @@ for (const collapsedThreads of [false, true]) {
   ]);
   assert.equal(focused.posts?.[reply.id]?.rootId, root.id);
   assert.equal(focused.posts?.[lastReply.id]?.message, "Second reply");
+  assert.ok(
+    channelPostChanges(channelId, focused).some(
+      (entry) =>
+        entry.kind === "save" &&
+        entry.id === lastReply.id &&
+        entry.rootId === root.id &&
+        entry.message === "Second reply",
+    ),
+  );
   assert.equal(focused.nextPostId, after.nextPostId);
   assert.equal(focused.prevPostId, before.prevPostId);
   assert.equal(focused.firstInaccessiblePostTime, 0);
@@ -356,6 +369,109 @@ for (const pinned of [false, true]) {
 }
 console.log(
   `Mattermost ${version} verified independent pin and hashtag values through the generated Post converters.`,
+);
+
+// The local image proxy rewrites the displayed Markdown and keeps the author's source.
+const enableProxy = await fetch(`${base}/api/v4/config/patch`, {
+  method: "PUT",
+  headers: { ...authorization, "Content-Type": "application/json" },
+  body: JSON.stringify({ ImageProxySettings: { Enable: true } }),
+});
+assert.equal(enableProxy.status, 200);
+const proxyPage = await posts.getPostsForChannelRaw(page);
+const proxyWire = (await proxyPage.raw.clone().json()).posts;
+const proxyPosts = (await proxyPage.value()).posts;
+assert.ok(proxyPosts);
+const proxied = new URL("/api/v4/image", base);
+proxied.searchParams.set("url", imageUrl);
+assert.equal(proxyWire[image.id].message, `![sample](${proxied.href})`);
+assert.equal(proxyWire[image.id].message_source, image.message);
+assert.equal(Object.hasOwn(proxyWire[plainPost.id], "message_source"), false);
+for (const id of [image.id, plainPost.id]) {
+  const post: Post = proxyPosts[id];
+  assert.deepEqual(post, PostFromJSON(proxyWire[id]));
+  assert.equal(post.message, proxyWire[id].message);
+  assert.equal(post.messageSource, proxyWire[id].message_source);
+  const encoded = JSON.parse(JSON.stringify(PostToJSON(post)));
+  assert.equal(encoded.message, proxyWire[id].message);
+  assert.equal(encoded.message_source, proxyWire[id].message_source);
+  assert.equal(Object.hasOwn(encoded, "message_source"), id === image.id);
+}
+console.log(
+  `Mattermost ${version} verified original Markdown across image proxy rewrites.`,
+);
+
+const projection = channelPostChanges(channelId, { posts: proxyPosts });
+const imageRecord = projection.find((entry) => entry.id === image.id);
+assert.ok(imageRecord?.kind === "save");
+assert.equal(imageRecord.message, proxyWire[image.id].message);
+assert.equal(imageRecord.messageSource, image.message);
+for (const id of [plainPost.id, taggedPost.id]) {
+  const entry = projection.find((change) => change.id === id);
+  assert.ok(entry?.kind === "save");
+  assert.equal(entry.isPinned, true);
+  assert.equal(entry.hashtags, proxyWire[id].hashtags);
+  assert.equal(entry.messageSource, null);
+}
+
+await create(
+  `teams/${team.id}/members`,
+  { team_id: team.id, user_id: reader.id },
+  token,
+);
+const disposable = await (
+  await create(
+    "posts",
+    { channel_id: channelId, message: "Offline root" },
+    readerToken,
+  )
+).json();
+const child = await (
+  await create(
+    "posts",
+    { channel_id: channelId, root_id: disposable.id, message: "Offline reply" },
+    readerToken,
+  )
+).json();
+const previousPage = await readerPosts.getPostsForChannel(page);
+assert.equal(
+  (
+    await fetch(`${base}/api/v4/posts/${disposable.id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${readerToken}` },
+    })
+  ).status,
+  200,
+);
+const delta = channelPostChanges(
+  channelId,
+  await readerPosts.getPostsForChannel({
+    ...page,
+    since: disposable.create_at - 1,
+  }),
+);
+const fresh = channelPostChanges(
+  channelId,
+  await readerPosts.getPostsForChannel(page),
+);
+const earlier = channelPostChanges(channelId, previousPage);
+for (const post of [disposable, child]) {
+  assert.deepEqual(
+    delta.find((change) => change.id === post.id),
+    { kind: "remove", id: post.id, channelId },
+  );
+  assert.ok(fresh.every((change) => change.id !== post.id));
+  assert.ok(
+    earlier.some(
+      (change) =>
+        change.id === post.id &&
+        change.kind === "save" &&
+        change.message === post.message,
+    ),
+  );
+}
+console.log(
+  `Mattermost ${version} verified ordinary-member root and reply removal in channel records.`,
 );
 
 // A failed local save must revoke only the new server session for this same user.

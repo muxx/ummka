@@ -5,8 +5,8 @@ use std::path::Path;
 
 /// An open native history view. Each operation checks the generation captured at opening.
 pub struct AccountHistory {
-    database: HistoryDatabase,
-    owner: HistoryOwner,
+    pub(super) database: HistoryDatabase,
+    pub(super) owner: HistoryOwner,
 }
 
 impl AccountHistory {
