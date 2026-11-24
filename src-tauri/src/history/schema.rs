@@ -1,6 +1,35 @@
 use super::{HistoryError, stored_owner};
 use crate::rest::is_mattermost_id;
 use rusqlite::{Connection, TransactionBehavior};
+use std::time::{Duration, Instant};
+
+pub(super) const LOCK_WAIT: Duration = Duration::from_secs(5);
+
+fn enable_wal(connection: &Connection, wait: Duration) -> Result<(), HistoryError> {
+    let mode: String = connection.pragma_query_value(None, "journal_mode", |row| row.get(0))?;
+    if mode == "wal" {
+        return Ok(());
+    }
+    // Two connections can both hold a read lock while promoting a rollback journal.
+    // SQLite can return BUSY immediately to break that cycle, skipping its busy handler.
+    let deadline = Instant::now() + wait;
+    connection.busy_timeout(Duration::ZERO)?;
+    let result = loop {
+        match connection.query_row("PRAGMA journal_mode=WAL", [], |row| row.get::<_, String>(0)) {
+            Ok(mode) if mode == "wal" => break Ok(()),
+            Err(error) if error.sqlite_error_code() == Some(rusqlite::ErrorCode::DatabaseBusy) => {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    break Err(HistoryError::Storage);
+                }
+                std::thread::sleep(remaining.min(Duration::from_millis(5)));
+            }
+            _ => break Err(HistoryError::Storage),
+        }
+    };
+    connection.busy_timeout(LOCK_WAIT)?;
+    result
+}
 
 pub(super) const APPLICATION_ID: i64 = 0x554d4849; // UMHI
 pub(super) const CREATE_OWNER: &str = include_str!("migrations/0001_owner.sql");
@@ -137,10 +166,7 @@ pub(super) fn upgrade(
         // SQLite needs its page map before both the first table and its transaction.
         connection.pragma_update(None, "auto_vacuum", "INCREMENTAL")?;
     }
-    let journal: String = connection.query_row("PRAGMA journal_mode=WAL", [], |row| row.get(0))?;
-    if journal != "wal" {
-        return Err(HistoryError::Storage);
-    }
+    enable_wal(connection, LOCK_WAIT)?;
     let target =
         i64::try_from(migrations.len()).expect("compiled migrations fit SQLite user_version");
     if current != migrations.len() {
@@ -161,4 +187,64 @@ pub(super) fn upgrade(
         tx.commit()?;
     }
     Ok(target)
+}
+
+#[cfg(test)]
+mod wal_tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    #[test]
+    fn a_rollback_journal_reader_can_release_the_file_during_wal_activation() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("activation.sqlite");
+        let mut reader = Connection::open(&path).unwrap();
+        reader
+            .execute_batch("CREATE TABLE kept(value); INSERT INTO kept VALUES (42)")
+            .unwrap();
+        let reading = reader.transaction().unwrap();
+        assert_eq!(
+            reading
+                .query_row("SELECT value FROM kept", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            42
+        );
+        let (started, ready) = mpsc::channel();
+        let (completed, result) = mpsc::channel();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let writer = Connection::open(&path).unwrap();
+                // Keep the test independent of rusqlite's default busy handler.
+                writer.busy_timeout(Duration::ZERO).unwrap();
+                assert_eq!(
+                    enable_wal(&writer, Duration::from_millis(20)),
+                    Err(HistoryError::Storage)
+                );
+                started.send(()).unwrap();
+                completed.send(enable_wal(&writer, LOCK_WAIT)).unwrap();
+                let busy: u32 = writer
+                    .pragma_query_value(None, "busy_timeout", |row| row.get(0))
+                    .unwrap();
+                assert_eq!(Duration::from_millis(busy.into()), LOCK_WAIT);
+            });
+            ready.recv_timeout(LOCK_WAIT).unwrap();
+            assert_eq!(
+                result.recv_timeout(Duration::from_millis(30)),
+                Err(mpsc::RecvTimeoutError::Timeout)
+            );
+            reading.commit().unwrap();
+            assert_eq!(result.recv_timeout(LOCK_WAIT).unwrap(), Ok(()));
+        });
+        let reopened = Connection::open(path).unwrap();
+        let mode: String = reopened
+            .pragma_query_value(None, "journal_mode", |row| row.get(0))
+            .unwrap();
+        assert_eq!(mode, "wal");
+        assert_eq!(
+            reopened
+                .query_row("SELECT value FROM kept", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            42
+        );
+    }
 }
