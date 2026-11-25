@@ -37,7 +37,13 @@ import { readFileAnchor, readPostAnchor } from "./message-anchors.ts";
 import { nativeFetch } from "./native-fetch.ts";
 import { loadAccountDirectory, loadTeamDirectory } from "./navigation-data.ts";
 import { refreshNavigation } from "./navigation-refresh.ts";
+import {
+  changeOwnMembership,
+  type MembershipChange,
+  type MembershipTarget,
+} from "./own-membership.ts";
 import { createPostActivity } from "./post-activity.ts";
+import { readPostDestination } from "./post-destination.ts";
 import { createRestTransport } from "./rest-transport.ts";
 import { canonicalServerUrl } from "./server-url.ts";
 import { projectTeamSidebar, type TeamSidebar } from "./team-sidebar.ts";
@@ -173,12 +179,35 @@ export async function openAccountRestConnection(
     readCustomEmoji(emojiName: string, signal?: AbortSignal) {
       return readWhileOpen(() => readCustomEmoji(config, emojiName, signal));
     },
+    changeOwnMembership(target: MembershipTarget, change: MembershipChange) {
+      return readWhileOpen(() =>
+        changeOwnMembership(config, userId, target, change),
+      );
+    },
+    readPostDestination(postId: string, signal?: AbortSignal) {
+      return readWhileOpen(() => readPostDestination(posts, postId, signal));
+    },
     readAccountDirectory(signal?: AbortSignal) {
       return readWhileOpen(() => loadAccountDirectory(config, userId, signal));
     },
     readJoinedTeams() {
       return readWhileOpen(() =>
         invoke<JoinedTeams | null>("read_joined_teams", { rid }),
+      );
+    },
+    readRecentTeamSearches(teamId: string) {
+      return readWhileOpen(() =>
+        invoke<string[]>("read_recent_team_searches", { rid, teamId }),
+      );
+    },
+    rememberTeamSearch(teamId: string, term: string) {
+      return readWhileOpen(() =>
+        invoke<boolean>("remember_team_search", { rid, teamId, term }),
+      );
+    },
+    forgetTeamSearch(teamId: string, term: string) {
+      return readWhileOpen(() =>
+        invoke<void>("forget_team_search", { rid, teamId, term }),
       );
     },
     selectJoinedTeam(teamId: string) {

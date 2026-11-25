@@ -19,6 +19,8 @@ struct Operation<'a> {
     method: &'a str,
     path: &'a str,
     body: Option<BodyKind>,
+    #[serde(default, rename = "selfOnly")]
+    self_only: bool,
 }
 
 impl Operation<'_> {
@@ -32,7 +34,7 @@ impl Operation<'_> {
                 return false;
             };
             let matched = match expected {
-                "{user_id}" => actual == "me" || is_mattermost_id(actual),
+                "{user_id}" => actual == "me" || (!self.self_only && is_mattermost_id(actual)),
                 "{team_id}" | "{channel_id}" | "{post_id}" | "{file_id}" => {
                     is_mattermost_id(actual)
                 }
@@ -227,7 +229,7 @@ impl RestConnection {
             .iter()
             .find(|op| op.allows(request.method(), route))
             .ok_or(TransportError::OperationDenied)?;
-        if !operation.accepts_body(request) {
+        if (operation.self_only && self.account.is_none()) || !operation.accepts_body(request) {
             return Err(TransportError::OperationDenied);
         }
         Ok(())
@@ -309,6 +311,38 @@ mod tests {
                 "name {name}"
             );
         }
+    }
+
+    #[test]
+    fn personal_notification_changes_require_a_signed_connection_and_self_route() {
+        let base = "https://fixture.test/sub";
+        let connection = RestConnection::new(base).unwrap();
+        let members = format!("/api/v4/channels/{}/members", "c".repeat(26));
+        let route = format!("{members}/me/notify_props");
+        let operation = OPERATIONS
+            .iter()
+            .find(|op| op.allows(&reqwest::Method::PUT, &route))
+            .unwrap();
+        assert!(operation.self_only);
+        assert!(!operation.allows(&reqwest::Method::PATCH, &route));
+        assert!(!operation.allows(&reqwest::Method::PUT, &format!("{route}/more")));
+        assert!(!operation.allows(
+            &reqwest::Method::PUT,
+            &format!("{members}/{}/notify_props", "u".repeat(26))
+        ));
+        let mut request = Request::new(
+            reqwest::Method::PUT,
+            Url::parse(&format!("{base}{route}")).unwrap(),
+        );
+        *request.body_mut() = Some("{}".into());
+        request
+            .headers_mut()
+            .insert(CONTENT_TYPE, "application/json".parse().unwrap());
+        assert!(operation.accepts_body(&request));
+        assert!(matches!(
+            connection.check_request(&request),
+            Err(TransportError::OperationDenied)
+        ));
     }
 
     #[test]

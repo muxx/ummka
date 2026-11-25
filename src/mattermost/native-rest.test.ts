@@ -1,6 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, expect, expectTypeOf, test, vi } from "vitest";
-import { type Reaction, ReactionsApi } from "../../vendor/mattermost/index.js";
+import {
+  type PostInfo,
+  PostsApi,
+  type Reaction,
+  ReactionsApi,
+} from "../../vendor/mattermost/index.js";
 import * as emoji from "./account-custom-emoji.ts";
 import * as roles from "./channel-permissions.ts";
 import { channelProfile } from "./channel-profiles.ts";
@@ -12,6 +17,7 @@ import {
   openNativeRestConnection,
 } from "./native-rest.ts";
 import * as directory from "./navigation-data.ts";
+import * as membership from "./own-membership.ts";
 import * as profiles from "./visible-profiles.ts";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -260,12 +266,16 @@ test("passes the canonical installation and closes the exact native handle", asy
   expect("readChannelWindow" in connection).toBe(false);
   expect("stagePost" in connection).toBe(false);
   expect("readPostReactions" in connection).toBe(false);
+  expect("changeOwnMembership" in connection).toBe(false);
   expect("addOwnReaction" in connection).toBe(false);
   expect("removeOwnReaction" in connection).toBe(false);
   expect("readPendingPosts" in connection).toBe(false);
   expect("confirmPostDelivery" in connection).toBe(false);
   expect("retireDeliveredPosts" in connection).toBe(false);
   expect("readAccountDirectory" in connection).toBe(false);
+  expect("readRecentTeamSearches" in connection).toBe(false);
+  expect("rememberTeamSearch" in connection).toBe(false);
+  expect("forgetTeamSearch" in connection).toBe(false);
   expect("readTeamDirectory" in connection).toBe(false);
   expect("refreshChannelHistory" in connection).toBe(false);
   await connection.close();
@@ -292,11 +302,13 @@ test("opens a native account by installation and user ID", async () => {
   expect(Object.keys(connection).sort()).toEqual([
     "addOwnReaction",
     "basePath",
+    "changeOwnMembership",
     "close",
     "confirmPostDelivery",
     "dismissPendingPost",
     "executeServerCommand",
     "fetchApi",
+    "forgetTeamSearch",
     "getOutgoingPostState",
     "isPostSending",
     "readAccountDirectory",
@@ -312,8 +324,10 @@ test("opens a native account by installation and user ID", async () => {
     "readMentionGroupCounts",
     "readPendingPosts",
     "readPostAnchor",
+    "readPostDestination",
     "readPostReactions",
     "readPostSearchPage",
+    "readRecentTeamSearches",
     "readSavedPost",
     "readSavedProfiles",
     "readSavedTeamRoles",
@@ -329,6 +343,7 @@ test("opens a native account by installation and user ID", async () => {
     "refreshTeamRoles",
     "refreshTeamSidebar",
     "refreshWorkspaceServerPolicy",
+    "rememberTeamSearch",
     "removeOwnReaction",
     "resendPost",
     "retireDeliveredPosts",
@@ -346,6 +361,57 @@ test("opens a native account by installation and user ID", async () => {
     "subscribeToPostActivity",
     "transitionDraftCommand",
   ]);
+});
+
+test("local recent search operations discard results after their account closes", async () => {
+  ipc.mockResolvedValueOnce(31);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    "u".repeat(26),
+  );
+  const teamId = "t".repeat(26);
+  const term = "from:ada Привет";
+  let finish!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  ipc.mockImplementationOnce(() => gate.then(() => [term]));
+  ipc.mockImplementationOnce(() => gate.then(() => true));
+  ipc.mockImplementationOnce(() => gate);
+  const operations = [
+    account.readRecentTeamSearches(teamId),
+    account.rememberTeamSearch(teamId, term),
+    account.forgetTeamSearch(teamId, term),
+  ];
+  expect(ipc).toHaveBeenCalledWith("read_recent_team_searches", {
+    rid: 31,
+    teamId,
+  });
+  expect(ipc).toHaveBeenCalledWith("remember_team_search", {
+    rid: 31,
+    teamId,
+    term,
+  });
+  expect(ipc).toHaveBeenCalledWith("forget_team_search", {
+    rid: 31,
+    teamId,
+    term,
+  });
+  await account.close();
+  finish();
+  for (const result of await Promise.allSettled(operations)) {
+    expect(result).toEqual({ status: "rejected", reason: "cancelled" });
+  }
+  await expect(account.readRecentTeamSearches(teamId)).rejects.toBe(
+    "unknown_connection",
+  );
+  await expect(account.rememberTeamSearch(teamId, term)).rejects.toBe(
+    "unknown_connection",
+  );
+  await expect(account.forgetTeamSearch(teamId, term)).rejects.toBe(
+    "unknown_connection",
+  );
+  expect(ipc).toHaveBeenLastCalledWith("close_rest_connection", { rid: 31 });
 });
 
 test("drafts use the account handle and discard a late read after closing it", async () => {
@@ -785,5 +851,76 @@ test("closing an account discards its pending reaction confirmation", async () =
     expect(save).toHaveBeenCalledOnce();
   } finally {
     save.mockRestore();
+  }
+});
+
+test("the signed connection supplies its own user and discards a late membership result after close", async () => {
+  const userId = "u".repeat(26);
+  const target = { kind: "team" as const, id: "t".repeat(26) };
+  ipc.mockResolvedValueOnce(19);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    userId,
+  );
+  let finish!: () => void;
+  const mutate = vi.spyOn(membership, "changeOwnMembership").mockImplementation(
+    () =>
+      new Promise((accept) => {
+        finish = () => accept({ kind: "applied" });
+      }),
+  );
+  try {
+    const change = account.changeOwnMembership(target, "join");
+    expect(mutate).toHaveBeenCalledExactlyOnceWith(
+      expect.anything(),
+      userId,
+      target,
+      "join",
+    );
+    await account.close();
+    finish();
+    await expect(change).rejects.toBe("cancelled");
+    await expect(account.changeOwnMembership(target, "leave")).rejects.toBe(
+      "unknown_connection",
+    );
+    expect(mutate).toHaveBeenCalledTimes(1);
+  } finally {
+    mutate.mockRestore();
+  }
+});
+
+test("a post destination from a retired account cannot open in the replacement window", async () => {
+  ipc.mockResolvedValueOnce(42);
+  const account = await openAccountRestConnection(
+    "https://fixture.test",
+    "u".repeat(26),
+  );
+  let resolve!: (info: PostInfo) => void;
+  const response = new Promise<PostInfo>((done) => {
+    resolve = done;
+  });
+  const call = vi
+    .spyOn(PostsApi.prototype, "getPostInfo")
+    .mockReturnValueOnce(response);
+  try {
+    const pending = account.readPostDestination("p".repeat(26));
+    await account.close();
+    resolve({
+      channelId: "c".repeat(26),
+      channelType: "G",
+      channelDisplayName: "",
+      hasJoinedChannel: true,
+      teamId: "",
+      teamType: "",
+      teamDisplayName: "",
+      hasJoinedTeam: false,
+    });
+    await expect(pending).rejects.toBe("cancelled");
+    await expect(account.readPostDestination("p".repeat(26))).rejects.toBe(
+      "unknown_connection",
+    );
+    expect(call).toHaveBeenCalledOnce();
+  } finally {
+    call.mockRestore();
   }
 });

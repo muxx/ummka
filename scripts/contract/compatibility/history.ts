@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { latestReactionTarget } from "../../../src/channels/latest-reaction-target.ts";
+import { nextPostDestinationStep } from "../../../src/channels/post-destination-step.ts";
 import { channelHistoryPage } from "../../../src/mattermost/channel-history-page.ts";
 import { channelPostChanges } from "../../../src/mattermost/channel-post-records.ts";
 import {
@@ -13,6 +14,7 @@ import {
   readFocusedNeighbors,
 } from "../../../src/mattermost/focused-history.ts";
 import { readPostAnchor } from "../../../src/mattermost/message-anchors.ts";
+import { readPostDestination } from "../../../src/mattermost/post-destination.ts";
 import {
   readThreadPage,
   type ThreadPageRequest,
@@ -33,6 +35,7 @@ import {
   checkBrowserSignIn,
 } from "./browser-sign-in.ts";
 import { checkChannelAudience } from "./channel-audience.ts";
+import { checkChannelNotifications } from "./channel-notifications.ts";
 import { checkCommands } from "./commands.ts";
 import { checkCustomEmojiLookup } from "./custom-emoji.ts";
 import { checkEventStream } from "./event-stream.ts";
@@ -42,6 +45,7 @@ import {
   checkChannelRoster,
   checkEmptyTeamDirectory,
   checkNavigationMemberships,
+  checkOwnMembershipChanges,
 } from "./memberships.ts";
 import { checkMentionLimit } from "./mention-limit.ts";
 import { checkMentionText } from "./mention-text.ts";
@@ -58,6 +62,7 @@ import { checkRoleReads } from "./role-reads.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
 import { checkThreadWindow } from "./thread-window.ts";
+import { checkUserNotifications } from "./user-notifications.ts";
 
 const base = "http://mattermost:8065";
 const version = process.argv[2];
@@ -237,6 +242,23 @@ for (const post of [root, reply])
     expectedContext,
   );
 
+const memberTarget = await readPostDestination(memberPosts, reply.id);
+assert.deepEqual(memberTarget, {
+  postId: reply.id,
+  channel: {
+    id: channelId,
+    kind: channel.type,
+    displayName: channel.displayName,
+    joined: true,
+  },
+  team: {
+    id: team.id,
+    kind: "O",
+    displayName: team.display_name,
+    joined: true,
+  },
+});
+
 const readerLogin = {
   login_id: "context-reader",
   password: `${randomBytes(24).toString("hex")}aA7!`,
@@ -290,6 +312,27 @@ assert.deepEqual(direct, {
   teamType: "",
   teamDisplayName: "",
   hasJoinedTeam: false,
+});
+
+const directTarget = await readPostDestination(readerPosts, dmPost.id);
+assert.equal(directTarget.channel.id, dm.id);
+assert.equal(directTarget.channel.joined, true);
+assert.equal(directTarget.team, null);
+const publicTarget = await readPostDestination(readerPosts, root.id);
+assert.equal(publicTarget.channel.joined, false);
+assert.equal(publicTarget.team?.joined, false);
+assert.deepEqual(nextPostDestinationStep(memberTarget, null), {
+  kind: "readPost",
+  teamId: team.id,
+  channelId,
+  postId: reply.id,
+});
+assert.deepEqual(nextPostDestinationStep(publicTarget, null), {
+  kind: "joinTeam",
+  team: publicTarget.team,
+});
+assert.deepEqual(nextPostDestinationStep(directTarget, null), {
+  kind: "selectTeam",
 });
 
 const closed = await (
@@ -353,7 +396,7 @@ await assert.rejects(
   (e: unknown) => e instanceof ResponseError && e.response.status === 401,
 );
 await assert.rejects(
-  readerPosts.getPostInfo({ postId: closedPost.id }),
+  readPostDestination(readerPosts, closedPost.id),
   (e: unknown) => e instanceof ResponseError && e.response.status === 404,
 );
 await assert.rejects(
@@ -694,6 +737,9 @@ const joinable = await (
 const memberApi = new ChannelsApi(
   new Configuration({ basePath: base, accessToken: readerToken }),
 );
+assert.equal(reader.roles, "system_user");
+await checkUserNotifications(base, readerToken);
+await checkChannelNotifications(memberApi, channelId);
 const ownMembership = { channelId: joinable.id, userId: reader.id };
 const beforeJoin = await memberApi.getChannelMembersForUser({
   teamId: team.id,
@@ -765,6 +811,13 @@ await checkNavigationMemberships(
   extraTeam.id,
   channelId,
   dm.id,
+);
+await checkOwnMembershipChanges(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  reader.id,
+  team.id,
+  extraTeam.id,
+  joinable.id,
 );
 console.log(
   `Mattermost ${version} verified channel and team roles, active and removed membership and anonymous HTTP 401.`,
