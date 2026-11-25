@@ -10,6 +10,7 @@ type LicenseSettings = {
 };
 
 type Settings = {
+  UniqueEmojiReactionLimitPerPost?: string;
   MaxNotificationsPerChannel?: string;
   EnableConfirmNotificationsToChannel?: string;
   EnableCustomGroups?: string;
@@ -159,7 +160,18 @@ function mentionSettings(
   };
 }
 
+function reactionLimit(raw: string | undefined) {
+  if (raw === undefined) return undefined;
+  if (/^-?(?:0|[1-9][0-9]{0,18})$/.test(raw) && raw !== "-0") {
+    const value = BigInt(raw);
+    if (value >= -9223372036854775808n && value <= 9223372036854775807n)
+      return raw;
+  }
+  throw TypeError("Invalid Mattermost reaction limit.");
+}
+
 export type ServerPolicy = {
+  uniqueReactionLimit?: string;
   mentions?: MentionSettings;
   collapsedThreads: "disabled" | "always_on" | "default_on" | "default_off";
   separateUnreads: boolean;
@@ -180,8 +192,12 @@ export function workspaceServerPolicy(
         ? value
         : "default_off";
   const mentions = mentionSettings(config, license);
+  const uniqueReactionLimit = reactionLimit(
+    config.UniqueEmojiReactionLimitPerPost,
+  );
   return {
     ...(mentions && { mentions }),
+    ...(uniqueReactionLimit !== undefined && { uniqueReactionLimit }),
     collapsedThreads: mode,
     separateUnreads: config.ExperimentalGroupUnreadChannels === "default_on",
     nameFormat: normalizedNameFormat(config.TeammateNameDisplay),

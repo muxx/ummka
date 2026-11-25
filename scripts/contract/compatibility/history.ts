@@ -45,6 +45,7 @@ import {
 } from "./post-mutations.ts";
 import { checkProfileReads } from "./profile-reads.ts";
 import { checkReactionActions } from "./reaction-actions.ts";
+import { checkReactionLimit } from "./reaction-limit.ts";
 import { checkPostReactions } from "./reactions.ts";
 import { checkRoleReads } from "./role-reads.ts";
 import { checkSidebarReads } from "./sidebar.ts";
@@ -864,6 +865,11 @@ await checkPreviouslyAcceptedPost(
       headers: authorization,
     }),
   version,
+);
+
+await checkReactionLimit(base, token, user.id, readerToken, channelId);
+console.log(
+  `Mattermost ${version} verified the signed reaction limit against adding a new emoji name.`,
 );
 
 await checkMentionLimit(
