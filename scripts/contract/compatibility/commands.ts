@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { executeAccountCommand } from "../../../src/mattermost/execute-account-command.ts";
 import {
   CommandsApi,
   type Configuration,
@@ -20,9 +21,13 @@ export async function checkCommands(
   assert.ok(root.id);
   const inThread = { channelId, teamId, rootId: root.id };
   await checkSuggestions(commands, inThread, version);
-  const me = await commands.executeCommand({
-    executeCommandRequest: { ...inThread, command: "/me checks the draft" },
-  });
+  const submitted = await executeAccountCommand(
+    commands,
+    inThread,
+    "/ME  checks the draft  ",
+  );
+  assert.equal(submitted.kind, "executed");
+  const me = submitted.response;
   assert.equal(me.responseType, "in_channel");
   assert.equal(me.text, "*checks the draft*");
   assert.equal(me.gotoLocation, "");
@@ -49,6 +54,12 @@ export async function checkCommands(
     (await refused.json()).id,
     "api.command.execute_command.not_found.app_error",
   );
+  const missing = await executeAccountCommand(
+    commands,
+    inThread,
+    "/ummka-unknown-fixture-command",
+  );
+  assert.equal(missing.kind, "unknownCommand");
   const thread = await posts.getPostThread({ postId: root.id });
   const replies = Object.values(thread.posts ?? {}).filter(
     (post) => post.rootId === root.id,
