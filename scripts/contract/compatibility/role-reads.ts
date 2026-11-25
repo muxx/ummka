@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { fetchTeamRoleSnapshot } from "../../../src/mattermost/channel-permissions.ts";
 import {
   Configuration,
   ResponseError,
@@ -8,9 +9,11 @@ import {
 export async function checkRoleReads(
   basePath: string,
   accessToken: string,
+  userId: string,
   version: string,
 ) {
-  const api = new RolesApi(new Configuration({ basePath, accessToken }));
+  const config = new Configuration({ basePath, accessToken });
+  const api = new RolesApi(config);
   const read = (names: string[]) => api.getRolesByNames({ requestBody: names });
   const result = await read([
     "system_user",
@@ -29,6 +32,18 @@ export async function checkRoleReads(
   assert.ok(!system.permissions.includes("create_post"));
   assert.ok(channel.id && channel.displayName && channel.schemeManaged);
   assert.ok(system.id && system.id !== channel.id);
+
+  const snapshot = await fetchTeamRoleSnapshot(config, userId, [
+    "channel_user",
+    "ummka_absent_role",
+  ]);
+  assert.ok(snapshot.systemRoles.split(" ").includes("system_user"));
+  const saved = new Map(
+    snapshot.definitions.map((role) => [role.name, role.permissions]),
+  );
+  assert.ok(saved.get("channel_user")?.includes("create_post"));
+  assert.deepEqual(saved.get("ummka_absent_role"), []);
+  assert.deepEqual(saved.get("system_user"), system.permissions);
 
   const names = Array.from({ length: 100 }, (_, i) => `ummka_absent_${i}`);
   assert.equal(await read(names), null);

@@ -3,7 +3,15 @@ use crate::{
     history::{HistoryError, TeamRoleLoad, TeamRoleSnapshot},
     sessions::AccountSessions,
 };
+use serde::Serialize;
 use tauri::{Manager, Resource, ResourceId, Runtime, Webview};
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TeamRoleRequest {
+    load: ResourceId,
+    role_names: Vec<String>,
+}
 
 struct PendingTeamRoles(TeamRoleLoad);
 impl Resource for PendingTeamRoles {}
@@ -26,7 +34,7 @@ pub(crate) async fn begin_team_role_load<R: Runtime>(
     webview: Webview<R>,
     rid: ResourceId,
     team_id: String,
-) -> Result<Option<ResourceId>, ExchangeError> {
+) -> Result<Option<TeamRoleRequest>, ExchangeError> {
     let account = session(&webview, rid)?;
     let pending = account
         .with_history(&webview.state::<AccountSessions>(), move |db| {
@@ -34,7 +42,10 @@ pub(crate) async fn begin_team_role_load<R: Runtime>(
         })
         .await?;
     let mut resources = account.open_resources()?;
-    Ok(pending.map(|load| resources.add(PendingTeamRoles(load))))
+    Ok(pending.map(|(load, role_names)| TeamRoleRequest {
+        load: resources.add(PendingTeamRoles(load)),
+        role_names,
+    }))
 }
 
 #[tauri::command]

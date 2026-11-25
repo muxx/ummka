@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, expect, expectTypeOf, test, vi } from "vitest";
+import * as roles from "./channel-permissions.ts";
 import { channelProfile } from "./channel-profiles.ts";
 import {
   forgetLocalAccount,
@@ -304,6 +305,7 @@ test("opens a native account by installation and user ID", async () => {
     "refreshChannelHistory",
     "refreshJoinedTeams",
     "refreshSavedProfiles",
+    "refreshTeamRoles",
     "refreshTeamSidebar",
     "refreshWorkspaceServerPolicy",
     "resendPost",
@@ -641,4 +643,53 @@ test("a team no longer on the device does not start a sidebar network fetch", as
   expect(ipc.mock.calls.slice(1)).toEqual([
     ["begin_sidebar_load", { rid: 9, teamId: "t".repeat(26) }],
   ]);
+});
+
+test("a role refresh uses the reserved assignments and releases the reservation on a failed read", async () => {
+  ipc.mockResolvedValueOnce(7);
+  const userId = "u".repeat(26);
+  const teamId = "t".repeat(26);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    userId,
+  );
+  const read = vi.spyOn(roles, "fetchTeamRoleSnapshot");
+  try {
+    ipc.mockResolvedValueOnce(null);
+    expect(await account.refreshTeamRoles(teamId)).toBe(false);
+    expect(read).not.toHaveBeenCalled();
+
+    const failure = new Error("second role batch failed");
+    read.mockRejectedValueOnce(failure);
+    ipc
+      .mockResolvedValueOnce({ load: 9, roleNames: ["writer"] })
+      .mockResolvedValueOnce(undefined);
+    await expect(account.refreshTeamRoles(teamId)).rejects.toBe(failure);
+    expect(read).toHaveBeenCalledWith(
+      expect.anything(),
+      userId,
+      ["writer"],
+      undefined,
+    );
+    expect(ipc.mock.calls.slice(1)).toEqual([
+      ["begin_team_role_load", { rid: 7, teamId }],
+      ["begin_team_role_load", { rid: 7, teamId }],
+      ["cancel_team_role_load", { rid: 7, load: 9 }],
+    ]);
+    const data = {
+      systemRoles: "system_user",
+      definitions: [{ name: "system_user", permissions: [] }],
+    };
+    read.mockResolvedValueOnce(data);
+    ipc
+      .mockResolvedValueOnce({ load: 10, roleNames: [] })
+      .mockResolvedValueOnce(false);
+    expect(await account.refreshTeamRoles(teamId)).toBe(false);
+    expect(ipc.mock.calls.at(-1)).toEqual([
+      "store_team_roles",
+      { rid: 7, load: 10, data },
+    ]);
+  } finally {
+    read.mockRestore();
+  }
 });

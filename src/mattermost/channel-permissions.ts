@@ -3,6 +3,7 @@ import {
   RolesApi,
   type TeamMember,
   type User,
+  UsersApi,
 } from "../../vendor/mattermost/index.js";
 import { isMattermostId, isMattermostTime } from "./model-fields.ts";
 import type { loadTeamDirectory } from "./navigation-data.ts";
@@ -79,9 +80,22 @@ export async function loadChannelPermissions(
       requested.add(name);
   }
 
+  const permissions = await readRoleDefinitions(config, [...requested], signal);
+  return (channelId: string, permission: string): boolean => {
+    const assigned = byChannel.get(channelId);
+    if (!assigned) return false;
+    const grants = (name: string) => permissions.get(name)?.has(permission);
+    return assigned.inherited.some(grants) || assigned.local.some(grants);
+  };
+}
+
+async function readRoleDefinitions(
+  config: Configuration,
+  names: string[],
+  signal?: AbortSignal,
+) {
   const api = new RolesApi(config);
   const permissions = new Map<string, Set<string>>();
-  const names = [...requested];
   try {
     // Mattermost accepts at most 100 names in one POST /roles/names.
     for (let offset = 0; offset < names.length; offset += 100) {
@@ -110,10 +124,35 @@ export async function loadChannelPermissions(
     signal?.throwIfAborted();
     throw error;
   }
-  return (channelId: string, permission: string): boolean => {
-    const assigned = byChannel.get(channelId);
-    if (!assigned) return false;
-    const grants = (name: string) => permissions.get(name)?.has(permission);
-    return assigned.inherited.some(grants) || assigned.local.some(grants);
+  return permissions;
+}
+
+export async function fetchTeamRoleSnapshot(
+  config: Configuration,
+  userId: string,
+  assigned: readonly string[],
+  signal?: AbortSignal,
+): Promise<TeamRoleSnapshot> {
+  signal?.throwIfAborted();
+  if (!isMattermostId(userId))
+    throw new TypeError("Invalid Mattermost permission scope.");
+  let user: User;
+  try {
+    user = await new UsersApi(config).getUser({ userId: "me" }, { signal });
+  } catch (error) {
+    signal?.throwIfAborted();
+    throw error;
+  }
+  signal?.throwIfAborted();
+  if (user.id !== userId || typeof user.roles !== "string")
+    throw new TypeError("Invalid Mattermost role owner.");
+  const names = [...new Set([...assigned, ...roleNames(user.roles)])];
+  const permissions = await readRoleDefinitions(config, names, signal);
+  return {
+    systemRoles: user.roles,
+    definitions: names.map((name) => ({
+      name,
+      permissions: [...(permissions.get(name) ?? [])],
+    })),
   };
 }

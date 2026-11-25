@@ -33,16 +33,13 @@ fn join(db: &mut AccountHistory, ids: &[&str]) {
     assert!(db.store_team_directory(load, &teams, None).unwrap());
     for team in ids {
         let load = db.begin_sidebar_load(team).unwrap().unwrap();
-        assert!(
-            db.store_sidebar(
-                load,
-                &SidebarData {
-                    channels: vec![],
-                    categories: vec![]
-                }
-            )
-            .unwrap()
-        );
+        let sidebar: SidebarData = serde_json::from_value(serde_json::json!({
+            "channels":[{"id": USER, "kind":"O", "name":"channel", "displayName":"Channel",
+                "header":"", "purpose":"", "deleteAt":0, "muted":false, "roles":"channel_user"}],
+            "categories":[]
+        }))
+        .unwrap();
+        assert!(db.store_sidebar(load, &sidebar).unwrap());
     }
 }
 fn grants(permission: &str) -> TeamRoleSnapshot {
@@ -61,7 +58,7 @@ fn grants(permission: &str) -> TeamRoleSnapshot {
     }
 }
 fn publish(db: &mut AccountHistory, team: &str, data: &TeamRoleSnapshot) {
-    let load = db.begin_team_roles(team).unwrap().unwrap();
+    let load = db.begin_team_roles(team).unwrap().unwrap().0;
     assert!(db.store_team_roles(load, data).unwrap());
 }
 
@@ -79,9 +76,9 @@ fn publishes_one_complete_role_snapshot_per_team_and_rejects_a_stale_writer() {
     join(&mut first, &[TEAM, OTHER]);
     let kept = grants("create_post");
     publish(&mut first, TEAM, &kept);
-    let old = first.begin_team_roles(TEAM).unwrap().unwrap();
-    let new = second.begin_team_roles(TEAM).unwrap().unwrap();
-    let separate = first.begin_team_roles(OTHER).unwrap().unwrap();
+    let old = first.begin_team_roles(TEAM).unwrap().unwrap().0;
+    let new = second.begin_team_roles(TEAM).unwrap().unwrap().0;
+    let separate = first.begin_team_roles(OTHER).unwrap().unwrap().0;
     let missing = TeamRoleSnapshot {
         system_roles: String::new(),
         definitions: vec![],
@@ -116,14 +113,14 @@ fn rejects_incomplete_and_ambiguous_definitions_without_erasing_the_previous_sna
         } else {
             bad.definitions[1].name = name.into();
         }
-        let load = db.begin_team_roles(TEAM).unwrap().unwrap();
+        let load = db.begin_team_roles(TEAM).unwrap().unwrap().0;
         assert_eq!(
             db.store_team_roles(load, &bad),
             Err(HistoryError::InvalidDirectory)
         );
     }
     let mut bad = grants("");
-    let load = db.begin_team_roles(TEAM).unwrap().unwrap();
+    let load = db.begin_team_roles(TEAM).unwrap().unwrap().0;
     assert_eq!(
         db.store_team_roles(load, &bad),
         Err(HistoryError::InvalidDirectory)
@@ -142,19 +139,19 @@ fn leaving_a_team_rotating_a_login_and_signing_out_invalidate_their_rights() {
     join(&mut first, &[TEAM, OTHER]);
     publish(&mut first, TEAM, &grants("old"));
     publish(&mut first, OTHER, &grants("other"));
-    let departed = first.begin_team_roles(TEAM).unwrap().unwrap();
+    let departed = first.begin_team_roles(TEAM).unwrap().unwrap().0;
     join(&mut first, &[OTHER]);
     assert_eq!(first.read_team_roles(TEAM).unwrap(), None);
     assert_eq!(first.read_team_roles(OTHER).unwrap(), Some(grants("other")));
     join(&mut first, &[TEAM, OTHER]);
-    let current = first.begin_team_roles(TEAM).unwrap().unwrap();
+    let current = first.begin_team_roles(TEAM).unwrap().unwrap().0;
     assert!(!first.store_team_roles(departed, &grants("stale")).unwrap());
     assert!(
         first
             .store_team_roles(current, &grants("rejoined"))
             .unwrap()
     );
-    let delayed = first.begin_team_roles(OTHER).unwrap().unwrap();
+    let delayed = first.begin_team_roles(OTHER).unwrap().unwrap().0;
     let mut database = HistoryDatabase::open(dir.path(), URL).unwrap();
     let owner = database.new_login(&account()).unwrap();
     let mut next = open(dir.path());
@@ -246,6 +243,71 @@ fn lookup_and_updates_use_the_team_key_with_five_thousand_snapshots() {
             assert!(!plan.iter().any(|line|line.starts_with("SCAN ")), "{plan:?}");
             assert!(plan.iter().any(|line|line.contains("USING PRIMARY KEY")),"{plan:?}");
         }
+        Ok(())
+    }).unwrap();
+}
+
+#[test]
+fn reserves_the_distinct_roles_of_the_current_team_and_omits_team_roles_in_direct_messages() {
+    let dir = tempdir().unwrap();
+    let mut db = open(dir.path());
+    join(&mut db, &[TEAM, OTHER]);
+    let mut sidebar = db.read_sidebar(TEAM).unwrap().unwrap().data;
+    let mut direct = sidebar.channels[0].clone();
+    direct.kind = "D".into();
+    direct.roles = Some("direct_writer shared shared".into());
+    let mut group = direct.clone();
+    group.id = OTHER.into();
+    group.kind = "G".into();
+    group.roles = Some("group_reader shared".into());
+    sidebar.channels = vec![direct, group];
+    let ticket = db.begin_sidebar_load(TEAM).unwrap().unwrap();
+    assert!(db.store_sidebar(ticket, &sidebar).unwrap());
+    let (_, names) = db.begin_team_roles(TEAM).unwrap().unwrap();
+    assert_eq!(names, ["direct_writer", "group_reader", "shared"]);
+    assert_eq!(
+        db.begin_team_roles(OTHER).unwrap().unwrap().1,
+        ["channel_user", "team_user"]
+    );
+
+    sidebar.channels[0].kind = "P".into();
+    sidebar.channels[0].roles = Some("team_user shared".into());
+    let ticket = db.begin_sidebar_load(TEAM).unwrap().unwrap();
+    assert!(db.store_sidebar(ticket, &sidebar).unwrap());
+    assert_eq!(
+        db.begin_team_roles(TEAM).unwrap().unwrap().1,
+        ["group_reader", "shared", "team_user"]
+    );
+
+    sidebar.channels.truncate(1);
+    sidebar.channels[0].kind = "D".into();
+    sidebar.channels[0].roles = None;
+    let ticket = db.begin_sidebar_load(TEAM).unwrap().unwrap();
+    assert!(db.store_sidebar(ticket, &sidebar).unwrap());
+    assert!(db.begin_team_roles(TEAM).unwrap().unwrap().1.is_empty());
+    sidebar.channels.clear();
+    let ticket = db.begin_sidebar_load(TEAM).unwrap().unwrap();
+    assert!(db.store_sidebar(ticket, &sidebar).unwrap());
+    assert!(db.begin_team_roles(TEAM).unwrap().is_none());
+    assert!(db.begin_team_roles(USER).unwrap().is_none());
+}
+
+#[test]
+fn role_assignment_query_reads_only_the_requested_team_on_a_large_sidebar() {
+    let dir = tempdir().unwrap();
+    let mut db = open(dir.path());
+    db.write(|tx| {
+        tx.execute_batch("WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<100)
+            INSERT INTO sidebar_team(team_id,published) SELECT printf('%026d',i),1 FROM n;
+            WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<50)
+            INSERT INTO sidebar_channel(team_id,position,channel_id,kind,name,display_name,header,purpose,delete_at,muted,roles)
+            SELECT team_id,i,printf('%026d',i),'O','room','Room','','',0,0,'channel_user' FROM sidebar_team,n;
+            ANALYZE")?;
+        let plan=tx.prepare(&format!("EXPLAIN QUERY PLAN {ASSIGNMENTS}"))?
+            .query_map([format!("{:026}",75)],|row|row.get::<_,String>(3))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        assert_eq!(plan.iter().filter(|line|line.starts_with("SEARCH sidebar_channel") && line.contains("team_id=?")).count(),2,"{plan:?}");
+        assert!(plan.iter().any(|line|line.starts_with("SEARCH joined_team") && line.contains("team_id=?")),"{plan:?}");
         Ok(())
     }).unwrap();
 }
