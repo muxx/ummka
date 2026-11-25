@@ -1001,6 +1001,8 @@ export function webviewServers(
         "history-focused-before",
         "history-anonymous",
         "saved-room-history",
+        "single-post-reply",
+        "single-post-retention",
         "post-info-root",
         "post-info-prefixed",
         "post-thread-archive",

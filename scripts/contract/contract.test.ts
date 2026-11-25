@@ -81,6 +81,7 @@ import {
   correctSidebarResponse,
   correctSidebarSchema,
 } from "./sidebar-corrections.ts";
+import { correctSinglePost } from "./single-post-correction.ts";
 
 const sources = process.env.UMMKA_CONTRACT_SOURCES;
 const work = process.env.UMMKA_CONTRACT_WORK;
@@ -762,6 +763,12 @@ test("retains the catalog operations, security and transitive models", () => {
     }
     const source = object(at(read(file), key), path);
     let expected = source;
+    if (source.operationId === "GetPost")
+      expected = correctSinglePost(
+        source,
+        read("posts-12.1.0.yaml"),
+        read("definitions.yaml"),
+      );
     if (source.operationId === "SearchFiles")
       expected = correctFileSearch(path, source, read("files-12.1.0.yaml"));
     if (source.operationId === "SaveReaction")
@@ -2126,4 +2133,42 @@ test("file search uses JSON in both scopes and retains the attachment and its na
     `/mattermost/api/v4/teams/${team}/files/search`,
     "/mattermost/api/v4/files/search",
   ]);
+});
+
+test("documents retention on a forbidden post and rejects drift in either pinned source", () => {
+  const path = "/api/v4/posts/{post_id}";
+  const input = object(at(read("posts.yaml"), [path, "get"]), path);
+  const next = read("posts-12.1.0.yaml");
+  const defs = read("definitions.yaml");
+  const fixed = correctSinglePost(input, next, defs);
+  assert.deepEqual(at(fixed, ["responses", "404"]), {
+    $ref: "#/components/responses/NotFound",
+  });
+  assert.deepEqual(
+    at(fixed, [
+      "responses",
+      "403",
+      "headers",
+      "First-Inaccessible-Post-Time",
+      "schema",
+    ]),
+    { type: "string", enum: ["1"] },
+  );
+  assert.ok(
+    !Object.hasOwn(object(at(fixed, ["responses", "200"]), path), "headers"),
+  );
+  for (const version of ["baseline", "newer"]) {
+    const source = structuredClone(input);
+    const newer = structuredClone(next);
+    const operation =
+      version === "baseline" ? source : object(at(newer, [path, "get"]), path);
+    const success = object(at(operation, ["responses", "200"]), path);
+    success.headers = {
+      "Has-Inaccessible-Posts": { schema: { type: "integer" } },
+    };
+    assert.throws(
+      () => correctSinglePost(source, newer, defs),
+      /Review the single-post/,
+    );
+  }
 });

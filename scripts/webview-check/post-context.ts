@@ -1,10 +1,33 @@
-import { type Configuration, PostsApi } from "../../vendor/mattermost/index.js";
+import {
+  type Configuration,
+  PostsApi,
+  ResponseError,
+} from "../../vendor/mattermost/index.js";
 
 export async function checkPostContext(
   root: Configuration,
   prefixed: Configuration,
 ) {
   const query = { postId: "p".repeat(26) };
+  const single = await new PostsApi(prefixed).getPost(query);
+  if (
+    single.id !== query.postId ||
+    single.channelId !== "c".repeat(26) ||
+    single.rootId !== "r".repeat(26)
+  )
+    throw Error("Single post did not preserve the requested reply");
+  try {
+    await new PostsApi(root).getPost(query);
+    throw Error("Expected a history restriction");
+  } catch (error) {
+    if (
+      !(error instanceof ResponseError) ||
+      error.response.status !== 403 ||
+      error.response.headers.get("first-inaccessible-post-time") !== "1" ||
+      (await error.response.json()).id !== "app.post.cloud.get.app_error"
+    )
+      throw error;
+  }
   const member = await new PostsApi(root).getPostInfo(query);
   const direct = await new PostsApi(prefixed).getPostInfo(query);
   if (

@@ -383,6 +383,23 @@ const firstPage = await memberPosts.getPostThread({
 });
 assert.deepEqual(firstPage.order, [root.id]);
 assert.equal(firstPage.hasNext, true);
+for (const [id, rootId] of [
+  [root.id, ""],
+  [lastReply.id, root.id],
+]) {
+  const single = await memberPosts.getPostRaw({ postId: id });
+  assert.equal(single.raw.status, 200);
+  const row = await single.value();
+  assert.equal(row.id, id);
+  assert.equal(row.channelId, channelId);
+  assert.equal(row.rootId, rootId);
+}
+await assert.rejects(
+  memberPosts.getPost({ postId: "m".repeat(26) }),
+  (error: unknown) =>
+    error instanceof ResponseError && error.response.status === 404,
+);
+
 const followingPage = await memberPosts.getPostThread({
   postId: root.id,
   perPage: 1,

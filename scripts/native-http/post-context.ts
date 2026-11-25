@@ -14,7 +14,12 @@ export function respondToPostContext(
   const route = prefixed
     ? url.pathname.slice("/team/chat".length)
     : url.pathname;
-  if (route !== `${base}/info` && route !== `${base}/thread`) return;
+  if (
+    route !== `${base}/info` &&
+    route !== `${base}/thread` &&
+    !(route === base && request.method === "GET")
+  )
+    return;
   assert.equal(request.method, "GET");
   assert.equal(request.headers.cookie, undefined);
   assert.equal(
@@ -23,6 +28,33 @@ export function respondToPostContext(
       ? "Bearer fixture-prefixed-session"
       : "Bearer fixture-root-session",
   );
+  if (route === base) {
+    assert.equal(url.search, "");
+    if (prefixed) {
+      response.writeHead(200, { "Content-Type": "application/json" }).end(
+        JSON.stringify({
+          id: post,
+          root_id: "r".repeat(26),
+          channel_id: channelId,
+          message: "Later reply",
+        }),
+      );
+      return "single-post-reply";
+    }
+    response
+      .writeHead(403, {
+        "Content-Type": "application/json",
+        "First-Inaccessible-Post-Time": "1",
+      })
+      .end(
+        JSON.stringify({
+          id: "app.post.cloud.get.app_error",
+          status_code: 403,
+          message: "Outside accessible history",
+        }),
+      );
+    return "single-post-retention";
+  }
   if (route === `${base}/thread`) {
     const root = "r".repeat(26);
     assert.deepEqual(
