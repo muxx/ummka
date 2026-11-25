@@ -349,6 +349,16 @@ export async function checkGeneratedRequests(ports: string[]) {
         catalog.data.categories[0]?.channelIds[0] === channelId,
       "read-channel-catalog",
     );
+    check(
+      (
+        await accountPrefix.refreshChannelHistory({
+          kind: "latest",
+          channelId,
+          collapsedThreads: true,
+        })
+      ).kind === "applied",
+      "save-workspace-history",
+    );
     await checkChannelHistory(rootSession, signed, new Configuration(root));
     await checkPostContext(rootSession, signed);
     await checkConnectServer(origin);

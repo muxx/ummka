@@ -9,6 +9,10 @@ import {
 } from "react";
 import { ResponseError } from "../../vendor/mattermost/index.js";
 import {
+  useAccountPolicy,
+  useDeviceOnline,
+} from "../channels/use-workspace-read";
+import {
   type JoinedTeam,
   type JoinedTeams,
   orderJoinedTeams,
@@ -28,6 +32,9 @@ export type TeamWorkspace = {
   connection: Connection;
   directoryNotice: Issue | null;
   chooseAnotherTeam: () => void;
+  policy: ReturnType<typeof useAccountPolicy>;
+  online: boolean;
+  sessionIssue: (issue: "session" | "unauthorized") => void;
 };
 type Props = {
   serverUrl: string;
@@ -65,6 +72,19 @@ function AccountWindow({
   const [picker, setPicker] = useState(false);
   const [choosing, setChoosing] = useState(false);
   const connection = useRef<Connection | null>(null);
+  const online = useDeviceOnline();
+  const policy = useAccountPolicy(
+    directory ? connection.current : null,
+    directory,
+    online,
+  );
+  const invalidation = useRef<
+    ((issue: "session" | "unauthorized") => void) | null
+  >(null);
+  const sessionIssue = useCallback(
+    (issue: "session" | "unauthorized") => invalidation.current?.(issue),
+    [],
+  );
   const selection = useRef(false);
   const readVersion = useRef(0);
   const retryRemoval = useRef<(() => void) | null>(null);
@@ -115,6 +135,14 @@ function AccountWindow({
         }
       }
     }
+    let invalidated = false;
+    invalidation.current = (issue) => {
+      if (signal.aborted || invalidated || !acquired) return;
+      invalidated = true;
+      withdraw();
+      if (issue === "unauthorized") void removeRejectedSession(acquired);
+      else ended();
+    };
     async function load() {
       try {
         acquired = await openAccountRestConnection(serverUrl, userId);
@@ -133,6 +161,10 @@ function AccountWindow({
         return;
       }
       if (signal.aborted) return;
+      await refresh();
+    }
+    async function refresh() {
+      if (!acquired || signal.aborted || invalidated) return;
       if (!navigator.onLine) {
         setNotice(initial ? "offline" : "noCache");
         return;
@@ -140,15 +172,14 @@ function AccountWindow({
       try {
         await acquired.refreshJoinedTeams(signal);
       } catch (error) {
-        if (signal.aborted) return;
+        if (signal.aborted || invalidated) return;
         if (error === "session_unavailable" || error === "cancelled") {
           withdraw();
           ended();
           return;
         }
         if (error instanceof ResponseError && error.response.status === 401) {
-          withdraw();
-          await removeRejectedSession(acquired);
+          invalidation.current?.("unauthorized");
         } else {
           const storage =
             typeof error === "string" &&
@@ -161,17 +192,24 @@ function AccountWindow({
         }
         return;
       }
-      if (!signal.aborted) {
+      if (!signal.aborted && !invalidated) {
         try {
           const published = await read(acquired);
-          if (!signal.aborted && published === null) setNotice("network");
+          if (!signal.aborted && !invalidated && published === null)
+            setNotice("network");
         } catch {
-          if (!signal.aborted) setNotice("storage");
+          if (!signal.aborted && !invalidated) setNotice("storage");
         }
       }
     }
+    const reconnect = () => {
+      void refresh();
+    };
+    window.addEventListener("online", reconnect);
     void load();
     return () => {
+      window.removeEventListener("online", reconnect);
+      invalidation.current = null;
       controller.abort();
       readVersion.current++;
       connection.current = null;
@@ -223,6 +261,9 @@ function AccountWindow({
       userId,
       team: selected,
       connection: connection.current,
+      online,
+      policy,
+      sessionIssue,
       directoryNotice: notice,
       chooseAnotherTeam: () => setPicker(true),
     });

@@ -46,6 +46,10 @@ function deferred<T>() {
 }
 function fixture(snapshot: JoinedTeams | null) {
   const fake = {
+    readWorkspaceSettings: vi
+      .fn()
+      .mockResolvedValue({ server: null, preferences: null }),
+    refreshWorkspaceServerPolicy: vi.fn().mockResolvedValue(true),
     readJoinedTeams: vi
       .fn<() => Promise<JoinedTeams | null>>()
       .mockResolvedValue(snapshot),
