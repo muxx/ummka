@@ -1,8 +1,10 @@
 import * as runtime from '../runtime.js';
 import { CreatePostRequestToJSON, } from '../models/CreatePostRequest.js';
+import { PatchPostRequestToJSON, } from '../models/PatchPostRequest.js';
 import { PostFromJSON, } from '../models/Post.js';
 import { PostInfoFromJSON, } from '../models/PostInfo.js';
 import { PostListFromJSON, } from '../models/PostList.js';
+import { StatusOKFromJSON, } from '../models/StatusOK.js';
 export class PostsApi extends runtime.BaseAPI {
     async createPostRequestOpts(requestParameters) {
         if (requestParameters['createPostRequest'] == null) {
@@ -37,6 +39,37 @@ export class PostsApi extends runtime.BaseAPI {
     }
     async createPost(requestParameters, initOverrides) {
         const response = await this.createPostRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async deletePostRequestOpts(requestParameters) {
+        if (requestParameters['postId'] == null) {
+            throw new runtime.RequiredError('postId', 'Required parameter "postId" was null or undefined when calling deletePost().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/posts/{post_id}`;
+        urlPath = urlPath.replace('{post_id}', encodeURIComponent(String(requestParameters['postId'])));
+        return {
+            path: urlPath,
+            method: 'DELETE',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async deletePostRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.deletePostRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => StatusOKFromJSON(jsonValue));
+    }
+    async deletePost(requestParameters, initOverrides) {
+        const response = await this.deletePostRaw(requestParameters, initOverrides);
         return await response.value();
     }
     async getPostInfoRequestOpts(requestParameters) {
@@ -184,6 +217,42 @@ export class PostsApi extends runtime.BaseAPI {
     }
     async getPostsForChannel(requestParameters, initOverrides) {
         const response = await this.getPostsForChannelRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async patchPostRequestOpts(requestParameters) {
+        if (requestParameters['postId'] == null) {
+            throw new runtime.RequiredError('postId', 'Required parameter "postId" was null or undefined when calling patchPost().');
+        }
+        if (requestParameters['patchPostRequest'] == null) {
+            throw new runtime.RequiredError('patchPostRequest', 'Required parameter "patchPostRequest" was null or undefined when calling patchPost().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        headerParameters['Content-Type'] = 'application/json';
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/posts/{post_id}/patch`;
+        urlPath = urlPath.replace('{post_id}', encodeURIComponent(String(requestParameters['postId'])));
+        return {
+            path: urlPath,
+            method: 'PUT',
+            headers: headerParameters,
+            query: queryParameters,
+            body: PatchPostRequestToJSON(requestParameters['patchPostRequest']),
+        };
+    }
+    async patchPostRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.patchPostRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => PostFromJSON(jsonValue));
+    }
+    async patchPost(requestParameters, initOverrides) {
+        const response = await this.patchPostRaw(requestParameters, initOverrides);
         return await response.value();
     }
 }

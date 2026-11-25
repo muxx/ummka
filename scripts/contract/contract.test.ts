@@ -27,7 +27,10 @@ import {
   checkPostInfoOperation,
   postInfoSchema,
 } from "./post-info-correction.ts";
-import { correctCreatePost } from "./post-mutation-corrections.ts";
+import {
+  correctCreatePost,
+  correctPatchPost,
+} from "./post-mutation-corrections.ts";
 import {
   correctProfileImage,
   correctUserProfile,
@@ -176,6 +179,33 @@ test("create-post correction detects changes in either tagged source", () => {
   }
 });
 
+test("a corrected upstream patch-body type requires rechecking the local correction", () => {
+  const route = "/api/v4/posts/{post_id}/patch";
+  const source = object(at(read("posts.yaml"), [route, "put"]), route);
+  const newer = read("posts-12.1.0.yaml");
+  for (const version of ["baseline", "reference"]) {
+    const baseline = structuredClone(source);
+    const reference = structuredClone(newer);
+    const changed =
+      version === "baseline" ? baseline : at(reference, [route, "put"]);
+    object(
+      at(changed, [
+        "requestBody",
+        "content",
+        "application/json",
+        "schema",
+        "properties",
+        "props",
+      ]),
+      "props",
+    ).type = "object";
+    assert.throws(
+      () => correctPatchPost(baseline, reference),
+      /Review PatchPost/,
+    );
+  }
+});
+
 test("retains the catalog operations, security and transitive models", () => {
   for (const { file, path, method } of catalog) {
     const key = [path, method.toLowerCase()];
@@ -199,6 +229,8 @@ test("retains the catalog operations, security and transitive models", () => {
     let expected = source;
     if (path === "/api/v4/posts" && method === "POST")
       expected = correctCreatePost(source, read("posts-12.1.0.yaml"));
+    if (path === "/api/v4/posts/{post_id}/patch")
+      expected = correctPatchPost(source, read("posts-12.1.0.yaml"));
     if (path === sidebar) expected = correctSidebarResponse(source);
     if (path === profileImage) expected = correctProfileImage(source);
     assert.deepEqual(actual, expected);
@@ -236,6 +268,7 @@ test("retains the catalog operations, security and transitive models", () => {
       "Preference",
       "Reaction",
       "SidebarCategoryWithChannels",
+      "StatusOK",
       "SystemStatusResponse",
       "Team",
       "TeamMember",

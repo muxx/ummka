@@ -541,6 +541,8 @@ export function webviewServers(
         "sidebar-preferences",
         "create-post-root",
         "create-post-reply",
+        "patch-post",
+        "delete-post",
         "history-root",
         "history-prefixed",
         "history-focused-after",

@@ -1,6 +1,6 @@
 import { type Configuration, PostsApi } from "../../vendor/mattermost/index.js";
 
-export async function checkCreatePost(
+export async function checkPostMutations(
   root: Configuration,
   prefixed: Configuration,
   channelId: string,
@@ -35,4 +35,18 @@ export async function checkCreatePost(
     reply.pendingPostId !== "fixture:reply"
   )
     throw Error("reply creation lost its root or message");
+  if (!reply.id) throw Error("reply has no identity");
+  const api = new PostsApi(prefixed);
+  const edited = await api.patchPost({
+    postId: reply.id,
+    patchPostRequest: { message: "Отредактировано ✎", props: { note: true } },
+  });
+  if (
+    edited.id !== reply.id ||
+    edited.rootId !== post.id ||
+    edited.message !== "Отредактировано ✎"
+  )
+    throw Error("partial post edit lost its root or message");
+  if ((await api.deletePost({ postId: reply.id })).status !== "OK")
+    throw Error("post deletion was not confirmed");
 }

@@ -1,11 +1,16 @@
 import * as runtime from '../runtime.js';
 import { type CreatePostRequest } from '../models/CreatePostRequest.js';
+import { type PatchPostRequest } from '../models/PatchPostRequest.js';
 import { type Post } from '../models/Post.js';
 import { type PostInfo } from '../models/PostInfo.js';
 import { type PostList } from '../models/PostList.js';
+import { type StatusOK } from '../models/StatusOK.js';
 export interface CreatePostOperationRequest {
     createPostRequest: CreatePostRequest;
     setOnline?: boolean;
+}
+export interface DeletePostRequest {
+    postId: string;
 }
 export interface GetPostInfoRequest {
     postId: string;
@@ -34,10 +39,17 @@ export interface GetPostsForChannelRequest {
     collapsedThreads?: boolean;
     collapsedThreadsExtended?: boolean;
 }
+export interface PatchPostOperationRequest {
+    postId: string;
+    patchPostRequest: PatchPostRequest;
+}
 export declare class PostsApi extends runtime.BaseAPI {
     createPostRequestOpts(requestParameters: CreatePostOperationRequest): Promise<runtime.RequestOpts>;
     createPostRaw(requestParameters: CreatePostOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Post>>;
     createPost(requestParameters: CreatePostOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Post>;
+    deletePostRequestOpts(requestParameters: DeletePostRequest): Promise<runtime.RequestOpts>;
+    deletePostRaw(requestParameters: DeletePostRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<StatusOK>>;
+    deletePost(requestParameters: DeletePostRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<StatusOK>;
     getPostInfoRequestOpts(requestParameters: GetPostInfoRequest): Promise<runtime.RequestOpts>;
     getPostInfoRaw(requestParameters: GetPostInfoRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<PostInfo>>;
     getPostInfo(requestParameters: GetPostInfoRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<PostInfo>;
@@ -47,4 +59,7 @@ export declare class PostsApi extends runtime.BaseAPI {
     getPostsForChannelRequestOpts(requestParameters: GetPostsForChannelRequest): Promise<runtime.RequestOpts>;
     getPostsForChannelRaw(requestParameters: GetPostsForChannelRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<PostList>>;
     getPostsForChannel(requestParameters: GetPostsForChannelRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<PostList>;
+    patchPostRequestOpts(requestParameters: PatchPostOperationRequest): Promise<runtime.RequestOpts>;
+    patchPostRaw(requestParameters: PatchPostOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Post>>;
+    patchPost(requestParameters: PatchPostOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Post>;
 }

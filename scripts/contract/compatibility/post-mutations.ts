@@ -6,7 +6,7 @@ import {
   ResponseError,
 } from "../../../vendor/mattermost/index.js";
 
-export async function checkCreatePost(
+export async function checkPostMutations(
   base: string,
   posts: PostsApi,
   channelId: string,
@@ -36,8 +36,31 @@ export async function checkCreatePost(
   assert.ok(reply.id && reply.id !== created.id);
   assert.equal(reply.userId, userId);
   assert.equal(reply.rootId, created.id);
+  const props = { fixture_flag: true, fixture_label: "kept on edit" };
+  const tagged = await posts.patchPost({
+    postId: reply.id,
+    patchPostRequest: { props },
+  });
+  assert.equal(tagged.id, reply.id);
+  assert.deepEqual(tagged.props, props);
+  const edited = "Updated **reply** · правка";
+  const updated = await posts.patchPost({
+    postId: reply.id,
+    patchPostRequest: { message: edited },
+  });
+  assert.equal(updated.id, reply.id);
+  assert.equal(updated.rootId, created.id);
+  assert.equal(updated.message, edited);
+  assert.deepEqual(updated.props, props);
   const thread = await posts.getPostThread({ postId: created.id });
   assert.deepEqual(new Set(thread.order), new Set([created.id, reply.id]));
+  assert.equal(thread.posts?.[reply.id]?.message, edited);
+  assert.deepEqual(thread.posts?.[reply.id]?.props, props);
+  const deleted = await posts.deletePost({ postId: reply.id });
+  assert.equal(deleted.status, "OK");
+  const remaining = await posts.getPostThread({ postId: created.id });
+  assert.deepEqual(remaining.order, [created.id]);
+  assert.ok(!remaining.posts?.[reply.id]);
   const page = await posts.getPostsForChannel({
     channelId,
     perPage: 60,
@@ -57,6 +80,6 @@ export async function checkCreatePost(
     (err) => err instanceof ResponseError && err.response.status === 401,
   );
   console.log(
-    `Mattermost ${version} verified a root, a thread reply and an immediately repeated pending post ID.`,
+    `Mattermost ${version} verified a root, reply, repeated pending ID, independent edits and confirmed deletion.`,
   );
 }

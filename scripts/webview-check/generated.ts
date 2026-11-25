@@ -19,7 +19,7 @@ import { checkChannelHistory } from "./history.ts";
 import { prepareHistoryLoads } from "./history-loads.ts";
 import { checkUnavailableHistoryServer } from "./local-history.ts";
 import { checkPostContext } from "./post-context.ts";
-import { checkCreatePost } from "./post-mutations.ts";
+import { checkPostMutations } from "./post-mutations.ts";
 import { checkTeamReads } from "./team-reads.ts";
 
 function check(value: unknown, message: string): asserts value {
@@ -336,7 +336,7 @@ export async function checkGeneratedRequests(ports: string[]) {
     );
     await checkChannelHistory(rootSession, signed, new Configuration(root));
     await checkPostContext(rootSession, signed);
-    await checkCreatePost(rootSession, signed, channelId);
+    await checkPostMutations(rootSession, signed, channelId);
     await checkConnectServer(origin);
     const profile = await inspectInstallation(
       `${prefixed.basePath.slice("https://".length)}/`,

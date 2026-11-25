@@ -103,5 +103,18 @@
     "path": "/api/v4/posts",
     "id": "CreatePost",
     "body": "json"
+  },
+  {
+    "file": "posts.yaml",
+    "method": "PUT",
+    "path": "/api/v4/posts/{post_id}/patch",
+    "id": "PatchPost",
+    "body": "json"
+  },
+  {
+    "file": "posts.yaml",
+    "method": "DELETE",
+    "path": "/api/v4/posts/{post_id}",
+    "id": "DeletePost"
   }
 ]

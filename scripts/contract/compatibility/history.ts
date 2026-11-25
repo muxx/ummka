@@ -28,7 +28,7 @@ import {
   checkEmptyTeamDirectory,
   checkNavigationMemberships,
 } from "./memberships.ts";
-import { checkCreatePost } from "./post-mutations.ts";
+import { checkPostMutations } from "./post-mutations.ts";
 import { checkProfileReads } from "./profile-reads.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
@@ -723,7 +723,7 @@ await checkProfileReads(
   version,
 );
 
-await checkCreatePost(base, posts, channelId, user.id, version);
+await checkPostMutations(base, posts, channelId, user.id, version);
 
 const secondLogin = await create("users/login", {
   login_id: username,
