@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Post, PostsApi } from "../../vendor/mattermost/index.js";
 import type { ComposerDraft, DraftLocation, DraftSave } from "./native-rest.ts";
+import type { createPostActivity } from "./post-activity.ts";
 import { deliverAccountPost } from "./send-account-post.ts";
 
 export type PostRefusal = {
@@ -39,6 +40,7 @@ export function accountDelivery(
   whileOpen: <T>(operation: () => Promise<T>) => Promise<T>,
   posts: PostsApi,
   userId: string,
+  activity: ReturnType<typeof createPostActivity>,
 ) {
   const local = {
     readDraft({ channelId, rootId }: DraftLocation) {
@@ -158,10 +160,15 @@ export function accountDelivery(
     },
   };
   function send(post: PendingPost) {
-    return whileOpen(() => deliverAccountPost(posts, userId, post, local));
+    const finished = activity.start(post);
+    return whileOpen(() =>
+      deliverAccountPost(posts, userId, post, local),
+    ).finally(finished);
   }
   return {
     ...local,
+    isPostSending: activity.isSending,
+    subscribeToPostActivity: activity.subscribe,
     async submitDraft(draft: DraftLocation & { revision: string }) {
       if (navigator.onLine === false)
         return whileOpen(async () => ({ kind: "offline" }) as const);
@@ -177,6 +184,7 @@ export function accountDelivery(
     async resendPost(previous: AttemptKey, choice: RetryChoice) {
       if (navigator.onLine === false)
         return whileOpen(async () => ({ kind: "offline" }) as const);
+      if (activity.isSending(previous)) return { kind: "unavailable" } as const;
       const post = await local.retryPendingPost(previous, choice);
       if (!post) return { kind: "unavailable" } as const;
       return { kind: "sending", post, completion: send(post) } as const;

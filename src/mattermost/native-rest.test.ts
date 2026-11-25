@@ -289,6 +289,7 @@ test("opens a native account by installation and user ID", async () => {
     "confirmPostDelivery",
     "dismissPendingPost",
     "fetchApi",
+    "isPostSending",
     "readAccountDirectory",
     "readChannelWindow",
     "readDraft",
@@ -316,6 +317,7 @@ test("opens a native account by installation and user ID", async () => {
     "signOutOnDevice",
     "stagePost",
     "submitDraft",
+    "subscribeToPostActivity",
   ]);
 });
 

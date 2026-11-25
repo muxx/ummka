@@ -55,6 +55,24 @@ export async function checkSubmissions(
     )
       throw Error("Exactly one window should send before the HTTP result");
     await control("received", "submit-post");
+    const owner = results[0].kind === "sending" ? prefixed : neighbor;
+    const passive = owner === prefixed ? neighbor : prefixed;
+    if (
+      !owner.isPostSending(started.post) ||
+      passive.isPostSending(started.post)
+    )
+      throw Error(
+        "Only the connection that started HTTP knows its live attempt",
+      );
+    const updates: boolean[] = [];
+    const stop = owner.subscribeToPostActivity({ channelId }, () => {
+      updates.push(owner.isPostSending(started.post));
+    });
+    const duplicate = await owner.resendPost(started.post, {
+      kind: "despiteUnknownDelivery",
+    });
+    if (duplicate.kind !== "unavailable")
+      throw Error("An active submission should not reserve a second attempt");
     const waiting = await neighbor.readPendingPosts({
       channelId,
       after: 0,
@@ -76,6 +94,11 @@ export async function checkSubmissions(
       throw Error("The network response blocked the next local draft");
     await control("release-submission", "submit-post");
     const accepted = await started.completion;
+    stop();
+    if (updates.length !== 1 || updates[0] !== false)
+      throw Error(
+        "A newly mounted conversation did not observe the end of its request",
+      );
     if (
       accepted.kind !== "accepted" ||
       !accepted.matched ||
@@ -140,6 +163,10 @@ export async function checkSubmissionRestore(
     account.readPendingPosts({ channelId, after: 0, limit: 10 }),
     account.readPendingPosts({ channelId, rootId, after: 0, limit: 10 }),
   ]);
+  if (roots.some(account.isPostSending) || replies.some(account.isPostSending))
+    throw Error(
+      "Restored submission rows must not restart HTTP or report an active request",
+    );
   if (
     prefixed
       ? roots.length !== 3 ||
