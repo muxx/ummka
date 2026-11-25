@@ -111,6 +111,48 @@
   max-height: 80dvh;
   overflow: auto;
 }
+.workspace-composer-note {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin: 0 clamp(10px, 2vw, 24px) 12px;
+  padding: 8px 12px;
+  min-height: 48px;
+  box-sizing: border-box;
+  border: 1px solid var(--divider);
+  border-radius: 10px;
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+.workspace-composer-note svg {
+  flex: none;
+}
+.workspace-composer-note p {
+  flex: 1 1 14em;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.workspace-composer-note strong {
+  color: var(--text);
+  font-weight: 650;
+}
+.workspace-composer-note button {
+  margin-inline-start: auto;
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid var(--field-border);
+  border-radius: 7px;
+  background: var(--canvas);
+  color: var(--text);
+  cursor: pointer;
+}
+.workspace-composer-note button:hover {
+  background: var(--row-hover);
+}
 .workspace-account-menu::backdrop {
   background: #06183926;
 }
@@ -139,6 +181,9 @@
   background: var(--row-hover);
 }
 @media (max-width: 740px) {
+  .workspace-composer-note button {
+    min-height: 44px;
+  }
   .workspace-row {
     min-height: 44px;
   }

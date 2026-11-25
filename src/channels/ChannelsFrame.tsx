@@ -28,6 +28,7 @@ type FrameProps = {
   onAccount: () => void;
   navigation: ReactNode;
   children: ReactNode;
+  composer?: ReactNode;
   draftRef?: RefObject<HTMLElement | null>;
   thread?: {
     id: string;
@@ -69,6 +70,7 @@ export function ChannelsFrame({
   onAccount,
   navigation,
   children,
+  composer,
   draftRef,
   thread,
 }: FrameProps) {
@@ -226,6 +228,7 @@ export function ChannelsFrame({
             </h1>
           </header>
           <div className="channels-conversation-body">{children}</div>
+          {composer}
         </main>
         {thread && (
           <aside className="channels-thread" aria-labelledby={threadId}>

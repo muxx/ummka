@@ -260,6 +260,12 @@ test("a saved permission distinguishes missing evidence from an explicitly empty
     ],
   };
   const check = savedChannelPermissions(snapshot, "team");
+  expect(check("team", "read_channel")).toBe("allowed");
+  expect(check("team", "create_post")).toBe("allowed");
+  expect(check("team", "attach_file")).toBe("denied");
+  expect(
+    savedChannelPermissions(snapshot, undefined)("team", "create_post"),
+  ).toBe("unknown");
   for (const kind of ["O", "P", "D", "G"]) {
     const room = { kind, roles: "writer revoked" };
     expect(check(room, "read_channel")).toBe("allowed");

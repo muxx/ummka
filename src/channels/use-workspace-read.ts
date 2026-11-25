@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import type { JoinedTeams } from "../mattermost/joined-teams.ts";
+import type { JoinedTeam, JoinedTeams } from "../mattermost/joined-teams.ts";
 import type { openAccountRestConnection } from "../mattermost/native-rest.ts";
 import type { SidebarPreferences } from "../mattermost/workspace-preferences.ts";
 import { observeWorkspaceRead, type WorkspaceRead } from "./workspace-data.ts";
@@ -94,6 +94,30 @@ export function useAccountPolicy(
       user.retry();
     },
   };
+}
+
+export function useTeamRoles(
+  connection: Pick<
+    WorkspaceConnection,
+    "rid" | "readSavedTeamRoles" | "refreshTeamRoles"
+  >,
+  team: JoinedTeam,
+  refreshDirectoryComplete: boolean,
+) {
+  const read = useCallback(
+    () => connection.readSavedTeamRoles(team.id),
+    [connection, team.id],
+  );
+  const refresh = useCallback(
+    (signal: AbortSignal) => connection.refreshTeamRoles(team.id, signal),
+    [connection, team.id],
+  );
+  return useWorkspaceRead(
+    JSON.stringify([connection.rid, team.id, team.roles]),
+    refreshDirectoryComplete,
+    read,
+    refresh,
+  );
 }
 
 async function noRefresh() {}

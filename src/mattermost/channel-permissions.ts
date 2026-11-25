@@ -65,7 +65,7 @@ export function savedChannelPermissions(
   snapshot: TeamRoleSnapshot | null,
   teamRoles: string | undefined,
 ): (
-  channel: PermissionChannel | undefined,
+  channel: PermissionChannel | "team" | undefined,
   permission: string,
 ) => ChannelPermission {
   if (!snapshot) return () => "unknown";
@@ -79,6 +79,8 @@ export function savedChannelPermissions(
   const team = teamRoles === undefined ? undefined : roleNames(teamRoles);
   return (channel, permission) => {
     if (!channel) return "unknown";
+    if (channel === "team")
+      return assignedPermission(definitions, [system, team], permission);
     const local =
       channel.roles === undefined ? undefined : roleNames(channel.roles);
     const scopes = isTeamChannel(channel.kind)
