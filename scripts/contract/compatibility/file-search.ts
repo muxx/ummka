@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { accountSearch } from "../../../src/mattermost/account-search.ts";
 import {
   ChannelsApi,
   type Configuration,
@@ -87,6 +88,24 @@ export async function checkFileSearch(
   });
   assert.deepEqual(empty.order, []);
   assert.deepEqual(empty.fileInfos, {});
+  const account = accountSearch(readerSession, (read) => read());
+  const query = {
+    teamId: null,
+    terms,
+    page: 0,
+    isOrSearch: false,
+    includeDeletedChannels: false,
+    timeZoneOffsetSeconds: 0,
+  };
+  const visible = await account.readFileSearchPage(query);
+  assert.deepEqual(
+    visible.items.map((item) => item.id),
+    [first.id],
+  );
+  assert.equal(visible.isEnd, false);
+  const last = await account.readFileSearchPage({ ...query, page: 1 });
+  assert.deepEqual(last.items, []);
+  assert.equal(last.isEnd, true);
   console.log(
     `Mattermost ${version} file search verified two attached files, team scopes, viewer access and empty results.`,
   );
