@@ -111,6 +111,15 @@ export async function resumeRegistryCheck(): Promise<boolean> {
         throw Error(
           "offline workspace settings did not belong to the restored account",
         );
+      const recent = await recovered.readRecentTeamSearches(
+        "Team0123456789012345678901",
+      );
+      if (
+        base === root
+          ? recent.length !== 0
+          : recent.length !== 1 || recent[0] !== "from:fixture Привет"
+      )
+        throw Error("Recent team searches changed after an offline restart");
       const teams = await recovered.readJoinedTeams();
       const catalog = await recovered.readTeamSidebar(
         "Team0123456789012345678901",

@@ -301,6 +301,33 @@ export async function checkGeneratedRequests(ports: string[]) {
     );
     const teamId = "Team0123456789012345678901";
     const channelId = "c".repeat(26);
+    const term = "from:fixture Привет";
+    check(
+      await accountPrefix.rememberTeamSearch(teamId, term),
+      "remember-team-search",
+    );
+    check(
+      await accountPrefix.rememberTeamSearch(teamId, "releases"),
+      "remember-second-team-search",
+    );
+    check(
+      await accountPrefix.rememberTeamSearch(teamId, term),
+      "repeat-team-search",
+    );
+    const recent = await accountPrefix.readRecentTeamSearches(teamId);
+    check(
+      recent.length === 2 && recent[0] === term && recent[1] === "releases",
+      "team-search-recency",
+    );
+    check(
+      !(await accountRoot.rememberTeamSearch(teamId, "other installation")),
+      "unknown-team-search",
+    );
+    check(
+      (await accountRoot.readRecentTeamSearches(teamId)).length === 0,
+      "team-search-installation-isolation",
+    );
+    await accountPrefix.forgetTeamSearch(teamId, "releases");
     const command = await accountPrefix.executeServerCommand(
       { channelId, teamId, rootId: "r".repeat(26) },
       "/RELEASE  —Status  ",

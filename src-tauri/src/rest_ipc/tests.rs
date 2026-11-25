@@ -56,6 +56,15 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
             ("cancel_channel_history_load", json!({"rid":0,"load":0})),
             ("read_joined_teams", json!({"rid":0})),
             ("select_joined_team", json!({"rid":0, "teamId":"x"})),
+            ("read_recent_team_searches", json!({"rid":0,"teamId":"x"})),
+            (
+                "remember_team_search",
+                json!({"rid":0,"teamId":"x","term":"fixture"}),
+            ),
+            (
+                "forget_team_search",
+                json!({"rid":0,"teamId":"x","term":"fixture"}),
+            ),
             ("begin_team_directory_load", json!({"rid":0})),
             (
                 "read_composer_draft",
@@ -216,6 +225,22 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
         (foreign, "unknown_connection"),
         (first, "session_unavailable"),
     ] {
+        for command in [
+            "read_recent_team_searches",
+            "remember_team_search",
+            "forget_team_search",
+        ] {
+            assert_eq!(
+                invoke(
+                    main,
+                    command,
+                    LOCAL,
+                    json!({"rid":rid,"teamId":"t".repeat(26),"term":"fixture"})
+                )
+                .unwrap_err(),
+                expected
+            );
+        }
         assert_eq!(
             invoke(
                 main,
