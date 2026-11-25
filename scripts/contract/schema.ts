@@ -71,6 +71,7 @@ import {
   correctSidebarResponse,
   correctSidebarSchema,
 } from "./sidebar-corrections.ts";
+import { correctSinglePost } from "./single-post-correction.ts";
 
 const methods = new Set([
   "get",
@@ -285,6 +286,12 @@ export function buildSpecification(
         operation,
         read("posts-12.1.0.yaml"),
         path,
+      );
+    else if (id === "GetPost")
+      paths[path][method] = correctSinglePost(
+        operation,
+        read("posts-12.1.0.yaml"),
+        definitions,
       );
     else if (id === "SaveReaction")
       paths[path][method] = correctSaveReaction(
