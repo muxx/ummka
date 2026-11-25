@@ -69,12 +69,31 @@ impl SidebarPreferences {
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ServerPolicy {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mentions: Option<MentionSettings>,
     collapsed_threads: ThreadMode,
     separate_unreads: bool,
     name_format: NameFormat,
     lock_name_format: bool,
     #[serde(rename = "sharedChannelDMs", skip_serializing_if = "Option::is_none")]
     shared_channel_dms: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct MentionSettings {
+    confirm_notifications: bool,
+    max_notifications_per_channel: String,
+    custom_groups: bool,
+    ldap_groups: bool,
+}
+
+impl MentionSettings {
+    fn valid(&self) -> bool {
+        let raw = &self.max_notifications_per_channel;
+        raw.parse::<i64>()
+            .is_ok_and(|limit| limit > 0 && limit.to_string() == *raw)
+    }
 }
 
 #[derive(Debug, Default, Serialize, PartialEq, Eq)]
@@ -141,6 +160,13 @@ impl AccountHistory {
     ) -> Result<bool, HistoryError> {
         if load.owner != self.owner {
             return Err(HistoryError::StaleOwner);
+        }
+        if value
+            .mentions
+            .as_ref()
+            .is_some_and(|settings| !settings.valid())
+        {
+            return Err(HistoryError::InvalidDirectory);
         }
         let data = serde_json::to_string(value).map_err(|_| HistoryError::InvalidDirectory)?;
         self.write(|tx| Ok(tx.execute("UPDATE workspace_settings SET server=?1, pending=NULL WHERE owner=1 AND pending=?2", params![data,load.id])? == 1))

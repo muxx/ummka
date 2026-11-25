@@ -3,7 +3,16 @@ import { DirectoryValueError } from "./account-directory-error.ts";
 import { locksTeammateName, normalizedNameFormat } from "./channel-profiles.ts";
 import { assertAccountPreference, isMattermostId } from "./model-fields.ts";
 
+type LicenseSettings = {
+  LockTeammateNameDisplay?: string;
+  IsLicensed?: string;
+  LDAPGroups?: string;
+};
+
 type Settings = {
+  MaxNotificationsPerChannel?: string;
+  EnableConfirmNotificationsToChannel?: string;
+  EnableCustomGroups?: string;
   CollapsedThreads?: string;
   FeatureFlagEnableSharedChannelsDMs?: string;
   ExperimentalGroupUnreadChannels?: string;
@@ -106,7 +115,52 @@ export type SidebarPreferences = Omit<FreshPreferences, "composerKeys"> & {
   composerKeys?: FreshPreferences["composerKeys"];
 };
 
+type MentionSettings = {
+  confirmNotifications: boolean;
+  maxNotificationsPerChannel: string;
+  customGroups: boolean;
+  ldapGroups: boolean;
+};
+
+function configFlag(value: string | undefined) {
+  if (value === undefined) return undefined;
+  if (value === "true" || value === "false") return value === "true";
+  throw TypeError("Invalid Mattermost mention flag.");
+}
+
+function mentionSettings(
+  config: Settings,
+  license: LicenseSettings,
+): MentionSettings | undefined {
+  const limit = config.MaxNotificationsPerChannel;
+  if (
+    limit !== undefined &&
+    (!/^[1-9][0-9]{0,18}$/.test(limit) || BigInt(limit) > 9223372036854775807n)
+  )
+    throw TypeError("Invalid Mattermost channel notification limit.");
+  const confirmNotifications = configFlag(
+    config.EnableConfirmNotificationsToChannel,
+  );
+  const customGroups = configFlag(config.EnableCustomGroups);
+  const licensed = configFlag(license.IsLicensed);
+  const ldap = configFlag(license.LDAPGroups);
+  if (
+    limit === undefined ||
+    confirmNotifications === undefined ||
+    customGroups === undefined ||
+    licensed === undefined
+  )
+    return undefined;
+  return {
+    confirmNotifications,
+    maxNotificationsPerChannel: limit,
+    customGroups,
+    ldapGroups: licensed && ldap === true,
+  };
+}
+
 export type ServerPolicy = {
+  mentions?: MentionSettings;
   collapsedThreads: "disabled" | "always_on" | "default_on" | "default_off";
   separateUnreads: boolean;
   nameFormat: ReturnType<typeof normalizedNameFormat>;
@@ -115,7 +169,7 @@ export type ServerPolicy = {
 };
 export function workspaceServerPolicy(
   config: Settings,
-  license: Pick<Settings, "LockTeammateNameDisplay">,
+  license: LicenseSettings,
 ): ServerPolicy {
   const value = config.CollapsedThreads;
   // WebApp lets the user opt in to any defined mode other than disabled.
@@ -125,7 +179,9 @@ export function workspaceServerPolicy(
       : value === "always_on" || value === "default_on"
         ? value
         : "default_off";
+  const mentions = mentionSettings(config, license);
   return {
+    ...(mentions && { mentions }),
     collapsedThreads: mode,
     separateUnreads: config.ExperimentalGroupUnreadChannels === "default_on",
     nameFormat: normalizedNameFormat(config.TeammateNameDisplay),
@@ -160,7 +216,7 @@ export function workspacePreferences(
   userId: string,
   rows: readonly Preference[],
   config: Settings,
-  license: Pick<Settings, "LockTeammateNameDisplay">,
+  license: LicenseSettings,
 ) {
   return effectiveWorkspacePreferences(
     sidebarPreferences(userId, rows),
