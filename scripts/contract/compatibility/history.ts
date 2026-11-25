@@ -565,6 +565,7 @@ await checkSidebarReads(
   user.id,
   team.id,
   channelId,
+  dm.id,
 );
 console.log(
   `Mattermost ${version} verified personal sidebar categories, order, flags, preferences and ownership.`,

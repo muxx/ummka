@@ -10,6 +10,8 @@ import type { AccountSignOut } from "../mattermost/native-rest";
 import { AccountSessionWindow } from "./AccountSessionWindow";
 import type { TeamWorkspace } from "./AccountTeamWindow";
 
+import "../channels/workspace-dom.test-utils.ts";
+
 afterEach(cleanup);
 function fixture() {
   const signOut = vi.fn<() => Promise<AccountSignOut>>();
@@ -27,6 +29,14 @@ function fixture() {
       preferenceRank: null,
     },
     chooseAnotherTeam,
+    online: true,
+    policy: {
+      server: { status: "loading", value: null },
+      user: null,
+      userReadFailed: false,
+      retry: () => {},
+    },
+    sessionIssue: () => {},
     connection: {
       rid: 17,
       signOut,
@@ -38,6 +48,7 @@ function fixture() {
       workspace={workspace}
       language="en"
       onEnded={onEnded}
+      onDismiss={() => {}}
     />,
   );
   return { signOut, signOutOnDevice, chooseAnotherTeam, onEnded, view };

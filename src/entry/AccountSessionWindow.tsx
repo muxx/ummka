@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { workspaceCopy } from "../channels/workspace-copy";
 import type { TeamWorkspace } from "./AccountTeamWindow";
-import { EntryWindow } from "./EntryWindow";
 import type { EntryLanguage } from "./language";
 import { sessionText } from "./session-text";
 import { signOutText } from "./sign-out-text";
@@ -11,17 +11,26 @@ export function AccountSessionWindow({
   workspace,
   language,
   onEnded,
+  onDismiss,
 }: {
   workspace: TeamWorkspace;
   language: EntryLanguage;
   onEnded: () => void;
+  onDismiss: () => void;
 }) {
   const [page, setPage] = useState<Page>("account");
   const [busy, setBusy] = useState<"server" | "local" | null>(null);
   const [failed, setFailed] = useState(false);
   const working = useRef(false);
   const mounted = useRef(false);
+  const dialog = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
   const heading = useRef<HTMLHeadingElement>(null);
+  useLayoutEffect(() => {
+    const node = dialog.current;
+    node?.showModal();
+    return () => node?.close();
+  }, []);
   const signOutButton = useRef<HTMLButtonElement>(null);
   const restoreFocus = useRef(false);
   const text = signOutText[language];
@@ -71,8 +80,27 @@ export function AccountSessionWindow({
     setPage("account");
   }
   return (
-    <EntryWindow>
-      <h1 tabIndex={-1} ref={heading}>
+    <dialog
+      ref={dialog}
+      className="workspace-account-menu"
+      aria-labelledby={titleId}
+      onCancel={(event) => {
+        event.preventDefault();
+        if (page === "account" && !working.current) onDismiss();
+      }}
+    >
+      {page === "account" && (
+        <button
+          type="button"
+          className="workspace-menu-close"
+          aria-label={workspaceCopy[language].close}
+          disabled={!!busy}
+          onClick={onDismiss}
+        >
+          ×
+        </button>
+      )}
+      <h1 id={titleId} tabIndex={-1} ref={heading}>
         {page === "account"
           ? workspace.team.displayName || workspace.team.name
           : text[page]}
@@ -142,6 +170,6 @@ export function AccountSessionWindow({
           {busy === "server" ? text.pending : text.pendingLocal}
         </p>
       )}
-    </EntryWindow>
+    </dialog>
   );
 }

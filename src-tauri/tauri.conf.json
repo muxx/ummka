@@ -14,10 +14,11 @@
       {
         "title": "ummka",
         "width": 1180,
+        "minWidth": 400,
         "height": 750,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "trafficLightPosition": { "x": 16, "y": 16 }
+        "trafficLightPosition": { "x": 17, "y": 25 }
       }
     ],
     "security": {

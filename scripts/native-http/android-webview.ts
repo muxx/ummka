@@ -14,6 +14,9 @@ async function launch(
     await adb("shell", "am", "start", "-W", "-n", activity),
     /Status: ok/,
   );
+  // Enter hardware keyboard mode so Chromium delivers real DOM focus events.
+  if (expected === "browser-checked")
+    await adb("shell", "input", "keyevent", "KEYCODE_TAB");
   const pid = (await adb("shell", "pidof", "-s", app)).trim();
   assert.match(pid, /^\d+$/);
   const deadline = Date.now() + 65_000;
@@ -118,6 +121,10 @@ export async function checkWebviewProcesses(
     "android.app.role.BROWSER",
     app,
   );
+  // Instrumentation may outlast the screen timeout on the disposable emulator.
+  await adb("shell", "svc", "power", "stayon", "true");
+  await adb("shell", "input", "keyevent", "KEYCODE_WAKEUP");
+  await adb("shell", "wm", "dismiss-keyguard");
   const seeded = await launch(adb, app, activity, "browser-checked");
   // Android protects the device owner from force-stop. TLS checks have finished
   // using its test CA, so release ownership before testing process restarts.

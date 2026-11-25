@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import {
+  openingChannel,
+  workspaceProfileQuery,
+} from "../../../src/channels/workspace-data.ts";
 import { indexChannelProfiles } from "../../../src/mattermost/channel-profiles.ts";
 import { loadTeamDirectory } from "../../../src/mattermost/navigation-data.ts";
 import { visibleSidebar } from "../../../src/mattermost/sidebar-rows.ts";
@@ -25,6 +29,7 @@ export async function checkSidebarReads(
   otherUserId: string,
   teamId: string,
   channelId: string,
+  directIdToRead: string,
 ) {
   const config = new Configuration({ basePath: base, accessToken: token });
   const channels = new ChannelsApi(config);
@@ -85,6 +90,10 @@ export async function checkSidebarReads(
     teamId,
   });
   assert.deepEqual(updated.order, order);
+  await fixture("POST", "channels/members/me/view", {
+    channel_id: directIdToRead,
+    collapsed_threads_supported: true,
+  });
   const directory = await loadTeamDirectory(config, userId, teamId);
   assert.deepEqual(
     directory.categories.map((category) => category.id),
@@ -196,16 +205,50 @@ export async function checkSidebarReads(
       value: "false",
     },
   );
-  const sections = visibleSidebar(
-    { data: projectTeamSidebar(directory), selectedChannel: channelId },
-    {
-      preferences: policy,
-      userId,
-      profiles: indexChannelProfiles([]),
-      locale: "en",
-      compact: false,
-    },
+  const selectedSnapshot = {
+    data: projectTeamSidebar(directory),
+    selectedChannel: channelId,
+  };
+  assert.equal(openingChannel(selectedSnapshot, "en")?.id, channelId);
+  assert.ok(
+    selectedSnapshot.data.channels.some(
+      (c) => c.id === directIdToRead && c.kind === "D",
+    ),
   );
+  const profiles = workspaceProfileQuery(
+    userId,
+    selectedSnapshot,
+    policy,
+    null,
+  );
+  assert.ok(profiles.ids.includes(userId));
+  assert.ok(!profiles.ids.includes(otherUserId));
+  await fixture("PUT", "users/me/preferences", [
+    {
+      user_id: userId,
+      category: "direct_channel_show",
+      name: otherUserId,
+      value: "true",
+    },
+  ]);
+  const visible = workspacePreferences(
+    userId,
+    await preferences.getPreferences({ userId: "me" }),
+    settings,
+    license,
+  );
+  assert.ok(
+    workspaceProfileQuery(userId, selectedSnapshot, visible, null).ids.includes(
+      otherUserId,
+    ),
+  );
+  const sections = visibleSidebar(selectedSnapshot, {
+    preferences: policy,
+    userId,
+    profiles: indexChannelProfiles([]),
+    locale: "en",
+    compact: false,
+  });
   const ownSection = sections.find((s) => s.id === custom.id);
   assert.equal(ownSection?.muted, true);
   assert.equal(ownSection?.collapsed, true);

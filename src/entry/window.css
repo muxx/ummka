@@ -148,8 +148,10 @@ body {
   }
 }
 @media (max-height: 36rem) {
-  .entry-window {
+  .entry-window:not([data-macos-overlay]) {
     --bar-height: 44px;
+  }
+  .entry-window {
     --scene-inset: 12px;
   }
   .entry-layout {
