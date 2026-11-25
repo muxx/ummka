@@ -36,6 +36,7 @@ fn preserves_exact_text_across_reopen_and_isolates_channels_threads_and_accounts
     let message = "  Привет\n🐻‍❄️\t ";
     let edit = saved(first.save_draft(ROOM, None, None, message).unwrap());
     assert_eq!(edit.message, message);
+    assert_eq!(edit.cleared_by_submission, None);
     assert_eq!(edit.revision.as_deref().unwrap().len(), 32);
     let reply = saved(first.save_draft(ROOM, Some(THREAD), None, "  ").unwrap());
     drop(first);
@@ -106,6 +107,7 @@ fn confirms_retries_and_keeps_a_revision_after_clearing() {
             .unwrap(),
     );
     assert_eq!(cleared.message, "");
+    assert_eq!(cleared.cleared_by_submission, Some(false));
     assert_ne!(cleared.revision, latest.revision);
     assert_eq!(
         saved(
@@ -260,5 +262,71 @@ fn reads_one_draft_by_composite_primary_key_among_five_thousand() {
             .unwrap()
             .message,
         "draft"
+    );
+}
+
+#[test]
+fn legacy_empty_drafts_keep_their_revision_and_unknown_origin_across_upgrade() {
+    let root = tempdir().unwrap();
+    let mut previous = HistoryDatabase::open_with(root.path(), URL, &MIGRATIONS[..11]).unwrap();
+    let owner = previous.restore(&account()).unwrap();
+    let revision = "a".repeat(32);
+    previous.write(&owner, |tx| {
+        tx.execute("INSERT INTO composer_draft(channel_id,root_id,message,revision) VALUES (?1,'','',?2),(?1,?3,'kept',?2)", params![ROOM, revision, THREAD])
+    }).unwrap();
+    drop(previous);
+    let mut broken: Vec<_> = MIGRATIONS[..11]
+        .iter()
+        .map(|m| Migration {
+            statements: m.statements,
+            objects: m.objects,
+        })
+        .collect();
+    const INTERRUPTED: &[&str] = &[
+        MIGRATIONS[11].statements[0],
+        "CREATE INDEX broken ON missing(col)",
+    ];
+    broken.push(Migration {
+        statements: INTERRUPTED,
+        objects: MIGRATIONS[11].objects,
+    });
+    assert!(matches!(
+        HistoryDatabase::open_with(root.path(), URL, &broken),
+        Err(HistoryError::Storage)
+    ));
+    // Opening with the old schema fingerprint verifies rollback of the added column, too.
+    let mut previous = HistoryDatabase::open_with(root.path(), URL, &MIGRATIONS[..11]).unwrap();
+    assert_eq!(
+        previous
+            .read(&owner, |tx| tx.query_row(
+                "SELECT COUNT(*) FROM composer_draft WHERE revision=?1",
+                [&revision],
+                |row| row.get::<_, i64>(0)
+            ))
+            .unwrap(),
+        2
+    );
+    drop(previous);
+    let mut upgraded = open(root.path());
+    let empty = upgraded.read_draft(ROOM, None).unwrap();
+    assert_eq!(empty.message, "");
+    assert_eq!(empty.revision.as_ref(), Some(&revision));
+    assert_eq!(empty.cleared_by_submission, None);
+    assert_eq!(
+        saved(upgraded.save_draft(ROOM, None, None, "").unwrap()),
+        empty
+    );
+    let retained = upgraded.read_draft(ROOM, Some(THREAD)).unwrap();
+    assert_eq!(retained.message, "kept");
+    assert_eq!(retained.revision.as_ref(), Some(&revision));
+    assert_eq!(retained.cleared_by_submission, None);
+    drop(upgraded);
+    assert!(matches!(
+        HistoryDatabase::open_with(root.path(), URL, &MIGRATIONS[..11]),
+        Err(HistoryError::UnsupportedSchema)
+    ));
+    assert_eq!(
+        open(root.path()).read_draft(ROOM, Some(THREAD)).unwrap(),
+        retained
     );
 }

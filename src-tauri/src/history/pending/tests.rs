@@ -243,8 +243,11 @@ fn v8_upgrade_rollback_and_older_client_preserve_fixture_data() {
     let path = tempdir().unwrap();
     let mut old = HistoryDatabase::open_with(path.path(), INSTALLATION, &MIGRATIONS[..8]).unwrap();
     let owner = old.restore(&account()).unwrap();
-    let draft = old
-        .write(&owner, |tx| drafts::write_draft(tx, ROOM, "", TEXT))
+    // Populate through the published v8 schema, independently of the current draft writer.
+    let revision: String = old
+        .write(&owner, |tx| tx.query_row(
+            "INSERT INTO composer_draft(channel_id,root_id,message,revision) VALUES (?1,'',?2,lower(hex(randomblob(16)))) RETURNING revision",
+            [ROOM, TEXT], |row| row.get(0)))
         .unwrap();
     drop(old);
     let mut broken: Vec<_> = MIGRATIONS[..8]
@@ -267,17 +270,25 @@ fn v8_upgrade_rollback_and_older_client_preserve_fixture_data() {
     ));
     let mut v8 = HistoryDatabase::open_with(path.path(), INSTALLATION, &MIGRATIONS[..8]).unwrap();
     assert_eq!(
-        v8.read(&owner, |tx| drafts::draft(tx, ROOM, "")).unwrap(),
-        draft
+        v8.read(&owner, |tx| tx.query_row(
+            "SELECT message,revision FROM composer_draft WHERE channel_id=?1 AND root_id=''",
+            [ROOM],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        ))
+        .unwrap(),
+        (TEXT.to_owned(), revision.clone())
     );
     drop(v8);
-    let mut v9 = open(path.path());
-    assert_eq!(v9.read_draft(ROOM, None).unwrap(), draft);
+    let mut upgraded = open(path.path());
+    let draft = upgraded.read_draft(ROOM, None).unwrap();
+    assert_eq!(draft.message, TEXT);
+    assert_eq!(draft.revision.as_ref(), Some(&revision));
+    assert_eq!(draft.cleared_by_submission, None);
     assert!(matches!(
-        v9.stage_post(ROOM, None, draft.revision.as_deref().unwrap()),
+        upgraded.stage_post(ROOM, None, &revision),
         Ok(StagePost::Created { .. })
     ));
-    drop(v9);
+    drop(upgraded);
     assert!(matches!(
         HistoryDatabase::open_with(path.path(), INSTALLATION, &MIGRATIONS[..8]),
         Err(HistoryError::UnsupportedSchema)

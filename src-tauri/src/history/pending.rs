@@ -90,7 +90,7 @@ impl AccountHistory {
                 params![pending_id, channel, root, draft.message, generation],
                 post,
             )?;
-            let draft = drafts::write_draft(tx, channel, root, "")?;
+            let draft = drafts::write_draft(tx, channel, root, "", Some(true))?;
             Ok(StagePost::Created { post, draft })
         })
     }

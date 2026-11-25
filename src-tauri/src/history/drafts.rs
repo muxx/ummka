@@ -4,9 +4,12 @@ use rusqlite::{OptionalExtension, Row, Transaction, params};
 use serde::Serialize;
 
 #[derive(Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ComposerDraft {
     pub message: String,
     pub revision: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cleared_by_submission: Option<bool>,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
@@ -16,17 +19,19 @@ pub enum DraftSave {
     Conflict(ComposerDraft),
 }
 
-const READ: &str =
-    "SELECT message, revision FROM composer_draft WHERE channel_id=?1 AND root_id=?2";
-const SAVE: &str = "INSERT INTO composer_draft(channel_id, root_id, message, revision)
-    VALUES (?1, ?2, ?3, lower(hex(randomblob(16))))
-    ON CONFLICT(channel_id, root_id) DO UPDATE SET message=excluded.message, revision=excluded.revision
-    RETURNING message, revision";
+const READ: &str = "SELECT message, revision, cleared_by_submission FROM composer_draft WHERE channel_id=?1 AND root_id=?2";
+const SAVE: &str =
+    "INSERT INTO composer_draft(channel_id, root_id, message, revision, cleared_by_submission)
+    VALUES (?1, ?2, ?3, lower(hex(randomblob(16))), ?4)
+    ON CONFLICT(channel_id, root_id) DO UPDATE SET message=excluded.message,
+        revision=excluded.revision, cleared_by_submission=excluded.cleared_by_submission
+    RETURNING message, revision, cleared_by_submission";
 
 fn read_row(row: &Row<'_>) -> rusqlite::Result<ComposerDraft> {
     Ok(ComposerDraft {
         message: row.get(0)?,
         revision: Some(row.get(1)?),
+        cleared_by_submission: row.get(2)?,
     })
 }
 
@@ -65,8 +70,13 @@ pub(super) fn write_draft(
     channel: &str,
     root: &str,
     message: &str,
+    cleared_by_submission: Option<bool>,
 ) -> rusqlite::Result<ComposerDraft> {
-    tx.query_row(SAVE, params![channel, root, message], read_row)
+    tx.query_row(
+        SAVE,
+        params![channel, root, message, cleared_by_submission],
+        read_row,
+    )
 }
 
 impl AccountHistory {
@@ -99,7 +109,13 @@ impl AccountHistory {
             if current.revision.as_deref() != expected_revision {
                 return Ok(DraftSave::Conflict(current));
             }
-            Ok(DraftSave::Saved(write_draft(tx, channel, root, message)?))
+            Ok(DraftSave::Saved(write_draft(
+                tx,
+                channel,
+                root,
+                message,
+                message.is_empty().then_some(false),
+            )?))
         })
     }
 }

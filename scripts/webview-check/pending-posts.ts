@@ -40,6 +40,8 @@ export async function stagePendingPosts(
     !created ||
     !stale ||
     !created.draft.revision ||
+    created.draft.clearedBySubmission !== true ||
+    stale.draft.clearedBySubmission !== true ||
     stale.draft.revision !== created.draft.revision ||
     stale.draft.message !== "" ||
     created.post.message !== firstText ||
@@ -62,15 +64,51 @@ export async function stagePendingPosts(
     )
       throw Error("A second draft must create its own attempt");
   }
+  const repeated = await neighbor.saveDraft({
+    ...channel,
+    expectedRevision: revision,
+    message: "",
+  });
+  if (repeated.kind !== "saved" || repeated.draft.clearedBySubmission !== true)
+    throw Error("Re-saving an empty editor lost the cause of submission");
+  const typed = await save(account, thread, "another reply");
+  const erased = await neighbor.saveDraft({
+    ...thread,
+    expectedRevision: typed,
+    message: "",
+  });
+  if (erased.kind !== "saved" || erased.draft.clearedBySubmission !== false)
+    throw Error(
+      "Manual clearing did not replace the previous submission cause",
+    );
+  const staleEdit = await account.saveDraft({
+    ...thread,
+    expectedRevision: typed,
+    message: "late reply",
+  });
+  if (
+    staleEdit.kind !== "conflict" ||
+    staleEdit.draft.clearedBySubmission !== false
+  )
+    throw Error("Conflicting editor lost the cause of clearing");
   await checkPendingRestore(neighbor, true);
 }
 
 export async function checkPendingRestore(account: Account, saved: boolean) {
   const page = { after: 0, limit: 1 };
-  const [first, replies] = await Promise.all([
+  const [first, replies, roomDraft, threadDraft] = await Promise.all([
     account.readPendingPosts({ ...channel, ...page }),
     account.readPendingPosts({ ...thread, ...page }),
+    account.readDraft(channel),
+    account.readDraft(thread),
   ]);
+  if (
+    roomDraft.message !== "" ||
+    threadDraft.message !== "" ||
+    roomDraft.clearedBySubmission !== (saved ? true : undefined) ||
+    threadDraft.clearedBySubmission !== (saved ? false : undefined)
+  )
+    throw Error("Restored drafts lost their account or clearing cause");
   if (!saved) {
     if (first.length || replies.length)
       throw Error("Another installation exposed pending messages");
