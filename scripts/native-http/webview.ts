@@ -66,7 +66,29 @@ export function webviewServers(
   );
   const teamId = "Team0123456789012345678901";
   const channelId = "c".repeat(26);
-  const teamReads = new Map<string, { name: string; body: object }>([
+  const teamReads = new Map<string, { name: string; body: object | null }>([
+    [
+      `/api/v4/posts/${"p".repeat(26)}/reactions`,
+      { name: "empty-post-reactions", body: null },
+    ],
+    [
+      `/team/chat/api/v4/posts/${"p".repeat(26)}/reactions`,
+      {
+        name: "post-reactions",
+        body: [
+          {
+            user_id: userId,
+            post_id: "p".repeat(26),
+            channel_id: channelId,
+            emoji_name: "+1",
+            create_at: 32,
+            update_at: 34,
+            delete_at: 0,
+            remote_id: null,
+          },
+        ],
+      },
+    ],
     [
       "/api/v4/users/me/teams",
       {
@@ -832,6 +854,8 @@ export function webviewServers(
         "submit-wrong-author",
         "submit-expired",
         "create-post-reply",
+        "empty-post-reactions",
+        "post-reactions",
         "patch-post",
         "delete-post",
         "bulk-channel-view",

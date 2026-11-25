@@ -40,6 +40,7 @@ import {
   checkPreviouslyAcceptedPost,
 } from "./post-mutations.ts";
 import { checkProfileReads } from "./profile-reads.ts";
+import { checkReactionReads } from "./reactions.ts";
 import { checkRoleReads } from "./role-reads.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
@@ -817,6 +818,11 @@ await checkMentionLimit(
 );
 console.log(
   `Mattermost ${version} verified the channel notification limit against real member counts.`,
+);
+
+await checkReactionReads(base, token, session, user.id, channelId);
+console.log(
+  `Mattermost ${version} verified empty and populated reaction lists and post metadata.`,
 );
 
 const secondLogin = await create("users/login", {

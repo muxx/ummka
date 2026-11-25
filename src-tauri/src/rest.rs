@@ -224,6 +224,46 @@ mod tests {
     use super::*;
 
     #[test]
+    fn reactions_are_read_by_post_id_in_the_selected_installation() {
+        let base = "https://chat.example.test/team/chat";
+        let connection = RestConnection::new(base).unwrap();
+        let post = "p".repeat(26);
+        for (method, path, allowed) in [
+            (
+                reqwest::Method::GET,
+                format!("/api/v4/posts/{post}/reactions"),
+                true,
+            ),
+            (
+                reqwest::Method::DELETE,
+                format!("/api/v4/posts/{post}/reactions"),
+                false,
+            ),
+            (
+                reqwest::Method::POST,
+                format!("/api/v4/posts/{post}/reactions"),
+                false,
+            ),
+            (
+                reqwest::Method::GET,
+                "/api/v4/posts/me/reactions".into(),
+                false,
+            ),
+            (
+                reqwest::Method::GET,
+                format!("/api/v4/posts/{post}/reactions/"),
+                false,
+            ),
+        ] {
+            let url = Url::parse(&format!("{base}{path}")).unwrap();
+            assert_eq!(
+                connection.check_request(&Request::new(method, url)).is_ok(),
+                allowed
+            );
+        }
+    }
+
+    #[test]
     fn command_picker_routes_are_scoped_to_the_installation_and_team() {
         let base = "https://chat.example.test/workspace";
         let connection = RestConnection::new(base).unwrap();

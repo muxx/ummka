@@ -1,8 +1,12 @@
 export interface Reaction {
-    userId?: string;
-    postId?: string;
-    emojiName?: string;
-    createAt?: number;
+    userId: string;
+    postId: string;
+    emojiName: string;
+    createAt: number;
+    channelId: string;
+    updateAt: number;
+    deleteAt: number;
+    remoteId: string | null;
 }
 export declare function instanceOfReaction(value: object): value is Reaction;
 export declare function ReactionFromJSON(json: any): Reaction;

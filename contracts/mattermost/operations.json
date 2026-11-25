@@ -218,5 +218,11 @@
     "method": "GET",
     "path": "/api/v4/teams/{team_id}/groups_by_channels",
     "id": "GetGroupsAssociatedToChannelsByTeam"
+  },
+  {
+    "file": "reactions.yaml",
+    "method": "GET",
+    "path": "/api/v4/posts/{post_id}/reactions",
+    "id": "GetReactions"
   }
 ]
