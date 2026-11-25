@@ -48,6 +48,7 @@ export async function executeSavedCommand(
       draft: finished.draft,
     } as const;
   } catch (error) {
+    // A retired account cannot deliver its previous reply to another session.
     if (error !== "history_storage_unavailable") throw error;
     return {
       kind: "answered",

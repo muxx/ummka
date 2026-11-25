@@ -229,6 +229,8 @@ test("keeps a known server reply when the draft has changed or SQLite refuses th
     "edit",
     "history_storage_unavailable",
     "session_unavailable",
+    "unknown_connection",
+    "cancelled",
   ] as const) {
     const { client } = fixture(() => Response.json(response));
     const change = vi
@@ -244,7 +246,7 @@ test("keeps a known server reply when the draft has changed or SQLite refuses th
       });
     else change.mockRejectedValueOnce(problem);
     const result = executeSavedCommand(client, change, target, "one");
-    if (problem === "session_unavailable")
+    if (problem !== "edit" && problem !== "history_storage_unavailable")
       await expect(result).rejects.toBe(problem);
     else
       await expect(result).resolves.toMatchObject({
