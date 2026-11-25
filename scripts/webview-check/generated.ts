@@ -2,8 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { composerPostMentions } from "../../src/channels/composer-mentions.ts";
 import { resolveComposerSubmission } from "../../src/channels/composer-submission.ts";
 import { readGroupMentionAudience } from "../../src/channels/group-mention-audience.ts";
-import { inspectPostTarget } from "../../src/channels/inspect-post-target.ts";
 import { readPostMentionDecision } from "../../src/channels/post-mention-decision.ts";
+import { openPostNavigation } from "../../src/channels/post-navigation.ts";
 import { inspectInstallation } from "../../src/mattermost/inspect-installation.ts";
 import {
   openAccountRestConnection,
@@ -468,13 +468,17 @@ export async function checkGeneratedRequests(ports: string[]) {
         fileAnchor.postId === postId,
       "account-message-anchors",
     );
-    const target = await inspectPostTarget(
+    const { target, joined } = await openPostNavigation(
       accountPrefix,
       { kind: "file", id: fileId },
       teamId,
-    );
+      async () => {
+        throw Error("An existing DM unexpectedly requested membership");
+      },
+    ).open();
     check(
-      target.kind === "ready" &&
+      joined.length === 0 &&
+        target.kind === "ready" &&
         target.teamId === teamId &&
         target.channelId === channelId &&
         target.rootId === "r".repeat(26) &&
