@@ -6,6 +6,7 @@ import {
   type OrderedSidebarCategories,
   PreferencesApi,
   ResponseError,
+  type Team,
   TeamsApi,
 } from "../../vendor/mattermost/index.js";
 import { isMattermostId, isMattermostTime } from "./model-fields.ts";
@@ -48,6 +49,16 @@ async function readDirectory<T>(
   }
 }
 
+function hasTeamIdentity(
+  team: Team,
+): team is Team & { id: string; name: string; displayName: string } {
+  return (
+    isMattermostId(team.id) &&
+    typeof team.name === "string" &&
+    typeof team.displayName === "string"
+  );
+}
+
 export function loadAccountDirectory(
   config: Configuration,
   userId: string,
@@ -79,11 +90,9 @@ export function loadAccountDirectory(
     const seen = new Set<string>();
     const joined = teams.flatMap((team) => {
       if (
-        !isMattermostId(team.id) ||
+        !hasTeamIdentity(team) ||
         seen.has(team.id) ||
-        !isMattermostTime(team.deleteAt, 0) ||
-        typeof team.name !== "string" ||
-        typeof team.displayName !== "string"
+        !isMattermostTime(team.deleteAt, 0)
       )
         throw new TypeError("Invalid Mattermost team.");
       seen.add(team.id);

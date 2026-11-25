@@ -63,9 +63,10 @@ impl ChannelWindowQuery {
 impl From<HistoryError> for ExchangeError {
     fn from(cause: HistoryError) -> Self {
         match cause {
-            HistoryError::InvalidPost
-            | HistoryError::InvalidInstallation
-            | HistoryError::InvalidDirectory => ExchangeError::InvalidHistoryRequest,
+            HistoryError::InvalidPost | HistoryError::InvalidInstallation => {
+                ExchangeError::InvalidHistoryRequest
+            }
+            HistoryError::InvalidDirectory => ExchangeError::InvalidDirectory,
             HistoryError::StaleOwner | HistoryError::OwnerConflict => {
                 ExchangeError::Transport(TransportError::SessionUnavailable)
             }
@@ -92,7 +93,7 @@ impl Session {
         cached
     }
 
-    async fn with_history<T: Send + 'static>(
+    pub(super) async fn with_history<T: Send + 'static>(
         &self,
         sessions: &AccountSessions,
         operation: impl FnOnce(&mut AccountHistory) -> Result<T, HistoryError> + Send + 'static,
@@ -150,14 +151,8 @@ impl Session {
     }
 
     fn take_history_load(&self, load: ResourceId) -> Result<ChannelPostLoad, ExchangeError> {
-        let pending = self
-            .open_resources()?
-            .take::<PendingLoad>(load)
-            .map_err(|_| ExchangeError::UnknownHistoryLoad)?;
-        // This private type is only ever taken, never borrowed from the resource table.
-        Arc::into_inner(pending)
+        self.take_pending::<PendingLoad>(load, ExchangeError::UnknownHistoryLoad)
             .map(|entry| entry.0)
-            .ok_or(ExchangeError::UnknownHistoryLoad)
     }
 
     async fn store_history_page(

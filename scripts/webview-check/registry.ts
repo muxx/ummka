@@ -70,7 +70,19 @@ export async function resumeRegistryCheck(): Promise<boolean> {
     const current = await getCurrentAccountId(base);
     if (current !== firstId) throw Error("wrong current account offline");
     const recovered = await openAccountRestConnection(base, current);
-    await recovered.close();
+    try {
+      const teams = await recovered.readJoinedTeams();
+      if (
+        base === root
+          ? teams !== null
+          : teams?.selectedTeam !== "Team0123456789012345678901" ||
+            teams.teams[0]?.name !== "fixture"
+      ) {
+        throw Error("wrong offline teams for restored installation");
+      }
+    } finally {
+      await recovered.close();
+    }
   }
   if ((await getCurrentAccountId(`${root}/team/chat/secondary`)) !== null)
     throw Error("signed-out installation has a current account offline");

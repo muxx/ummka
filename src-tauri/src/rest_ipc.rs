@@ -1,3 +1,4 @@
+pub(crate) mod directory;
 mod exchange;
 pub(crate) mod history;
 #[cfg(all(
