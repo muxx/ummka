@@ -2,10 +2,15 @@ import assert from "node:assert/strict";
 import { loadTeamDirectory } from "../../../src/mattermost/navigation-data.ts";
 import { projectTeamSidebar } from "../../../src/mattermost/team-sidebar.ts";
 import {
+  visibleConversationLimit,
+  workspacePreferences,
+} from "../../../src/mattermost/workspace-preferences.ts";
+import {
   ChannelsApi,
   Configuration,
   PreferencesApi,
   ResponseError,
+  SystemApi,
 } from "../../../vendor/mattermost/index.js";
 
 export async function checkSidebarReads(
@@ -126,7 +131,45 @@ export async function checkSidebarReads(
       value: "false",
     },
   ]);
+  await fixture("PUT", "users/me/preferences", [
+    {
+      user_id: userId,
+      category: "sidebar_settings",
+      name: "limit_visible_dms_gms",
+      value: "15",
+    },
+    {
+      user_id: userId,
+      category: "channel_open_time",
+      name: channelId,
+      value: "310",
+    },
+    {
+      user_id: userId,
+      category: "channel_approximate_view_time",
+      name: channelId,
+      value: "280",
+    },
+    {
+      user_id: userId,
+      category: "display_settings",
+      name: "name_format",
+      value: "nickname_full_name",
+    },
+  ]);
   const saved = await preferences.getPreferences({ userId: "me" });
+  const system = new SystemApi(config);
+  const [settings, license] = await Promise.all([
+    system.getClientConfigRaw({ format: "old" }).then((r) => r.raw.json()),
+    system.getClientLicenseRaw({ format: "old" }).then((r) => r.raw.json()),
+  ]);
+  assert.equal(typeof settings.CollapsedThreads, "string");
+  const policy = workspacePreferences(userId, saved, settings, license);
+  assert.equal(policy.directShown[otherUserId], undefined);
+  assert.equal(policy.viewTimes[channelId], 310);
+  assert.equal(policy.nameFormat, "nickname_full_name");
+  assert.equal(visibleConversationLimit(policy, false), 15);
+  assert.equal(visibleConversationLimit(policy, true), 15);
   assert.deepEqual(
     saved.find(
       (p) => p.category === "direct_channel_show" && p.name === otherUserId,
