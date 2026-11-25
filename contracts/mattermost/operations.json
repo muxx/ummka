@@ -98,6 +98,27 @@
     "id": "GetPostThread"
   },
   {
+    "file": "channels.yaml",
+    "method": "POST",
+    "path": "/api/v4/channels/members/{user_id}/view",
+    "id": "ViewChannel",
+    "body": "json"
+  },
+  {
+    "file": "channels-12.1.0.yaml",
+    "method": "POST",
+    "path": "/api/v4/channels/members/{user_id}/mark_read",
+    "id": "MarkChannelsReadForUser",
+    "body": "json"
+  },
+  {
+    "file": "posts.yaml",
+    "method": "POST",
+    "path": "/api/v4/users/{user_id}/posts/{post_id}/set_unread",
+    "id": "SetPostUnread",
+    "body": "json"
+  },
+  {
     "file": "posts.yaml",
     "method": "POST",
     "path": "/api/v4/posts",

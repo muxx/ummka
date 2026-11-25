@@ -5,6 +5,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import https from "node:https";
 import type { Socket } from "node:net";
 import { respondToAccount } from "./account.ts";
+import { respondToChannelView } from "./channel-view.ts";
 import { respondToHistory } from "./history.ts";
 import { historyRefreshFixture } from "./history-refresh.ts";
 import { respondToPostContext } from "./post-context.ts";
@@ -260,6 +261,18 @@ export function webviewServers(
     );
     if (account) {
       visits.push(account);
+      return;
+    }
+    const view = await respondToChannelView(
+      req,
+      res,
+      url,
+      channelId,
+      teamId,
+      userId,
+    );
+    if (view) {
+      visits.push(view);
       return;
     }
     const post = respondToPostContext(req, res, url, channelId, teamId);
@@ -581,6 +594,9 @@ export function webviewServers(
         "create-post-reply",
         "patch-post",
         "delete-post",
+        "bulk-channel-view",
+        "single-channel-view",
+        "set-post-unread",
         "history-root",
         "history-prefixed",
         "history-focused-after",

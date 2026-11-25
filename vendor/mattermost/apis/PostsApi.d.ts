@@ -1,9 +1,11 @@
 import * as runtime from '../runtime.js';
+import { type ChannelUnreadAt } from '../models/ChannelUnreadAt.js';
 import { type CreatePostRequest } from '../models/CreatePostRequest.js';
 import { type PatchPostRequest } from '../models/PatchPostRequest.js';
 import { type Post } from '../models/Post.js';
 import { type PostInfo } from '../models/PostInfo.js';
 import { type PostList } from '../models/PostList.js';
+import { type SetPostUnreadRequest } from '../models/SetPostUnreadRequest.js';
 import { type StatusOK } from '../models/StatusOK.js';
 export interface CreatePostOperationRequest {
     createPostRequest: CreatePostRequest;
@@ -43,6 +45,11 @@ export interface PatchPostOperationRequest {
     postId: string;
     patchPostRequest: PatchPostRequest;
 }
+export interface SetPostUnreadOperationRequest {
+    userId: string;
+    postId: string;
+    setPostUnreadRequest: SetPostUnreadRequest;
+}
 export declare class PostsApi extends runtime.BaseAPI {
     createPostRequestOpts(requestParameters: CreatePostOperationRequest): Promise<runtime.RequestOpts>;
     createPostRaw(requestParameters: CreatePostOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Post>>;
@@ -62,4 +69,7 @@ export declare class PostsApi extends runtime.BaseAPI {
     patchPostRequestOpts(requestParameters: PatchPostOperationRequest): Promise<runtime.RequestOpts>;
     patchPostRaw(requestParameters: PatchPostOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Post>>;
     patchPost(requestParameters: PatchPostOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Post>;
+    setPostUnreadRequestOpts(requestParameters: SetPostUnreadOperationRequest): Promise<runtime.RequestOpts>;
+    setPostUnreadRaw(requestParameters: SetPostUnreadOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<ChannelUnreadAt>>;
+    setPostUnread(requestParameters: SetPostUnreadOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<ChannelUnreadAt>;
 }

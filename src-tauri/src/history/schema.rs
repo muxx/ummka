@@ -70,6 +70,8 @@ const ADD_CHANNEL_CREATED: &str = "ALTER TABLE sidebar_channel ADD COLUMN create
 const SIDEBAR_CHANNEL_V7: &str = include_str!("migrations/0007_sidebar_channel_schema.sql");
 const WORKSPACE_SETTINGS: &str = include_str!("migrations/0007_workspace_settings.sql");
 
+const COMPOSER_DRAFT: &str = include_str!("migrations/0008_composer_draft.sql");
+
 /// Each entry advances user_version by one. Keep published entries in order.
 pub(super) struct Migration {
     pub(super) statements: &'static [&'static str],
@@ -221,6 +223,36 @@ pub(super) const MIGRATIONS: &[Migration] = &[
             CHANNEL_PROFILE,
             PROFILE_BY_USERNAME,
             WORKSPACE_SETTINGS,
+        ],
+    },
+    Migration {
+        statements: &[COMPOSER_DRAFT],
+        objects: &[
+            CREATE_OWNER,
+            CREATE_POSTS,
+            INDEX_REPLIES,
+            CREATE_DELETIONS,
+            WINDOWS,
+            WINDOW_POSTS,
+            NEIGHBORS,
+            RECENT,
+            ORDER,
+            TIES,
+            NEIGHBOR_ID,
+            NEWER_HINT,
+            OLDER_HINT,
+            TEAM_DIRECTORY,
+            JOINED_TEAMS,
+            SELECTED_TEAM,
+            SIDEBAR_TEAM,
+            SIDEBAR_CHANNEL_V7,
+            SIDEBAR_CATEGORY,
+            SIDEBAR_ITEM,
+            SIDEBAR_ITEM_BY_CHANNEL,
+            CHANNEL_PROFILE,
+            PROFILE_BY_USERNAME,
+            WORKSPACE_SETTINGS,
+            COMPOSER_DRAFT,
         ],
     },
 ];

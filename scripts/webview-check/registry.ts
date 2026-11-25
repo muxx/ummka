@@ -19,6 +19,7 @@ import {
 } from "../../src/mattermost/route-channels-link.ts";
 import { checkSavedTeamWindow } from "./account-team-window.tsx";
 import { checkRefreshedAfterRestart } from "./channel-refresh.ts";
+import { checkDraftRestore } from "./composer-drafts.ts";
 import { verifyHistoryLoadsAfterRestart } from "./history-loads.ts";
 import { signInLinkServer } from "./link-examples.ts";
 import { checkOfflineWindows } from "./local-history.ts";
@@ -85,6 +86,7 @@ export async function resumeRegistryCheck(): Promise<boolean> {
             saved.profiles[firstId]?.username !== "fixture"
       )
         throw Error("offline profile directory changed after process restart");
+      await checkDraftRestore(recovered, base !== root);
       const settings = await recovered.readWorkspaceSettings();
       if (
         base === root

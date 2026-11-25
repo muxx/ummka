@@ -9,6 +9,8 @@ fn main() {
         "sign_out_account",
         "sign_out_on_device",
         "close_rest_connection",
+        "read_composer_draft",
+        "save_composer_draft",
         "read_workspace_settings",
         "begin_workspace_policy_load",
         "store_workspace_policy",

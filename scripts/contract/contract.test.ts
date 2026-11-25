@@ -35,6 +35,12 @@ import {
   correctProfileImage,
   correctUserProfile,
 } from "./profile-corrections.ts";
+import {
+  correctBulkChannelView,
+  correctChannelView,
+  correctSetPostUnread,
+  correctUnreadAt,
+} from "./read-state-corrections.ts";
 import { buildSpecification, readSource } from "./schema.ts";
 import {
   correctSidebarCategory,
@@ -206,6 +212,123 @@ test("a corrected upstream patch-body type requires rechecking the local correct
   }
 });
 
+test("checks both upstream channel-view bodies and the bulk operation before correcting them", () => {
+  const view = "/api/v4/channels/members/{user_id}/view";
+  const bulk = "/api/v4/channels/members/{user_id}/mark_read";
+  const base = read("channels.yaml"),
+    next = read("channels-12.1.0.yaml");
+  const bodyFields = [
+    "post",
+    "requestBody",
+    "content",
+    "application/json",
+    "schema",
+    "properties",
+  ];
+  const replyFields = [
+    "post",
+    "responses",
+    "200",
+    "content",
+    "application/json",
+    "schema",
+    "properties",
+    "last_viewed_at_times",
+  ];
+  assert.deepEqual(
+    at(contract, ["paths", view, ...bodyFields, "collapsed_threads_supported"]),
+    { type: "boolean" },
+  );
+  for (const path of [view, bulk])
+    assert.deepEqual(
+      at(contract, ["paths", path, ...replyFields, "additionalProperties"]),
+      { type: "integer", format: "int64" },
+    );
+  for (const file of ["channels.yaml", "channels-12.1.0.yaml"]) {
+    const source = structuredClone(file === "channels.yaml" ? base : next);
+    const fields = object(at(source, [view, ...bodyFields]), "input");
+    fields.collapsed_threads_supported = { type: "boolean" };
+    const v10 = file === "channels.yaml" ? source : base,
+      v12 = file === "channels-12.1.0.yaml" ? source : next;
+    assert.throws(
+      () =>
+        correctChannelView(object(at(v10, [view, "post"]), "view"), v12, view),
+      /Review ViewChannel/,
+    );
+  }
+  const command = object(at(next, [bulk, "post"]), "bulk");
+  assert.throws(
+    () => correctBulkChannelView(command, { ...base, [bulk]: {} }, bulk),
+    /Review MarkChannelsReadForUser/,
+  );
+  const changed = structuredClone(next);
+  object(
+    at(changed, [bulk, ...replyFields]),
+    "timestamps",
+  ).additionalProperties = { type: "string" };
+  assert.throws(
+    () =>
+      correctBulkChannelView(
+        object(at(changed, [bulk, "post"]), "bulk"),
+        base,
+        bulk,
+      ),
+    /Review MarkChannelsReadForUser/,
+  );
+});
+
+test("requires explicit unread support and detects changed upstream schemas on both versions", () => {
+  const path = "/api/v4/users/{user_id}/posts/{post_id}/set_unread";
+  const base = read("posts.yaml");
+  const next = read("posts-12.1.0.yaml");
+  const props = ["components", "schemas", "ChannelUnreadAt", "properties"];
+  assert.deepEqual(
+    at(contract, [
+      "paths",
+      path,
+      "post",
+      "requestBody",
+      "content",
+      "application/json",
+      "schema",
+      "required",
+    ]),
+    ["collapsed_threads_supported"],
+  );
+  for (const key of [
+    "msg_count_root",
+    "mention_count_root",
+    "urgent_mention_count",
+  ])
+    assert.deepEqual(at(contract, [...props, key]), {
+      type: "integer",
+      format: "int64",
+    });
+  assert.deepEqual(at(contract, [...props, "user_id"]), { type: "string" });
+  for (const newer of [false, true]) {
+    const modified = structuredClone(newer ? next : base);
+    object(at(modified, [path, "post"]), "post").requestBody = {};
+    assert.throws(
+      () =>
+        correctSetPostUnread(
+          object(at(newer ? base : modified, [path, "post"]), "post"),
+          newer ? modified : next,
+          path,
+        ),
+      /Review SetPostUnread/,
+    );
+    const raw = read("definitions.yaml"),
+      ref = read("definitions-12.1.0.yaml");
+    object(at(newer ? ref : raw, props), "unread").msg_count_root = {
+      type: "integer",
+    };
+    assert.throws(
+      () => correctUnreadAt(object(at(raw, props.slice(0, -1)), "unread"), ref),
+      /Review ChannelUnreadAt/,
+    );
+  }
+});
+
 test("retains the catalog operations, security and transitive models", () => {
   for (const { file, path, method } of catalog) {
     const key = [path, method.toLowerCase()];
@@ -231,6 +354,12 @@ test("retains the catalog operations, security and transitive models", () => {
       expected = correctCreatePost(source, read("posts-12.1.0.yaml"));
     if (path === "/api/v4/posts/{post_id}/patch")
       expected = correctPatchPost(source, read("posts-12.1.0.yaml"));
+    if (source.operationId === "ViewChannel")
+      expected = correctChannelView(source, read("channels-12.1.0.yaml"), path);
+    if (source.operationId === "MarkChannelsReadForUser")
+      expected = correctBulkChannelView(source, read("channels.yaml"), path);
+    if (source.operationId === "SetPostUnread")
+      expected = correctSetPostUnread(source, read("posts-12.1.0.yaml"), path);
     if (path === sidebar) expected = correctSidebarResponse(source);
     if (path === profileImage) expected = correctProfileImage(source);
     assert.deepEqual(actual, expected);
@@ -239,6 +368,11 @@ test("retains the catalog operations, security and transitive models", () => {
     const source = at(definitions, path);
     const name = path[2];
     let expected = source;
+    if (name === "ChannelUnreadAt")
+      expected = correctUnreadAt(
+        object(source, name),
+        read("definitions-12.1.0.yaml"),
+      );
     if (name === "User") expected = correctUserProfile(object(source, name));
     if (["Channel", "ChannelMember", "TeamMember"].includes(name))
       expected = correctSidebarSchema(name, object(source, name));
@@ -257,6 +391,7 @@ test("retains the catalog operations, security and transitive models", () => {
       "Channel",
       "ChannelMember",
       "ChannelNotifyProps",
+      "ChannelUnreadAt",
       "Emoji",
       "FileInfo",
       "OrderedSidebarCategories",

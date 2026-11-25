@@ -28,6 +28,12 @@ import {
   correctUserProfile,
 } from "./profile-corrections.ts";
 import {
+  correctBulkChannelView,
+  correctChannelView,
+  correctSetPostUnread,
+  correctUnreadAt,
+} from "./read-state-corrections.ts";
+import {
   correctSidebarResponse,
   correctSidebarSchema,
 } from "./sidebar-corrections.ts";
@@ -97,6 +103,8 @@ export function buildSpecification(
       throw new Error(`Missing component ${kind}/${name}`);
     const source = object(upstream[name], `components/${kind}/${name}`);
     if (kind !== "schemas") group[name] = source;
+    else if (name === "ChannelUnreadAt")
+      group[name] = correctUnreadAt(source, read("definitions-12.1.0.yaml"));
     else if (name === "User") group[name] = correctUserProfile(source);
     else
       group[name] = correctSidebarSchema(
@@ -139,7 +147,15 @@ export function buildSpecification(
     if (!path.startsWith("/api/v4/"))
       throw new Error(`Expected a REST v4 path: ${path}`);
     const sourcePath = object(read(file)[path], path);
-    const operation = object(sourcePath[method], `${method} ${path}`);
+    const originalOperation = object(sourcePath[method], `${method} ${path}`);
+    const operation =
+      id === "SetPostUnread"
+        ? correctSetPostUnread(
+            originalOperation,
+            read("posts-12.1.0.yaml"),
+            path,
+          )
+        : originalOperation;
     if (operation.operationId !== id)
       throw new Error(`Expected operation ${id} at ${method} ${path}`);
     if (id === "GetPostInfo")
@@ -164,6 +180,18 @@ export function buildSpecification(
       paths[path][method] = correctPatchPost(
         operation,
         read("posts-12.1.0.yaml"),
+      );
+    else if (id === "ViewChannel")
+      paths[path][method] = correctChannelView(
+        operation,
+        read("channels-12.1.0.yaml"),
+        path,
+      );
+    else if (id === "MarkChannelsReadForUser")
+      paths[path][method] = correctBulkChannelView(
+        operation,
+        read("channels.yaml"),
+        path,
       );
     else if (id === "GetSidebarCategoriesForTeamForUser")
       paths[path][method] = correctSidebarResponse(operation);
