@@ -43,13 +43,20 @@ const captions = {
   },
 };
 
-function sidebarRow(c: Channel, selected: string | null, ctx: Context) {
-  const crt = ctx.preferences.collapsedThreads;
+export function channelUnreadCounts(c: Channel, crt: boolean) {
   const total = crt ? c.totalMsgCountRoot : c.totalMsgCount;
   const read = crt ? c.msgCountRoot : c.msgCount;
   const messages =
     total === null || read === null ? 0 : Math.max(0, total - read);
   const mentions = (crt ? c.mentionCountRoot : c.mentionCount) ?? 0;
+  return {
+    messages,
+    mentions,
+    unread: mentions > 0 || (!c.muted && messages > 0),
+  };
+}
+function sidebarRow(c: Channel, selected: string | null, ctx: Context) {
+  const counts = channelUnreadCounts(c, ctx.preferences.collapsedThreads);
   const partner = c.kind === "D" ? directPartnerId(c.name, ctx.userId) : null;
   const person = partner ? ctx.profiles.byId.get(partner) : undefined;
   const name = conversationName(
@@ -59,7 +66,6 @@ function sidebarRow(c: Channel, selected: string | null, ctx: Context) {
     ctx.preferences.nameFormat,
     ctx.locale,
   );
-  const unread = mentions > 0 || (!c.muted && messages > 0);
   return {
     id: c.id,
     kind: c.kind,
@@ -67,9 +73,7 @@ function sidebarRow(c: Channel, selected: string | null, ctx: Context) {
     current: c.id === selected,
     archived: c.deleteAt > 0,
     muted: c.muted,
-    unread,
-    messages,
-    mentions,
+    ...counts,
     urgent: (c.urgentMentionCount ?? 0) > 0,
     self: partner === ctx.userId,
     bot: person?.isBot ?? false,
