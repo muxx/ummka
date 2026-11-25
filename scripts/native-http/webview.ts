@@ -1011,6 +1011,7 @@ export function webviewServers(
         "empty-post-reactions",
         "post-reactions",
         "patch-post",
+        "post-edit-history",
         "delete-post",
         "bulk-channel-view",
         "single-channel-view",

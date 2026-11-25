@@ -47,6 +47,7 @@ import {
   correctGroupAudienceResponse,
 } from "./group-audience-correction.ts";
 import {
+  checkEditHistoryOperation,
   correctFlaggedPosts,
   correctHistoryQuery,
   correctHistorySchema,
@@ -1124,6 +1125,56 @@ test("corrects the sidebar envelope and category fields without changing the ups
     );
   }
   assert.deepEqual(schema, unchanged);
+});
+
+test("imports only the reviewed edit history operation and detects drift on either release", () => {
+  const path = "/api/v4/posts/{post_id}/edit_history";
+  const source = object(read("posts-12.1.0.yaml")[path], path);
+  const operation = object(source.get, path);
+  const baseline = read("posts.yaml");
+  checkEditHistoryOperation(baseline, path, source);
+  assert.deepEqual(at(contract, ["paths", path, "get"]), operation);
+  assert.throws(
+    () =>
+      checkEditHistoryOperation({ ...baseline, [path]: source }, path, source),
+    /Review/,
+  );
+  for (const schema of [
+    { $ref: "#/components/schemas/PostList" },
+    { type: "array", items: { $ref: "#/components/schemas/PostList" } },
+  ]) {
+    const changed = structuredClone(source);
+    object(
+      at(changed, ["get", "responses", "200", "content", "application/json"]),
+      "media",
+    ).schema = schema;
+    assert.throws(
+      () => checkEditHistoryOperation(baseline, path, changed),
+      /Review/,
+    );
+  }
+  for (const changed of [
+    { ...source, get: { ...operation, security: [] } },
+    { ...source, parameters: [{ name: "page", in: "query" }] },
+    {
+      ...source,
+      get: {
+        ...operation,
+        parameters: [
+          {
+            name: "post_id",
+            in: "query",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+      },
+    },
+  ])
+    assert.throws(
+      () => checkEditHistoryOperation(baseline, path, changed),
+      /Review/,
+    );
 });
 
 test("imports precisely the missing post info contract and stops on drift", () => {
