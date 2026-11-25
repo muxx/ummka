@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
+import { latestReactionTarget } from "../../../src/channels/latest-reaction-target.ts";
 import { channelHistoryPage } from "../../../src/mattermost/channel-history-page.ts";
 import { channelPostChanges } from "../../../src/mattermost/channel-post-records.ts";
 import {
@@ -133,6 +134,23 @@ assert.ok(
   ordinary.order?.includes(root.id) && ordinary.order.includes(reply.id),
 );
 assert.equal(ordinary.posts?.[reply.id]?.rootId, root.id);
+const savedById = new Map(
+  channelPostChanges(channelId, ordinary)
+    .filter((row) => row.kind === "save")
+    .map((row) => [row.id, row]),
+);
+const savedInOrder = (ordinary.order ?? []).flatMap((id) => {
+  const record = savedById.get(id);
+  return record ? [record] : [];
+});
+const lastVisible = savedInOrder.find((row) => !row.type.startsWith("system_"));
+assert.ok(
+  lastVisible && [root.id, reply.id, image.id].includes(lastVisible.id),
+);
+assert.equal(latestReactionTarget(channelId, savedInOrder), lastVisible.id);
+assert.equal(latestReactionTarget(channelId, savedInOrder, root.id), reply.id);
+assert.equal(latestReactionTarget(channelId, savedInOrder, image.id), image.id);
+
 assert.equal(ordinary.firstInaccessiblePostTime, 0);
 const size = ordinary.posts?.[image.id]?.metadata?.images?.[imageUrl];
 assert.deepEqual(size, { height: 3, width: 4, format: "png", frameCount: 0 });
