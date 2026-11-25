@@ -266,6 +266,49 @@ export function webviewServers(
   }
   const data = https.createServer(trusted, async (req, res) => {
     const url = new URL(req.url ?? "/", "https://localhost");
+    if (url.pathname === "/team/chat/api/v4/reactions") {
+      assert.equal(req.method, "POST");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers["content-type"], "application/json");
+      const fields = {
+        user_id: userId,
+        post_id: "p".repeat(26),
+        emoji_name: "+1",
+      };
+      assert.deepEqual(await json(req), fields);
+      visits.push("save-post-reaction");
+      res.writeHead(200, { "Content-Type": "application/json" }).end(
+        JSON.stringify({
+          ...fields,
+          channel_id: channelId,
+          create_at: 42,
+          update_at: 42,
+          delete_at: 0,
+          remote_id: "",
+        }),
+      );
+      return;
+    }
+    if (
+      url.pathname ===
+      `/team/chat/api/v4/users/me/posts/${"p".repeat(26)}/reactions/%2B1`
+    ) {
+      assert.equal(req.method, "DELETE");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      assert.equal(url.search, "");
+      visits.push("delete-post-reaction");
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end(JSON.stringify({ status: "OK" }));
+      return;
+    }
     if (url.pathname === "/team/chat/api/v4/users/usernames") {
       assert.equal(req.method, "POST");
       assert.equal(
@@ -854,6 +897,8 @@ export function webviewServers(
         "submit-wrong-author",
         "submit-expired",
         "create-post-reply",
+        "save-post-reaction",
+        "delete-post-reaction",
         "empty-post-reactions",
         "post-reactions",
         "patch-post",

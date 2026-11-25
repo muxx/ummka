@@ -40,7 +40,8 @@ export function checkPathParameters(
       segment === "{user_id}" ||
       segment === "{team_id}" ||
       segment === "{channel_id}" ||
-      segment === "{post_id}"
+      segment === "{post_id}" ||
+      segment === "{emoji_name}"
     )
       names.add(segment.slice(1, -1));
     else if (/[{}]/u.test(segment))

@@ -224,5 +224,18 @@
     "method": "GET",
     "path": "/api/v4/posts/{post_id}/reactions",
     "id": "GetReactions"
+  },
+  {
+    "file": "reactions.yaml",
+    "method": "POST",
+    "path": "/api/v4/reactions",
+    "id": "SaveReaction",
+    "body": "json"
+  },
+  {
+    "file": "reactions.yaml",
+    "method": "DELETE",
+    "path": "/api/v4/users/{user_id}/posts/{post_id}/reactions/{emoji_name}",
+    "id": "DeleteReaction"
   }
 ]

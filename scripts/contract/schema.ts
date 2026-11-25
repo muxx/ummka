@@ -50,7 +50,10 @@ import {
   correctProfileImage,
   correctUserProfile,
 } from "./profile-corrections.ts";
-import { correctReaction } from "./reaction-corrections.ts";
+import {
+  correctReaction,
+  correctSaveReaction,
+} from "./reaction-corrections.ts";
 import {
   correctBulkChannelView,
   correctChannelView,
@@ -233,7 +236,7 @@ export function buildSpecification(
         : originalOperation;
     if (operation.operationId !== id)
       throw new Error(`Expected operation ${id} at ${method} ${path}`);
-    if (id === "GetReactions") {
+    if (id === "GetReactions" || id === "DeleteReaction") {
       const newerPath = object(read("reactions-12.1.0.yaml")[path], path);
       const components = object(
         read("definitions-12.1.0.yaml").components,
@@ -242,7 +245,7 @@ export function buildSpecification(
       checkPathParameters(
         path,
         newerPath,
-        object(newerPath.get, id),
+        object(newerPath[method], id),
         components,
       );
     }
@@ -258,6 +261,11 @@ export function buildSpecification(
         operation,
         read("posts-12.1.0.yaml"),
         path,
+      );
+    else if (id === "SaveReaction")
+      paths[path][method] = correctSaveReaction(
+        operation,
+        read("reactions-12.1.0.yaml"),
       );
     else if (id === "CreatePost")
       paths[path][method] = correctCreatePost(

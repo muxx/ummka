@@ -34,6 +34,7 @@ impl Operation<'_> {
             let matched = match expected {
                 "{user_id}" => actual == "me" || is_mattermost_id(actual),
                 "{team_id}" | "{channel_id}" | "{post_id}" => is_mattermost_id(actual),
+                "{emoji_name}" => valid_reaction_name(actual),
                 literal => actual == literal,
             };
             if !matched {
@@ -49,6 +50,18 @@ impl Operation<'_> {
             Some(BodyKind::Json) => request.body().is_some() && has_json_content_type(request),
         }
     }
+}
+
+// Mattermost reaction names are 1–64 ASCII bytes. A plus is encoded as %2B by the SDK.
+fn valid_reaction_name(segment: &str) -> bool {
+    let mut length = 0;
+    for byte in percent_encoding::percent_decode_str(segment) {
+        length += 1;
+        if length > 64 || !(byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'-' | b'_')) {
+            return false;
+        }
+    }
+    length != 0
 }
 
 fn has_json_content_type(request: &Request) -> bool {
@@ -222,6 +235,43 @@ impl RestConnection {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reaction_deletion_requires_one_valid_decoded_name() {
+        let base = "https://fixture.test/sub";
+        let connection = RestConnection::new(base).unwrap();
+        let post = "p".repeat(26);
+        let prefix = format!("{base}/api/v4/users/me/posts/{post}/reactions/");
+        let limit = "a".repeat(64);
+        let over = "a".repeat(65);
+        for (name, allowed) in [
+            ("%2B1", true),
+            ("%2b1", true),
+            ("+1", true),
+            ("-1", true),
+            ("party_parrot", true),
+            ("%41", true),
+            (&limit, true),
+            (&over, false),
+            ("", false),
+            ("two/names", false),
+            ("two%2Fnames", false),
+            ("%252B1", false),
+            ("%", false),
+            ("%20", false),
+            ("a.b", false),
+            ("%C3%A9", false),
+        ] {
+            let url = Url::parse(&format!("{prefix}{name}")).unwrap();
+            assert_eq!(
+                connection
+                    .check_request(&Request::new(reqwest::Method::DELETE, url))
+                    .is_ok(),
+                allowed,
+                "name {name}"
+            );
+        }
+    }
 
     #[test]
     fn reactions_are_read_by_post_id_in_the_selected_installation() {

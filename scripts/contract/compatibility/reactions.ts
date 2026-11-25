@@ -1,16 +1,18 @@
 import assert from "node:assert/strict";
 import {
-  type Configuration,
+  Configuration,
   PostsApi,
   ReactionsApi,
   ReactionToJSON,
+  ResponseError,
 } from "../../../vendor/mattermost/index.js";
 
-export async function checkReactionReads(
+export async function checkPostReactions(
   base: string,
   token: string,
   session: Configuration,
   userId: string,
+  otherUserId: string,
   channelId: string,
 ) {
   const posts = new PostsApi(session);
@@ -27,16 +29,29 @@ export async function checkReactionReads(
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
   };
-  const created = await fetch(`${base}/api/v4/reactions`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      user_id: userId,
-      post_id: postId,
-      emoji_name: "+1",
+  const save = { saveReactionRequest: { userId, postId, emojiName: "+1" } };
+  const remove = { userId: "me", postId, emojiName: "+1" };
+  const anonymous = new ReactionsApi(new Configuration({ basePath: base }));
+  await assert.rejects(
+    anonymous.saveReaction(save),
+    (error: unknown) =>
+      error instanceof ResponseError && error.response.status === 401,
+  );
+  await assert.rejects(
+    anonymous.deleteReaction(remove),
+    (error: unknown) =>
+      error instanceof ResponseError && error.response.status === 401,
+  );
+  await assert.rejects(
+    reader.saveReaction({
+      saveReactionRequest: { ...save.saveReactionRequest, userId: otherUserId },
     }),
-  });
-  assert.equal(created.status, 200);
+    (error: unknown) =>
+      error instanceof ResponseError && error.response.status === 403,
+  );
+  assert.equal(await reader.getReactions({ postId }), null);
+  const created = await reader.saveReactionRaw(save);
+  assert.equal(created.raw.status, 200);
   const rawResponse = await fetch(url, { headers });
   assert.equal(rawResponse.status, 200);
   const raw = await rawResponse.json();
@@ -49,7 +64,7 @@ export async function checkReactionReads(
   assert.ok(row.create_at > 0 && row.update_at >= row.create_at);
   assert.equal(row.delete_at, 0);
   assert.equal(row.remote_id, "");
-  assert.deepEqual(await created.json(), row);
+  assert.deepEqual(ReactionToJSON(await created.value()), row);
   const list = await reader.getReactions({ postId });
   assert.deepEqual(list?.map(ReactionToJSON), raw);
   assert.deepEqual(
@@ -58,11 +73,12 @@ export async function checkReactionReads(
     ]?.metadata?.reactions?.map(ReactionToJSON),
     raw,
   );
-  const removed = await fetch(
-    `${base}/api/v4/users/${userId}/posts/${postId}/reactions/%2B1`,
-    { method: "DELETE", headers },
-  );
-  assert.equal(removed.status, 200);
-  assert.equal((await removed.json()).status, "OK");
-  assert.equal(await reader.getReactions({ postId }), null);
+  await reader.saveReaction(save);
+  assert.equal((await reader.getReactions({ postId }))?.length, 1);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const removed = await reader.deleteReactionRaw(remove);
+    assert.equal(removed.raw.status, 200);
+    assert.equal((await removed.value()).status, "OK");
+    assert.equal(await reader.getReactions({ postId }), null);
+  }
 }

@@ -57,7 +57,10 @@ import {
   correctProfileImage,
   correctUserProfile,
 } from "./profile-corrections.ts";
-import { correctReaction } from "./reaction-corrections.ts";
+import {
+  correctReaction,
+  correctSaveReaction,
+} from "./reaction-corrections.ts";
 import {
   correctBulkChannelView,
   correctChannelView,
@@ -752,6 +755,8 @@ test("retains the catalog operations, security and transitive models", () => {
     }
     const source = object(at(read(file), key), path);
     let expected = source;
+    if (source.operationId === "SaveReaction")
+      expected = correctSaveReaction(source, read("reactions-12.1.0.yaml"));
     if (path === "/api/v4/posts" && method === "POST")
       expected = correctCreatePost(source, read("posts-12.1.0.yaml"));
     if (path === "/api/v4/posts/{post_id}/patch")
@@ -1169,6 +1174,51 @@ const removals = [
   })),
 ];
 const builder = fileURLToPath(new URL("./schema.ts", import.meta.url));
+test("rejects reaction write contract drift in either upstream release", () => {
+  for (const file of ["reactions.yaml", "reactions-12.1.0.yaml"]) {
+    function change(
+      path: string[],
+      key: string,
+      value: unknown,
+      error: RegExp,
+    ) {
+      const altered = structuredClone(read(file));
+      object(at(altered, path), key)[key] = value;
+      assert.throws(
+        () =>
+          buildSpecification((name) => (name === file ? altered : read(name))),
+        error,
+      );
+    }
+    change(
+      [
+        "/api/v4/reactions",
+        "post",
+        "requestBody",
+        "content",
+        "application/json",
+      ],
+      "schema",
+      { type: "object" },
+      /Review SaveReaction/,
+    );
+    change(
+      ["/api/v4/reactions", "post", "responses"],
+      "200",
+      { description: "Added upstream" },
+      /Review SaveReaction/,
+    );
+    change(
+      [
+        "/api/v4/users/{user_id}/posts/{post_id}/reactions/{emoji_name}",
+        "delete",
+      ],
+      "parameters",
+      [],
+      /Missing path parameter/,
+    );
+  }
+});
 test("detects reaction model and list changes in either pinned source", () => {
   for (const file of ["definitions.yaml", "definitions-12.1.0.yaml"]) {
     const altered = structuredClone(read(file));

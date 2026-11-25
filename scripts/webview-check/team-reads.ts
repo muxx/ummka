@@ -32,6 +32,26 @@ export async function checkTeamReads(
     reaction.channelId !== "c".repeat(26)
   )
     throw Error("signed reaction with nullable remote id");
+  const reactionsApi = new ReactionsApi(prefixed);
+  const newReaction = await reactionsApi.saveReaction({
+    saveReactionRequest: {
+      userId: "Abc01234567890123456789012",
+      postId,
+      emojiName: "+1",
+    },
+  });
+  if (newReaction.emojiName !== "+1" || newReaction.createAt !== 42)
+    throw Error("signed reaction creation");
+  if (
+    (
+      await reactionsApi.deleteReaction({
+        userId: "me",
+        postId,
+        emojiName: "+1",
+      })
+    ).status !== "OK"
+  )
+    throw Error("signed reaction removal");
   const names = ["team_guest", "channel_user"];
   const roleApi = new RolesApi(prefixed);
   const roles = await roleApi.getRolesByNames({
