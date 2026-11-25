@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
-import { readBroadcastDecision } from "../../src/channels/broadcast-audience.ts";
+import { composerPostMentions } from "../../src/channels/composer-mentions.ts";
+import { resolveComposerSubmission } from "../../src/channels/composer-submission.ts";
 import { readGroupMentionAudience } from "../../src/channels/group-mention-audience.ts";
+import { readPostMentionDecision } from "../../src/channels/post-mention-decision.ts";
 import { inspectInstallation } from "../../src/mattermost/inspect-installation.ts";
 import {
   openAccountRestConnection,
@@ -232,6 +234,23 @@ export async function checkGeneratedRequests(ports: string[]) {
     await checkAccountResponses(accountPrefix, userId, observed);
     await checkChannelRefresh(accountPrefix, observed);
     await checkTeamReads(rootSession, signed);
+    const prepared = await resolveComposerSubmission(
+      { message: "-:fixture+wave:", hasAttachments: false, scheduled: false },
+      accountPrefix,
+    );
+    check(
+      prepared.kind === "reaction" &&
+        prepared.emoji === "fixture+wave" &&
+        prepared.action === "remove",
+      "resolve custom emoji for the signed account",
+    );
+    const customEmoji = await accountPrefix.readCustomEmoji("fixture+wave");
+    check(
+      customEmoji.kind === "found" &&
+        customEmoji.emoji.name === "fixture+wave" &&
+        customEmoji.emoji.id === "e".repeat(26),
+      "account custom emoji",
+    );
     await checkTeamLoadOwnership(accountPrefix.rid, accountRoot.rid);
     check(
       (await accountPrefix.readJoinedTeams()) === null,
@@ -291,21 +310,26 @@ export async function checkGeneratedRequests(ports: string[]) {
       "account-server-command",
     );
 
-    const broadcast = await readBroadcastDecision(
+    const broadcast = await readPostMentionDecision(
       accountPrefix,
-      channelId,
-      ["@here"],
+      { id: channelId, groupConstrained: true },
+      { id: teamId, groupConstrained: true },
+      composerPostMentions("Ready @here and @release-qa"),
       {
         confirmNotifications: true,
         maxNotificationsPerChannel: 100n,
         canMentionChannel: true,
-        canMentionGroups: false,
+        canMentionGroups: true,
+        ldapGroups: true,
+        customGroups: false,
       },
     );
     check(
-      broadcast.confirmation?.kind === "here" &&
+      broadcast.kind === "ready" &&
+        broadcast.confirmation?.kind === "here" &&
         broadcast.confirmation.members === 29 &&
-        broadcast.confirmation.timezones === 2,
+        broadcast.confirmation.timezones === 2 &&
+        broadcast.suppression === null,
       "account-broadcast-confirmation",
     );
     const audience = await readGroupMentionAudience(

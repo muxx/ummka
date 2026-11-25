@@ -1,10 +1,12 @@
 import {
   ChannelsApi,
   type Configuration,
+  EmojiApi,
   GroupFromJSON,
   GroupsApi,
   PostsApi,
   PreferencesApi,
+  ReactionsApi,
   RolesApi,
   TeamsApi,
 } from "../../vendor/mattermost/index.js";
@@ -14,6 +16,55 @@ export async function checkTeamReads(
   root: Configuration,
   prefixed: Configuration,
 ) {
+  const entry = await new EmojiApi(prefixed).getEmojiByName({
+    emojiName: "fixture+wave",
+  });
+  if (
+    entry.name !== "fixture+wave" ||
+    entry.id !== "e".repeat(26) ||
+    entry.creatorId !== "Abc01234567890123456789012" ||
+    entry.createAt !== 42 ||
+    entry.updateAt !== 43 ||
+    entry.deleteAt !== 0
+  )
+    throw Error("signed exact custom emoji lookup");
+  const postId = "p".repeat(26);
+  if ((await new ReactionsApi(root).getReactions({ postId })) !== null)
+    throw Error("empty signed post reaction list");
+  const storedReactions = await new ReactionsApi(prefixed).getReactions({
+    postId,
+  });
+  const reaction = storedReactions?.[0];
+  if (
+    storedReactions?.length !== 1 ||
+    reaction?.postId !== postId ||
+    reaction.emojiName !== "+1" ||
+    reaction.updateAt !== 34 ||
+    reaction.deleteAt !== 0 ||
+    reaction.remoteId !== null ||
+    reaction.channelId !== "c".repeat(26)
+  )
+    throw Error("signed reaction with nullable remote id");
+  const reactionsApi = new ReactionsApi(prefixed);
+  const newReaction = await reactionsApi.saveReaction({
+    saveReactionRequest: {
+      userId: "Abc01234567890123456789012",
+      postId,
+      emojiName: "+1",
+    },
+  });
+  if (newReaction.emojiName !== "+1" || newReaction.createAt !== 42)
+    throw Error("signed reaction creation");
+  if (
+    (
+      await reactionsApi.deleteReaction({
+        userId: "me",
+        postId,
+        emojiName: "+1",
+      })
+    ).status !== "OK"
+  )
+    throw Error("signed reaction removal");
   const names = ["team_guest", "channel_user"];
   const roleApi = new RolesApi(prefixed);
   const roles = await roleApi.getRolesByNames({

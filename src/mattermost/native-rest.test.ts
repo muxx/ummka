@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, expect, expectTypeOf, test, vi } from "vitest";
+import * as emoji from "./account-custom-emoji.ts";
 import * as roles from "./channel-permissions.ts";
 import { channelProfile } from "./channel-profiles.ts";
 import {
@@ -298,6 +299,7 @@ test("opens a native account by installation and user ID", async () => {
     "readChannelMemberCount",
     "readChannelTimezoneCount",
     "readChannelWindow",
+    "readCustomEmoji",
     "readDraft",
     "readJoinedTeams",
     "readMentionGroupCounts",
@@ -698,6 +700,36 @@ test("a role refresh uses the reserved assignments and releases the reservation 
       "store_team_roles",
       { rid: 7, load: 10, data },
     ]);
+  } finally {
+    read.mockRestore();
+  }
+});
+
+test("an exact emoji read cannot publish after its account connection closes", async () => {
+  ipc.mockResolvedValueOnce(31);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    "u".repeat(26),
+  );
+  let finish!: (
+    result: Awaited<ReturnType<typeof emoji.readCustomEmoji>>,
+  ) => void;
+  const read = vi.spyOn(emoji, "readCustomEmoji").mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  try {
+    const pending = account.readCustomEmoji("fixture");
+    expect(read).toHaveBeenCalledTimes(1);
+    await account.close();
+    finish({ kind: "missing" });
+    await expect(pending).rejects.toBe("cancelled");
+    await expect(account.readCustomEmoji("fixture")).rejects.toBe(
+      "unknown_connection",
+    );
+    expect(read).toHaveBeenCalledTimes(1);
   } finally {
     read.mockRestore();
   }

@@ -218,5 +218,30 @@
     "method": "GET",
     "path": "/api/v4/teams/{team_id}/groups_by_channels",
     "id": "GetGroupsAssociatedToChannelsByTeam"
+  },
+  {
+    "file": "reactions.yaml",
+    "method": "GET",
+    "path": "/api/v4/posts/{post_id}/reactions",
+    "id": "GetReactions"
+  },
+  {
+    "file": "reactions.yaml",
+    "method": "POST",
+    "path": "/api/v4/reactions",
+    "id": "SaveReaction",
+    "body": "json"
+  },
+  {
+    "file": "reactions.yaml",
+    "method": "DELETE",
+    "path": "/api/v4/users/{user_id}/posts/{post_id}/reactions/{emoji_name}",
+    "id": "DeleteReaction"
+  },
+  {
+    "file": "emoji.yaml",
+    "method": "GET",
+    "path": "/api/v4/emoji/name/{emoji_name}",
+    "id": "GetEmojiByName"
   }
 ]

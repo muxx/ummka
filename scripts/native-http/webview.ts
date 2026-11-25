@@ -66,7 +66,43 @@ export function webviewServers(
   );
   const teamId = "Team0123456789012345678901";
   const channelId = "c".repeat(26);
-  const teamReads = new Map<string, { name: string; body: object }>([
+  const teamReads = new Map<string, { name: string; body: object | null }>([
+    [
+      `/api/v4/posts/${"p".repeat(26)}/reactions`,
+      { name: "empty-post-reactions", body: null },
+    ],
+    [
+      `/team/chat/api/v4/posts/${"p".repeat(26)}/reactions`,
+      {
+        name: "post-reactions",
+        body: [
+          {
+            user_id: userId,
+            post_id: "p".repeat(26),
+            channel_id: channelId,
+            emoji_name: "+1",
+            create_at: 32,
+            update_at: 34,
+            delete_at: 0,
+            remote_id: null,
+          },
+        ],
+      },
+    ],
+    [
+      "/team/chat/api/v4/emoji/name/fixture%2Bwave",
+      {
+        name: "custom-emoji-by-name",
+        body: {
+          id: "e".repeat(26),
+          creator_id: userId,
+          name: "fixture+wave",
+          create_at: 42,
+          update_at: 43,
+          delete_at: 0,
+        },
+      },
+    ],
     [
       "/api/v4/users/me/teams",
       {
@@ -246,6 +282,49 @@ export function webviewServers(
   }
   const data = https.createServer(trusted, async (req, res) => {
     const url = new URL(req.url ?? "/", "https://localhost");
+    if (url.pathname === "/team/chat/api/v4/reactions") {
+      assert.equal(req.method, "POST");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers["content-type"], "application/json");
+      const fields = {
+        user_id: userId,
+        post_id: "p".repeat(26),
+        emoji_name: "+1",
+      };
+      assert.deepEqual(await json(req), fields);
+      visits.push("save-post-reaction");
+      res.writeHead(200, { "Content-Type": "application/json" }).end(
+        JSON.stringify({
+          ...fields,
+          channel_id: channelId,
+          create_at: 42,
+          update_at: 42,
+          delete_at: 0,
+          remote_id: "",
+        }),
+      );
+      return;
+    }
+    if (
+      url.pathname ===
+      `/team/chat/api/v4/users/me/posts/${"p".repeat(26)}/reactions/%2B1`
+    ) {
+      assert.equal(req.method, "DELETE");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      assert.equal(url.search, "");
+      visits.push("delete-post-reaction");
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end(JSON.stringify({ status: "OK" }));
+      return;
+    }
     if (url.pathname === "/team/chat/api/v4/users/usernames") {
       assert.equal(req.method, "POST");
       assert.equal(
@@ -881,6 +960,13 @@ export function webviewServers(
         "submit-wrong-author",
         "submit-expired",
         "create-post-reply",
+        "save-post-reaction",
+        "delete-post-reaction",
+        "custom-emoji-by-name",
+        "custom-emoji-by-name",
+        "custom-emoji-by-name",
+        "empty-post-reactions",
+        "post-reactions",
         "patch-post",
         "delete-post",
         "bulk-channel-view",

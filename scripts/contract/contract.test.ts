@@ -32,6 +32,7 @@ import {
   correctCommandResponse,
   correctExecuteCommand,
 } from "./command-corrections.ts";
+import { correctCustomEmoji } from "./custom-emoji-correction.ts";
 import {
   correctAssociatedGroup,
   correctGroupAssociations,
@@ -59,6 +60,10 @@ import {
   correctProfileImage,
   correctUserProfile,
 } from "./profile-corrections.ts";
+import {
+  correctReaction,
+  correctSaveReaction,
+} from "./reaction-corrections.ts";
 import {
   correctBulkChannelView,
   correctChannelView,
@@ -753,6 +758,8 @@ test("retains the catalog operations, security and transitive models", () => {
     }
     const source = object(at(read(file), key), path);
     let expected = source;
+    if (source.operationId === "SaveReaction")
+      expected = correctSaveReaction(source, read("reactions-12.1.0.yaml"));
     if (path === "/api/v4/posts" && method === "POST")
       expected = correctCreatePost(source, read("posts-12.1.0.yaml"));
     if (path === "/api/v4/posts/{post_id}/patch")
@@ -769,6 +776,7 @@ test("retains the catalog operations, security and transitive models", () => {
     if (source.operationId === "ExecuteCommand")
       expected = correctExecuteCommand(source, read("commands-12.1.0.yaml"));
     if (
+      source.operationId === "GetReactions" ||
       source.operationId === "GetRolesByNames" ||
       source.operationId === "GetPreferences" ||
       source.operationId === "GetChannelMembersTimezones"
@@ -826,6 +834,16 @@ test("retains the catalog operations, security and transitive models", () => {
       );
     if (name === "Group")
       expected = correctMentionGroup(
+        object(source, name),
+        read("definitions-12.1.0.yaml"),
+      );
+    if (name === "Emoji")
+      expected = correctCustomEmoji(
+        object(source, name),
+        read("definitions-12.1.0.yaml"),
+      );
+    if (name === "Reaction")
+      expected = correctReaction(
         object(source, name),
         read("definitions-12.1.0.yaml"),
       );
@@ -1164,6 +1182,97 @@ const removals = [
   })),
 ];
 const builder = fileURLToPath(new URL("./schema.ts", import.meta.url));
+test("rejects reaction write contract drift in either upstream release", () => {
+  for (const file of ["reactions.yaml", "reactions-12.1.0.yaml"]) {
+    function change(
+      path: string[],
+      key: string,
+      value: unknown,
+      error: RegExp,
+    ) {
+      const altered = structuredClone(read(file));
+      object(at(altered, path), key)[key] = value;
+      assert.throws(
+        () =>
+          buildSpecification((name) => (name === file ? altered : read(name))),
+        error,
+      );
+    }
+    change(
+      [
+        "/api/v4/reactions",
+        "post",
+        "requestBody",
+        "content",
+        "application/json",
+      ],
+      "schema",
+      { type: "object" },
+      /Review SaveReaction/,
+    );
+    change(
+      ["/api/v4/reactions", "post", "responses"],
+      "200",
+      { description: "Added upstream" },
+      /Review SaveReaction/,
+    );
+    change(
+      [
+        "/api/v4/users/{user_id}/posts/{post_id}/reactions/{emoji_name}",
+        "delete",
+      ],
+      "parameters",
+      [],
+      /Missing path parameter/,
+    );
+  }
+});
+test("detects reaction model and list changes in either pinned source", () => {
+  for (const file of ["definitions.yaml", "definitions-12.1.0.yaml"]) {
+    const altered = structuredClone(read(file));
+    object(
+      at(altered, ["components", "schemas", "Reaction", "properties"]),
+      "Reaction",
+    ).update_at = { type: "integer", format: "int64" };
+    assert.throws(
+      () =>
+        buildSpecification((name) => (name === file ? altered : read(name))),
+      /Review Reaction/,
+    );
+  }
+  for (const file of ["reactions.yaml", "reactions-12.1.0.yaml"]) {
+    const changedPath = structuredClone(read(file));
+    object(
+      at(changedPath, ["/api/v4/posts/{post_id}/reactions", "get"]),
+      "get",
+    ).parameters = [];
+    assert.throws(
+      () =>
+        buildSpecification((name) =>
+          name === file ? changedPath : read(name),
+        ),
+      /Missing path parameter/,
+    );
+    const altered = structuredClone(read(file));
+    object(
+      at(altered, [
+        "/api/v4/posts/{post_id}/reactions",
+        "get",
+        "responses",
+        "200",
+        "content",
+        "application/json",
+        "schema",
+      ]),
+      "reaction list",
+    ).items = { type: "string" };
+    assert.throws(
+      () =>
+        buildSpecification((name) => (name === file ? altered : read(name))),
+      /Review the nullable GetReactions/,
+    );
+  }
+});
 const sourceDirectory = resolve(sources);
 const fixturePrefix = join(work, "incomplete-");
 function copySources() {
@@ -1177,6 +1286,7 @@ function copySources() {
     "preferences-12.1.0.yaml",
     "commands-12.1.0.yaml",
     "posts-12.1.0.yaml",
+    "reactions-12.1.0.yaml",
     ...catalog.map(({ file }) => file),
   ])) {
     copyFileSync(join(sourceDirectory, name), join(fixture, name));
@@ -1743,6 +1853,52 @@ for (const base of [
     });
   }
 }
+
+test("pins exact custom emoji lookup and all six serialized fields on both versions", () => {
+  const path = "/api/v4/emoji/name/{emoji_name}";
+  const baseline = read("emoji.yaml");
+  assert.deepEqual(baseline[path], read("emoji-12.1.0.yaml")[path]);
+  const operation = object(at(contract, ["paths", path, "get"]), path);
+  assert.deepEqual(Object.keys(object(operation.responses, path)).sort(), [
+    "200",
+    "400",
+    "401",
+    "404",
+    "501",
+  ]);
+  assert.deepEqual(
+    at(operation, [
+      "responses",
+      "200",
+      "content",
+      "application/json",
+      "schema",
+    ]),
+    { $ref: "#/components/schemas/Emoji" },
+  );
+  const model = ["components", "schemas", "Emoji"];
+  assert.deepEqual(at(contract, [...model, "required"]), [
+    "id",
+    "creator_id",
+    "name",
+    "create_at",
+    "update_at",
+    "delete_at",
+  ]);
+  for (const newer of [false, true]) {
+    const old = read("definitions.yaml");
+    const next = read("definitions-12.1.0.yaml");
+    const props = object(
+      at(newer ? next : old, [...model, "properties"]),
+      "Emoji",
+    );
+    delete props.creator_id;
+    assert.throws(
+      () => correctCustomEmoji(object(at(old, model), "Emoji"), next),
+      /Review Emoji/,
+    );
+  }
+});
 
 test("restored contract inputs must match their pins before generation", () => {
   assert.ok(work);
