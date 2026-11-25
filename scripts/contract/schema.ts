@@ -19,6 +19,7 @@ import {
   checkPostInfoOperation,
   postInfoSchema,
 } from "./post-info-correction.ts";
+import { correctUserProfile } from "./profile-corrections.ts";
 import {
   correctSidebarResponse,
   correctSidebarSchema,
@@ -88,10 +89,13 @@ export function buildSpecification(
     if (!Object.hasOwn(upstream, name))
       throw new Error(`Missing component ${kind}/${name}`);
     const source = object(upstream[name], `components/${kind}/${name}`);
-    group[name] =
-      kind === "schemas"
-        ? correctSidebarSchema(name, correctHistorySchema(name, source))
-        : source;
+    if (kind !== "schemas") group[name] = source;
+    else if (name === "User") group[name] = correctUserProfile(source);
+    else
+      group[name] = correctSidebarSchema(
+        name,
+        correctHistorySchema(name, source),
+      );
     visit(group[name]);
   }
 

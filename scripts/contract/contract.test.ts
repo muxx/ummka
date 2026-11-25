@@ -27,6 +27,7 @@ import {
   checkPostInfoOperation,
   postInfoSchema,
 } from "./post-info-correction.ts";
+import { correctUserProfile } from "./profile-corrections.ts";
 import { buildSpecification, readSource } from "./schema.ts";
 import {
   correctSidebarCategory,
@@ -175,10 +176,10 @@ test("retains the catalog operations, security and transitive models", () => {
   for (const path of definitionPaths) {
     const source = at(definitions, path);
     const name = path[2];
-    const expected =
-      name === "Channel" || name === "ChannelMember" || name === "TeamMember"
-        ? correctSidebarSchema(name, object(source, name))
-        : source;
+    let expected = source;
+    if (name === "User") expected = correctUserProfile(object(source, name));
+    if (["Channel", "ChannelMember", "TeamMember"].includes(name))
+      expected = correctSidebarSchema(name, object(source, name));
     assert.deepEqual(at(contract, path), expected);
   }
   assert.deepEqual(
@@ -213,6 +214,37 @@ test("retains the catalog operations, security and transitive models", () => {
       "UserNotifyProps",
     ],
   );
+});
+
+test("both pinned User definitions omit the same three fields returned by the server", () => {
+  const missing = {
+    position: { type: "string" },
+    is_bot: { type: "boolean" },
+    remote_id: { type: "string" },
+  };
+  for (const version of [definitions, read("definitions-12.1.0.yaml")]) {
+    const model = object(
+      at(version, ["components", "schemas", "User"]),
+      "User",
+    );
+    const original = structuredClone(model);
+    const properties = object(model.properties, "User.properties");
+    assert.deepEqual(correctUserProfile(model), {
+      ...model,
+      properties: { ...properties, ...missing },
+    });
+    assert.deepEqual(model, original);
+    for (const [name, field] of Object.entries(missing)) {
+      assert.throws(
+        () =>
+          correctUserProfile({
+            ...model,
+            properties: { ...properties, [name]: field },
+          }),
+        /Review the User profile/,
+      );
+    }
+  }
 });
 
 test("corrects the sidebar envelope and category fields without changing the upstream objects", () => {

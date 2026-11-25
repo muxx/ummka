@@ -70,9 +70,15 @@ strict_tsc --declaration --removeComments --rootDir "$work/client" --outDir "$wo
 cat > "$work/transport-types.ts" <<'TS'
 import type { createRestTransport } from "../../src/mattermost/rest-transport.js";
 import type { ConfigurationParameters } from "./client/runtime.js";
-import type { GetPostInfoRequest, GetPostThreadRequest, GetPostsForChannelRequest, GetUsersByIdsRequest, Post, PostInfo, PostList } from "./compiled/index.js";
+import type { GetPostInfoRequest, GetPostThreadRequest, GetPostsForChannelRequest, GetUsersByIdsRequest, Post, PostInfo, PostList, User } from "./compiled/index.js";
 declare const transport: ReturnType<typeof createRestTransport>;
 transport satisfies Required<Pick<ConfigurationParameters, "basePath" | "fetchApi">>;
+declare const user: User;
+user.position satisfies string | undefined;
+user.isBot satisfies boolean | undefined;
+user.remoteId satisfies string | undefined;
+// @ts-expect-error The bot flag is a boolean.
+const invalidUser: User = { isBot: "true" };
 const ids: GetUsersByIdsRequest = { requestBody: ["an-id"], since: 123 };
 // @ts-expect-error Mattermost accepts string IDs only.
 const numbers: GetUsersByIdsRequest = { requestBody: [42] };

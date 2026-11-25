@@ -23,6 +23,9 @@ export interface User {
     timezone?: Timezone;
     termsOfServiceId?: string;
     termsOfServiceCreateAt?: number;
+    position?: string;
+    isBot?: boolean;
+    remoteId?: string;
 }
 export declare function instanceOfUser(value: object): value is User;
 export declare function UserFromJSON(json: any): User;
