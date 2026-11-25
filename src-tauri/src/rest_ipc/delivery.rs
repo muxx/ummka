@@ -1,7 +1,8 @@
 use super::{exchange::ExchangeError, session};
 use crate::{
     history::{
-        DeliveryPost, DeliverySource, PendingPost, PostRefusal, RefusalScope, RetryPost, StagePost,
+        DeliveryPost, DeliverySource, PendingCursor, PendingPost, PostRefusal, RefusalScope,
+        RetryPost, StagePost,
     },
     rest::is_mattermost_id,
     sessions::AccountSessions,
@@ -29,13 +30,24 @@ pub(crate) async fn read_pending_posts<R: Runtime>(
     rid: ResourceId,
     channel_id: String,
     root_id: Option<String>,
-    after: i64,
+    after: Option<PendingCursor>,
+    before: Option<PendingCursor>,
     limit: u8,
 ) -> Result<Vec<PendingPost>, ExchangeError> {
-    session(&webview, rid)?
-        .with_history(&webview.state::<AccountSessions>(), move |view| {
-            view.pending_posts(&channel_id, root_id.as_deref(), after, limit)
-        })
+    let account = session(&webview, rid)?;
+    if after.is_some() && before.is_some() {
+        return Err(ExchangeError::InvalidHistoryRequest);
+    }
+    let after = after.map(PendingCursor::sequence).transpose()?;
+    let before = before.map(PendingCursor::sequence).transpose()?;
+    account
+        .with_history(
+            &webview.state::<AccountSessions>(),
+            move |view| match after {
+                Some(lower) => view.pending_posts(&channel_id, root_id.as_deref(), lower, limit),
+                None => view.recent_pending_posts(&channel_id, root_id.as_deref(), before, limit),
+            },
+        )
         .await
 }
 

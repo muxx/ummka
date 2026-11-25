@@ -1,11 +1,43 @@
 use super::{AccountHistory, ComposerDraft, HistoryError, PostRefusal, drafts};
 use rusqlite::{Row, params};
-use serde::Serialize;
+use serde::{Deserialize, Serialize, Serializer};
 use uuid::Uuid;
+
+const JS_MAX_SAFE_INTEGER: i64 = (1 << 53) - 1;
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum PendingCursor {
+    Number(i64),
+    Decimal(String),
+}
+
+impl PendingCursor {
+    pub fn sequence(self) -> Result<i64, HistoryError> {
+        match self {
+            Self::Number(n) if (0..=JS_MAX_SAFE_INTEGER).contains(&n) => Ok(n),
+            Self::Decimal(value) => value
+                .parse::<i64>()
+                .ok()
+                .filter(|n| *n >= 0 && n.to_string() == value)
+                .ok_or(HistoryError::InvalidDraft),
+            Self::Number(_) => Err(HistoryError::InvalidDraft),
+        }
+    }
+}
+
+fn serialize_sequence<S: Serializer>(sequence: &i64, serializer: S) -> Result<S::Ok, S::Error> {
+    if (0..=JS_MAX_SAFE_INTEGER).contains(sequence) {
+        serializer.serialize_i64(*sequence)
+    } else {
+        serializer.collect_str(sequence)
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PendingPost {
+    #[serde(serialize_with = "serialize_sequence")]
     pub sequence: i64,
     pub pending_id: String,
     pub channel_id: String,
@@ -32,10 +64,16 @@ pub enum StagePost {
     },
 }
 
-const LIST: &str = "SELECT sequence,pending_id,channel_id,NULLIF(root_id,''),message,created_at,login_generation<>?5,post_id,
+macro_rules! pending_list {
+    ($range:literal) => {
+        concat!("SELECT sequence,pending_id,channel_id,NULLIF(root_id,''),message,created_at,login_generation<>?5,post_id,
         COALESCE(attempt,1),CASE WHEN post_id IS NULL THEN refusal_status END,refusal_code,refusal_message,COALESCE(prior_uncertain,0)
     FROM pending_post LEFT JOIN post_confirmation USING(pending_id) LEFT JOIN post_attempt USING(pending_id)
-    WHERE channel_id=?1 AND root_id=?2 AND sequence>?3 ORDER BY sequence LIMIT ?4";
+        WHERE channel_id=?1 AND root_id=?2 AND ", $range, " LIMIT ?4")
+    };
+}
+const LIST: &str = pending_list!("sequence>?3 ORDER BY sequence");
+const RECENT: &str = pending_list!("sequence<=?3 ORDER BY sequence DESC");
 const INSERT: &str = "INSERT INTO pending_post(pending_id,channel_id,root_id,message,login_generation)
     VALUES (?1,?2,?3,?4,?5) RETURNING sequence,pending_id,channel_id,NULLIF(root_id,''),message,created_at,0,NULL,1,NULL,NULL,NULL,0";
 
@@ -110,14 +148,40 @@ impl AccountHistory {
         after: i64,
         limit: u8,
     ) -> Result<Vec<PendingPost>, HistoryError> {
+        self.pending_page(channel, root, LIST, after, limit)
+    }
+
+    pub fn recent_pending_posts(
+        &mut self,
+        channel: &str,
+        root: Option<&str>,
+        before: Option<i64>,
+        limit: u8,
+    ) -> Result<Vec<PendingPost>, HistoryError> {
+        let upper = match before {
+            None => i64::MAX,
+            Some(sequence) if sequence > 0 => sequence - 1,
+            Some(_) => return Err(HistoryError::InvalidDraft),
+        };
+        self.pending_page(channel, root, RECENT, upper, limit)
+    }
+
+    fn pending_page(
+        &mut self,
+        channel: &str,
+        root: Option<&str>,
+        query: &str,
+        bound: i64,
+        limit: u8,
+    ) -> Result<Vec<PendingPost>, HistoryError> {
         let root = drafts::root_key(channel, root)?;
-        if after < 0 || limit == 0 {
+        if bound < 0 || limit == 0 {
             return Err(HistoryError::InvalidDraft);
         }
         let generation = self.owner.generation;
         self.read(|tx| {
-            tx.prepare_cached(LIST)?
-                .query_map(params![channel, root, after, limit, generation], post)?
+            tx.prepare_cached(query)?
+                .query_map(params![channel, root, bound, limit, generation], post)?
                 .collect()
         })
     }
