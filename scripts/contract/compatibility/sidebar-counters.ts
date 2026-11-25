@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { loadTeamDirectory } from "../../../src/mattermost/navigation-data.ts";
 import { projectTeamSidebar } from "../../../src/mattermost/team-sidebar.ts";
-import type { Configuration } from "../../../vendor/mattermost/index.js";
+import {
+  ChannelsApi,
+  Configuration,
+  ResponseError,
+} from "../../../vendor/mattermost/index.js";
 
 export async function checkSidebarCounters(
   session: Configuration,
@@ -13,7 +17,8 @@ export async function checkSidebarCounters(
     text: string,
     rootId?: string,
   ) => Promise<{ id: string; create_at: number }>,
-  viewChannel: () => Promise<Response>,
+  otherChannelId: string,
+  prepareBulkRead: () => Promise<unknown>,
 ) {
   async function counts() {
     const directory = await loadTeamDirectory(session, userId, teamId);
@@ -76,7 +81,20 @@ export async function checkSidebarCounters(
     last: reply.create_at,
     mentions: withRoot.mentions + 1,
   });
-  await viewChannel();
+  const api = new ChannelsApi(session);
+  const single = {
+    userId: "me",
+    viewChannelRequest: { channelId, collapsedThreadsSupported: true },
+  };
+  const result = await api.viewChannel(single);
+  assert.equal(result.status, "OK");
+  const viewedTime = result.lastViewedAtTimes?.[channelId];
+  assert.ok(
+    typeof viewedTime === "number" &&
+      Number.isSafeInteger(viewedTime) &&
+      viewedTime > 0,
+  );
+
   const viewed = await counts();
   assert.deepEqual(viewed, {
     ...withReply,
@@ -86,4 +104,29 @@ export async function checkSidebarCounters(
     rootMentions: 0,
     urgent: 0,
   });
+  await prepareBulkRead();
+  const batch = { userId: "me", requestBody: [channelId, otherChannelId] };
+  const bulk = await api.markChannelsReadForUser(batch);
+  assert.equal(bulk.status, "OK");
+  for (const id of batch.requestBody) {
+    const time = bulk.lastViewedAtTimes?.[id];
+    assert.ok(
+      typeof time === "number" && Number.isSafeInteger(time) && time > 0,
+    );
+  }
+  const read = await counts();
+  assert.equal(read.seen, read.total);
+  await assert.rejects(
+    api.markChannelsReadForUser({ ...batch, requestBody: [] }),
+    (err: unknown) =>
+      err instanceof ResponseError && err.response.status === 400,
+  );
+  const anonymous = new ChannelsApi(
+    new Configuration({ basePath: session.basePath }),
+  );
+  await assert.rejects(
+    anonymous.viewChannel(single),
+    (err: unknown) =>
+      err instanceof ResponseError && err.response.status === 401,
+  );
 }

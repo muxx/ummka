@@ -41,6 +41,23 @@ export async function checkTeamReads(
     channels[0].teamId !== teamId
   )
     throw Error("generated channel list");
+  const single = await new ChannelsApi(root).viewChannel({
+    userId: "me",
+    viewChannelRequest: { channelId, collapsedThreadsSupported: true },
+  });
+  const other = "v".repeat(26);
+  const bulk = await api.markChannelsReadForUser({
+    userId: "me",
+    requestBody: [channelId, other],
+  });
+  if (
+    single.status !== "OK" ||
+    single.lastViewedAtTimes?.[channelId] !== 121 ||
+    bulk.status !== "OK" ||
+    bulk.lastViewedAtTimes?.[channelId] !== 123 ||
+    bulk.lastViewedAtTimes[other] !== 126
+  )
+    throw Error("generated channel read timestamps");
   const userId = "Abc01234567890123456789012";
   const members = await api.getChannelMembersForUser({ userId, teamId });
   if (

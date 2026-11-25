@@ -24,6 +24,10 @@ import {
   correctUserProfile,
 } from "./profile-corrections.ts";
 import {
+  correctBulkChannelView,
+  correctChannelView,
+} from "./read-state-corrections.ts";
+import {
   correctSidebarResponse,
   correctSidebarSchema,
 } from "./sidebar-corrections.ts";
@@ -149,6 +153,18 @@ export function buildSpecification(
       paths[path][method] = correctHistoryQuery(
         operation,
         read("posts-12.1.0.yaml"),
+        path,
+      );
+    else if (id === "ViewChannel")
+      paths[path][method] = correctChannelView(
+        operation,
+        read("channels-12.1.0.yaml"),
+        path,
+      );
+    else if (id === "MarkChannelsReadForUser")
+      paths[path][method] = correctBulkChannelView(
+        operation,
+        read("channels.yaml"),
         path,
       );
     else if (id === "GetSidebarCategoriesForTeamForUser")

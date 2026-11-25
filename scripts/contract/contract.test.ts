@@ -31,6 +31,10 @@ import {
   correctProfileImage,
   correctUserProfile,
 } from "./profile-corrections.ts";
+import {
+  correctBulkChannelView,
+  correctChannelView,
+} from "./read-state-corrections.ts";
 import { buildSpecification, readSource } from "./schema.ts";
 import {
   correctSidebarCategory,
@@ -152,6 +156,71 @@ const definitionPaths = [
   ["components", "responses", "NotFound"],
 ];
 
+test("checks both upstream channel-view bodies and the bulk operation before correcting them", () => {
+  const view = "/api/v4/channels/members/{user_id}/view";
+  const bulk = "/api/v4/channels/members/{user_id}/mark_read";
+  const base = read("channels.yaml"),
+    next = read("channels-12.1.0.yaml");
+  const bodyFields = [
+    "post",
+    "requestBody",
+    "content",
+    "application/json",
+    "schema",
+    "properties",
+  ];
+  const replyFields = [
+    "post",
+    "responses",
+    "200",
+    "content",
+    "application/json",
+    "schema",
+    "properties",
+    "last_viewed_at_times",
+  ];
+  assert.deepEqual(
+    at(contract, ["paths", view, ...bodyFields, "collapsed_threads_supported"]),
+    { type: "boolean" },
+  );
+  for (const path of [view, bulk])
+    assert.deepEqual(
+      at(contract, ["paths", path, ...replyFields, "additionalProperties"]),
+      { type: "integer", format: "int64" },
+    );
+  for (const file of ["channels.yaml", "channels-12.1.0.yaml"]) {
+    const source = structuredClone(file === "channels.yaml" ? base : next);
+    const fields = object(at(source, [view, ...bodyFields]), "input");
+    fields.collapsed_threads_supported = { type: "boolean" };
+    const v10 = file === "channels.yaml" ? source : base,
+      v12 = file === "channels-12.1.0.yaml" ? source : next;
+    assert.throws(
+      () =>
+        correctChannelView(object(at(v10, [view, "post"]), "view"), v12, view),
+      /Review ViewChannel/,
+    );
+  }
+  const command = object(at(next, [bulk, "post"]), "bulk");
+  assert.throws(
+    () => correctBulkChannelView(command, { ...base, [bulk]: {} }, bulk),
+    /Review MarkChannelsReadForUser/,
+  );
+  const changed = structuredClone(next);
+  object(
+    at(changed, [bulk, ...replyFields]),
+    "timestamps",
+  ).additionalProperties = { type: "string" };
+  assert.throws(
+    () =>
+      correctBulkChannelView(
+        object(at(changed, [bulk, "post"]), "bulk"),
+        base,
+        bulk,
+      ),
+    /Review MarkChannelsReadForUser/,
+  );
+});
+
 test("retains the catalog operations, security and transitive models", () => {
   for (const { file, path, method } of catalog) {
     const key = [path, method.toLowerCase()];
@@ -173,6 +242,10 @@ test("retains the catalog operations, security and transitive models", () => {
     }
     const source = object(at(read(file), key), path);
     let expected = source;
+    if (source.operationId === "ViewChannel")
+      expected = correctChannelView(source, read("channels-12.1.0.yaml"), path);
+    if (source.operationId === "MarkChannelsReadForUser")
+      expected = correctBulkChannelView(source, read("channels.yaml"), path);
     if (path === sidebar) expected = correctSidebarResponse(source);
     if (path === profileImage) expected = correctProfileImage(source);
     assert.deepEqual(actual, expected);
