@@ -287,6 +287,7 @@ test("opens a native account by installation and user ID", async () => {
     "basePath",
     "close",
     "confirmPostDelivery",
+    "dismissPendingPost",
     "fetchApi",
     "readAccountDirectory",
     "readChannelWindow",
@@ -298,12 +299,15 @@ test("opens a native account by installation and user ID", async () => {
     "readTeamSidebar",
     "readVisibleProfiles",
     "readWorkspaceSettings",
+    "recordPostRefusal",
     "refreshChannelHistory",
     "refreshJoinedTeams",
     "refreshSavedProfiles",
     "refreshTeamSidebar",
     "refreshWorkspaceServerPolicy",
+    "resendPost",
     "retireDeliveredPosts",
+    "retryPendingPost",
     "rid",
     "saveDraft",
     "selectJoinedTeam",
@@ -311,6 +315,7 @@ test("opens a native account by installation and user ID", async () => {
     "signOut",
     "signOutOnDevice",
     "stagePost",
+    "submitDraft",
   ]);
 });
 
@@ -424,6 +429,72 @@ test("confirms only the identity of a live server post", async () => {
     rid: 17,
     postIds: [post.id],
   });
+});
+
+test("retry actions use the retained attempt and cannot finish on a closed connection", async () => {
+  ipc.mockResolvedValueOnce(23);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    "u".repeat(26),
+  );
+  const key = { pendingId: "fixture-id", attempt: 2 };
+  const choice = { kind: "afterRefusal", message: "new text" } as const;
+  let done!: () => void;
+  ipc.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        done = resolve;
+      }),
+  );
+  const retry = account.retryPendingPost(key, choice);
+  expect(ipc).toHaveBeenLastCalledWith("retry_pending_post", {
+    rid: 23,
+    ...key,
+    choice,
+  });
+  await account.close();
+  done();
+  await expect(retry).rejects.toBe("cancelled");
+  await expect(account.dismissPendingPost(key)).rejects.toBe(
+    "unknown_connection",
+  );
+});
+
+test("explicit offline submission leaves the editor and prior attempt untouched", async () => {
+  ipc.mockResolvedValueOnce(31);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    "u".repeat(26),
+  );
+  vi.stubGlobal("navigator", { onLine: false });
+  try {
+    await expect(
+      account.submitDraft({
+        channelId: "c".repeat(26),
+        revision: "a".repeat(32),
+      }),
+    ).resolves.toEqual({ kind: "offline" });
+    await expect(
+      account.resendPost(
+        { pendingId: "waiting", attempt: 1 },
+        { kind: "despiteUnknownDelivery" },
+      ),
+    ).resolves.toEqual({ kind: "offline" });
+    expect(ipc).toHaveBeenCalledTimes(1);
+    await account.close();
+    await expect(
+      account.submitDraft({ channelId: "c".repeat(26), revision: "stale" }),
+    ).rejects.toBe("unknown_connection");
+    await expect(
+      account.resendPost(
+        { pendingId: "waiting", attempt: 1 },
+        { kind: "despiteUnknownDelivery" },
+      ),
+    ).rejects.toBe("unknown_connection");
+    expect(ipc).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 
 test("a directory delivered after the account signs out is discarded", async () => {
