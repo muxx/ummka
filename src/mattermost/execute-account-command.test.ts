@@ -1,6 +1,8 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { CommandsApi, Configuration } from "../../vendor/mattermost/index.js";
 import { executeAccountCommand } from "./execute-account-command.ts";
+
+import { executeSavedCommand } from "./execute-saved-command.ts";
 
 const teamId = "t".repeat(26);
 const channelId = "c".repeat(26);
@@ -130,4 +132,143 @@ test("validates scope and command text before the request", async () => {
     executeAccountCommand(client, { ...target, channelId: "123" }, "/help"),
   ).rejects.toThrow("location");
   expect(visits).toEqual([]);
+});
+
+test("only a claimed revision can execute its stored command", async () => {
+  const { client, visits } = fixture(() => Response.json(response));
+  const draft = {
+    message: "/deploy Signed",
+    revision: "two",
+    commandPending: true as const,
+  };
+  const change = vi
+    .fn<Parameters<typeof executeSavedCommand>[1]>()
+    .mockResolvedValueOnce({ kind: "saved", draft })
+    .mockResolvedValueOnce({ kind: "conflict", draft })
+    .mockResolvedValueOnce({
+      kind: "saved",
+      draft: { message: "", revision: "three", clearedBySubmission: true },
+    });
+  const outcomes = await Promise.all(
+    [1, 2].map(() =>
+      executeSavedCommand(client, change, { ...target, rootId }, "one"),
+    ),
+  );
+  expect(visits).toEqual([
+    {
+      channel_id: channelId,
+      team_id: teamId,
+      root_id: rootId,
+      command: "/deploy Signed",
+    },
+  ]);
+  expect(outcomes.map((s) => s.kind).sort()).toEqual(["answered", "conflict"]);
+  expect(outcomes.find((s) => s.kind === "answered")).toMatchObject({
+    settlement: "saved",
+    result: { kind: "executed", response: { text: response.text } },
+  });
+  expect(
+    change.mock.calls.map(([location, action]) => [location.revision, action]),
+  ).toEqual([
+    ["one", "start"],
+    ["one", "start"],
+    ["two", "complete"],
+  ]);
+});
+
+test("preserves the command on refusal and on an uncertain response", async () => {
+  for (const [getResponse, kind] of [
+    [() => appError(404, unknown), "unknownCommand"],
+    [() => appError(403, "api.command.denied"), "refused"],
+    [() => new Response(null, { status: 401 }), "unauthorized"],
+    [
+      () => {
+        throw TypeError("offline after send");
+      },
+      "unconfirmed",
+    ],
+  ] as const) {
+    const { client, visits } = fixture(getResponse);
+    const change = vi
+      .fn<Parameters<typeof executeSavedCommand>[1]>()
+      .mockResolvedValueOnce({
+        kind: "saved",
+        draft: {
+          message: "/release one",
+          revision: "two",
+          commandPending: true,
+        },
+      })
+      .mockResolvedValueOnce({
+        kind: "saved",
+        draft: { message: "/release one", revision: "three" },
+      });
+    const result = await executeSavedCommand(client, change, target, "one");
+    if (kind === "unconfirmed") {
+      expect(result).toEqual({ kind });
+      expect(change).toHaveBeenCalledTimes(1);
+    } else {
+      expect(result).toMatchObject({
+        kind: "answered",
+        result: { kind },
+        settlement: "saved",
+        draft: { message: "/release one", revision: "three" },
+      });
+      expect(change).toHaveBeenLastCalledWith(
+        { ...target, revision: "two" },
+        "release",
+      );
+    }
+    expect(visits).toHaveLength(1);
+  }
+});
+
+test("keeps a known server reply when the draft has changed or SQLite refuses the final write", async () => {
+  for (const problem of [
+    "edit",
+    "history_storage_unavailable",
+    "session_unavailable",
+  ] as const) {
+    const { client } = fixture(() => Response.json(response));
+    const change = vi
+      .fn<Parameters<typeof executeSavedCommand>[1]>()
+      .mockResolvedValueOnce({
+        kind: "saved",
+        draft: { message: "/deploy", revision: "active", commandPending: true },
+      });
+    if (problem === "edit")
+      change.mockResolvedValueOnce({
+        kind: "conflict",
+        draft: { message: "new text", revision: "other" },
+      });
+    else change.mockRejectedValueOnce(problem);
+    const result = executeSavedCommand(client, change, target, "one");
+    if (problem === "session_unavailable")
+      await expect(result).rejects.toBe(problem);
+    else
+      await expect(result).resolves.toMatchObject({
+        kind: "answered",
+        result: { kind: "executed", response: { text: response.text } },
+        settlement: problem === "edit" ? "conflict" : "storageUnavailable",
+      });
+    expect(change).toHaveBeenCalledTimes(2);
+  }
+});
+
+test("offline submission and malformed team IDs never reserve the text", async () => {
+  const { client, visits } = fixture(() => Response.json(response));
+  const change = vi.fn<Parameters<typeof executeSavedCommand>[1]>();
+  await expect(
+    executeSavedCommand(client, change, { ...target, teamId: "bad" }, "one"),
+  ).rejects.toThrow(TypeError);
+  const network = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+  try {
+    await expect(
+      executeSavedCommand(client, change, target, "one"),
+    ).resolves.toEqual({ kind: "offline" });
+  } finally {
+    network.mockRestore();
+  }
+  expect(change).not.toHaveBeenCalled();
+  expect(visits).toHaveLength(0);
 });
