@@ -56,6 +56,19 @@
   {
     "file": "channels.yaml",
     "method": "GET",
+    "path": "/api/v4/channels/{channel_id}/members",
+    "id": "GetChannelMembers"
+  },
+  {
+    "file": "channels.yaml",
+    "method": "POST",
+    "path": "/api/v4/channels/{channel_id}/members/ids",
+    "id": "GetChannelMembersByIds",
+    "body": "json"
+  },
+  {
+    "file": "channels.yaml",
+    "method": "GET",
     "path": "/api/v4/users/{user_id}/teams/{team_id}/channels/categories",
     "id": "GetSidebarCategoriesForTeamForUser"
   },

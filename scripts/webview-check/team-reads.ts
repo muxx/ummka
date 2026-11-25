@@ -79,6 +79,26 @@ export async function checkTeamReads(
     )
       throw Error("generated individual channel membership");
   }
+  const page = await new ChannelsApi(root).getChannelMembers({
+    channelId,
+    page: 2,
+    perPage: 3,
+  });
+  const subset = await api.getChannelMembersByIds({
+    channelId,
+    requestBody: [other, userId],
+  });
+  if (
+    page.length !== 1 ||
+    page[0].userId !== userId ||
+    subset.length !== 2 ||
+    subset[0].userId !== userId ||
+    subset[1].userId !== other ||
+    ![...page, ...subset].every(
+      (m) => m.channelId === channelId && m.schemeUser && m.msgCountRoot === 13,
+    )
+  )
+    throw Error("generated channel member lists");
   const unread = await new PostsApi(prefixed).setPostUnread({
     userId: "me",
     postId: "p".repeat(26),

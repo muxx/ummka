@@ -28,6 +28,7 @@ import {
 } from "./browser-sign-in.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
 import {
+  checkChannelRoster,
   checkEmptyTeamDirectory,
   checkNavigationMemberships,
 } from "./memberships.ts";
@@ -273,6 +274,7 @@ assert.equal(closedMember.channelId, closed.id);
 const closedReader = new ChannelsApi(
   new Configuration({ basePath: base, accessToken: readerToken }),
 );
+await checkChannelRoster(closedReader, closed.id, dm.id, [user.id, reader.id]);
 await assert.rejects(
   closedReader.getChannelMember({ channelId: closed.id, userId: user.id }),
   (e: unknown) => e instanceof ResponseError && e.response.status === 403,
