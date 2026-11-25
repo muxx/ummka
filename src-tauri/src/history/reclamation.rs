@@ -71,6 +71,33 @@ mod tests {
     use std::time::Duration;
 
     #[test]
+    fn upgrading_a_signed_out_v13_database_preserves_its_reclaimed_pages() {
+        let root = tempfile::tempdir().unwrap();
+        let url = "https://chat.example.test/upgrade";
+        let account = Account::new(url, "Abc01234567890123456789012").unwrap();
+        let mut old =
+            HistoryDatabase::open_with(root.path(), url, &crate::history::schema::MIGRATIONS[..13])
+                .unwrap();
+        let owner = old.new_login(&account).unwrap();
+        old.write(&owner, |tx| {
+            tx.execute("INSERT INTO pending_post(pending_id,login_generation,channel_id,root_id,message) VALUES ('outgoing',?1,'test','','old draft')", [owner.generation])?;
+            tx.execute("INSERT INTO post_attempt(pending_id,attempt) VALUES ('outgoing',2)", [])?;
+            Ok(())
+        }).unwrap();
+        old.purge(&owner).unwrap();
+        drop(old);
+        let mut upgraded = HistoryDatabase::open(root.path(), url).unwrap();
+        upgraded.confirm_empty().unwrap().commit().unwrap();
+        let owner = upgraded.new_login(&account).unwrap();
+        let count: i64 = upgraded
+            .read(&owner, |tx| {
+                tx.query_row("SELECT count(*) FROM pending_post", [], |row| row.get(0))
+            })
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
     fn new_login_waits_until_empty_history_is_confirmed() {
         let root = tempfile::tempdir().unwrap();
         let url = "https://chat.example.test/confirm";

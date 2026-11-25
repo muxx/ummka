@@ -112,10 +112,10 @@ export async function checkSubmissions(
     const again = await neighbor.resendPost(unknown.post, {
       kind: "despiteUnknownDelivery",
     });
-    if (
-      again.kind !== "sending" ||
-      (await again.completion).kind !== "unconfirmed"
-    )
+    if (again.kind !== "sending")
+      throw Error("The permitted retry was not sent");
+    const retried = await again.completion;
+    if (retried.kind !== "unconfirmed" || retried.retryRefusal?.status !== 403)
       throw Error(
         "The second refusal cannot disprove the missing response to the first request",
       );
@@ -146,6 +146,8 @@ export async function checkSubmissionRestore(
         roots[0]?.confirmedPostId !== rootId ||
         roots[1]?.attempt !== 2 ||
         roots[1].refusal !== null ||
+        roots[1].retryRefusal?.code !== "api.context.permissions.app_error" ||
+        roots[1].retryRefusal.message !== "Fixture channel is read only" ||
         roots[2]?.confirmedPostId !== null ||
         replies.length !== 1 ||
         replies[0]?.attempt !== 2 ||

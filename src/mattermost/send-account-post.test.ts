@@ -26,7 +26,7 @@ const server = {
 };
 const receipts = () => ({
   confirmPostDelivery: vi.fn().mockResolvedValue(true),
-  recordPostRefusal: vi.fn().mockResolvedValue(true),
+  recordPostRefusal: vi.fn().mockResolvedValue("delivery"),
 });
 
 test("sends the retained identity, accepts an omitted pending ID and preserves independent canonical responses", async () => {
@@ -130,7 +130,12 @@ test("only a scoped public 4xx records a refusal and a lost response never start
     refusal,
   });
   expect(store.recordPostRefusal).toHaveBeenCalledWith(pending, refusal);
-  store.recordPostRefusal.mockResolvedValue(false);
+  store.recordPostRefusal.mockResolvedValue("retry");
+  await expect(fail(error(403, body))).resolves.toEqual({
+    kind: "unconfirmed",
+    retryRefusal: refusal,
+  });
+  store.recordPostRefusal.mockResolvedValue(null);
   await expect(fail(error(403, body))).resolves.toEqual({
     kind: "unconfirmed",
   });

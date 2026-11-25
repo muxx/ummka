@@ -1,5 +1,5 @@
 use super::{AccountHistory, HistoryError, PendingPost, pending};
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -8,6 +8,13 @@ pub struct PostRefusal {
     pub status: u16,
     pub code: String,
     pub message: Option<String>,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RefusalScope {
+    Delivery,
+    Retry,
 }
 
 #[derive(Deserialize)]
@@ -19,21 +26,23 @@ pub enum RetryPost {
 
 const REFUSE: &str = "INSERT INTO post_attempt(pending_id,attempt,refusal_status,refusal_code,refusal_message)
     SELECT p.pending_id,?2,?4,?5,?6 FROM pending_post p LEFT JOIN post_attempt a USING(pending_id)
-    WHERE p.pending_id=?1 AND p.login_generation=?3 AND COALESCE(a.attempt,1)=?2 AND COALESCE(a.prior_uncertain,0)=0
+    WHERE p.pending_id=?1 AND p.login_generation=?3 AND COALESCE(a.attempt,1)=?2
       AND NOT EXISTS(SELECT 1 FROM post_confirmation WHERE pending_id=p.pending_id)
       AND (a.refusal_status IS NULL OR (a.refusal_status=?4 AND a.refusal_code=?5 AND a.refusal_message IS ?6))
     ON CONFLICT(pending_id) DO UPDATE SET refusal_status=excluded.refusal_status,
-        refusal_code=excluded.refusal_code,refusal_message=excluded.refusal_message";
+        refusal_code=excluded.refusal_code,refusal_message=excluded.refusal_message
+    RETURNING prior_uncertain";
 
 // An implicit first attempt has no post_attempt row. Once reserved, a retry always has one.
 const RESERVE_RETRY: &str = "INSERT INTO post_attempt(pending_id,attempt,prior_uncertain)
     SELECT p.pending_id,?3,?5 FROM pending_post p LEFT JOIN post_attempt a USING(pending_id)
     WHERE p.pending_id=?1 AND COALESCE(a.attempt,1)=?2 AND p.login_generation=?4
-      AND (a.refusal_status IS NULL)=?5 AND NOT EXISTS(SELECT 1 FROM post_confirmation WHERE pending_id=p.pending_id)
+      AND (a.refusal_status IS NULL OR a.prior_uncertain=1)=?5
+      AND NOT EXISTS(SELECT 1 FROM post_confirmation WHERE pending_id=p.pending_id)
     ON CONFLICT(pending_id) DO UPDATE SET attempt=excluded.attempt,prior_uncertain=excluded.prior_uncertain,
         refusal_status=NULL,refusal_code=NULL,refusal_message=NULL";
 const RETRY_POST: &str = "UPDATE pending_post SET message=COALESCE(?2,message) WHERE pending_id=?1
-    RETURNING sequence,pending_id,channel_id,NULLIF(root_id,''),message,created_at,0,NULL,?3,NULL,NULL,NULL";
+    RETURNING sequence,pending_id,channel_id,NULLIF(root_id,''),message,created_at,0,NULL,?3,NULL,NULL,NULL,0";
 const DISMISS: &str = "DELETE FROM pending_post WHERE pending_id=?1
     AND COALESCE((SELECT attempt FROM post_attempt WHERE pending_id=?1),1)=?2
     AND NOT EXISTS(SELECT 1 FROM post_confirmation WHERE pending_id=?1)";
@@ -45,7 +54,7 @@ impl AccountHistory {
         pending_id: &str,
         attempt: u32,
         refusal: &PostRefusal,
-    ) -> Result<bool, HistoryError> {
+    ) -> Result<Option<RefusalScope>, HistoryError> {
         if attempt == 0
             || !(400..500).contains(&refusal.status)
             || refusal.status == 401
@@ -55,7 +64,7 @@ impl AccountHistory {
         }
         let generation = self.owner.generation;
         self.write(|tx| {
-            Ok(tx.execute(
+            tx.query_row(
                 REFUSE,
                 params![
                     pending_id,
@@ -65,7 +74,15 @@ impl AccountHistory {
                     refusal.code,
                     refusal.message
                 ],
-            )? == 1)
+                |row| {
+                    Ok(if row.get::<_, bool>(0)? {
+                        RefusalScope::Retry
+                    } else {
+                        RefusalScope::Delivery
+                    })
+                },
+            )
+            .optional()
         })
     }
 

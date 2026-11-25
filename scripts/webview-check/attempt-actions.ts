@@ -37,9 +37,9 @@ export async function checkAttemptActions(
   if (
     first.attempt !== 1 ||
     first.refusal !== null ||
-    (await other.recordPostRefusal(first, refusal)) ||
+    (await other.recordPostRefusal(first, refusal)) !== null ||
     (await other.dismissPendingPost(first)) ||
-    !(await account.recordPostRefusal(first, refusal))
+    (await account.recordPostRefusal(first, refusal)) !== "delivery"
   )
     throw Error("Refusal must belong to the staged account and attempt");
   const correctedAttempts = await Promise.all(
@@ -58,8 +58,8 @@ export async function checkAttemptActions(
     winner.pendingId !== first.pendingId ||
     winner.message !== corrected ||
     (await neighbor.dismissPendingPost(first)) ||
-    (await neighbor.recordPostRefusal(first, refusal)) ||
-    !(await neighbor.recordPostRefusal(winner, refusal))
+    (await neighbor.recordPostRefusal(first, refusal)) !== null ||
+    (await neighbor.recordPostRefusal(winner, refusal)) !== "delivery"
   )
     throw Error(
       "Competing retry decisions did not preserve the winning attempt",
@@ -70,7 +70,7 @@ export async function checkAttemptActions(
   });
   if (
     !retried ||
-    (await account.recordPostRefusal(retried, refusal)) ||
+    (await account.recordPostRefusal(retried, refusal)) !== "retry" ||
     (await account.retryPendingPost(retried, {
       kind: "afterRefusal",
       message: "replace original",

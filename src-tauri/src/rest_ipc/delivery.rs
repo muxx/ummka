@@ -1,6 +1,8 @@
 use super::{exchange::ExchangeError, session};
 use crate::{
-    history::{DeliveryPost, DeliverySource, PendingPost, PostRefusal, RetryPost, StagePost},
+    history::{
+        DeliveryPost, DeliverySource, PendingPost, PostRefusal, RefusalScope, RetryPost, StagePost,
+    },
     rest::is_mattermost_id,
     sessions::AccountSessions,
 };
@@ -78,7 +80,7 @@ pub(crate) async fn record_post_refusal<R: Runtime>(
     pending_id: String,
     attempt: u32,
     refusal: PostRefusal,
-) -> Result<bool, ExchangeError> {
+) -> Result<Option<RefusalScope>, ExchangeError> {
     session(&webview, rid)?
         .with_history(&webview.state::<AccountSessions>(), move |view| {
             view.record_post_refusal(&pending_id, attempt, &refusal)
