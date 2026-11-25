@@ -33,6 +33,36 @@ export async function checkBrowserApp(server: string) {
       throw Error("browser wait lost the chosen installation");
     await ui.findByText("Town fixture message", {}, { timeout: 20_000 });
     await ui.findByText("fixture-author");
+    const fixture = await openAccountRestConnection(server, "f".repeat(26));
+    const localMessage = "Earlier Design attempt";
+    try {
+      const place = { channelId: "d".repeat(26) };
+      const saved = await fixture.saveDraft({
+        ...place,
+        expectedRevision: null,
+        message: localMessage,
+      });
+      if (saved.kind !== "saved" || !saved.draft.revision)
+        throw Error("Could not save the Design fixture");
+      const staged = await fixture.stagePost({
+        ...place,
+        revision: saved.draft.revision,
+      });
+      if (staged.kind !== "created")
+        throw Error("Could not stage the Design fixture");
+      if (
+        (await fixture.recordPostRefusal(staged.post, {
+          status: 403,
+          code: "api.context.permissions.app_error",
+          message: "Permission denied",
+        })) !== "delivery"
+      )
+        throw Error("Could not save the confirmed refusal");
+    } finally {
+      await fixture.close();
+    }
+    if (ui.queryByText(localMessage))
+      throw Error("Town exposed another room’s outgoing text");
     const townDraft = await ui.findByRole<HTMLTextAreaElement>("textbox", {
       name: "Message #Town Square…",
     });
@@ -45,6 +75,14 @@ export async function checkBrowserApp(server: string) {
     const design = ui.getByRole("button", { name: "Design" });
     flushSync(() => fireEvent.click(design));
     await ui.findByText("Design fixture message", {}, { timeout: 10_000 });
+    const refused = (await ui.findByText(localMessage)).closest("article");
+    if (
+      !refused?.textContent?.includes("Not sent") ||
+      !refused.textContent.includes("permission")
+    )
+      throw Error(
+        "Design did not restore its own refusal in the normal timeline",
+      );
     await ui.findByText("This channel is read-only.", {}, { timeout: 10_000 });
     if (ui.queryByRole("textbox"))
       throw Error("read-only room exposed a different channel’s draft");
@@ -81,7 +119,12 @@ export async function checkBrowserApp(server: string) {
     } finally {
       await neighbor.close();
     }
-    await ui.findByText("fixture-author");
+    const savedDesignPost = (
+      await ui.findByText("Design fixture message")
+    ).closest("article");
+    if (!savedDesignPost)
+      throw Error("The saved Design post is outside its timeline row");
+    await within(savedDesignPost).findByText("fixture-author");
     if ((await getCurrentAccountId(server)) !== "f".repeat(26))
       throw Error("entry did not retain the signed-in account");
     flushSync(() =>

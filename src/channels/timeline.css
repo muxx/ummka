@@ -121,6 +121,11 @@
   font-size: 0.9375rem;
   line-height: 1.45;
 }
+.timeline-delivery {
+  display: block;
+  margin-block-start: 2px;
+  line-height: 1.4;
+}
 .timeline-boundary {
   margin: 6px 12px;
   border-block: 1px dashed var(--divider);

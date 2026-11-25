@@ -10,10 +10,12 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import "./channels/workspace-dom.test-utils.ts";
 import { App } from "./App";
 import { ServerSignIn } from "./entry/ServerSignIn";
+import type { PendingPost } from "./mattermost/account-delivery.ts";
 import { getDeviceLaunchContext } from "./mattermost/device-launch";
 import { inspectInstallation } from "./mattermost/inspect-installation";
 import { connectInstallation } from "./mattermost/installation-registry";
 import { openAccountRestConnection } from "./mattermost/native-rest";
+import { outgoingRowState } from "./mattermost/outgoing-row-state.ts";
 
 vi.mock("./mattermost/device-launch", () => ({
   getDeviceLaunchContext: vi.fn(),
@@ -216,6 +218,28 @@ test("restores the selected team, channel, messages and account actions without 
     })),
     saveDraft: vi.fn(),
     submitDraft: vi.fn(),
+    readPendingPosts: vi.fn(async ({ channelId: id }) =>
+      id === channelId
+        ? [
+            {
+              channelId: id,
+              rootId: null,
+              pendingId: "local-fixture",
+              sequence: 1,
+              createdAt: 8,
+              message: "Offline outgoing in General",
+              attempt: 1,
+              refusal: null,
+              confirmedPostId: null,
+              previousLogin: false,
+            },
+          ]
+        : [],
+    ),
+    subscribeToPostActivity: vi.fn(() => () => {}),
+    retireDeliveredPosts: vi.fn().mockResolvedValue(0),
+    getOutgoingPostState: (post: PendingPost) =>
+      outgoingRowState(post, false, false),
     readChannelWindow: vi.fn(async ({ channelId: id }) => ({
       posts: [
         {
@@ -250,9 +274,11 @@ test("restores the selected team, channel, messages and account actions without 
     >,
   );
   const view = render(<App language="en" />);
-  expect((await screen.findByRole("article")).textContent).toContain(
-    "Saved in General",
-  );
+  await screen.findByText("Saved in General");
+  const outgoing = (
+    await screen.findByText("Offline outgoing in General")
+  ).closest("article");
+  expect(outgoing?.textContent).toContain("Delivery unconfirmed");
   expect(openAccountRestConnection).toHaveBeenCalledWith(origin, user);
   expect(screen.queryByRole("note")).toBeNull();
   expect(
@@ -264,6 +290,7 @@ test("restores the selected team, channel, messages and account actions without 
   ).toBe("Text saved on this device");
   fireEvent.click(screen.getByRole("button", { name: "Design" }));
   await screen.findByText("Saved in Design");
+  expect(screen.queryByText("Offline outgoing in General")).toBeNull();
   expect((await screen.findByRole("note")).textContent).toContain(
     "This channel is read-only.",
   );

@@ -40,6 +40,13 @@ export async function checkSavedTeamWindow(serverUrl: string, userId: string) {
     const saved = () =>
       ui.findByText("Saved fixture room message", {}, { timeout: 7000 });
     await saved();
+    const outgoing = (
+      await ui.findByText("Исходящее после перезапуска")
+    ).closest("article");
+    if (!outgoing?.textContent?.includes("Доставка не подтверждена"))
+      throw Error(
+        "Offline startup lost the saved outgoing row or suggested an active send",
+      );
     const field = await ui.findByRole<HTMLTextAreaElement>("textbox", {
       name: "Написать в #Town Square…",
     });

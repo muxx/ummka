@@ -211,40 +211,54 @@ test.each([true, false])(
     const { rows, connection } = storage();
     const props = inputs(connection);
     render(<DraftComposer {...props} />);
-    fireEvent.change(await field(), { target: { value: "набранный текст" } });
-    rows.set("A/", { message: "увиденная версия", revision: "other" });
-    fireEvent(window, new Event("focus"));
-    const keep = await screen.findByRole("button", {
-      name: "Сохранить набранное здесь",
-    });
-    connection.saveDraft.mockImplementationOnce(async ({ message }) => {
-      if (committed) rows.set("A/", { message, revision: "written" });
-      throw new Error("acknowledgement lost");
-    });
-    fireEvent.click(keep);
-    await screen.findByRole("alert");
-    const take = screen.getByRole("button", { name: "Взять с устройства" });
-    take.focus();
-    fireEvent.click(take);
-    await waitFor(() =>
-      expect(props.fieldRef.current?.value).toBe("увиденная версия"),
-    );
-    if (committed) {
-      await waitFor(() =>
+    const input = await field();
+    // Keep the independent 600 ms autosave out of this lost-acknowledgement scenario.
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        fireEvent.change(input, { target: { value: "набранный текст" } });
+        rows.set("A/", { message: "увиденная версия", revision: "other" });
+        fireEvent(window, new Event("focus"));
+      });
+      connection.saveDraft.mockImplementationOnce(async ({ message }) => {
+        if (committed) rows.set("A/", { message, revision: "written" });
+        throw new Error("acknowledgement lost");
+      });
+      const keep = screen.getByRole("button", {
+        name: "Сохранить набранное здесь",
+      });
+      await act(async () => {
+        fireEvent.click(keep);
+      });
+      expect(screen.getByRole("alert")).toBeTruthy();
+      expect(connection.saveDraft).toHaveBeenCalledExactlyOnceWith({
+        channelId: "A",
+        expectedRevision: "other",
+        message: "набранный текст",
+      });
+      const take = screen.getByRole("button", { name: "Взять с устройства" });
+      await act(async () => {
+        take.focus();
+        fireEvent.click(take);
+      });
+      expect(input.value).toBe("увиденная версия");
+      if (committed) {
         expect(
           screen.getByRole<HTMLTextAreaElement>("textbox", {
             name: "Сейчас на устройстве",
           }).value,
-        ).toBe("набранный текст"),
-      );
-      expect(document.activeElement).toBe(
-        screen.getByRole("button", { name: "Взять с устройства" }),
-      );
-    } else {
-      await waitFor(() => expect(screen.queryByRole("group")).toBeNull());
-      expect(document.activeElement).toBe(props.fieldRef.current);
+        ).toBe("набранный текст");
+        expect(document.activeElement).toBe(
+          screen.getByRole("button", { name: "Взять с устройства" }),
+        );
+      } else {
+        expect(screen.queryByRole("group")).toBeNull();
+        expect(document.activeElement).toBe(input);
+      }
+      expect(connection.saveDraft).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
     }
-    expect(connection.saveDraft).toHaveBeenCalledTimes(1);
   },
 );
 

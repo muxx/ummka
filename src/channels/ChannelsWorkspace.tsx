@@ -20,8 +20,8 @@ import {
 import { visibleSidebar } from "../mattermost/sidebar-rows.ts";
 import { effectiveWorkspacePreferences } from "../mattermost/workspace-preferences.ts";
 import { ChannelsFrame } from "./ChannelsFrame.tsx";
-import { ChannelTimeline } from "./ChannelTimeline.tsx";
 import { ComposerAccessNotice } from "./ComposerAccessNotice.tsx";
+import { ConversationTimeline } from "./ConversationTimeline.tsx";
 import { channelComposerAccess } from "./composer-access.ts";
 import { DraftComposer } from "./DraftComposer.tsx";
 import { draftCopy } from "./draft-copy.ts";
@@ -438,6 +438,9 @@ export function ChannelsWorkspace({
       ? (error(timeline.notice) ??
         (timeline.notice === "offline" ? text.offlineEmpty : text.edge))
       : null);
+  const historyDenied =
+    timeline.notice === "forbidden" ||
+    ["forbidden", "session", "unauthorized"].includes(timeline.status);
   return (
     <div ref={host} className="workspace-window">
       <ChannelsFrame
@@ -468,8 +471,7 @@ export function ChannelsWorkspace({
         onTeam={workspace.chooseAnotherTeam}
         navigation={nav}
         composer={
-          timeline.status !== "forbidden" &&
-          timeline.notice !== "forbidden" &&
+          !historyDenied &&
           (access === "writable" && channel ? (
             <DraftComposer
               connection={connection}
@@ -493,24 +495,27 @@ export function ChannelsWorkspace({
         }
       >
         {historyIssue && notice(historyIssue, timeline.retry, true)}
-        {chosen &&
-        settings &&
-        (timeline.page ||
-          (timeline.status !== "loading" &&
-            timeline.status !== "refreshing")) &&
-        timeline.status !== "forbidden" &&
-        timeline.notice !== "forbidden" ? (
-          <ChannelTimeline
+        {chosen && settings && !historyDenied && (
+          <ConversationTimeline
             channelId={chosen}
+            connection={connection}
+            latest={timeline.latest}
+            userId={userId}
+            sessionIssue={sessionIssue}
             page={timeline.page}
+            waitingMessage={
+              !timeline.page &&
+              (timeline.status === "loading" ||
+                timeline.status === "refreshing")
+                ? text.loadingHistory
+                : undefined
+            }
             offline={!online}
             locale={language}
             author={author}
             onReadEdge={timeline.loadEdge}
           />
-        ) : chosen && settings && !historyIssue ? (
-          notice(text.loadingHistory)
-        ) : null}
+        )}
       </ChannelsFrame>
       {accountOpen && (
         <AccountSessionWindow

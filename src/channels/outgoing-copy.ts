@@ -1,0 +1,65 @@
+import type { openAccountRestConnection } from "../mattermost/native-rest.ts";
+
+type State = ReturnType<
+  Awaited<ReturnType<typeof openAccountRestConnection>>["getOutgoingPostState"]
+>;
+const text = {
+  en: {
+    sending: "Sending…",
+    unknown: "Delivery unconfirmed. The message may have arrived.",
+    refused: "Not sent",
+    retryRefused:
+      "The server declined the retry. The first message may have arrived.",
+    previous:
+      "Your sign-in changed. This message belongs to your earlier session.",
+    offline: "You can check delivery when you’re back online.",
+    readFailed: "Couldn’t update outgoing messages on this device.",
+    retry: "Try again",
+    earlier: "Show earlier outgoing messages",
+    you: "You",
+    noAccess: "You don’t have permission to post in this channel.",
+  },
+  ru: {
+    sending: "Отправляется…",
+    unknown: "Доставка не подтверждена. Сообщение могло дойти.",
+    refused: "Не отправлено",
+    retryRefused: "Сервер отклонил повтор. Первая отправка могла дойти.",
+    previous: "Вход в аккаунт сменился. Сообщение относится к прежнему входу.",
+    offline: "Проверить доставку можно, когда будет связь.",
+    readFailed: "Не удалось обновить исходящие на устройстве.",
+    retry: "Повторить",
+    earlier: "Показать более ранние исходящие",
+    you: "Вы",
+    noAccess: "Нет права писать в этот канал.",
+  },
+} as const;
+export const outgoingCopy = text;
+
+export function outgoingDescription(state: State, locale: keyof typeof text) {
+  const copy = text[locale];
+  if (state.kind === "delivered") return "";
+  if (state.kind === "sending") return copy.sending;
+  const outcome = state.kind === "previousLogin" ? state.outcome : state;
+  const refusal =
+    outcome.kind === "refused" ? outcome.refusal : outcome.retryRefusal;
+  const issue =
+    refusal?.code === "api.context.permissions.app_error"
+      ? copy.noAccess
+      : refusal?.message?.trim();
+  const label =
+    outcome.kind === "refused"
+      ? copy.refused
+      : refusal
+        ? copy.retryRefused
+        : copy.unknown;
+  return [
+    label,
+    issue,
+    state.kind === "previousLogin" ? copy.previous : null,
+    state.kind === "unconfirmed" && state.actions.checkDelivery === false
+      ? copy.offline
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
