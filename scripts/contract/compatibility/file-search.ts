@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { openSearchResults } from "../../../src/channels/search-results-session.ts";
 import { accountSearch } from "../../../src/mattermost/account-search.ts";
+import { readFileAnchor } from "../../../src/mattermost/message-anchors.ts";
 import {
   ChannelsApi,
   Configuration,
@@ -50,6 +51,11 @@ export async function checkFileSearch(
     assert.equal(unattached.id, id);
     assert.equal(unattached.name, name);
     assert.equal(unattached.postId, undefined);
+    assert.deepEqual(await readFileAnchor(owner, id), {
+      fileId: id,
+      channelId: channel,
+      postId: null,
+    });
     const post = await posts.createPost({
       createPostRequest: {
         channelId: channel,
@@ -62,6 +68,11 @@ export async function checkFileSearch(
     assert.equal(attached.id, id);
     assert.equal(attached.channelId, channel);
     assert.equal(attached.postId, post.id);
+    assert.deepEqual(await readFileAnchor(owner, id), {
+      fileId: id,
+      channelId: channel,
+      postId: post.id,
+    });
     return { id, postId: post.id, name };
   }
   const first = await attach(channelId, 1);
