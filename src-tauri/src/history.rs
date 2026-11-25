@@ -6,6 +6,8 @@ use std::{fmt, fmt::Write, fs, path::Path};
 #[cfg(any(test, all(target_os = "android", feature = "native-http-check")))]
 pub(crate) mod checks;
 
+mod directory;
+pub use directory::{DirectoryTeam, TeamDirectory, TeamDirectoryLoad};
 mod lifecycle;
 mod posts;
 mod reclamation;
@@ -19,6 +21,7 @@ pub use windows::{ChannelHistoryPage, WindowEdge, WindowSlice, WindowSource};
 pub enum HistoryError {
     InvalidInstallation,
     InvalidPost,
+    InvalidDirectory,
     UnsupportedSchema,
     OwnerConflict,
     StaleOwner,
@@ -29,6 +32,7 @@ impl fmt::Display for HistoryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::InvalidInstallation => "Invalid canonical HTTPS installation",
+            Self::InvalidDirectory => "Invalid team directory",
             Self::InvalidPost => "Invalid channel history record",
             Self::UnsupportedSchema => "Unsupported local history database",
             Self::OwnerConflict => "Local history belongs to another account or installation",
