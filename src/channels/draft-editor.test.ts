@@ -18,6 +18,148 @@ function storage(initial: ComposerDraft = empty) {
 }
 afterEach(() => vi.useRealTimers());
 
+test.each(["flush", "refresh", "submit"] as const)(
+  "keeps the user's reverted text when SQLite committed a write whose reply was lost (%s)",
+  async (operation) => {
+    vi.useFakeTimers();
+    const initial = { message: "original", revision: "r1" };
+    const persisted = { message: "changed", revision: "r2" };
+    const store = storage(initial);
+    const editor = await openDraftEditor(store, channel);
+    store.saveDraft.mockImplementationOnce(async () => {
+      store.readDraft.mockResolvedValue(persisted);
+      throw new Error("lost acknowledgement");
+    });
+    editor.edit("changed");
+    await expect(editor.flush()).rejects.toThrow("lost acknowledgement");
+    editor.edit(initial.message);
+    expect(editor.getSnapshot().error).toBeInstanceOf(Error);
+    store.saveDraft.mockResolvedValueOnce({
+      kind: "conflict",
+      draft: persisted,
+    });
+    await editor[operation]();
+    expect(editor.getSnapshot()).toMatchObject({
+      message: "original",
+      stored: persisted,
+      error: null,
+      conflict: true,
+    });
+    expect(store.submitDraft).not.toHaveBeenCalled();
+    if (operation !== "refresh")
+      expect(store.saveDraft).toHaveBeenLastCalledWith({
+        ...channel,
+        expectedRevision: "r1",
+        message: "original",
+      });
+  },
+);
+
+test.each(["edit to match", "choose device"] as const)(
+  "reconciles the shown device version after a failed keep (%s)",
+  async (choice) => {
+    vi.useFakeTimers();
+    const device = { message: "on device", revision: "other" };
+    const ourWrite = { message: "our version", revision: "written" };
+    const store = storage();
+    const editor = await openDraftEditor(store, channel);
+    editor.edit(ourWrite.message);
+    store.readDraft.mockResolvedValueOnce(device);
+    await editor.refresh();
+    store.saveDraft.mockImplementationOnce(async () => {
+      store.readDraft.mockResolvedValue(ourWrite);
+      throw new Error("uncertain write");
+    });
+    await expect(editor.keepLocal(device.revision)).rejects.toThrow(
+      "uncertain write",
+    );
+    if (choice === "edit to match") {
+      editor.edit(device.message);
+      store.saveDraft.mockResolvedValueOnce({
+        kind: "conflict",
+        draft: ourWrite,
+      });
+      await editor.retryStorage();
+      expect(store.saveDraft).toHaveBeenLastCalledWith({
+        ...channel,
+        expectedRevision: device.revision,
+        message: device.message,
+      });
+    } else {
+      await editor.takeStored(device.revision);
+      expect(store.saveDraft).toHaveBeenCalledTimes(1);
+    }
+    expect(editor.getSnapshot()).toMatchObject({
+      message: device.message,
+      stored: ourWrite,
+      conflict: true,
+      error: null,
+    });
+    expect(store.submitDraft).not.toHaveBeenCalled();
+  },
+);
+
+test("after a failed write and read, a successful read restarts autosave for dirty text", async () => {
+  vi.useFakeTimers();
+  const store = storage({ message: "base", revision: "base-revision" });
+  const editor = await openDraftEditor(store, channel);
+  editor.edit("my edit");
+  store.saveDraft.mockRejectedValueOnce("storage");
+  await expect(editor.flush()).rejects.toBe("storage");
+  store.readDraft.mockRejectedValueOnce("reading");
+  await expect(editor.refresh()).rejects.toBe("reading");
+  await editor.retryStorage();
+  expect(store.saveDraft).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(600);
+  expect(editor.getSnapshot()).toMatchObject({
+    message: "my edit",
+    stored: { message: "my edit" },
+    error: null,
+  });
+});
+
+test.each(["unchanged", "written elsewhere"])(
+  "retries a failed write after editing back to the original text (%s)",
+  async (disk) => {
+    vi.useFakeTimers();
+    const initial = { message: "original", revision: "r1" };
+    const store = storage(initial);
+    const editor = await openDraftEditor(store, channel);
+    let rejectWrite!: (error: Error) => void;
+    store.saveDraft.mockImplementationOnce(
+      () =>
+        new Promise<DraftSave>((_, reject) => {
+          rejectWrite = reject;
+        }),
+    );
+    editor.edit("changed");
+    const writing = editor.flush();
+    editor.edit(initial.message);
+    rejectWrite(new Error("device write failed"));
+    await expect(writing).rejects.toThrow("device write failed");
+    const same = disk === "unchanged";
+    const stored = same ? initial : { message: disk, revision: "r2" };
+    store.saveDraft.mockResolvedValueOnce({
+      kind: same ? "saved" : "conflict",
+      draft: stored,
+    });
+    await editor.retryStorage();
+    expect(store.saveDraft).toHaveBeenCalledTimes(2);
+    expect(store.saveDraft).toHaveBeenLastCalledWith({
+      ...channel,
+      expectedRevision: "r1",
+      message: "original",
+    });
+    expect(editor.getSnapshot()).toMatchObject({
+      message: "original",
+      stored,
+      error: null,
+      conflict: !same,
+    });
+    expect(store.submitDraft).not.toHaveBeenCalled();
+  },
+);
+
 test("reads the stored draft before displaying it and batches offline typing", async () => {
   vi.useFakeTimers();
   const saved = { message: "  First line\n", revision: "first" };
@@ -43,6 +185,53 @@ test("reads the stored draft before displaying it and batches offline typing", a
   await editor.flush();
   expect(changed).toHaveBeenCalledTimes(3);
 });
+
+test.each(["saved", "failed"] as const)(
+  "preserves a later edit made while the accepted draft is being saved (%s)",
+  async (outcome) => {
+    vi.useFakeTimers();
+    const device = { message: "on this device", revision: "device" };
+    const store = storage();
+    const editor = await openDraftEditor(store, channel);
+    editor.edit("mine");
+    store.readDraft.mockResolvedValueOnce(device);
+    await editor.refresh();
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    store.saveDraft.mockImplementationOnce(async () => {
+      await gate;
+      if (outcome === "failed") throw Error("write failed");
+      return {
+        kind: "saved",
+        draft: { message: "mine", revision: "committed" },
+      };
+    });
+    const keep = editor.keepLocal(device.revision);
+    editor.edit(device.message);
+    editor.edit("further input");
+    finish();
+    if (outcome === "saved") {
+      await keep;
+      await vi.runAllTimersAsync();
+      expect(store.saveDraft).toHaveBeenLastCalledWith({
+        ...channel,
+        message: "further input",
+        expectedRevision: "committed",
+      });
+    } else {
+      await expect(keep).rejects.toThrow("write failed");
+      expect(editor.getSnapshot()).toMatchObject({
+        message: "further input",
+        stored: device,
+        conflict: true,
+      });
+      await vi.runAllTimersAsync();
+      expect(store.saveDraft).toHaveBeenCalledTimes(1);
+    }
+  },
+);
 
 test("serializes blur and a later edit including reverting to the initial text during a save", async () => {
   vi.useFakeTimers();
@@ -206,6 +395,38 @@ test("completes a pending autosave even if refreshing the stored revision fails"
     error: null,
   });
 });
+
+test.each(["takeStored", "keepLocal"] as const)(
+  "waits for a pending device read before acting on the shown revision (%s)",
+  async (choice) => {
+    vi.useFakeTimers();
+    const store = storage();
+    const editor = await openDraftEditor(store, channel);
+    editor.edit("still typing here");
+    const shown = { message: "shown", revision: "r2" };
+    const newer = { message: "", revision: "r3", clearedBySubmission: true };
+    store.readDraft.mockResolvedValueOnce(shown);
+    await editor.refresh();
+    let finishRead!: (draft: ComposerDraft) => void;
+    store.readDraft.mockReturnValueOnce(
+      new Promise<ComposerDraft>((resolve) => {
+        finishRead = resolve;
+      }),
+    );
+    const checking = editor.refresh();
+    const decision = editor[choice](shown.revision);
+    finishRead(newer);
+    await Promise.all([checking, decision]);
+    expect(editor.getSnapshot()).toMatchObject({
+      message: "still typing here",
+      stored: newer,
+      conflict: true,
+      error: null,
+    });
+    expect(store.saveDraft).not.toHaveBeenCalled();
+    expect(store.submitDraft).not.toHaveBeenCalled();
+  },
+);
 
 test("keeping local checks the version shown and preserves a third window's newer edit", async () => {
   vi.useFakeTimers();

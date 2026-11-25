@@ -210,6 +210,12 @@ test("restores the selected team, channel, messages and account actions without 
       ],
     }),
     refreshTeamRoles: vi.fn(),
+    readDraft: vi.fn(async () => ({
+      message: "Text saved on this device",
+      revision: "saved",
+    })),
+    saveDraft: vi.fn(),
+    submitDraft: vi.fn(),
     readChannelWindow: vi.fn(async ({ channelId: id }) => ({
       posts: [
         {
@@ -249,7 +255,13 @@ test("restores the selected team, channel, messages and account actions without 
   );
   expect(openAccountRestConnection).toHaveBeenCalledWith(origin, user);
   expect(screen.queryByRole("note")).toBeNull();
-  expect(screen.queryByRole("textbox")).toBeNull();
+  expect(
+    (
+      await screen.findByRole<HTMLTextAreaElement>("textbox", {
+        name: "Message #General…",
+      })
+    ).value,
+  ).toBe("Text saved on this device");
   fireEvent.click(screen.getByRole("button", { name: "Design" }));
   await screen.findByText("Saved in Design");
   expect((await screen.findByRole("note")).textContent).toContain(

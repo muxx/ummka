@@ -32,6 +32,9 @@ export async function openDraftEditor(
     error: null,
   };
   const listeners = new Set<() => void>();
+  // An IPC failure can hide a committed SQLite write. Only a subsequent device result settles it.
+  let writeUnconfirmed = false;
+  let lastFailure: "read" | "write" | { keep: string | null } = "read";
   let timer: ReturnType<typeof setTimeout> | undefined;
   let active:
     | { kind: "read" | "write" | "submit"; done: Promise<unknown> }
@@ -66,12 +69,15 @@ export async function openDraftEditor(
         expectedRevision: stored.revision,
         message,
       });
+      writeUnconfirmed = false;
       const conflict =
         result.kind === "conflict" && state.message !== result.draft.message;
       if (conflict) unschedule();
       // Typing may have continued while the device was writing this revision.
       publish({ ...state, stored: result.draft, conflict, error: null });
     } catch (error) {
+      writeUnconfirmed = true;
+      lastFailure = "write";
       publish({ ...state, error });
       throw error;
     }
@@ -83,9 +89,18 @@ export async function openDraftEditor(
     if (active && active.kind !== "write")
       return active.done.then(flush, flush);
     if (active) return active.done.then(flush);
-    if (state.conflict || state.message === state.stored.message)
+    if (
+      state.conflict ||
+      (state.message === state.stored.message && !writeUnconfirmed)
+    )
       return Promise.resolve();
     return start("write", saveCurrent);
+  }
+
+  function scheduleSave() {
+    timer = setTimeout(() => {
+      void flush().catch(() => {});
+    }, 600);
   }
 
   function edit(message: string) {
@@ -97,13 +112,13 @@ export async function openDraftEditor(
       ...state,
       message,
       conflict,
-      error: matches ? null : state.error,
+      error: matches && !writeUnconfirmed ? null : state.error,
     });
-    if (!conflict && (!matches || (active && active.kind !== "read"))) {
-      // Observers receive storage errors in the snapshot, including a timer-driven write.
-      timer = setTimeout(() => {
-        void flush().catch(() => {});
-      }, 600);
+    if (
+      !conflict &&
+      (!matches || writeUnconfirmed || (active && active.kind !== "read"))
+    ) {
+      scheduleSave();
     }
   }
 
@@ -115,12 +130,26 @@ export async function openDraftEditor(
       try {
         latest = await storage.readDraft(key);
       } catch (error) {
+        lastFailure = "read";
         publish({ ...state, error });
         throw error;
       }
-      const clean = state.message === state.stored.message;
+      const sameText = state.message === state.stored.message;
+      const clean = sameText && !writeUnconfirmed;
+      writeUnconfirmed = false;
       if (latest.revision === state.stored.revision) {
-        if (clean && state.error !== null) publish({ ...state, error: null });
+        if (
+          (state.conflict && sameText) ||
+          (state.error !== null && (sameText || lastFailure === "read"))
+        ) {
+          publish({
+            ...state,
+            conflict: state.conflict && !sameText,
+            error: null,
+          });
+          if (!sameText && !state.conflict && timer === undefined)
+            scheduleSave();
+        }
         return;
       }
       unschedule();
@@ -135,15 +164,21 @@ export async function openDraftEditor(
     });
   }
 
-  function takeStored(seenRevision: string | null) {
+  async function takeStored(seenRevision: string | null): Promise<void> {
+    if (active) {
+      await active.done;
+      return takeStored(seenRevision);
+    }
     if (!state.conflict || state.stored.revision !== seenRevision) return;
     unschedule();
     publish({
       ...state,
       message: state.stored.message,
-      conflict: false,
+      // An unacknowledged write may have changed the revision shown by this choice.
+      conflict: writeUnconfirmed,
       error: null,
     });
+    if (writeUnconfirmed) return refresh();
   }
 
   async function submit() {
@@ -163,7 +198,8 @@ export async function openDraftEditor(
       }
       if (state.conflict || state.message !== intended) return unchanged;
       return await start("submit", async () => {
-        if (state.stored.message !== intended) await saveCurrent();
+        if (writeUnconfirmed || state.stored.message !== intended)
+          await saveCurrent();
         const revision = state.stored.revision;
         if (
           state.conflict ||
@@ -190,6 +226,8 @@ export async function openDraftEditor(
         return result;
       });
     } catch (error) {
+      // A device retry may save or reread the text. Only a new submit action can send it.
+      lastFailure = state.message === state.stored.message ? "read" : "write";
       publish({ ...state, error });
       throw error;
     } finally {
@@ -201,14 +239,26 @@ export async function openDraftEditor(
     if (active) return active.done.then(() => keepLocal(seenRevision));
     if (!state.conflict || state.stored.revision !== seenRevision)
       return Promise.resolve();
-    publish({ ...state, conflict: false });
-    return flush().catch((error: unknown) => {
-      if (state.message !== state.stored.message) {
-        unschedule();
-        publish({ ...state, conflict: true });
-      }
-      throw error;
-    });
+    unschedule();
+    // Keep the conflict and its actions visible until the device confirms the accepted revision.
+    return start("write", saveCurrent).then(
+      () => {
+        if (
+          !state.conflict &&
+          state.message !== state.stored.message &&
+          timer === undefined
+        )
+          scheduleSave();
+      },
+      (error: unknown) => {
+        if (state.message !== state.stored.message) {
+          unschedule();
+          lastFailure = { keep: seenRevision };
+          if (!state.conflict) publish({ ...state, conflict: true });
+        }
+        throw error;
+      },
+    );
   }
 
   return {
@@ -225,5 +275,12 @@ export async function openDraftEditor(
     refresh,
     takeStored,
     keepLocal,
+    retryStorage() {
+      if (state.error === null) return Promise.resolve();
+      if (lastFailure === "read") return refresh();
+      if (typeof lastFailure === "object" && state.conflict)
+        return keepLocal(lastFailure.keep);
+      return flush();
+    },
   };
 }

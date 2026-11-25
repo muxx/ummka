@@ -1,4 +1,4 @@
-import { fireEvent, within } from "@testing-library/dom";
+import { fireEvent, waitFor, within } from "@testing-library/dom";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { App } from "../../src/App.tsx";
@@ -8,7 +8,10 @@ import {
   readInstallationSelection,
   selectInstallation,
 } from "../../src/mattermost/installation-registry.ts";
-import { getCurrentAccountId } from "../../src/mattermost/native-rest.ts";
+import {
+  getCurrentAccountId,
+  openAccountRestConnection,
+} from "../../src/mattermost/native-rest.ts";
 
 export function openChannelNavigation(element: HTMLElement, label: string) {
   const back = within(element).queryByRole("button", {
@@ -37,6 +40,16 @@ export async function checkSavedTeamWindow(serverUrl: string, userId: string) {
     const saved = () =>
       ui.findByText("Saved fixture room message", {}, { timeout: 7000 });
     await saved();
+    const field = await ui.findByRole<HTMLTextAreaElement>("textbox", {
+      name: "Написать в #Town Square…",
+    });
+    if (
+      field.value !== "  Черновик канала\n🐻‍❄️ " ||
+      !ui.getByText("Черновик · без сети")
+    )
+      throw Error("offline startup lost the exact channel draft");
+    const edited = field.value + " Ещё строка.";
+    flushSync(() => fireEvent.input(field, { target: { value: edited } }));
     if (!ui.getByRole("heading", { name: "Town Square" }))
       throw Error("offline startup lost the selected room");
     flushSync(() =>
@@ -68,6 +81,27 @@ export async function checkSavedTeamWindow(serverUrl: string, userId: string) {
       throw Error("team selection does not fit its target window");
     flushSync(() => fireEvent.click(pick));
     await saved();
+    const restored = await ui.findByRole<HTMLTextAreaElement>("textbox", {
+      name: "Написать в #Town Square…",
+    });
+    if (restored.value !== edited)
+      throw Error("returning to the team lost in-progress offline text");
+    flushSync(() =>
+      fireEvent.input(restored, {
+        target: { value: "  Черновик канала\n🐻‍❄️ " },
+      }),
+    );
+    fireEvent.focusOut(restored);
+    const observer = await openAccountRestConnection(serverUrl, userId);
+    try {
+      await waitFor(async () => {
+        const stored = await observer.readDraft({ channelId: "c".repeat(26) });
+        if (stored.message !== restored.value)
+          throw Error("the offline edit was not saved");
+      });
+    } finally {
+      await observer.close();
+    }
   } finally {
     flushSync(() => root.unmount());
     element.remove();

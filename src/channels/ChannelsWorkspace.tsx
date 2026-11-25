@@ -12,6 +12,7 @@ import type { TeamWorkspace } from "../entry/AccountTeamWindow.tsx";
 import type { EntryLanguage } from "../entry/language.ts";
 import { savedChannelPermissions } from "../mattermost/channel-permissions.ts";
 import {
+  conversationName,
   directPartnerId,
   indexChannelProfiles,
   teammateName,
@@ -22,6 +23,8 @@ import { ChannelsFrame } from "./ChannelsFrame.tsx";
 import { ChannelTimeline } from "./ChannelTimeline.tsx";
 import { ComposerAccessNotice } from "./ComposerAccessNotice.tsx";
 import { channelComposerAccess } from "./composer-access.ts";
+import { DraftComposer } from "./DraftComposer.tsx";
+import { draftCopy } from "./draft-copy.ts";
 import { useChannelTimeline } from "./use-channel-timeline.ts";
 import { useWorkspaceProfiles } from "./use-workspace-profiles.ts";
 import { useTeamRoles, useWorkspaceRead } from "./use-workspace-read.ts";
@@ -156,6 +159,7 @@ export function ChannelsWorkspace({
   const text = workspaceCopy[language];
   const host = useRef<HTMLDivElement>(null);
   const accountButton = useRef<HTMLButtonElement>(null);
+  const draftField = useRef<HTMLTextAreaElement>(null);
   const [accountOpen, setAccountOpen] = useState(false);
   const returnToAccount = useRef(false);
   useLayoutEffect(() => {
@@ -275,6 +279,27 @@ export function ChannelsWorkspace({
   const selectedLabel = sections
     .flatMap((s) => s.rows)
     .find((r) => r.id === chosen)?.title;
+  const draftText = draftCopy[language];
+  function draftLabel() {
+    if (!channel) return draftText.generic;
+    if (channel.kind !== "D" && channel.kind !== "G")
+      return draftText.channel(channel.displayName || channel.name);
+    if (
+      channel.kind === "D" &&
+      directPartnerId(channel.name, userId) === userId
+    )
+      return draftText.self;
+    const name =
+      settings &&
+      conversationName(
+        channel,
+        userId,
+        profiles,
+        settings.nameFormat,
+        language,
+      );
+    return name ? draftText.direct(name) : draftText.generic;
+  }
   useEffect(() => {
     for (const issue of [
       directory.state.status,
@@ -423,6 +448,7 @@ export function ChannelsWorkspace({
           closeThread: text.closeThread,
         }}
         accountRef={accountButton}
+        draftRef={draftField}
         accountName={
           own && settings ? teammateName(own, settings.nameFormat) : ""
         }
@@ -443,7 +469,18 @@ export function ChannelsWorkspace({
         navigation={nav}
         composer={
           timeline.status !== "forbidden" &&
-          timeline.notice !== "forbidden" && (
+          timeline.notice !== "forbidden" &&
+          (access === "writable" && channel ? (
+            <DraftComposer
+              connection={connection}
+              channelId={channel.id}
+              label={draftLabel()}
+              language={language}
+              online={online}
+              sessionIssue={sessionIssue}
+              fieldRef={draftField}
+            />
+          ) : (
             <ComposerAccessNotice
               access={access}
               language={language}
@@ -452,7 +489,7 @@ export function ChannelsWorkspace({
               close={closeChannel}
               retry={retryPostingAccess}
             />
-          )
+          ))
         }
       >
         {historyIssue && notice(historyIssue, timeline.retry, true)}
