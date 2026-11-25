@@ -7,11 +7,14 @@ import {
   useRef,
   useState,
 } from "react";
-import { ResponseError } from "../../vendor/mattermost/index.js";
 import {
   useAccountPolicy,
   useDeviceOnline,
 } from "../channels/use-workspace-read";
+import {
+  atDirectoryStep,
+  directoryProblem,
+} from "../mattermost/account-directory-error";
 import {
   type JoinedTeam,
   type JoinedTeams,
@@ -31,6 +34,7 @@ export type TeamWorkspace = {
   team: JoinedTeam;
   connection: Connection;
   directoryNotice: Issue | null;
+  directoryCode?: string;
   chooseAnotherTeam: () => void;
   policy: ReturnType<typeof useAccountPolicy>;
   online: boolean;
@@ -56,7 +60,12 @@ export function AccountTeamWindow(props: Props) {
   );
 }
 
-type Issue = "storage" | "network" | "offline" | "noCache" | "chooseFailed";
+type Problem = Exclude<ReturnType<typeof directoryProblem>, string>;
+type Issue = Problem["issue"] | "offline" | "noCache" | "chooseFailed";
+type Notice = Issue | Problem | null;
+function issueOf(notice: Notice) {
+  return typeof notice === "object" ? (notice?.issue ?? null) : notice;
+}
 
 function AccountWindow({
   serverUrl,
@@ -68,7 +77,9 @@ function AccountWindow({
 }: Props & { retry: () => void }) {
   const text = teamText[language];
   const [directory, setDirectory] = useState<JoinedTeams | null>(null);
-  const [notice, setNotice] = useState<Issue | null>(null);
+  const [report, setNotice] = useState<Notice>(null);
+  const notice = issueOf(report);
+  const directoryCode = typeof report === "object" ? report?.code : undefined;
   const [picker, setPicker] = useState(false);
   const [choosing, setChoosing] = useState(false);
   const connection = useRef<Connection | null>(null);
@@ -89,22 +100,31 @@ function AccountWindow({
   const readVersion = useRef(0);
   const retryRemoval = useRef<(() => void) | null>(null);
   const ended = useEffectEvent(onSessionEnded);
-  const read = useCallback(async (current: Connection) => {
-    const version = ++readVersion.current;
-    const active = () =>
-      connection.current === current && version === readVersion.current;
-    let snapshot: JoinedTeams | null;
-    try {
-      snapshot = await current.readJoinedTeams();
-    } catch (error) {
-      if (active()) throw error;
-      return;
-    }
-    if (!active()) return;
-    setDirectory(snapshot);
-    setNotice((previous) => (previous === "storage" ? null : previous));
-    return snapshot;
-  }, []);
+  const read = useCallback(
+    async (current: Connection, isCurrent: () => boolean = () => true) => {
+      const version = ++readVersion.current;
+      const active = () =>
+        connection.current === current &&
+        version === readVersion.current &&
+        isCurrent();
+      let snapshot: JoinedTeams | null;
+      try {
+        snapshot = await atDirectoryStep("snapshot", () =>
+          current.readJoinedTeams(),
+        );
+      } catch (error) {
+        if (active()) throw error;
+        return;
+      }
+      if (!active()) return;
+      setDirectory(snapshot);
+      setNotice((previous) =>
+        issueOf(previous) === "storage" ? null : previous,
+      );
+      return snapshot;
+    },
+    [],
+  );
   const currentTeamButton = useRef<HTMLButtonElement>(null);
   useLayoutEffect(() => {
     if (picker) currentTeamButton.current?.focus();
@@ -136,6 +156,7 @@ function AccountWindow({
       }
     }
     let invalidated = false;
+    let refreshVersion = 0;
     invalidation.current = (issue) => {
       if (signal.aborted || invalidated || !acquired) return;
       invalidated = true;
@@ -154,10 +175,11 @@ function AccountWindow({
         initial = await read(acquired);
       } catch (error) {
         if (signal.aborted) return;
-        if (error === "session_unavailable" || error === "cancelled") {
+        const problem = directoryProblem(error);
+        if (problem === "session" || problem === "unauthorized") {
           withdraw();
           ended();
-        } else setNotice("storage");
+        } else setNotice({ issue: "storage", code: problem.code });
         return;
       }
       if (signal.aborted) return;
@@ -165,6 +187,9 @@ function AccountWindow({
     }
     async function refresh() {
       if (!acquired || signal.aborted || invalidated) return;
+      const version = ++refreshVersion;
+      const active = () =>
+        !signal.aborted && !invalidated && version === refreshVersion;
       if (!navigator.onLine) {
         setNotice(initial ? "offline" : "noCache");
         return;
@@ -172,33 +197,36 @@ function AccountWindow({
       try {
         await acquired.refreshJoinedTeams(signal);
       } catch (error) {
+        const problem = directoryProblem(error);
         if (signal.aborted || invalidated) return;
-        if (error === "session_unavailable" || error === "cancelled") {
+        if (problem === "session") {
           withdraw();
           ended();
-          return;
-        }
-        if (error instanceof ResponseError && error.response.status === 401) {
+        } else if (problem === "unauthorized") {
           invalidation.current?.("unauthorized");
-        } else {
-          const storage =
-            typeof error === "string" &&
-            [
-              "history_storage_unavailable",
-              "credential_storage_unavailable",
-              "invalid_stored_credential",
-            ].includes(error);
-          setNotice(storage ? "storage" : "network");
+        } else if (active()) {
+          setNotice(problem);
         }
         return;
       }
-      if (!signal.aborted && !invalidated) {
+      if (active()) {
         try {
-          const published = await read(acquired);
-          if (!signal.aborted && !invalidated && published === null)
-            setNotice("network");
-        } catch {
-          if (!signal.aborted && !invalidated) setNotice("storage");
+          const published = await read(acquired, active);
+          if (active() && published !== undefined) {
+            if (published === null)
+              setNotice({ issue: "failed", code: "snapshot.unpublished" });
+            else
+              setNotice((previous) =>
+                previous === "chooseFailed" ? previous : null,
+              );
+          }
+        } catch (error) {
+          if (active()) {
+            const problem = directoryProblem(error);
+            if (problem === "session" || problem === "unauthorized")
+              invalidation.current?.(problem);
+            else setNotice({ issue: "storage", code: problem.code });
+          }
         }
       }
     }
@@ -265,6 +293,7 @@ function AccountWindow({
       policy,
       sessionIssue,
       directoryNotice: notice,
+      directoryCode,
       chooseAnotherTeam: () => setPicker(true),
     });
   }
@@ -314,7 +343,15 @@ function AccountWindow({
       {directory && !teams.length && <p>{text.empty}</p>}
       {!notice && !directory && <p role="status">{text.loading}</p>}
       {notice && (
-        <p role={notice === "offline" ? "status" : "alert"}>{text[notice]}</p>
+        <p role={notice === "offline" ? "status" : "alert"}>
+          {text[notice]}
+          {directoryCode && (
+            <>
+              {" "}
+              <code dir="ltr">{directoryCode}</code>
+            </>
+          )}
+        </p>
       )}
       {(notice || (directory && !teams.length)) && (
         <button

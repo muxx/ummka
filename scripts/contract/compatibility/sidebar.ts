@@ -4,7 +4,10 @@ import {
   workspaceProfileQuery,
 } from "../../../src/channels/workspace-data.ts";
 import { indexChannelProfiles } from "../../../src/mattermost/channel-profiles.ts";
-import { loadTeamDirectory } from "../../../src/mattermost/navigation-data.ts";
+import {
+  loadAccountDirectory,
+  loadTeamDirectory,
+} from "../../../src/mattermost/navigation-data.ts";
 import { visibleSidebar } from "../../../src/mattermost/sidebar-rows.ts";
 import { projectTeamSidebar } from "../../../src/mattermost/team-sidebar.ts";
 import {
@@ -18,6 +21,7 @@ import {
   ChannelsApi,
   Configuration,
   PreferencesApi,
+  PreferenceToJSON,
   ResponseError,
   SystemApi,
 } from "../../../vendor/mattermost/index.js";
@@ -87,6 +91,28 @@ export async function checkSidebarReads(
     );
     return response.json();
   }
+  // Both compatibility servers return JSON null after deleting the last preference.
+  const before = await loadAccountDirectory(config, userId);
+  assert.ok(
+    before.preferences.length > 0 &&
+      before.teams.some(({ team }) => team.id === teamId),
+  );
+  const existing = before.preferences.map(PreferenceToJSON);
+  await fixture("POST", "users/me/preferences/delete", existing);
+  try {
+    const empty = await preferences.getPreferencesRaw({ userId: "me" });
+    assert.equal(await empty.raw.clone().json(), null);
+    assert.equal(await empty.value(), null);
+    const directory = await loadAccountDirectory(config, userId);
+    assert.deepEqual(directory, { teams: before.teams, preferences: [] });
+  } finally {
+    await fixture("PUT", "users/me/preferences", existing);
+  }
+  const restored = await loadAccountDirectory(config, userId);
+  assert.deepEqual(
+    new Set(restored.preferences.map((p) => JSON.stringify(p))),
+    new Set(before.preferences.map((p) => JSON.stringify(p))),
+  );
   const path = `users/me/teams/${teamId}/channels/categories`;
   const custom = await fixture("POST", path, {
     user_id: userId,
@@ -171,6 +197,18 @@ export async function checkSidebarReads(
     {
       user_id: userId,
       category: "channel_open_time",
+      name: "old-channel-key",
+      value: "602",
+    },
+    {
+      user_id: userId,
+      category: "channel_approximate_view_time",
+      name: "old-view-key",
+      value: "unrelated",
+    },
+    {
+      user_id: userId,
+      category: "channel_open_time",
       name: channelId,
       value: "310",
     },
@@ -200,6 +238,21 @@ export async function checkSidebarReads(
     },
   ]);
   const saved = await preferences.getPreferences({ userId: "me" });
+  assert.ok(saved);
+  assert.ok(
+    saved.some(
+      (p) => p.category === "channel_open_time" && p.name === "old-channel-key",
+    ),
+  );
+  assert.ok(
+    saved.some(
+      (p) =>
+        p.category === "channel_approximate_view_time" &&
+        p.name === "old-view-key",
+    ),
+  );
+  const joined = await loadAccountDirectory(config, userId);
+  assert.ok(joined.teams.some(({ team }) => team.id === teamId));
   const system = new SystemApi(config);
   const [settings, license] = await Promise.all([
     system.getClientConfigRaw({ format: "old" }).then((r) => r.raw.json()),
@@ -220,6 +273,8 @@ export async function checkSidebarReads(
   assert.ok(storedChannel?.createAt && storedChannel.createAt > 0);
   assert.equal(policy.directShown[otherUserId], undefined);
   assert.equal(policy.viewTimes[channelId], 310);
+  assert.equal(Object.hasOwn(policy.viewTimes, "old-channel-key"), false);
+  assert.equal(Object.hasOwn(policy.viewTimes, "old-view-key"), false);
   assert.deepEqual(policy.composerKeys, {
     sendOnCtrlEnter: true,
     codeBlockOnCtrlEnter: false,
@@ -264,9 +319,11 @@ export async function checkSidebarReads(
       value: "true",
     },
   ]);
+  const updatedPreferences = await preferences.getPreferences({ userId: "me" });
+  assert.ok(updatedPreferences);
   const visible = workspacePreferences(
     userId,
-    await preferences.getPreferences({ userId: "me" }),
+    updatedPreferences,
     settings,
     license,
   );

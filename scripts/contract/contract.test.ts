@@ -30,6 +30,7 @@ import {
   correctHistoryQuery,
   correctHistorySchema,
 } from "./history-corrections.ts";
+import { correctNullableList } from "./nullable-list-corrections.ts";
 import { type Fields, object } from "./objects.ts";
 import {
   checkPostInfoOperation,
@@ -49,7 +50,6 @@ import {
   correctSetPostUnread,
   correctUnreadAt,
 } from "./read-state-corrections.ts";
-import { correctRoleList } from "./role-correction.ts";
 import { buildSpecification, readSource } from "./schema.ts";
 import {
   correctChannelSharing,
@@ -315,31 +315,40 @@ test("guards both tagged sources of command suggestions and exposes the picker f
   }
 });
 
-test("makes only the successful role list nullable and detects changes in either tagged schema", () => {
-  const path = "/api/v4/roles/names";
-  const base = object(at(read("roles.yaml"), [path, "post"]), "role operation");
-  const newer = read("roles-12.1.0.yaml");
-  const response = [
-    "responses",
-    "200",
-    "content",
-    "application/json",
-    "schema",
-  ];
-  const expected = structuredClone(base);
-  object(at(expected, response), "role list").nullable = true;
-  assert.deepEqual(correctRoleList(base, newer), expected);
-  for (const target of ["baseline", "reference"]) {
-    const first = structuredClone(base);
-    const other = structuredClone(newer);
-    const changed = target === "baseline" ? first : at(other, [path, "post"]);
-    object(at(changed, response), "changed role list").nullable = true;
-    assert.throws(
-      () => correctRoleList(first, other),
-      /Review the nullable role list/,
-    );
-  }
-});
+for (const [id, file, path, method] of [
+  ["GetRolesByNames", "roles", "/api/v4/roles/names", "post"],
+  [
+    "GetPreferences",
+    "preferences",
+    "/api/v4/users/{user_id}/preferences",
+    "get",
+  ],
+] as const) {
+  test(`only the successful ${id} list is nullable, with matching schemas on both tags`, () => {
+    const base = object(at(read(`${file}.yaml`), [path, method]), id);
+    const newer = read(`${file}-12.1.0.yaml`);
+    const response = [
+      "responses",
+      "200",
+      "content",
+      "application/json",
+      "schema",
+    ];
+    const expected = structuredClone(base);
+    object(at(expected, response), id).nullable = true;
+    assert.deepEqual(correctNullableList(id, base, newer), expected);
+    for (const target of ["baseline", "reference"]) {
+      const first = structuredClone(base);
+      const other = structuredClone(newer);
+      const changed = target === "baseline" ? first : at(other, [path, method]);
+      object(at(changed, response), id).nullable = true;
+      assert.throws(
+        () => correctNullableList(id, first, other),
+        /Review the nullable/,
+      );
+    }
+  });
+}
 
 test("create-post correction detects changes in either tagged source", () => {
   const route = "/api/v4/posts";
@@ -544,8 +553,15 @@ test("retains the catalog operations, security and transitive models", () => {
       );
     if (source.operationId === "ExecuteCommand")
       expected = correctExecuteCommand(source, read("commands-12.1.0.yaml"));
-    if (source.operationId === "GetRolesByNames")
-      expected = correctRoleList(source, read("roles-12.1.0.yaml"));
+    if (
+      source.operationId === "GetRolesByNames" ||
+      source.operationId === "GetPreferences"
+    )
+      expected = correctNullableList(
+        source.operationId,
+        source,
+        read(file.replace(".yaml", "-12.1.0.yaml")),
+      );
     if (source.operationId === "ViewChannel")
       expected = correctChannelView(source, read("channels-12.1.0.yaml"), path);
     if (source.operationId === "MarkChannelsReadForUser")
@@ -898,6 +914,7 @@ function copySources() {
     "definitions.yaml",
     "definitions-12.1.0.yaml",
     "roles-12.1.0.yaml",
+    "preferences-12.1.0.yaml",
     "commands-12.1.0.yaml",
     "posts-12.1.0.yaml",
     ...catalog.map(({ file }) => file),

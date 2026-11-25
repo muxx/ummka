@@ -1,4 +1,5 @@
 import type { Preference } from "../../vendor/mattermost/index.js";
+import { DirectoryValueError } from "./account-directory-error.ts";
 import { locksTeammateName, normalizedNameFormat } from "./channel-profiles.ts";
 import { assertAccountPreference, isMattermostId } from "./model-fields.ts";
 
@@ -10,10 +11,10 @@ type Settings = {
   LockTeammateNameDisplay?: string;
 };
 
-function count(value: string) {
+function count(value: string, field: "sidebar.limit" | "sidebar.time-value") {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isSafeInteger(parsed) || parsed < 0)
-    throw TypeError("Invalid Mattermost sidebar number.");
+    throw new DirectoryValueError(field, "Invalid Mattermost sidebar number.");
   return parsed;
 }
 
@@ -53,7 +54,8 @@ export function sidebarPreferences(
       if (name === "code_block_ctrl_enter")
         codeBlockOnCtrlEnter = value !== "false";
     } else if (category === "sidebar_settings") {
-      if (name === "limit_visible_dms_gms") limit = count(value);
+      if (name === "limit_visible_dms_gms")
+        limit = count(value, "sidebar.limit");
       if (name === "show_unread_section") unreads = value;
       if (name === "") oldUnreads = value;
     } else if (
@@ -61,7 +63,12 @@ export function sidebarPreferences(
       category === "group_channel_show"
     ) {
       if (!isMattermostId(name))
-        throw TypeError("Invalid Mattermost conversation preference.");
+        throw new DirectoryValueError(
+          category === "direct_channel_show"
+            ? "sidebar.direct-id"
+            : "sidebar.group-id",
+          "Invalid Mattermost conversation preference.",
+        );
       const shown =
         category === "direct_channel_show" ? directShown : groupShown;
       if (value === "false") delete shown[name];
@@ -70,9 +77,12 @@ export function sidebarPreferences(
       category === "channel_open_time" ||
       category === "channel_approximate_view_time"
     ) {
-      if (!isMattermostId(name))
-        throw TypeError("Invalid Mattermost channel timestamp identity.");
-      viewTimes[name] = Math.max(count(value), viewTimes[name] ?? 0);
+      // Mattermost reads these timestamps by channel.id. Other preference names cannot match a conversation.
+      if (!isMattermostId(name)) continue;
+      viewTimes[name] = Math.max(
+        count(value, "sidebar.time-value"),
+        viewTimes[name] ?? 0,
+      );
     }
   }
   return {
