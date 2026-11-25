@@ -23,7 +23,7 @@ function invalid() {
   return new TypeError("Invalid Mattermost installation profile");
 }
 
-async function readStringFields<K extends string>(
+export async function readStringFields<K extends string>(
   request: Promise<ApiResponse<void>>,
   fields: readonly K[],
 ) {

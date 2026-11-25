@@ -1,5 +1,5 @@
 import type { Preference } from "../../vendor/mattermost/index.js";
-import { teammateNameFormat } from "./channel-profiles.ts";
+import { locksTeammateName, normalizedNameFormat } from "./channel-profiles.ts";
 import { assertAccountPreference, isMattermostId } from "./model-fields.ts";
 
 type Settings = {
@@ -26,11 +26,9 @@ function legacyUnreads(value: string) {
   );
 }
 
-export function workspacePreferences(
+export function sidebarPreferences(
   userId: string,
   rows: readonly Preference[],
-  config: Settings,
-  license: Pick<Settings, "LockTeammateNameDisplay">,
 ) {
   if (!isMattermostId(userId)) throw TypeError("Invalid Mattermost account.");
   const directShown: Record<string, true> = {};
@@ -70,26 +68,81 @@ export function workspacePreferences(
       viewTimes[name] = Math.max(count(value), viewTimes[name] ?? 0);
     }
   }
-  const mode = config.CollapsedThreads;
   return {
-    nameFormat: teammateNameFormat(config, license, nameFormat),
-    collapsedThreads:
-      mode === "always_on" ||
-      (mode !== undefined &&
-        mode !== "disabled" &&
-        (threadMode === undefined
-          ? mode === "default_on"
-          : threadMode === "on")),
+    nameFormat:
+      nameFormat === undefined ? null : normalizedNameFormat(nameFormat),
+    collapsedThreads: threadMode === undefined ? null : threadMode === "on",
     separateUnreads: unreads
       ? unreads === "true"
       : oldUnreads
         ? legacyUnreads(oldUnreads)
-        : config.ExperimentalGroupUnreadChannels === "default_on",
+        : null,
     limit,
     directShown,
     groupShown,
     viewTimes,
   };
+}
+export type SidebarPreferences = ReturnType<typeof sidebarPreferences>;
+
+export type ServerPolicy = {
+  collapsedThreads: "disabled" | "always_on" | "default_on" | "default_off";
+  separateUnreads: boolean;
+  nameFormat: ReturnType<typeof normalizedNameFormat>;
+  lockNameFormat: boolean;
+};
+export function workspaceServerPolicy(
+  config: Settings,
+  license: Pick<Settings, "LockTeammateNameDisplay">,
+): ServerPolicy {
+  const value = config.CollapsedThreads;
+  // WebApp lets the user opt in to any defined mode other than disabled.
+  const mode =
+    value === undefined || value === "disabled"
+      ? "disabled"
+      : value === "always_on" || value === "default_on"
+        ? value
+        : "default_off";
+  return {
+    collapsedThreads: mode,
+    separateUnreads: config.ExperimentalGroupUnreadChannels === "default_on",
+    nameFormat: normalizedNameFormat(config.TeammateNameDisplay),
+    lockNameFormat: locksTeammateName(config, license),
+  };
+}
+
+export type SavedWorkspaceSettings = {
+  preferences: SidebarPreferences | null;
+  server: ServerPolicy | null;
+};
+
+export function effectiveWorkspacePreferences(
+  user: SidebarPreferences,
+  server: ServerPolicy,
+) {
+  const mode = server.collapsedThreads;
+  return {
+    ...user,
+    nameFormat: server.lockNameFormat
+      ? server.nameFormat
+      : (user.nameFormat ?? server.nameFormat),
+    collapsedThreads:
+      mode === "always_on" ||
+      (mode !== "disabled" && (user.collapsedThreads ?? mode === "default_on")),
+    separateUnreads: user.separateUnreads ?? server.separateUnreads,
+  };
+}
+
+export function workspacePreferences(
+  userId: string,
+  rows: readonly Preference[],
+  config: Settings,
+  license: Pick<Settings, "LockTeammateNameDisplay">,
+) {
+  return effectiveWorkspacePreferences(
+    sidebarPreferences(userId, rows),
+    workspaceServerPolicy(config, license),
+  );
 }
 
 export type WorkspacePreferences = ReturnType<typeof workspacePreferences>;

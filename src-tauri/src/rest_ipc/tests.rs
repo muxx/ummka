@@ -57,7 +57,17 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
             ("read_joined_teams", json!({"rid":0})),
             ("select_joined_team", json!({"rid":0, "teamId":"x"})),
             ("begin_team_directory_load", json!({"rid":0})),
-            ("store_team_directory", json!({"rid":0,"load":0,"teams":[]})),
+            ("read_workspace_settings", json!({"rid":0})),
+            ("begin_workspace_policy_load", json!({"rid":0})),
+            (
+                "store_workspace_policy",
+                json!({"rid":0,"load":0,"server":{}}),
+            ),
+            ("cancel_workspace_policy_load", json!({"rid":0,"load":0})),
+            (
+                "store_team_directory",
+                json!({"rid":0,"load":0,"teams":[],"preferences":{}}),
+            ),
             ("cancel_team_directory_load", json!({"rid":0,"load":0})),
             (
                 "read_saved_profiles",

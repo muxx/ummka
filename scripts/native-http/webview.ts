@@ -142,6 +142,18 @@ export function webviewServers(
             name: "d".repeat(26),
             value: "false",
           },
+          {
+            user_id: userId,
+            category: "sidebar_settings",
+            name: "limit_visible_dms_gms",
+            value: "18",
+          },
+          {
+            user_id: userId,
+            category: "display_settings",
+            name: "name_format",
+            value: "nickname_full_name",
+          },
         ],
       },
     ],
@@ -157,6 +169,7 @@ export function webviewServers(
             name: "town-square",
             display_name: "Town Square",
             delete_at: 0,
+            create_at: 90,
             last_root_post_at: 300,
           },
         ],
@@ -338,6 +351,29 @@ export function webviewServers(
       /^\/(team\/chat|entry\/team)\/api\/v4\/(config|license)\/client$/.exec(
         url.pathname,
       );
+    if (setting?.[1] === "team/chat" && req.headers.authorization) {
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      assert.equal(url.search, "?format=old");
+      visits.push(`workspace-${setting[2]}`);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify(
+          setting[2] === "config"
+            ? {
+                CollapsedThreads: "always_on",
+                TeammateNameDisplay: "full_name",
+                LockTeammateNameDisplay: "true",
+                Unrelated: "ignored",
+              }
+            : { LockTeammateNameDisplay: "true", Company: "ignored" },
+        ),
+      );
+      return;
+    }
     if (setting) {
       assert.equal(url.search, "?format=old");
       assert.equal(req.headers.authorization, undefined);
@@ -507,6 +543,8 @@ export function webviewServers(
         "account-second",
         "account-denied",
         "account-expired",
+        "workspace-config",
+        "workspace-license",
         "account-html",
         "account-large",
         "account-truncated",

@@ -4,9 +4,12 @@ import { loadTeamDirectory } from "../../../src/mattermost/navigation-data.ts";
 import { visibleSidebar } from "../../../src/mattermost/sidebar-rows.ts";
 import { projectTeamSidebar } from "../../../src/mattermost/team-sidebar.ts";
 import {
+  effectiveWorkspacePreferences,
+  sidebarPreferences,
   visibleConversationLimit,
   workspacePreferences,
 } from "../../../src/mattermost/workspace-preferences.ts";
+import { loadWorkspaceServerPolicy } from "../../../src/mattermost/workspace-server.ts";
 import {
   ChannelsApi,
   Configuration,
@@ -167,6 +170,16 @@ export async function checkSidebarReads(
   ]);
   assert.equal(typeof settings.CollapsedThreads, "string");
   const policy = workspacePreferences(userId, saved, settings, license);
+  const serverPolicy = await loadWorkspaceServerPolicy(config);
+  const received = sidebarPreferences(userId, saved);
+  assert.deepEqual(
+    effectiveWorkspacePreferences(received, serverPolicy),
+    policy,
+  );
+  const storedChannel = projectTeamSidebar(directory).channels.find(
+    (c) => c.id === channelId,
+  );
+  assert.ok(storedChannel?.createAt && storedChannel.createAt > 0);
   assert.equal(policy.directShown[otherUserId], undefined);
   assert.equal(policy.viewTimes[channelId], 310);
   assert.equal(policy.nameFormat, "nickname_full_name");

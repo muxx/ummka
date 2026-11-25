@@ -4,7 +4,7 @@ import { visibleSidebar } from "./sidebar-rows.ts";
 import type { TeamSidebar } from "./team-sidebar.ts";
 import { workspacePreferences } from "./workspace-preferences.ts";
 
-type Channel = TeamSidebar["data"]["channels"][number] & { createAt?: number };
+type Channel = TeamSidebar["data"]["channels"][number];
 type Category = TeamSidebar["data"]["categories"][number];
 const id = (n: number) => String(n).padStart(26, "0");
 const me = id(1),
@@ -25,6 +25,7 @@ function channel(
     displayName: `Room ${n}`,
     header: "",
     purpose: "",
+    createAt: null,
     deleteAt: 0,
     lastPostAt: 100,
     lastRootPostAt: null,

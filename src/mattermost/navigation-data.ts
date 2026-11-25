@@ -20,7 +20,7 @@ type DirectoryRequest = <T>(
 ) => Promise<T>;
 
 // Stop outstanding siblings on failure. The caller owns the failing response, including its body.
-async function readDirectory<T>(
+export async function readDirectory<T>(
   signal: AbortSignal | undefined,
   read: (request: DirectoryRequest) => Promise<T>,
 ): Promise<T> {
