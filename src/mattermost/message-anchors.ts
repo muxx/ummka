@@ -1,4 +1,5 @@
 import type { FilesApi, PostsApi } from "../../vendor/mattermost/index.js";
+import { channelPostChange } from "./channel-post-records.ts";
 import { isMattermostId } from "./model-fields.ts";
 
 export async function readPostAnchor(
@@ -9,16 +10,15 @@ export async function readPostAnchor(
   signal?.throwIfAborted();
   if (!isMattermostId(postId))
     throw new TypeError("Invalid Mattermost post ID.");
-  const post = await posts.getPost({ postId }, { signal });
+  const response = await posts.getPost({ postId }, { signal });
   signal?.throwIfAborted();
-  if (
-    post?.id !== postId ||
-    !isMattermostId(post.channelId) ||
-    (post.rootId !== "" && !isMattermostId(post.rootId)) ||
-    post.rootId === postId
-  )
+  if (!isMattermostId(response?.channelId))
     throw new TypeError("Invalid Mattermost post anchor.");
-  return { postId, channelId: post.channelId, rootId: post.rootId || null };
+  const change = channelPostChange(response.channelId, postId, response);
+  if (change.kind === "remove")
+    return { postId, channelId: change.channelId, post: null };
+  const { kind: _kind, ...post } = change;
+  return { postId, channelId: post.channelId, rootId: post.rootId, post };
 }
 
 export async function readFileAnchor(

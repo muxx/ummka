@@ -46,13 +46,14 @@ export async function inspectPostTarget(
       return { ...step, channel: destination.channel };
     if (step.kind !== "readPost") return step;
     retentionHeader = "first-inaccessible-post-time";
-    const post = await account.readPostAnchor(postId, signal);
+    const anchor = await account.readPostAnchor(postId, signal);
     signal?.throwIfAborted();
-    if (post.channelId !== step.channelId)
+    if (anchor.channelId !== step.channelId)
       throw new TypeError(
         "Post and destination belong to different Mattermost channels.",
       );
-    return { kind: "ready", teamId: step.teamId, ...post } as const;
+    if (!anchor.post) return { kind: "unavailable" } as const;
+    return { kind: "ready", teamId: step.teamId, ...anchor } as const;
   } catch (error) {
     signal?.throwIfAborted();
     if (error instanceof ResponseError) {

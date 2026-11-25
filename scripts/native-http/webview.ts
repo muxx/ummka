@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import https from "node:https";
 import type { Socket } from "node:net";
-import { json } from "node:stream/consumers";
+import { json, text } from "node:stream/consumers";
 import { respondToAccount } from "./account.ts";
 import { respondToChannelMembers } from "./channel-members.ts";
 import { respondToChannelView } from "./channel-view.ts";
@@ -427,6 +427,24 @@ export function webviewServers(
           status_code: 503,
         }),
       );
+      return;
+    }
+    if (
+      url.pathname ===
+      `/team/chat/api/v4/users/me/teams/${teamId}/threads/${"p".repeat(26)}/following`
+    ) {
+      assert(req.method === "PUT" || req.method === "DELETE");
+      assert.equal(url.search, "");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      assert.equal(await text(req), "");
+      visits.push(req.method === "PUT" ? "follow-thread" : "unfollow-thread");
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end(JSON.stringify({ status: "OK" }));
       return;
     }
     const mutation = await respondToPostMutation(
@@ -1010,7 +1028,10 @@ export function webviewServers(
         "custom-emoji-by-name",
         "empty-post-reactions",
         "post-reactions",
+        "follow-thread",
+        "unfollow-thread",
         "patch-post",
+        "post-edit-history",
         "delete-post",
         "bulk-channel-view",
         "single-channel-view",
