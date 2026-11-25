@@ -522,6 +522,9 @@ export async function checkGeneratedRequests(ports: string[]) {
       postAnchor.postId === postId &&
         postAnchor.channelId === channelId &&
         postAnchor.rootId === "r".repeat(26) &&
+        postAnchor.post?.id === postId &&
+        postAnchor.post.editAt === 1250 &&
+        postAnchor.post.isPinned &&
         fileAnchor.fileId === fileId &&
         fileAnchor.channelId === channelId &&
         fileAnchor.postId === postId,
@@ -541,7 +544,13 @@ export async function checkGeneratedRequests(ports: string[]) {
         target.teamId === teamId &&
         target.channelId === channelId &&
         target.rootId === "r".repeat(26) &&
-        target.postId === postId,
+        target.postId === postId &&
+        target.post.id === target.postId &&
+        target.post.channelId === target.channelId &&
+        target.post.rootId === target.rootId &&
+        target.post.userId === "u".repeat(26) &&
+        target.post.createAt === 1100 &&
+        target.post.message === "Later reply",
       "inspect-file-post-destination",
     );
     await checkPostMutations(rootSession, signed, channelId);
