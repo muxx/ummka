@@ -37,7 +37,7 @@ class BrowserCheckActivity : Activity() {
                 start.path == "/browser-action-check/oauth/google/mobile_login" &&
                 start.getQueryParameter("redirect_to") == "$scheme://callback"
             ) {
-                // Leave this request pending so the main WebView can cancel it.
+                BrowserLifecycleProbe.holdUntilCancelled(this)
                 return
             }
             when (intent.dataString) {
