@@ -130,6 +130,44 @@ test.each(["close", "abort"])(
   },
 );
 
+test.each(["abort", "close"])(
+  "a pending collection change cannot confirm after %s",
+  async (action) => {
+    ipc.mockResolvedValueOnce(41);
+    const account = await openAccountRestConnection(
+      "https://chat.example.test",
+      "u".repeat(26),
+    );
+    const controller = new AbortController();
+    let finish!: () => void;
+    const pendingBody = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const write = vi.spyOn(PostsApi.prototype, "pinPostRaw").mockResolvedValue({
+      raw: new Response(null, { status: 200 }),
+      value: async () => {
+        await pendingBody;
+        return { status: "OK" };
+      },
+    });
+    try {
+      const pending = account.setPostPinned(
+        "a".repeat(26),
+        true,
+        controller.signal,
+      );
+      if (action === "close") await account.close();
+      else controller.abort();
+      finish();
+      if (action === "close") await expect(pending).rejects.toBe("cancelled");
+      else await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+      expect(write).toHaveBeenCalledOnce();
+    } finally {
+      write.mockRestore();
+    }
+  },
+);
+
 test("does not deliver an already received profile batch to a replaced connection", async () => {
   ipc.mockResolvedValueOnce(41);
   const account = await openAccountRestConnection(
@@ -399,6 +437,8 @@ test("opens a native account by installation and user ID", async () => {
     "searchMentionGroups",
     "selectJoinedTeam",
     "selectSidebarChannel",
+    "setPostPinned",
+    "setPostSaved",
     "signOut",
     "signOutOnDevice",
     "stagePost",

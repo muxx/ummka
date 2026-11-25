@@ -49,6 +49,7 @@ import {
   type MembershipTarget,
 } from "./own-membership.ts";
 import { createPostActivity } from "./post-activity.ts";
+import { accountCollectionActions } from "./post-collection-actions.ts";
 import { readPostDestination } from "./post-destination.ts";
 import { createRestTransport } from "./rest-transport.ts";
 import { canonicalServerUrl } from "./server-url.ts";
@@ -152,6 +153,7 @@ export async function openAccountRestConnection(
   return {
     ...connection,
     ...accountPostCollections(config, readWhileOpen),
+    ...accountCollectionActions(config, userId, readWhileOpen),
     ...accountPostReactions(config, userId, readWhileOpen),
     ...accountSearch(config, readWhileOpen),
     readThreadPage(query: ThreadPageRequest, signal?: AbortSignal) {
