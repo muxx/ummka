@@ -6,6 +6,7 @@ export type JoinedTeam = {
   displayName: string;
   preferenceRank: number | null;
   roles?: string;
+  groupConstrained?: boolean;
 };
 
 export type JoinedTeams = { teams: JoinedTeam[]; selectedTeam: string | null };
@@ -25,6 +26,7 @@ export function projectJoinedTeams({
   return teams.map(({ team, membership }) => ({
     id: team.id,
     name: team.name,
+    groupConstrained: team.groupConstrained === true,
     displayName: team.displayName,
     preferenceRank: ranks.get(team.id) ?? null,
     ...(membership.roles === undefined ? {} : { roles: membership.roles }),

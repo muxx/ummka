@@ -250,6 +250,7 @@ export async function checkGeneratedRequests(ports: string[]) {
     check(
       cached?.teams[0]?.id === "Team0123456789012345678901" &&
         cached.teams[0].displayName === "Fixture Team" &&
+        cached.teams[0].groupConstrained === true &&
         cached.selectedTeam === "Team0123456789012345678901",
       "cached-team-names",
     );
@@ -279,6 +280,17 @@ export async function checkGeneratedRequests(ports: string[]) {
     );
     const teamId = "Team0123456789012345678901";
     const channelId = "c".repeat(26);
+    const command = await accountPrefix.executeServerCommand(
+      { channelId, teamId, rootId: "r".repeat(26) },
+      "/RELEASE  —Status  ",
+    );
+    check(
+      command.kind === "executed" &&
+        command.response.responseType === "ephemeral" &&
+        command.response.text === "Fixture status",
+      "account-server-command",
+    );
+
     const broadcast = await readBroadcastDecision(
       accountPrefix,
       channelId,
@@ -391,6 +403,7 @@ export async function checkGeneratedRequests(ports: string[]) {
       catalog?.selectedChannel === channelId &&
         catalog.data.channels[0]?.lastRootPostAt === 300 &&
         catalog.data.channels[0]?.createAt === 90 &&
+        catalog.data.channels[0]?.groupConstrained === true &&
         catalog.data.categories[0]?.channelIds[0] === channelId,
       "read-channel-catalog",
     );
