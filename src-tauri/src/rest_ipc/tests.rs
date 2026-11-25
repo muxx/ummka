@@ -78,6 +78,18 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
                 json!({"rid":0,"source":{"kind":"posted"},"wirePendingId":"pending","post":{"id":"a","channelId":"b","userId":"c","rootId":null}}),
             ),
             ("retire_delivered_posts", json!({"rid":0,"postIds":[]})),
+            (
+                "record_post_refusal",
+                json!({"rid":0,"pendingId":"id","attempt":1,"refusal":{"status":403,"code":"refused","message":null}}),
+            ),
+            (
+                "retry_pending_post",
+                json!({"rid":0,"pendingId":"id","attempt":1,"choice":{"kind":"despiteUnknownDelivery"}}),
+            ),
+            (
+                "dismiss_pending_post",
+                json!({"rid":0,"pendingId":"id","attempt":1}),
+            ),
             ("read_workspace_settings", json!({"rid":0})),
             ("begin_workspace_policy_load", json!({"rid":0})),
             (

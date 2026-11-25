@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { submissionFixture } from "./submit-post.ts";
 
 export async function respondToPostMutation(
   req: IncomingMessage,
@@ -7,6 +8,7 @@ export async function respondToPostMutation(
   url: URL,
   channel: string,
   user: string,
+  submissions: ReturnType<typeof submissionFixture>,
 ) {
   const root = "v".repeat(26);
   const replyId = "j".repeat(26);
@@ -51,7 +53,6 @@ export async function respondToPostMutation(
   );
   assert.equal(req.headers.cookie, undefined);
   assert.equal(req.headers["content-type"], "application/json");
-  assert.equal(url.search, prefix ? "?set_online=false" : "");
   const expected = {
     channel_id: channel,
     message: prefix ? "Ответ 👋\nв треде" : "Root **text**",
@@ -60,10 +61,11 @@ export async function respondToPostMutation(
   };
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(chunk);
-  assert.deepEqual(
-    JSON.parse(Buffer.concat(chunks).toString("utf8")),
-    expected,
-  );
+  const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  const submitted = submissions.respond(body, res, prefix, url.search);
+  if (submitted) return submitted;
+  assert.equal(url.search, prefix ? "?set_online=false" : "");
+  assert.deepEqual(body, expected);
   res.writeHead(201, { "Content-Type": "application/json" }).end(
     JSON.stringify({
       ...expected,

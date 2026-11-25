@@ -22,6 +22,7 @@ import { prepareHistoryLoads } from "./history-loads.ts";
 import { checkUnavailableHistoryServer } from "./local-history.ts";
 import { checkPostContext } from "./post-context.ts";
 import { checkPostMutations } from "./post-mutations.ts";
+import { checkSubmissions } from "./submission.ts";
 import { checkTeamReads } from "./team-reads.ts";
 import { checkWorkspaceSettings } from "./workspace-settings.ts";
 
@@ -241,6 +242,7 @@ export async function checkGeneratedRequests(ports: string[]) {
     check(await accountPrefix.refreshJoinedTeams(), "team-directory-published");
     await checkWorkspaceSettings(accountPrefix, accountRoot);
     await checkDraftWrites(accountPrefix, accountRoot, userId);
+    await checkSubmissions(accountPrefix, accountRoot, userId, observed);
     const cached = await accountPrefix.readJoinedTeams();
     check(
       cached?.teams[0]?.id === "Team0123456789012345678901" &&
