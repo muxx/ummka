@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { loadChannelPermissions } from "../../../src/mattermost/channel-permissions.ts";
+import {
+  fetchTeamRoleSnapshot,
+  loadChannelPermissions,
+  savedChannelPermissions,
+} from "../../../src/mattermost/channel-permissions.ts";
 import { projectJoinedTeams } from "../../../src/mattermost/joined-teams.ts";
 import {
   loadAccountDirectory,
@@ -50,6 +54,7 @@ export async function checkNavigationMemberships(
   }
   for (const teamId of [keepTeamId, leaveTeamId]) {
     const directory = await loadTeamDirectory(session, userId, teamId);
+    const projection = projectTeamSidebar(directory);
     if (teamId === keepTeamId) {
       const user = await new UsersApi(session).getUser({ userId: "me" });
       const allows = await loadChannelPermissions(session, {
@@ -62,8 +67,30 @@ export async function checkNavigationMemberships(
       assert.ok(allows(directId, "create_direct_channel"));
       assert.ok(!allows(directId, "manage_system"));
       assert.ok(!allows("x".repeat(26), "create_direct_channel"));
+      const team = teamRows.find((row) => row.id === teamId);
+      assert.ok(team?.roles);
+      const assignments = projection.channels.flatMap(
+        (row) => row.roles?.split(" ") ?? [],
+      );
+      const snapshot = await fetchTeamRoleSnapshot(
+        session,
+        userId,
+        [...team.roles.split(" "), ...assignments].filter(Boolean),
+      );
+      const check = savedChannelPermissions(snapshot, team.roles);
+      for (const channel of projection.channels) {
+        for (const permission of [
+          "create_post",
+          "create_direct_channel",
+          "manage_system",
+        ]) {
+          assert.equal(
+            check(channel, permission),
+            allows(channel.id, permission) ? "allowed" : "denied",
+          );
+        }
+      }
     }
-    const projection = projectTeamSidebar(directory);
     assert.deepEqual(
       projection.channels.map((row) => [row.id, row.roles]),
       directory.channels.map(({ channel, membership }) => {

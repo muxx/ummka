@@ -3,6 +3,7 @@ import { Configuration, ResponseError } from "../../vendor/mattermost/index.js";
 import {
   fetchTeamRoleSnapshot,
   loadChannelPermissions,
+  savedChannelPermissions,
 } from "./channel-permissions.ts";
 
 const userId = "u".repeat(26);
@@ -246,4 +247,51 @@ test("a foreign profile, missing role assignments or an aborted profile read can
   await expect(
     fetchTeamRoleSnapshot(cancelled, userId, [], abort.signal),
   ).rejects.toBe(reason);
+});
+
+test("a saved permission distinguishes missing evidence from an explicitly empty role", () => {
+  const snapshot = {
+    systemRoles: "system",
+    definitions: [
+      { name: "system", permissions: ["read_channel"] },
+      { name: "team", permissions: ["create_post"] },
+      { name: "writer", permissions: ["attach_file"] },
+      { name: "revoked", permissions: [] },
+    ],
+  };
+  const check = savedChannelPermissions(snapshot, "team");
+  for (const kind of ["O", "P", "D", "G"]) {
+    const room = { kind, roles: "writer revoked" };
+    expect(check(room, "read_channel")).toBe("allowed");
+    expect(check(room, "attach_file")).toBe("allowed");
+    expect(check(room, "create_post")).toBe(
+      ["O", "P"].includes(kind) ? "allowed" : "denied",
+    );
+    expect(check(room, "manage_system")).toBe("denied");
+    expect(check({ ...room, roles: "new writer" }, "attach_file")).toBe(
+      "allowed",
+    );
+    expect(check({ ...room, roles: "new writer" }, "manage_system")).toBe(
+      "unknown",
+    );
+  }
+  const old = savedChannelPermissions(snapshot, undefined);
+  expect(old({ kind: "O" }, "read_channel")).toBe("allowed");
+  expect(old({ kind: "O", roles: "writer" }, "create_post")).toBe("unknown");
+  expect(old({ kind: "G", roles: "" }, "create_post")).toBe("denied");
+  expect(old({ kind: "D" }, "create_post")).toBe("unknown");
+  expect(check({ kind: "P", roles: "" }, "manage_system")).toBe("denied");
+  expect(check(undefined, "read_channel")).toBe("unknown");
+  expect(
+    savedChannelPermissions(null, "team")(
+      { kind: "O", roles: "writer" },
+      "attach_file",
+    ),
+  ).toBe("unknown");
+  expect(
+    savedChannelPermissions({ systemRoles: "", definitions: [] }, "")(
+      { kind: "P", roles: "" },
+      "create_post",
+    ),
+  ).toBe("denied");
 });

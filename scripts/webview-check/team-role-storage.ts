@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { savedChannelPermissions } from "../../src/mattermost/channel-permissions.ts";
 import { openAccountRestConnection } from "../../src/mattermost/native-rest.ts";
 import { expectCode } from "./local-history.ts";
 
@@ -102,5 +103,19 @@ export async function checkRestoredTeamRoles(account: Account, saved: boolean) {
   )
     throw Error(
       "The refreshed role definitions did not survive reopening their own account",
+    );
+  const [catalog, sidebar] = await Promise.all([
+    account.readJoinedTeams(),
+    account.readTeamSidebar(teamId),
+  ]);
+  const team = catalog?.teams.find((row) => row.id === teamId);
+  const channel = sidebar?.data.channels[0];
+  const check = savedChannelPermissions(snapshot, team?.roles);
+  if (
+    check(channel, "create_post") !== "allowed" ||
+    check(channel, "manage_system") !== "denied"
+  )
+    throw Error(
+      "Offline channel permissions diverged from the saved assignments",
     );
 }
