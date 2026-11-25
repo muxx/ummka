@@ -9,6 +9,20 @@ const fileId = "f".repeat(26),
   rootId = "r".repeat(26);
 const source = { kind: "post", id: postId } as const,
   fileSource = { kind: "file", id: fileId } as const;
+const reply = {
+  id: postId,
+  channelId,
+  rootId,
+  userId: "u".repeat(26),
+  createAt: 101,
+  updateAt: 101,
+  editAt: 0,
+  type: "",
+  message: "Selected search reply",
+  messageSource: null,
+  hashtags: "",
+  isPinned: false,
+};
 const channel = {
   id: channelId,
   kind: "O",
@@ -32,7 +46,7 @@ function fixture() {
       .mockResolvedValue({ postId, channel, team }),
     readPostAnchor: vi
       .fn<Account["readPostAnchor"]>()
-      .mockResolvedValue({ postId, channelId, rootId }),
+      .mockResolvedValue({ postId, channelId, rootId, post: reply }),
   };
 }
 
@@ -58,6 +72,7 @@ test("a post or an attached file resolves to the same exact reply in its own tea
       rootId,
       channelId,
       teamId,
+      post: reply,
     });
     expect(account.readPostDestination).toHaveBeenCalledExactlyOnceWith(
       postId,
@@ -90,6 +105,20 @@ test("a standalone file stops before a membership read", async () => {
   });
   expect(account.readPostDestination).not.toHaveBeenCalled();
   expect(account.readPostAnchor).not.toHaveBeenCalled();
+});
+
+test("a deleted post is unavailable through either its permalink or its file", async () => {
+  for (const input of [source, fileSource]) {
+    const account = fixture();
+    account.readPostAnchor.mockResolvedValueOnce({
+      postId,
+      channelId,
+      post: null,
+    });
+    expect(await inspectPostTarget(account, input, teamId)).toEqual({
+      kind: "unavailable",
+    });
+  }
 });
 
 test("requires membership or a team selection before requesting post content", async () => {
@@ -142,6 +171,7 @@ test("discards mismatched channels and checks cancellation between reads", async
     postId,
     channelId: different,
     rootId: null,
+    post: { ...reply, channelId: different, rootId: null },
   });
   await expect(inspectPostTarget(account, source, null)).rejects.toBeInstanceOf(
     TypeError,
@@ -156,6 +186,18 @@ test("discards mismatched channels and checks cancellation between reads", async
     inspectPostTarget(account, fileSource, null, controller.signal),
   ).rejects.toBe("left search");
   expect(account.readPostDestination).not.toHaveBeenCalled();
+});
+
+test("cancelling while reading the post discards the completed target", async () => {
+  const account = fixture();
+  const controller = new AbortController();
+  account.readPostAnchor.mockImplementationOnce(async () => {
+    controller.abort("left search");
+    return { postId, channelId, rootId, post: reply };
+  });
+  await expect(
+    inspectPostTarget(account, source, teamId, controller.signal),
+  ).rejects.toBe("left search");
 });
 
 test.each(["file", "destination", "post"] as const)(

@@ -64,6 +64,7 @@ import { checkReactionLimit } from "./reaction-limit.ts";
 import { checkPostReactions } from "./reactions.ts";
 import { checkRoleReads } from "./role-reads.ts";
 import { checkSearchScopePolicy } from "./search-scope.ts";
+import { expectedNavigationPost } from "./search-target.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
 import { checkThreadWindow } from "./thread-window.ts";
@@ -458,6 +459,7 @@ for (const [id, rootId] of [
     postId: id,
     channelId,
     rootId: rootId || null,
+    post: expectedNavigationPost(row),
   });
 }
 await assert.rejects(
