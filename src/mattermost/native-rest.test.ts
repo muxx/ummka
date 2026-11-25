@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, expect, expectTypeOf, test, vi } from "vitest";
+import { channelProfile } from "./channel-profiles.ts";
 import {
   forgetLocalAccount,
   getCurrentAccountId,
@@ -106,6 +107,104 @@ test("does not deliver an already received profile batch to a replaced connectio
   }
 });
 
+test("reads only the saved profile query, preserving native storage errors", async () => {
+  ipc.mockResolvedValueOnce(9);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    "u".repeat(26),
+  );
+  const query = { ids: ["a".repeat(26)], usernames: ["ann"] };
+  const saved = { profiles: {}, usernames: {} };
+  ipc.mockResolvedValueOnce(saved);
+  expect(await account.readSavedProfiles(query)).toBe(saved);
+  expect(ipc).toHaveBeenLastCalledWith("read_saved_profiles", {
+    rid: 9,
+    query,
+  });
+  ipc.mockRejectedValueOnce("history_storage_unavailable");
+  await expect(account.readSavedProfiles(query)).rejects.toBe(
+    "history_storage_unavailable",
+  );
+});
+
+test.each(["failure", "abort", "close"] as const)(
+  "does not publish a late or incomplete profile read after %s",
+  async (outcome) => {
+    ipc.mockResolvedValueOnce(9);
+    const account = await openAccountRestConnection(
+      "https://chat.example.test",
+      "u".repeat(26),
+    );
+    const controller = new AbortController();
+    const reason = new Error("read stopped");
+    let done!: () => void;
+    const load = vi.spyOn(profiles, "loadVisibleProfiles").mockImplementation(
+      () =>
+        new Promise((resolve, reject) => {
+          done = () =>
+            outcome === "failure"
+              ? reject(reason)
+              : resolve([
+                  channelProfile({ id: "a".repeat(26), username: "ann" }),
+                ]);
+        }),
+    );
+    try {
+      const refresh = account.refreshSavedProfiles(
+        { ids: ["a".repeat(26)], usernames: [] },
+        controller.signal,
+      );
+      if (outcome === "abort") controller.abort(reason);
+      if (outcome === "close") {
+        ipc.mockResolvedValueOnce(undefined);
+        await account.close();
+      }
+      done();
+      await expect(refresh).rejects.toBe(
+        outcome === "close" ? "cancelled" : reason,
+      );
+      expect(
+        ipc.mock.calls.some(([name]) => name === "store_channel_profiles"),
+      ).toBe(false);
+    } finally {
+      load.mockRestore();
+    }
+  },
+);
+
+test("reports a native write failure and cancellation after a committed profile write", async () => {
+  ipc.mockResolvedValueOnce(9);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    "u".repeat(26),
+  );
+  const record = channelProfile({ id: "a".repeat(26), username: "ann" });
+  const query = { ids: [record.id], usernames: [] };
+  const load = vi
+    .spyOn(profiles, "loadVisibleProfiles")
+    .mockResolvedValue([record]);
+  try {
+    ipc.mockRejectedValueOnce("history_storage_unavailable");
+    await expect(account.refreshSavedProfiles(query)).rejects.toBe(
+      "history_storage_unavailable",
+    );
+    const controller = new AbortController();
+    const reason = new Error("navigation ended");
+    ipc.mockImplementationOnce(async () => {
+      controller.abort(reason);
+    });
+    await expect(
+      account.refreshSavedProfiles(query, controller.signal),
+    ).rejects.toBe(reason);
+    expect(ipc).toHaveBeenLastCalledWith("store_channel_profiles", {
+      rid: 9,
+      profiles: [record],
+    });
+  } finally {
+    load.mockRestore();
+  }
+});
+
 test("lists and forgets accounts for the exact canonical installation", async () => {
   const server = "https://CHAT.example.test/Team///";
   const serverUrl = "https://chat.example.test/Team";
@@ -187,11 +286,13 @@ test("opens a native account by installation and user ID", async () => {
     "readAccountDirectory",
     "readChannelWindow",
     "readJoinedTeams",
+    "readSavedProfiles",
     "readTeamDirectory",
     "readTeamSidebar",
     "readVisibleProfiles",
     "refreshChannelHistory",
     "refreshJoinedTeams",
+    "refreshSavedProfiles",
     "refreshTeamSidebar",
     "rid",
     "selectJoinedTeam",

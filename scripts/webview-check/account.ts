@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import {
   forgetLocalAccount,
   getCurrentAccountId,
@@ -66,6 +67,18 @@ export async function checkAccountResponses(
       const base = `${new URL(first.basePath).origin}/vault-refusal`;
       const locked = await openAccountRestConnection(base, userId);
       try {
+        const query = { ids: [userId], usernames: [] };
+        const profile = (await first.readSavedProfiles(query)).profiles[userId];
+        check(profile?.username === "fixture", "neighbor-has-saved-profile");
+        await invoke("store_channel_profiles", {
+          rid: locked.rid,
+          profiles: [profile],
+        });
+        check(
+          (await locked.readSavedProfiles(query)).profiles[userId]?.username ===
+            "fixture",
+          "store-before-refusal",
+        );
         const result = await locked.signOut();
         check(
           result.status === "server_confirmed_local_removal_failed" &&
@@ -81,13 +94,35 @@ export async function checkAccountResponses(
           (await listAccountIds(base)).join(",") === userId,
           "failed-removal-is-durable",
         );
+        const expired = await locked
+          .readSavedProfiles(query)
+          .catch((cause: unknown) => cause);
+        check(
+          expired === "session_unavailable",
+          "purged-history-view-is-expired",
+        );
+        const refusal = await forgetLocalAccount(base, userId).catch(
+          (cause: unknown) => cause,
+        );
+        check(refusal === "credential_storage_unavailable", "commit-error");
+        const recovered = await openAccountRestConnection(base, userId);
+        try {
+          check(
+            !Object.keys((await recovered.readSavedProfiles(query)).profiles)
+              .length,
+            "refused-vault-does-not-restore-purged-history",
+          );
+        } finally {
+          await recovered.close();
+        }
+        check(
+          (await first.readSavedProfiles(query)).profiles[userId]?.username ===
+            "fixture",
+          "neighbor-survives-failed-removal",
+        );
       } finally {
         await locked.close();
       }
-      const refusal = await forgetLocalAccount(first.basePath, userId).catch(
-        (error: unknown) => error,
-      );
-      check(refusal === "credential_storage_unavailable", "commit-error");
     }
     for (const [account, name, id] of [
       [first, "first", userId],
