@@ -33,13 +33,14 @@ export async function checkEntryWindow() {
     if (!scene || !card || !main || !action) throw Error("entry-landmarks");
     if (import.meta.env.UMMKA_MACOS_OVERLAY === true) {
       const back = host.querySelector(".entry-back")?.getBoundingClientRect();
-      const top = scene.getBoundingClientRect().top;
-      if (
-        !back ||
-        Math.abs(back.top + back.height / 2 - top - 23) > 1 ||
-        back.left - scene.getBoundingClientRect().left < 80
-      )
-        throw Error("entry-back-window-controls-alignment");
+      if (!back) throw Error("entry-back-missing");
+      const bounds = scene.getBoundingClientRect();
+      const centerY = back.top + back.height / 2 - bounds.top;
+      const left = back.left - bounds.left;
+      if (Math.abs(centerY - 23) > 1 || left < 80)
+        throw Error(
+          `entry-back-window-controls-alignment centerY=${centerY} left=${left}`,
+        );
     }
     const brands = Array.from(host.querySelectorAll("img"));
     await Promise.all(brands.map((img) => img.decode()));
