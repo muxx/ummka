@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { accountPostReactions } from "../../../src/mattermost/account-post-reactions.ts";
 import {
   Configuration,
   PostsApi,
@@ -81,4 +82,18 @@ export async function checkPostReactions(
     assert.equal((await removed.value()).status, "OK");
     assert.equal(await reader.getReactions({ postId }), null);
   }
+
+  const account = accountPostReactions(session, userId, (operation) =>
+    operation(),
+  );
+  assert.deepEqual(await account.readPostReactions(postId), []);
+  const own = await account.addOwnReaction(postId, "+1");
+  assert.equal(own.channelId, channelId);
+  // Re-adding the same emoji keeps the original creation time in the stored list.
+  assert.deepEqual(await account.readPostReactions(postId), [
+    { ...own, createAt: row.create_at },
+  ]);
+  await account.removeOwnReaction(postId, "+1");
+  await account.removeOwnReaction(postId, "+1");
+  assert.deepEqual(await account.readPostReactions(postId), []);
 }

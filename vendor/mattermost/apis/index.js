@@ -1,5 +1,6 @@
 export * from './ChannelsApi.js';
 export * from './CommandsApi.js';
+export * from './EmojiApi.js';
 export * from './GroupsApi.js';
 export * from './PostsApi.js';
 export * from './PreferencesApi.js';

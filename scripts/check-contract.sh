@@ -44,6 +44,8 @@ download channels-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/matt
 download preferences-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/preferences.yaml" 3bf3c9734d69bfdf20e1dd4e71158a65a81fca9dd64ee1703269b460111625a2
 download preferences.yaml "$upstream/preferences.yaml" 3bf3c9734d69bfdf20e1dd4e71158a65a81fca9dd64ee1703269b460111625a2
 download posts.yaml "$upstream/posts.yaml" 83400ef682b755f3f3830dd4b622373b659bcc5b4d2d159756a735752b3b19ff
+download emoji.yaml "$upstream/emoji.yaml" 295cfd21f759cb56ea31d3a8e76c8ffeaac518c004cec4f90dfee9a1c3c96711
+download emoji-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/emoji.yaml" 295cfd21f759cb56ea31d3a8e76c8ffeaac518c004cec4f90dfee9a1c3c96711
 download reactions.yaml "$upstream/reactions.yaml" 2eba6a5191114022b553e8f606cd3114bdb025875aea264438b5052d7a3b6d9d
 download reactions-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/reactions.yaml" c8bf65a86d4abe0149df0b6da4cfd9c7b5d04bd0a9c6ce2d56d0b1284a440ae2
 download posts-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/posts.yaml" d133032e5ffa60c816a4fd084e46b761a04eba0a070b11175f6dee3ac0c71020
@@ -215,6 +217,15 @@ members[0]?.msgCountRoot satisfies number | undefined;
 members[0]?.mentionCountRoot satisfies number | undefined;
 members[0]?.urgentMentionCount satisfies number | undefined;
 import type { ReactionsApi, Reaction } from "./compiled/index.js";
+import type { EmojiApi } from "./compiled/index.js";
+declare const customEmoji: EmojiApi;
+const entry = await customEmoji.getEmojiByName({ emojiName: "fixture_wave" });
+entry.name satisfies string;
+entry.creatorId satisfies string;
+entry.createAt satisfies number;
+entry.deleteAt satisfies number;
+// @ts-expect-error An exact lookup requires the emoji name.
+customEmoji.getEmojiByName({});
 declare const reactionsApi: ReactionsApi;
 const reactionList = await reactionsApi.getReactions({ postId: "post" });
 reactionList satisfies Reaction[] | null;
