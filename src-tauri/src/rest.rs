@@ -35,7 +35,7 @@ impl Operation<'_> {
             };
             let matched = match expected {
                 "{user_id}" => actual == "me" || (!self.self_only && is_mattermost_id(actual)),
-                "{team_id}" | "{channel_id}" | "{post_id}" | "{file_id}" => {
+                "{team_id}" | "{channel_id}" | "{post_id}" | "{thread_id}" | "{file_id}" => {
                     is_mattermost_id(actual)
                 }
                 "{emoji_name}" => valid_emoji_name(actual),
@@ -334,6 +334,35 @@ mod tests {
                 allowed,
                 "name {name}"
             );
+        }
+    }
+
+    #[test]
+    fn thread_follow_requires_a_signed_self_route_and_an_empty_body() {
+        let base = "https://fixture.test/sub";
+        let connection = RestConnection::new(base).unwrap();
+        let team = "t".repeat(26);
+        let root = "r".repeat(26);
+        let path = |user: &str, thread: &str| {
+            format!("/api/v4/users/{user}/teams/{team}/threads/{thread}/following")
+        };
+        let route = path("me", &root);
+        for method in [reqwest::Method::PUT, reqwest::Method::DELETE] {
+            let operation = OPERATIONS
+                .iter()
+                .find(|op| op.allows(&method, &route))
+                .unwrap();
+            assert!(operation.self_only);
+            assert!(!operation.allows(&method, &path(&"u".repeat(26), &root)));
+            assert!(!operation.allows(&method, &path("me", "short")));
+            let mut request = Request::new(method, Url::parse(&format!("{base}{route}")).unwrap());
+            assert!(operation.accepts_body(&request));
+            assert_eq!(
+                connection.check_request(&request),
+                Err(TransportError::OperationDenied)
+            );
+            *request.body_mut() = Some("{}".into());
+            assert!(!operation.accepts_body(&request));
         }
     }
 
