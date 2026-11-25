@@ -142,6 +142,34 @@
     "id": "GetPostThread"
   },
   {
+    "file": "posts.yaml",
+    "method": "POST",
+    "path": "/api/v4/teams/{team_id}/posts/search",
+    "id": "SearchPosts",
+    "body": "json"
+  },
+  {
+    "file": "posts-12.1.0.yaml",
+    "method": "POST",
+    "path": "/api/v4/posts/search",
+    "id": "SearchPostsInAllTeams",
+    "body": "json"
+  },
+  {
+    "file": "files.yaml",
+    "method": "POST",
+    "path": "/api/v4/teams/{team_id}/files/search",
+    "id": "SearchFiles",
+    "body": "json"
+  },
+  {
+    "file": "files.yaml",
+    "method": "POST",
+    "path": "/api/v4/files/search",
+    "id": "SearchFilesInAllTeams",
+    "body": "json"
+  },
+  {
     "file": "channels.yaml",
     "method": "POST",
     "path": "/api/v4/channels/members/{user_id}/view",
