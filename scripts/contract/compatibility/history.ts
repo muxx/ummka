@@ -13,6 +13,7 @@ import {
   assembleFocusedHistory,
   readFocusedNeighbors,
 } from "../../../src/mattermost/focused-history.ts";
+import { readPostAnchor } from "../../../src/mattermost/message-anchors.ts";
 import { readPostDestination } from "../../../src/mattermost/post-destination.ts";
 import { loadVisibleProfiles } from "../../../src/mattermost/visible-profiles.ts";
 import {
@@ -435,6 +436,11 @@ for (const [id, rootId] of [
   assert.equal(row.id, id);
   assert.equal(row.channelId, channelId);
   assert.equal(row.rootId, rootId);
+  assert.deepEqual(await readPostAnchor(memberPosts, id), {
+    postId: id,
+    channelId,
+    rootId: rootId || null,
+  });
 }
 await assert.rejects(
   memberPosts.getPost({ postId: "m".repeat(26) }),
