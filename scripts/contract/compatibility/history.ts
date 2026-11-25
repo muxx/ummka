@@ -635,11 +635,6 @@ await checkFileSearch(
   extraTeam.id,
   version,
 );
-await create(
-  `teams/${extraTeam.id}/members`,
-  { team_id: extraTeam.id, user_id: reader.id },
-  token,
-);
 await checkNavigationMemberships(
   new Configuration({ basePath: base, accessToken: readerToken }),
   reader.id,
@@ -648,11 +643,6 @@ await checkNavigationMemberships(
   extraTeam.id,
   channelId,
   dm.id,
-  () =>
-    fetch(`${base}/api/v4/teams/${extraTeam.id}/members/${reader.id}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${readerToken}` },
-    }),
 );
 console.log(
   `Mattermost ${version} verified channel and team roles, active and removed membership and anonymous HTTP 401.`,

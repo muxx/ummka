@@ -72,6 +72,7 @@ import {
   correctSidebarResponse,
   correctSidebarSchema,
 } from "./sidebar-corrections.ts";
+import { correctTeamMemberRequest } from "./team-member-correction.ts";
 
 const methods = new Set([
   "get",
@@ -286,6 +287,11 @@ export function buildSpecification(
         operation,
         read("posts-12.1.0.yaml"),
         path,
+      );
+    else if (id === "AddTeamMember")
+      paths[path][method] = correctTeamMemberRequest(
+        operation,
+        read("teams-12.1.0.yaml"),
       );
     else if (id === "AddChannelMember")
       paths[path][method] = singleChannelMember(

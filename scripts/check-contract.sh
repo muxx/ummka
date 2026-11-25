@@ -33,6 +33,7 @@ download introduction.yaml "$upstream/introduction.yaml" 4b3786cc86ec1097c29f5b1
 download system.yaml "$upstream/system.yaml" 10e9e11b14d34d30a661474269f69220f8ebdb05db64cd53e30cb199a665ae8e
 download users.yaml "$upstream/users.yaml" 20d0c9cf9631682f3461c7b13a521321dbd2aa605b60922404183ec2735e8f28
 download teams.yaml "$upstream/teams.yaml" dc0723e5164d19b5d147ee9133db170fb83eedb3b884e320cd58ee36435cd3b3
+download teams-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/teams.yaml" a96864edb919a027e886752898e3e115ca997381af39f97b5a8e28186172893f
 download roles.yaml "$upstream/roles.yaml" 6869450fda52c0b2e06dd228cef1e08c309e35493e15fbdda604e35db9593258
 download roles-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/roles.yaml" 6869450fda52c0b2e06dd228cef1e08c309e35493e15fbdda604e35db9593258
 download groups.yaml "$upstream/groups.yaml" 728ea0e63e5e996f0f8b13d450a695ced4d09adddfb8571e884c89cc456079bb
@@ -213,6 +214,12 @@ teamChannels[0]?.lastRootPostAt satisfies number | undefined;
 const members = await channels.getChannelMembersForUser({ userId: "me", teamId: "team" });
 import type { TeamsApi } from "./compiled/index.js";
 declare const teams: TeamsApi;
+(await teams.addTeamMember({teamId: "team", addTeamMemberRequest: {teamId: "team", userId: "user"}})).teamId satisfies string | undefined;
+(await teams.removeTeamMember({teamId: "team", userId: "user"})).status satisfies string | undefined;
+// @ts-expect-error Mattermost compares the body team ID with the path.
+teams.addTeamMember({teamId: "team", addTeamMemberRequest: {userId: "user"}});
+// @ts-expect-error Mattermost requires an explicit user ID in the body.
+teams.addTeamMember({teamId: "team", addTeamMemberRequest: {teamId: "team"}});
 const myTeams = await teams.getTeamMembersForUser({ userId: "me" });
 myTeams[0]?.schemeGuest satisfies boolean | undefined;
 myTeams[0]?.deleteAt satisfies number | undefined;
