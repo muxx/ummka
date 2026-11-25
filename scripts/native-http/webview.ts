@@ -5,6 +5,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import https from "node:https";
 import type { Socket } from "node:net";
 import { respondToAccount } from "./account.ts";
+import { respondToChannelMembers } from "./channel-members.ts";
 import { respondToChannelView } from "./channel-view.ts";
 import { respondToHistory } from "./history.ts";
 import { historyRefreshFixture } from "./history-refresh.ts";
@@ -273,6 +274,17 @@ export function webviewServers(
     );
     if (account) {
       visits.push(account);
+      return;
+    }
+    const member = await respondToChannelMembers(
+      req,
+      res,
+      url,
+      channelId,
+      userId,
+    );
+    if (member) {
+      visits.push(member);
       return;
     }
     const view = await respondToChannelView(
@@ -617,6 +629,10 @@ export function webviewServers(
         "delete-post",
         "bulk-channel-view",
         "single-channel-view",
+        "member-self",
+        "member-id",
+        "members-page",
+        "members-batch",
         "set-post-unread",
         "history-root",
         "history-prefixed",

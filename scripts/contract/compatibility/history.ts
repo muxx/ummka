@@ -28,6 +28,7 @@ import {
 } from "./browser-sign-in.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
 import {
+  checkChannelRoster,
   checkEmptyTeamDirectory,
   checkNavigationMemberships,
 } from "./memberships.ts";
@@ -268,6 +269,27 @@ const closedPost = await (
     token,
   )
 ).json();
+const closedMember = await new ChannelsApi(session).getChannelMember({
+  channelId: closed.id,
+  userId: "me",
+});
+assert.equal(closedMember.userId, user.id);
+assert.equal(closedMember.channelId, closed.id);
+const closedReader = new ChannelsApi(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+);
+await checkChannelRoster(closedReader, closed.id, dm.id, [user.id, reader.id]);
+await assert.rejects(
+  closedReader.getChannelMember({ channelId: closed.id, userId: user.id }),
+  (e: unknown) => e instanceof ResponseError && e.response.status === 403,
+);
+await assert.rejects(
+  new ChannelsApi(new Configuration({ basePath: base })).getChannelMember({
+    channelId: closed.id,
+    userId: "me",
+  }),
+  (e: unknown) => e instanceof ResponseError && e.response.status === 401,
+);
 await assert.rejects(
   readerPosts.getPostInfo({ postId: closedPost.id }),
   (e: unknown) => e instanceof ResponseError && e.response.status === 404,
