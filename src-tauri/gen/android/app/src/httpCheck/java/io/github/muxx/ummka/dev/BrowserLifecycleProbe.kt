@@ -14,6 +14,7 @@ internal object BrowserLifecycleProbe : Application.ActivityLifecycleCallbacks {
     private var installed = false
     private var owner: BrowserSignInActivity? = null
     private var recreating: BrowserCheckActivity? = null
+    private var cancellationTab: BrowserCheckActivity? = null
     private var oldReceiver: BrowserSignInActivity? = null
     private var returnedLate = false
     private external fun nativeEvent(code: Int)
@@ -35,6 +36,10 @@ internal object BrowserLifecycleProbe : Application.ActivityLifecycleCallbacks {
         val receiver = checkNotNull(owner)
         recreating = provider
         main.post { receiver.recreate() }
+    }
+
+    fun holdUntilCancelled(provider: BrowserCheckActivity) {
+        cancellationTab = provider
     }
 
     fun holdUntilNextRequest(provider: BrowserCheckActivity) {
@@ -66,6 +71,14 @@ internal object BrowserLifecycleProbe : Application.ActivityLifecycleCallbacks {
     }
 
     override fun onActivityDestroyed(activity: Activity) {
+        // Android can finish the result receiver while the test browser still covers MainActivity.
+        val tab = cancellationTab
+        if (tab != null && activity is BrowserSignInActivity && activity.isFinishing &&
+            activity.intent.getStringExtra("start") == tab.intent.dataString
+        ) {
+            tab.finish()
+        }
+        if (activity === tab) cancellationTab = null
         if (activity === owner) owner = null
         if (activity === recreating) recreating = null
         if (activity === oldReceiver && returnedLate) {
