@@ -13,7 +13,6 @@ import {
   correctChannelStatsQuery,
 } from "./channel-audience-corrections.ts";
 import { singleChannelMember } from "./channel-member-correction.ts";
-import { correctChannelNotifyProps } from "./channel-notify-props.ts";
 import {
   autocompleteCommand,
   checkAutocompleteSuggestion,
@@ -42,6 +41,7 @@ import {
   correctHistorySchema,
 } from "./history-corrections.ts";
 import { correctMentionGroup } from "./mention-group-correction.ts";
+import { correctNotificationProps } from "./notification-props.ts";
 import { correctNullableList } from "./nullable-list-corrections.ts";
 import { type Fields, object } from "./objects.ts";
 import { checkPathParameters } from "./path-parameters.ts";
@@ -154,8 +154,9 @@ export function buildSpecification(
       throw new Error(`Missing component ${kind}/${name}`);
     const source = object(upstream[name], `components/${kind}/${name}`);
     if (kind !== "schemas") group[name] = source;
-    else if (name === "ChannelNotifyProps")
-      group[name] = correctChannelNotifyProps(
+    else if (name === "ChannelNotifyProps" || name === "UserNotifyProps")
+      group[name] = correctNotificationProps(
+        name,
         source,
         read("definitions-12.1.0.yaml"),
       );

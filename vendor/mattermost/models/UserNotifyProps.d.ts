@@ -6,6 +6,9 @@ export interface UserNotifyProps {
     mentionKeys?: string;
     channel?: string;
     firstName?: string;
+    desktopThreads?: string;
+    pushThreads?: string;
+    desktopNotificationSound?: string;
 }
 export declare function instanceOfUserNotifyProps(value: object): value is UserNotifyProps;
 export declare function UserNotifyPropsFromJSON(json: any): UserNotifyProps;

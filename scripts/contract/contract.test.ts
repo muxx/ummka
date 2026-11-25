@@ -25,7 +25,6 @@ import {
   correctChannelStatsQuery,
 } from "./channel-audience-corrections.ts";
 import { singleChannelMember } from "./channel-member-correction.ts";
-import { correctChannelNotifyProps } from "./channel-notify-props.ts";
 import {
   autocompleteCommand,
   correctAutocomplete,
@@ -52,6 +51,7 @@ import {
   correctHistorySchema,
 } from "./history-corrections.ts";
 import { correctMentionGroup } from "./mention-group-correction.ts";
+import { correctNotificationProps } from "./notification-props.ts";
 import { correctNullableList } from "./nullable-list-corrections.ts";
 import { type Fields, object } from "./objects.ts";
 import {
@@ -386,24 +386,28 @@ for (const [id, file, path, method] of [
   });
 }
 
-test("rechecks notification overrides when either pinned model changes", () => {
-  const path = ["components", "schemas", "ChannelNotifyProps"];
-  for (const reference of [false, true]) {
-    for (const change of ["added", "required", "type"]) {
-      const source = object(at(read("definitions.yaml"), path), "baseline");
-      const next = read("definitions-12.1.0.yaml");
-      const target = reference ? object(at(next, path), "comparison") : source;
-      const props = object(target.properties, "properties");
-      if (change === "added") props.desktop_sound = { type: "string" };
-      if (change === "required") target.required = ["push"];
-      if (change === "type") props.email = { type: "boolean" };
-      assert.throws(
-        () => correctChannelNotifyProps(source, next),
-        /Review ChannelNotifyProps/,
-      );
+for (const name of ["ChannelNotifyProps", "UserNotifyProps"] as const) {
+  test(`rechecks ${name} when either pinned model changes`, () => {
+    const path = ["components", "schemas", name];
+    for (const reference of [false, true]) {
+      for (const change of ["added", "required", "type"]) {
+        const source = object(at(read("definitions.yaml"), path), "baseline");
+        const next = read("definitions-12.1.0.yaml");
+        const target = reference
+          ? object(at(next, path), "comparison")
+          : source;
+        const props = object(target.properties, "properties");
+        if (change === "added")
+          props.desktop_notification_sound = { type: "string" };
+        if (change === "required") target.required = ["push"];
+        if (change === "type") props.email = { type: "boolean" };
+        assert.throws(() => correctNotificationProps(name, source, next), {
+          message: `Review ${name} against the pinned sources`,
+        });
+      }
     }
-  }
-});
+  });
+}
 
 test("channel stats corrections detect upstream fields on either pin", () => {
   const path = "/api/v4/channels/{channel_id}/stats";
@@ -867,8 +871,9 @@ test("retains the catalog operations, security and transitive models", () => {
         object(source, name),
         read("definitions-12.1.0.yaml"),
       );
-    if (name === "ChannelNotifyProps")
-      expected = correctChannelNotifyProps(
+    if (name === "ChannelNotifyProps" || name === "UserNotifyProps")
+      expected = correctNotificationProps(
+        name,
         object(source, name),
         read("definitions-12.1.0.yaml"),
       );
