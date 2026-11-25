@@ -83,6 +83,9 @@ const ADD_CHANNEL_ROLES: &str = "ALTER TABLE sidebar_channel ADD COLUMN roles TE
 const JOINED_TEAMS_V13: &str = include_str!("migrations/0013_joined_team_schema.sql");
 const SIDEBAR_CHANNEL_V13: &str = include_str!("migrations/0013_sidebar_channel_schema.sql");
 const POST_ATTEMPT_V14: &str = include_str!("migrations/0014_post_attempt.sql");
+const ADD_CHANNEL_SHARED: &str =
+    "ALTER TABLE sidebar_channel ADD COLUMN shared INTEGER CHECK (shared IN (0,1))";
+const SIDEBAR_CHANNEL_V16: &str = include_str!("migrations/0016_sidebar_channel_schema.sql");
 const TEAM_ROLE_SNAPSHOT: &str = include_str!("migrations/0015_team_role_snapshot.sql");
 const COPY_POST_ATTEMPTS: &str = "INSERT INTO post_attempt(pending_id,attempt,prior_uncertain,refusal_status,refusal_code,refusal_message)
     SELECT pending_id,attempt,prior_uncertain,refusal_status,refusal_code,refusal_message FROM old_post_attempt";
@@ -500,6 +503,41 @@ pub(super) const MIGRATIONS: &[Migration] = &[
             SELECTED_TEAM,
             SIDEBAR_TEAM,
             SIDEBAR_CHANNEL_V13,
+            SIDEBAR_CATEGORY,
+            SIDEBAR_ITEM,
+            SIDEBAR_ITEM_BY_CHANNEL,
+            CHANNEL_PROFILE,
+            PROFILE_BY_USERNAME,
+            WORKSPACE_SETTINGS,
+            COMPOSER_DRAFT_V12,
+            PENDING_POST,
+            PENDING_BY_CONVERSATION,
+            POST_CONFIRMATION,
+            POST_ATTEMPT_V14,
+            TEAM_ROLE_SNAPSHOT,
+        ],
+    },
+    Migration {
+        statements: &[ADD_CHANNEL_SHARED],
+        objects: &[
+            CREATE_OWNER,
+            CREATE_POSTS,
+            INDEX_REPLIES,
+            CREATE_DELETIONS,
+            WINDOWS,
+            WINDOW_POSTS,
+            NEIGHBORS,
+            RECENT,
+            ORDER,
+            TIES,
+            NEIGHBOR_ID,
+            NEWER_HINT,
+            OLDER_HINT,
+            TEAM_DIRECTORY,
+            JOINED_TEAMS_V13,
+            SELECTED_TEAM,
+            SIDEBAR_TEAM,
+            SIDEBAR_CHANNEL_V16,
             SIDEBAR_CATEGORY,
             SIDEBAR_ITEM,
             SIDEBAR_ITEM_BY_CHANNEL,

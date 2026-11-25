@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import {
   visibleConversationLimit,
   workspacePreferences,
+  workspaceServerPolicy,
 } from "./workspace-preferences.ts";
 
 const me = "a".repeat(26),
@@ -123,4 +124,13 @@ test("keys direct messages by person, groups by channel, and keeps only the late
       {},
     ),
   ).toThrow();
+});
+
+test("only the server's enabled flag allows cross-server direct messages", () => {
+  for (const value of [undefined, "", "false", "TRUE", "true"]) {
+    expect(
+      workspaceServerPolicy({ FeatureFlagEnableSharedChannelsDMs: value }, {})
+        .sharedChannelDMs,
+    ).toBe(value === "true");
+  }
 });

@@ -204,6 +204,7 @@ export async function checkSidebarReads(
   const storedChannel = projectTeamSidebar(directory).channels.find(
     (c) => c.id === channelId,
   );
+  assert.equal(storedChannel?.shared, false);
   assert.ok(storedChannel?.createAt && storedChannel.createAt > 0);
   assert.equal(policy.directShown[otherUserId], undefined);
   assert.equal(policy.viewTimes[channelId], 310);

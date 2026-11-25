@@ -17,6 +17,7 @@ export function loadWorkspaceServerPolicy(
       request((options) =>
         readStringFields(api.getClientConfigRaw(format, options), [
           "CollapsedThreads",
+          "FeatureFlagEnableSharedChannelsDMs",
           "ExperimentalGroupUnreadChannels",
           "TeammateNameDisplay",
           "LockTeammateNameDisplay",

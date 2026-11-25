@@ -17,6 +17,7 @@ export function projectTeamSidebar({
       if (
         !isMattermostId(c.id) ||
         !c.type ||
+        (c.shared != null && typeof c.shared !== "boolean") ||
         c.name === undefined ||
         c.displayName === undefined ||
         !isMattermostTime(c.deleteAt, 0)
@@ -31,6 +32,7 @@ export function projectTeamSidebar({
         purpose: c.purpose ?? "",
         createAt: amount(c.createAt),
         deleteAt: c.deleteAt,
+        shared: c.shared === true,
         lastPostAt: amount(c.lastPostAt),
         lastRootPostAt: amount(c.lastRootPostAt),
         totalMsgCount: amount(c.totalMsgCount),
@@ -68,7 +70,12 @@ export function projectTeamSidebar({
     }),
   };
 }
+type FreshSidebar = ReturnType<typeof projectTeamSidebar>;
+type SavedChannel = Omit<FreshSidebar["channels"][number], "shared"> & {
+  shared?: boolean;
+};
+
 export type TeamSidebar = {
-  data: ReturnType<typeof projectTeamSidebar>;
+  data: { categories: FreshSidebar["categories"]; channels: SavedChannel[] };
   selectedChannel: string | null;
 };

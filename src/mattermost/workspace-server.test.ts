@@ -10,6 +10,7 @@ test("projects only display policy from the old config and license endpoints", a
     const data = url.pathname.endsWith("/config/client")
       ? {
           CollapsedThreads: "always_on",
+          FeatureFlagEnableSharedChannelsDMs: "true",
           ExperimentalGroupUnreadChannels: "default_on",
           TeammateNameDisplay: "full_name",
           LockTeammateNameDisplay: "true",
@@ -31,6 +32,7 @@ test("projects only display policy from the old config and license endpoints", a
     separateUnreads: true,
     nameFormat: "full_name",
     lockNameFormat: false,
+    sharedChannelDMs: true,
   });
 });
 

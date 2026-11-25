@@ -64,6 +64,8 @@ pub struct ServerPolicy {
     separate_unreads: bool,
     name_format: NameFormat,
     lock_name_format: bool,
+    #[serde(rename = "sharedChannelDMs", skip_serializing_if = "Option::is_none")]
+    shared_channel_dms: Option<bool>,
 }
 
 #[derive(Debug, Default, Serialize, PartialEq, Eq)]

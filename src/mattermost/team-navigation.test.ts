@@ -180,6 +180,7 @@ test("projects each channel counter and category setting independently", async (
         kind: "O",
         name: a,
         displayName: "Project",
+        shared: false,
         header: "Header",
         purpose: "Purpose",
         deleteAt: 0,
@@ -351,5 +352,21 @@ test("the caller can finish reading HTTP error data arriving after response head
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),
     );
+  }
+});
+
+test("the saved channel retains the observed shared flag and rejects invalid values", async () => {
+  for (const value of [true, false, null, undefined, "false"]) {
+    const config = response([{ ...channel(a), shared: value }], [member(a)], {
+      order: [],
+      categories: [],
+    });
+    const directory = await loadTeamDirectory(config, user, team);
+    if (typeof value === "string")
+      expect(() => projectTeamSidebar(directory)).toThrow(TypeError);
+    else
+      expect(projectTeamSidebar(directory).channels[0]?.shared).toBe(
+        value === true,
+      );
   }
 });

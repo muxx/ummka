@@ -55,6 +55,7 @@ fn sidebar(count: usize) -> SidebarData {
             urgent_mention_count: None,
             muted: n % 3 == 0,
             roles: Some("channel_user custom_writer".into()),
+            shared: Some(n % 3 == 1),
         })
         .collect();
     let categories = if channels.is_empty() {
@@ -358,4 +359,76 @@ fn scoped_order_and_id_lookups_use_indexes_at_workspace_sizes() {
         Ok(())
     })
     .unwrap();
+}
+
+#[test]
+fn upgrades_v15_preserving_unknown_sharing_old_policy_and_drafts() {
+    let root = tempdir().unwrap();
+    let mut old = HistoryDatabase::open_with(root.path(), URL, &MIGRATIONS[..15]).unwrap();
+    let owner = old.restore(&account()).unwrap();
+    old.write(&owner, |tx| {
+        tx.execute("INSERT INTO team_directory(owner,published) VALUES(1,1)", [])?;
+        tx.execute("INSERT INTO joined_team(position,team_id,name,display_name,roles) VALUES(0,?1,'old','Old','team_user')",[TEAM])?;
+        tx.execute("INSERT INTO sidebar_team(team_id,published,selected_channel) VALUES(?1,1,?2)",[TEAM,OTHER])?;
+        tx.execute("INSERT INTO sidebar_channel(team_id,position,channel_id,kind,name,display_name,header,purpose,delete_at,muted,roles) VALUES(?1,0,?2,'D','dm','DM','','',0,0,'channel_user')",[TEAM,OTHER])?;
+        tx.execute("INSERT INTO workspace_settings(owner,server) VALUES(1,?1)",[r#"{"collapsedThreads":"always_on","separateUnreads":false,"nameFormat":"username","lockNameFormat":true}"#])?;
+        tx.execute("INSERT INTO composer_draft(channel_id,root_id,message,revision) VALUES(?1,'','keep draft',lower(hex(randomblob(16))))",[OTHER])?;
+        Ok(())
+    }).unwrap();
+    drop(old);
+    let mut broken: Vec<_> = MIGRATIONS[..15]
+        .iter()
+        .map(|m| Migration {
+            statements: m.statements,
+            objects: m.objects,
+        })
+        .collect();
+    const FAIL: &[&str] = &[
+        MIGRATIONS[15].statements[0],
+        "ALTER TABLE missing ADD COLUMN shared INTEGER",
+    ];
+    broken.push(Migration {
+        statements: FAIL,
+        objects: MIGRATIONS[15].objects,
+    });
+    assert!(matches!(
+        HistoryDatabase::open_with(root.path(), URL, &broken),
+        Err(HistoryError::Storage)
+    ));
+    drop(HistoryDatabase::open_with(root.path(), URL, &MIGRATIONS[..15]).unwrap());
+    let mut db = open(root.path());
+    let mut catalog = db.read_sidebar(TEAM).unwrap().unwrap().data;
+    assert_eq!(catalog.channels[0].shared, None);
+    assert_eq!(catalog.channels[0].roles.as_deref(), Some("channel_user"));
+    assert_eq!(db.read_draft(OTHER, None).unwrap().message, "keep draft");
+    let policy =
+        serde_json::to_value(db.read_workspace_settings().unwrap().server.unwrap()).unwrap();
+    assert_eq!(policy["lockNameFormat"], true);
+    assert!(policy.get("sharedChannelDMs").is_none());
+    for shared in [true, false] {
+        catalog.channels[0].shared = Some(shared);
+        save(&mut db, TEAM, &catalog);
+        assert_eq!(
+            open(root.path())
+                .read_sidebar(TEAM)
+                .unwrap()
+                .unwrap()
+                .data
+                .channels[0]
+                .shared,
+            Some(shared)
+        );
+    }
+    drop(db);
+    let mut current = HistoryDatabase::open(root.path(), URL).unwrap();
+    current.purge(&owner).unwrap();
+    drop(current);
+    assert!(matches!(
+        HistoryDatabase::open_with(root.path(), URL, &MIGRATIONS[..15]),
+        Err(HistoryError::UnsupportedSchema)
+    ));
+    let mut empty = open(root.path());
+    assert!(empty.read_sidebar(TEAM).unwrap().is_none());
+    assert!(empty.read_workspace_settings().unwrap().server.is_none());
+    assert!(empty.read_draft(OTHER, None).unwrap().message.is_empty());
 }

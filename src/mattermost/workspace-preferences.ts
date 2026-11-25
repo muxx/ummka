@@ -4,6 +4,7 @@ import { assertAccountPreference, isMattermostId } from "./model-fields.ts";
 
 type Settings = {
   CollapsedThreads?: string;
+  FeatureFlagEnableSharedChannelsDMs?: string;
   ExperimentalGroupUnreadChannels?: string;
   TeammateNameDisplay?: string;
   LockTeammateNameDisplay?: string;
@@ -90,6 +91,7 @@ export type ServerPolicy = {
   separateUnreads: boolean;
   nameFormat: ReturnType<typeof normalizedNameFormat>;
   lockNameFormat: boolean;
+  sharedChannelDMs?: boolean;
 };
 export function workspaceServerPolicy(
   config: Settings,
@@ -108,6 +110,7 @@ export function workspaceServerPolicy(
     separateUnreads: config.ExperimentalGroupUnreadChannels === "default_on",
     nameFormat: normalizedNameFormat(config.TeammateNameDisplay),
     lockNameFormat: locksTeammateName(config, license),
+    sharedChannelDMs: config.FeatureFlagEnableSharedChannelsDMs === "true",
   };
 }
 
