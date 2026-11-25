@@ -20,6 +20,7 @@ fn team(id: &str, rank: Option<u32>) -> DirectoryTeam {
         display_name: format!("Команда {id}"),
         preference_rank: rank,
         roles: Some("team_user".into()),
+        group_constrained: None,
     }
 }
 
