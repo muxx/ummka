@@ -117,6 +117,7 @@ dependencies {
         add(androidToolVersions.name, "org.apache.commons:commons-lang3:3.20.0")
         add(androidToolVersions.name, "org.apache.httpcomponents:httpclient:4.5.14")
     }
+    implementation("androidx.browser:browser:1.10.0")
     implementation("androidx.webkit:webkit:1.14.0")
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.activity:activity-ktx:1.10.1")

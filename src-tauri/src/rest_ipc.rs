@@ -286,6 +286,11 @@ pub(crate) fn report_check<R: Runtime>(webview: &Webview<R>, url: &tauri::Url) {
             window_check::run(webview);
             return;
         }
+        #[cfg(target_os = "android")]
+        if passed {
+            crate::authentication::system_browser::android_check::run(webview);
+            return;
+        }
         println!(
             "UMMKA_WEBVIEW_CHECK {}",
             if passed { "PASS" } else { "FAIL" }

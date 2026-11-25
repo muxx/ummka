@@ -5,7 +5,7 @@ use crate::models::SecretInput;
 use crate::sessions::{Account, AccountSessions, SessionToken};
 use reqwest::{Method, Url};
 
-const CALLBACK: &str = "io.github.muxx.ummka.auth://callback";
+pub(super) const CALLBACK: &str = "io.github.muxx.ummka.auth://callback";
 const MAX_CALLBACK_BYTES: usize = 16 * 1024;
 
 #[derive(Clone, Copy, Eq, PartialEq)]

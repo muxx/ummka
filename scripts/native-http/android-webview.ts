@@ -108,7 +108,17 @@ export async function checkWebviewProcesses(
   component: string,
 ) {
   const activity = `${component}MainActivity`;
-  const seeded = await launch(adb, app, activity, "PASS");
+  await adb(
+    "shell",
+    "cmd",
+    "role",
+    "add-role-holder",
+    "--user",
+    "0",
+    "android.app.role.BROWSER",
+    app,
+  );
+  const seeded = await launch(adb, app, activity, "browser-checked");
   // Android protects the device owner from force-stop. TLS checks have finished
   // using its test CA, so release ownership before testing process restarts.
   assert.match(

@@ -57,6 +57,12 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
             rest_ipc::watch_window(main.as_ref());
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+                use tauri::Manager;
+                authentication::system_browser::owner_closed(window.app_handle());
+            }
+        })
         .on_page_load(|webview, load| {
             if load.event() == tauri::webview::PageLoadEvent::Started {
                 rest_ipc::clear_connections(webview);
@@ -83,6 +89,11 @@ pub fn run() {
         rest_ipc::seed_check_sessions(&sessions, port)
             .expect("cannot seed isolated credential store");
         println!("UMMKA_WEBVIEW_CHECK credentials-seeded");
+        return;
+    }
+    #[cfg(all(feature = "webview-check", target_os = "macos"))]
+    if let Ok(mode) = std::env::var("UMMKA_CHECK_BROWSER_PRESENTATION") {
+        authentication::system_browser::checks::run(config, &mode);
         return;
     }
     build(Builder::default(), config)
