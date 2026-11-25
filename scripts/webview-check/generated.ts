@@ -21,6 +21,7 @@ import { checkChannelHistory } from "./history.ts";
 import { prepareHistoryLoads } from "./history-loads.ts";
 import { checkUnavailableHistoryServer } from "./local-history.ts";
 import { checkPostContext } from "./post-context.ts";
+import { checkPostMutations } from "./post-mutations.ts";
 import { checkTeamReads } from "./team-reads.ts";
 import { checkWorkspaceSettings } from "./workspace-settings.ts";
 
@@ -361,6 +362,7 @@ export async function checkGeneratedRequests(ports: string[]) {
     );
     await checkChannelHistory(rootSession, signed, new Configuration(root));
     await checkPostContext(rootSession, signed);
+    await checkPostMutations(rootSession, signed, channelId);
     await checkConnectServer(origin);
     const profile = await inspectInstallation(
       `${prefixed.basePath.slice("https://".length)}/`,
