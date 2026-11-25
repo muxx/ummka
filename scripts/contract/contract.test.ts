@@ -27,6 +27,7 @@ import {
   checkPostInfoOperation,
   postInfoSchema,
 } from "./post-info-correction.ts";
+import { correctCreatePost } from "./post-mutation-corrections.ts";
 import {
   correctProfileImage,
   correctUserProfile,
@@ -152,6 +153,29 @@ const definitionPaths = [
   ["components", "responses", "NotFound"],
 ];
 
+test("create-post correction detects changes in either tagged source", () => {
+  const route = "/api/v4/posts";
+  const old = at(read("posts.yaml"), [route, "post"]);
+  const reference = read("posts-12.1.0.yaml");
+  const props = [
+    "requestBody",
+    "content",
+    "application/json",
+    "schema",
+    "properties",
+  ];
+  for (const changedVersion of ["baseline", "reference"]) {
+    const before = structuredClone(object(old, route));
+    const after = structuredClone(reference);
+    const changed =
+      changedVersion === "baseline" ? before : at(after, [route, "post"]);
+    object(at(changed, props), "properties").pending_post_id = {
+      type: "string",
+    };
+    assert.throws(() => correctCreatePost(before, after), /Review CreatePost/);
+  }
+});
+
 test("retains the catalog operations, security and transitive models", () => {
   for (const { file, path, method } of catalog) {
     const key = [path, method.toLowerCase()];
@@ -173,6 +197,8 @@ test("retains the catalog operations, security and transitive models", () => {
     }
     const source = object(at(read(file), key), path);
     let expected = source;
+    if (path === "/api/v4/posts" && method === "POST")
+      expected = correctCreatePost(source, read("posts-12.1.0.yaml"));
     if (path === sidebar) expected = correctSidebarResponse(source);
     if (path === profileImage) expected = correctProfileImage(source);
     assert.deepEqual(actual, expected);

@@ -1,6 +1,12 @@
 import * as runtime from '../runtime.js';
+import { type CreatePostRequest } from '../models/CreatePostRequest.js';
+import { type Post } from '../models/Post.js';
 import { type PostInfo } from '../models/PostInfo.js';
 import { type PostList } from '../models/PostList.js';
+export interface CreatePostOperationRequest {
+    createPostRequest: CreatePostRequest;
+    setOnline?: boolean;
+}
 export interface GetPostInfoRequest {
     postId: string;
 }
@@ -29,6 +35,9 @@ export interface GetPostsForChannelRequest {
     collapsedThreadsExtended?: boolean;
 }
 export declare class PostsApi extends runtime.BaseAPI {
+    createPostRequestOpts(requestParameters: CreatePostOperationRequest): Promise<runtime.RequestOpts>;
+    createPostRaw(requestParameters: CreatePostOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Post>>;
+    createPost(requestParameters: CreatePostOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Post>;
     getPostInfoRequestOpts(requestParameters: GetPostInfoRequest): Promise<runtime.RequestOpts>;
     getPostInfoRaw(requestParameters: GetPostInfoRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<PostInfo>>;
     getPostInfo(requestParameters: GetPostInfoRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<PostInfo>;

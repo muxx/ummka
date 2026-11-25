@@ -19,6 +19,7 @@ import {
   checkPostInfoOperation,
   postInfoSchema,
 } from "./post-info-correction.ts";
+import { correctCreatePost } from "./post-mutation-corrections.ts";
 import {
   correctProfileImage,
   correctUserProfile,
@@ -150,6 +151,11 @@ export function buildSpecification(
         operation,
         read("posts-12.1.0.yaml"),
         path,
+      );
+    else if (id === "CreatePost")
+      paths[path][method] = correctCreatePost(
+        operation,
+        read("posts-12.1.0.yaml"),
       );
     else if (id === "GetSidebarCategoriesForTeamForUser")
       paths[path][method] = correctSidebarResponse(operation);

@@ -1,7 +1,44 @@
 import * as runtime from '../runtime.js';
+import { CreatePostRequestToJSON, } from '../models/CreatePostRequest.js';
+import { PostFromJSON, } from '../models/Post.js';
 import { PostInfoFromJSON, } from '../models/PostInfo.js';
 import { PostListFromJSON, } from '../models/PostList.js';
 export class PostsApi extends runtime.BaseAPI {
+    async createPostRequestOpts(requestParameters) {
+        if (requestParameters['createPostRequest'] == null) {
+            throw new runtime.RequiredError('createPostRequest', 'Required parameter "createPostRequest" was null or undefined when calling createPost().');
+        }
+        const queryParameters = {};
+        if (requestParameters['setOnline'] != null) {
+            queryParameters['set_online'] = requestParameters['setOnline'];
+        }
+        const headerParameters = {};
+        headerParameters['Content-Type'] = 'application/json';
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/posts`;
+        return {
+            path: urlPath,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+            body: CreatePostRequestToJSON(requestParameters['createPostRequest']),
+        };
+    }
+    async createPostRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.createPostRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => PostFromJSON(jsonValue));
+    }
+    async createPost(requestParameters, initOverrides) {
+        const response = await this.createPostRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
     async getPostInfoRequestOpts(requestParameters) {
         if (requestParameters['postId'] == null) {
             throw new runtime.RequiredError('postId', 'Required parameter "postId" was null or undefined when calling getPostInfo().');

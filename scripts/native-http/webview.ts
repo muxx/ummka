@@ -8,6 +8,7 @@ import { respondToAccount } from "./account.ts";
 import { respondToHistory } from "./history.ts";
 import { historyRefreshFixture } from "./history-refresh.ts";
 import { respondToPostContext } from "./post-context.ts";
+import { respondToPostMutation } from "./post-mutations.ts";
 
 export function webviewServers(
   trusted: https.ServerOptions,
@@ -228,6 +229,17 @@ export function webviewServers(
           status_code: 503,
         }),
       );
+      return;
+    }
+    const mutation = await respondToPostMutation(
+      req,
+      res,
+      url,
+      channelId,
+      userId,
+    );
+    if (mutation) {
+      visits.push(mutation);
       return;
     }
     const account = respondToAccount(req, res, url, userId, (name) =>
@@ -527,6 +539,8 @@ export function webviewServers(
         "team-memberships",
         "sidebar-categories",
         "sidebar-preferences",
+        "create-post-root",
+        "create-post-reply",
         "history-root",
         "history-prefixed",
         "history-focused-after",

@@ -96,5 +96,12 @@
     "method": "GET",
     "path": "/api/v4/posts/{post_id}/thread",
     "id": "GetPostThread"
+  },
+  {
+    "file": "posts.yaml",
+    "method": "POST",
+    "path": "/api/v4/posts",
+    "id": "CreatePost",
+    "body": "json"
   }
 ]
