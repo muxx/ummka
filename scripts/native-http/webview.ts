@@ -997,6 +997,7 @@ export function webviewServers(
         "group-audience-empty",
         "group-audience-timezones",
         "group-audience-timezones",
+        "member-notifications",
         "member-add",
         "member-remove",
         "member-self",
