@@ -16,7 +16,6 @@ type Field =
   | "sidebar.direct-id"
   | "sidebar.group-id"
   | "sidebar.limit"
-  | "sidebar.time-id"
   | "sidebar.time-value";
 
 export class DirectoryValueError extends TypeError {

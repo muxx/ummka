@@ -77,11 +77,8 @@ export function sidebarPreferences(
       category === "channel_open_time" ||
       category === "channel_approximate_view_time"
     ) {
-      if (!isMattermostId(name))
-        throw new DirectoryValueError(
-          "sidebar.time-id",
-          "Invalid Mattermost channel timestamp identity.",
-        );
+      // Mattermost reads these timestamps by channel.id. Other preference names cannot match a conversation.
+      if (!isMattermostId(name)) continue;
       viewTimes[name] = Math.max(
         count(value, "sidebar.time-value"),
         viewTimes[name] ?? 0,

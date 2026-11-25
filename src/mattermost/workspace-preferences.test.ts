@@ -150,7 +150,7 @@ test("keys direct messages by person, groups by channel, and keeps only the late
   expect(() =>
     workspacePreferences(
       me,
-      [pref("channel_open_time", "invalid", "1")],
+      [pref("channel_open_time", channel, "invalid")],
       {},
       {},
     ),
@@ -163,6 +163,25 @@ test("keys direct messages by person, groups by channel, and keeps only the late
       {},
     ),
   ).toThrow();
+});
+
+test("uses both view-time categories only for channel IDs, including IDs from other teams", () => {
+  const otherTeamChannel = "x".repeat(26);
+  const rows = [
+    pref("channel_open_time", "", "900"),
+    pref("channel_approximate_view_time", "old-channel-key", "not a timestamp"),
+    pref("channel_approximate_view_time", channel, "29"),
+    pref("channel_open_time", channel, "31"),
+    pref("channel_open_time", otherTeamChannel, "13"),
+    pref("display_settings", "name_format", "full_name"),
+  ];
+  const selected = sidebarPreferences(me, rows);
+  expect(selected.viewTimes).toEqual({ [channel]: 31, [otherTeamChannel]: 13 });
+  expect(selected.nameFormat).toBe("full_name");
+  expect(sidebarPreferences(me, [...rows].reverse())).toEqual(selected);
+  expect(() => sidebarPreferences(me, [{ ...rows[0], userId: other }])).toThrow(
+    "account preference",
+  );
 });
 
 test("only the server's enabled flag allows cross-server direct messages", () => {

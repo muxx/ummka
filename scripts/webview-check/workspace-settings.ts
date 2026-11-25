@@ -56,7 +56,9 @@ export async function checkWorkspaceSettings(account: Account, other: Account) {
   if (
     effective.nameFormat !== "full_name" ||
     !effective.collapsedThreads ||
-    effective.limit !== 18
+    effective.limit !== 18 ||
+    effective.viewTimes["c".repeat(26)] !== 310 ||
+    Object.hasOwn(effective.viewTimes, "historical-channel-key")
   )
     throw Error("server license and personal settings did not combine");
 }
