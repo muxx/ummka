@@ -181,6 +181,7 @@ export function webviewServers(
             delete_at: 0,
             create_at: 90,
             last_root_post_at: 300,
+            shared: true,
           },
         ],
       },
@@ -473,6 +474,7 @@ export function webviewServers(
           setting[2] === "config"
             ? {
                 CollapsedThreads: "always_on",
+                FeatureFlagEnableSharedChannelsDMs: "true",
                 TeammateNameDisplay: "full_name",
                 LockTeammateNameDisplay: "true",
                 Unrelated: "ignored",

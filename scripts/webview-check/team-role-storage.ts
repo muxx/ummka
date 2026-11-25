@@ -112,6 +112,7 @@ export async function checkRestoredTeamRoles(account: Account, saved: boolean) {
   const channel = sidebar?.data.channels[0];
   const check = savedChannelPermissions(snapshot, team?.roles);
   if (
+    channel?.shared !== true ||
     check(channel, "create_post") !== "allowed" ||
     check(channel, "manage_system") !== "denied"
   )

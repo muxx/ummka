@@ -24,6 +24,7 @@ fn policy() -> ServerPolicy {
         separate_unreads: false,
         name_format: NameFormat::FullName,
         lock_name_format: true,
+        shared_channel_dms: Some(true),
     }
 }
 fn preferences() -> SidebarPreferences {

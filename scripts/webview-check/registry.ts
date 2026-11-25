@@ -97,6 +97,7 @@ export async function resumeRegistryCheck(): Promise<boolean> {
           ? settings.preferences !== null || settings.server !== null
           : settings.preferences?.limit !== 18 ||
             settings.server?.collapsedThreads !== "always_on" ||
+            settings.server.sharedChannelDMs !== true ||
             !settings.server.lockNameFormat
       )
         throw Error(
