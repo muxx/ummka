@@ -8,7 +8,10 @@ import {
   SystemApi,
 } from "../../vendor/mattermost/index.js";
 import { nativeFetch } from "./native-fetch.ts";
-import { openNativeRestConnection } from "./native-rest.ts";
+import {
+  openAccountRestConnection,
+  openNativeRestConnection,
+} from "./native-rest.ts";
 
 const ipc = vi.hoisted(() =>
   vi.fn<(command: string, args: Record<string, unknown>) => Promise<unknown>>(),
@@ -346,3 +349,71 @@ test.each(["unknown_connection", "cancelled", "network"])(
     expect(calls("cancel_rest_request")).toHaveLength(0);
   },
 );
+
+test("search posts normal JSON on the native account resource and closing the account discards its pending response", async () => {
+  const body = JSON.stringify({
+    order: [],
+    posts: {},
+    matches: null,
+    first_inaccessible_post_time: 0,
+    prev_post_id: "",
+    next_post_id: "",
+  });
+  const bytes = new TextEncoder().encode(body).buffer;
+  const started = gate<void>(),
+    reply = gate<ArrayBuffer>();
+  let read = 0;
+  setup({
+    read_rest_body: () => {
+      if (read++ > 0) return new ArrayBuffer(0);
+      started.resolve();
+      return reply.promise;
+    },
+    close_rest_connection: () => undefined,
+  });
+  const server = "https://fixture.example.test/team",
+    userId = "u".repeat(26);
+  const account = await openAccountRestConnection(server, userId);
+  const request = {
+    teamId: null,
+    terms: "in:town-square polar",
+    isOrSearch: false,
+    includeDeletedChannels: false,
+    timeZoneOffsetSeconds: 3600,
+    page: 0,
+  };
+  const pending = account.readPostSearchPage(request);
+  await started.promise;
+  expect(ipc).toHaveBeenCalledWith("open_rest_connection", {
+    basePath: server,
+    userId,
+  });
+  const send = ipc.mock.calls.find(
+    ([operation]) => operation === "send_rest_request",
+  )?.[1];
+  expect(send).toMatchObject({
+    ...ids,
+    method: "POST",
+    url: server + "/api/v4/posts/search",
+  });
+  expect(JSON.parse(String(send?.body))).toEqual({
+    terms: request.terms,
+    is_or_search: false,
+    include_deleted_channels: false,
+    time_zone_offset: 3600,
+    page: 0,
+    per_page: 20,
+  });
+  expect(new Headers(send?.headers as HeadersInit).has("authorization")).toBe(
+    false,
+  );
+  await account.close();
+  reply.resolve(bytes);
+  await expect(pending).rejects.toBe("cancelled");
+  await expect(account.readFileSearchPage(request)).rejects.toBe(
+    "unknown_connection",
+  );
+  expect(
+    ipc.mock.calls.filter(([operation]) => operation === "send_rest_request"),
+  ).toHaveLength(1);
+});

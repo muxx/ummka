@@ -7,6 +7,7 @@ import {
 import { accountDelivery } from "./account-delivery.ts";
 import { atDirectoryStep } from "./account-directory-error.ts";
 import { accountPostReactions } from "./account-post-reactions.ts";
+import { accountSearch } from "./account-search.ts";
 import { accountChannelAudience } from "./channel-audience.ts";
 import {
   type ChannelRefreshRequest,
@@ -121,6 +122,7 @@ export async function openAccountRestConnection(
   return {
     ...connection,
     ...accountPostReactions(config, userId, readWhileOpen),
+    ...accountSearch(config, readWhileOpen),
     ...accountChannelAudience(config, readWhileOpen),
     ...accountMentionGroups(config, readWhileOpen),
     readSavedProfiles(query: VisibleProfileQuery) {
