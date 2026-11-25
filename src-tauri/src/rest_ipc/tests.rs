@@ -57,6 +57,14 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
             ("read_joined_teams", json!({"rid":0})),
             ("select_joined_team", json!({"rid":0, "teamId":"x"})),
             ("begin_team_directory_load", json!({"rid":0})),
+            (
+                "read_composer_draft",
+                json!({"rid":0,"channelId":"a".repeat(26),"rootId":null}),
+            ),
+            (
+                "save_composer_draft",
+                json!({"rid":0,"channelId":"a".repeat(26),"rootId":null,"expectedRevision":null,"message":"local"}),
+            ),
             ("read_workspace_settings", json!({"rid":0})),
             ("begin_workspace_policy_load", json!({"rid":0})),
             (

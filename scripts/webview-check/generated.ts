@@ -15,6 +15,7 @@ import {
 } from "../../vendor/mattermost/index.js";
 import { checkAccountResponses } from "./account.ts";
 import { checkChannelRefresh } from "./channel-refresh.ts";
+import { checkDraftWrites } from "./composer-drafts.ts";
 import { checkConnectServer } from "./connect-server.tsx";
 import { checkChannelHistory } from "./history.ts";
 import { prepareHistoryLoads } from "./history-loads.ts";
@@ -238,6 +239,7 @@ export async function checkGeneratedRequests(ports: string[]) {
     );
     check(await accountPrefix.refreshJoinedTeams(), "team-directory-published");
     await checkWorkspaceSettings(accountPrefix, accountRoot);
+    await checkDraftWrites(accountPrefix, accountRoot, userId);
     const cached = await accountPrefix.readJoinedTeams();
     check(
       cached?.teams[0]?.id === "Team0123456789012345678901" &&

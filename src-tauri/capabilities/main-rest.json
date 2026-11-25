@@ -13,6 +13,8 @@
     "allow-sign-out-account",
     "allow-sign-out-on-device",
     "allow-close-rest-connection",
+    "allow-read-composer-draft",
+    "allow-save-composer-draft",
     "allow-read-workspace-settings",
     "allow-begin-workspace-policy-load",
     "allow-store-workspace-policy",

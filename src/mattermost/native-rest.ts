@@ -61,6 +61,10 @@ export type SavedProfiles = {
   usernames: Record<string, string>;
 };
 
+export type DraftLocation = { channelId: string; rootId?: string };
+export type ComposerDraft = { message: string; revision: string | null };
+export type DraftSave = { kind: "saved" | "conflict"; draft: ComposerDraft };
+
 export type AccountSignOut =
   | { status: "signed_out" }
   | { status: "unconfirmed" }
@@ -138,6 +142,34 @@ export async function openAccountRestConnection(
             invoke<boolean>("store_team_directory", { rid, load, ...data }),
           (load) => invoke<void>("cancel_team_directory_load", { rid, load }),
         ),
+      );
+    },
+    readDraft({ channelId, rootId }: DraftLocation) {
+      return readWhileOpen(() =>
+        invoke<ComposerDraft>("read_composer_draft", {
+          rid,
+          channelId,
+          rootId: rootId ?? null,
+        }),
+      );
+    },
+    saveDraft({
+      channelId,
+      rootId,
+      expectedRevision,
+      message,
+    }: DraftLocation & {
+      expectedRevision: string | null;
+      message: string;
+    }) {
+      return readWhileOpen(() =>
+        invoke<DraftSave>("save_composer_draft", {
+          rid,
+          channelId,
+          rootId: rootId ?? null,
+          expectedRevision,
+          message,
+        }),
       );
     },
     readWorkspaceSettings() {

@@ -36,6 +36,8 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
             rest_ipc::sign_out_account,
             rest_ipc::sign_out_on_device,
             rest_ipc::close_rest_connection,
+            rest_ipc::drafts::read_composer_draft,
+            rest_ipc::drafts::save_composer_draft,
             rest_ipc::settings::read_workspace_settings,
             rest_ipc::settings::begin_workspace_policy_load,
             rest_ipc::settings::store_workspace_policy,

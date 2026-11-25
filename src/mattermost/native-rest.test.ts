@@ -285,6 +285,7 @@ test("opens a native account by installation and user ID", async () => {
     "fetchApi",
     "readAccountDirectory",
     "readChannelWindow",
+    "readDraft",
     "readJoinedTeams",
     "readSavedProfiles",
     "readTeamDirectory",
@@ -297,11 +298,47 @@ test("opens a native account by installation and user ID", async () => {
     "refreshTeamSidebar",
     "refreshWorkspaceServerPolicy",
     "rid",
+    "saveDraft",
     "selectJoinedTeam",
     "selectSidebarChannel",
     "signOut",
     "signOutOnDevice",
   ]);
+});
+
+test("drafts use the account handle and discard a late read after closing it", async () => {
+  ipc.mockResolvedValueOnce(19);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    "a".repeat(26),
+  );
+  const location = { channelId: "c".repeat(26), rootId: "r".repeat(26) };
+  const change = { ...location, message: "draft", expectedRevision: null };
+  const current = { message: "other edit", revision: "1".repeat(32) };
+  const conflict = { kind: "conflict", draft: current };
+  ipc.mockResolvedValueOnce(conflict);
+  expect(await account.saveDraft(change)).toEqual(conflict);
+  expect(ipc).toHaveBeenLastCalledWith("save_composer_draft", {
+    rid: 19,
+    ...change,
+  });
+  let finish!: (v: typeof current) => void;
+  ipc.mockImplementationOnce(
+    () =>
+      new Promise((done) => {
+        finish = done;
+      }),
+  );
+  const pending = account.readDraft({ channelId: location.channelId });
+  expect(ipc).toHaveBeenLastCalledWith("read_composer_draft", {
+    rid: 19,
+    channelId: location.channelId,
+    rootId: null,
+  });
+  await account.close();
+  finish(current);
+  await expect(pending).rejects.toBe("cancelled");
+  await expect(account.saveDraft(change)).rejects.toBe("unknown_connection");
 });
 
 test("a directory delivered after the account signs out is discarded", async () => {
