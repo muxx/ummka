@@ -102,3 +102,64 @@ it("rejects missing records, foreign channels, and responses which cannot descri
     channelHistoryPage(read, { ...response([a]), nextPostId: "bad" }),
   ).toThrow(TypeError);
 });
+
+it("keeps collapsed root counters and participant IDs without copying account or profile data", () => {
+  const input = PostListFromJSON({
+    order: [a, b],
+    posts: {
+      [a]: {
+        ...record(a),
+        reply_count: 2,
+        last_reply_at: 250,
+        is_following: true,
+        participants: [
+          { id: b, email: "example@example.test" },
+          { id: anchor },
+        ],
+      },
+      [b]: { ...record(b), root_id: a, reply_count: 2, last_reply_at: 250 },
+    },
+  });
+  const [root, reply] = channelHistoryPage(read, input).changes;
+  expect(root).toHaveProperty("threadSummary", {
+    replyCount: 2,
+    lastReplyAt: 250,
+    participantIds: [b, anchor],
+  });
+  expect(reply).not.toHaveProperty("threadSummary");
+  expect(
+    channelHistoryPage({ ...read, collapsedThreads: false }, input).changes[0],
+  ).not.toHaveProperty("threadSummary");
+});
+
+it("distinguishes missing measurements from an empty thread or unavailable participant list", () => {
+  const projected = (fields: Record<string, unknown>) =>
+    channelHistoryPage(
+      read,
+      PostListFromJSON({
+        order: [a],
+        posts: { [a]: { ...record(a), ...fields } },
+      }),
+    ).changes[0];
+  expect(
+    projected({ reply_count: 0, last_reply_at: 0, participants: null }),
+  ).toHaveProperty("threadSummary", {
+    replyCount: 0,
+    lastReplyAt: 0,
+    participantIds: null,
+  });
+  expect(
+    projected({ reply_count: 1, last_reply_at: 100, participants: [] }),
+  ).toHaveProperty("threadSummary.participantIds", []);
+  for (const fields of [{ reply_count: 0 }, { last_reply_at: 0 }, {}])
+    expect(projected(fields)).not.toHaveProperty("threadSummary");
+  expect(
+    projected({ delete_at: 110, reply_count: 1, last_reply_at: 100 }),
+  ).not.toHaveProperty("threadSummary");
+  for (const fields of [
+    { reply_count: -1, last_reply_at: 2 },
+    { reply_count: 1, last_reply_at: 1.5 },
+    { reply_count: 1, last_reply_at: 2, participants: [{ id: "bad" }] },
+  ])
+    expect(() => projected(fields)).toThrow(TypeError);
+});
