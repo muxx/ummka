@@ -75,6 +75,20 @@ export function accountDelivery(
         }),
       );
     },
+    transitionDraftCommand(
+      { channelId, rootId, revision }: DraftLocation & { revision: string },
+      action: "start" | "complete" | "release",
+    ) {
+      return whileOpen(() =>
+        invoke<DraftSave>("transition_draft_command", {
+          rid,
+          channelId,
+          rootId: rootId ?? null,
+          revision,
+          action,
+        }),
+      );
+    },
     stagePost({
       channelId,
       rootId,
