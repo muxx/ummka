@@ -75,6 +75,14 @@
   },
   {
     "file": "channels.yaml",
+    "method": "PUT",
+    "path": "/api/v4/channels/{channel_id}/members/{user_id}/notify_props",
+    "id": "UpdateChannelNotifyProps",
+    "body": "json",
+    "selfOnly": true
+  },
+  {
+    "file": "channels.yaml",
     "method": "POST",
     "path": "/api/v4/channels/{channel_id}/members",
     "id": "AddChannelMember",

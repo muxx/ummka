@@ -41,6 +41,7 @@ import {
   correctHistorySchema,
 } from "./history-corrections.ts";
 import { correctMentionGroup } from "./mention-group-correction.ts";
+import { correctNotificationProps } from "./notification-props.ts";
 import { correctNullableList } from "./nullable-list-corrections.ts";
 import { type Fields, object } from "./objects.ts";
 import { checkPathParameters } from "./path-parameters.ts";
@@ -118,7 +119,13 @@ function checkRequestBody(
 
 export function buildSpecification(
   read: (file: string) => Fields,
-  operations = catalog,
+  operations: ReadonlyArray<{
+    file: string;
+    path: string;
+    method: string;
+    id: string;
+    body?: string;
+  }> = catalog,
 ) {
   const introduction = read("introduction.yaml");
   const definitions = read("definitions.yaml");
@@ -147,6 +154,12 @@ export function buildSpecification(
       throw new Error(`Missing component ${kind}/${name}`);
     const source = object(upstream[name], `components/${kind}/${name}`);
     if (kind !== "schemas") group[name] = source;
+    else if (name === "ChannelNotifyProps" || name === "UserNotifyProps")
+      group[name] = correctNotificationProps(
+        name,
+        source,
+        read("definitions-12.1.0.yaml"),
+      );
     else if (name === "ChannelMemberCountByGroup")
       group[name] = correctGroupAudienceModel(
         source,
