@@ -34,6 +34,10 @@ import {
 } from "./command-corrections.ts";
 import { correctCustomEmoji } from "./custom-emoji-correction.ts";
 import {
+  correctFileModel,
+  correctFileSearch,
+} from "./file-search-corrections.ts";
+import {
   correctAssociatedGroup,
   correctGroupAssociations,
 } from "./group-association-corrections.ts";
@@ -758,6 +762,8 @@ test("retains the catalog operations, security and transitive models", () => {
     }
     const source = object(at(read(file), key), path);
     let expected = source;
+    if (source.operationId === "SearchFiles")
+      expected = correctFileSearch(path, source, read("files-12.1.0.yaml"));
     if (source.operationId === "SaveReaction")
       expected = correctSaveReaction(source, read("reactions-12.1.0.yaml"));
     if (path === "/api/v4/posts" && method === "POST")
@@ -817,6 +823,12 @@ test("retains the catalog operations, security and transitive models", () => {
     const source = at(definitions, path);
     const name = path[2];
     let expected = source;
+    if (name === "FileInfo")
+      expected = correctFileModel(
+        name,
+        object(source, name),
+        read("definitions-12.1.0.yaml"),
+      );
     if (name === "ChannelUnreadAt")
       expected = correctUnreadAt(
         object(source, name),
@@ -889,6 +901,7 @@ test("retains the catalog operations, security and transitive models", () => {
       "CommandResponse",
       "Emoji",
       "FileInfo",
+      "FileInfoList",
       "Group",
       "GroupWithSchemeAdmin",
       "GroupsAssociatedToChannels",
@@ -897,6 +910,7 @@ test("retains the catalog operations, security and transitive models", () => {
       "PostAcknowledgement",
       "PostInfo",
       "PostList",
+      "PostListWithSearchMatches",
       "PostMetadata",
       "Preference",
       "Reaction",
@@ -1282,6 +1296,7 @@ function copySources() {
     "definitions.yaml",
     "definitions-12.1.0.yaml",
     "roles-12.1.0.yaml",
+    "files-12.1.0.yaml",
     "groups-12.1.0.yaml",
     "preferences-12.1.0.yaml",
     "commands-12.1.0.yaml",
@@ -1581,6 +1596,11 @@ test("requires the HTTP verb in its wire spelling", () => {
 const {
   Configuration,
   SystemApi,
+  FilesApi,
+  FileInfoListToJSON,
+  PostsApi,
+  PostListWithSearchMatchesFromJSON,
+  PostListWithSearchMatchesToJSON,
   PostListFromJSON,
   GetGroupsAssociatedToChannelsByTeam200ResponseFromJSON,
   GetGroupsAssociatedToChannelsByTeam200ResponseToJSON,
@@ -1968,4 +1988,142 @@ test("emoji compatibility checks reject changed aliases and duplicate names befo
     assert.notEqual(run().status, 0);
     assert.equal(readFileSync(target, "utf8"), original);
   }
+});
+
+test("post search preserves filters, scope, server ordering, matches and history boundaries", async () => {
+  const postId = "p".repeat(26),
+    teamId = "t".repeat(26),
+    channelId = "c".repeat(26);
+  const params = {
+    terms: "from:fixture in:town-square polar",
+    isOrSearch: false,
+    timeZoneOffset: 10800,
+    includeDeletedChannels: true,
+    page: 1,
+    perPage: 40,
+  };
+  const raw = {
+    order: [postId],
+    posts: {
+      [postId]: { id: postId, channel_id: channelId, message: "polar sample" },
+    },
+    matches: { [postId]: ["polar", "sample"] },
+    next_post_id: "next",
+    prev_post_id: "prev",
+    has_next: false,
+    first_inaccessible_post_time: 42,
+  };
+  const paths: string[] = [];
+  const api = new PostsApi(
+    new Configuration({
+      basePath: "https://example.test/mattermost",
+      fetchApi: async (url: string, init: RequestInit) => {
+        paths.push(new URL(url).pathname);
+        assert.equal(init.method, "POST");
+        assert.deepEqual(JSON.parse(String(init.body)), {
+          terms: params.terms,
+          is_or_search: false,
+          time_zone_offset: 10800,
+          include_deleted_channels: true,
+          page: 1,
+          per_page: 40,
+        });
+        return Response.json(raw);
+      },
+    }),
+  );
+  for (const result of [
+    await api.searchPosts({ teamId, searchPostsRequest: params }),
+    await api.searchPostsInAllTeams({ searchPostsInAllTeamsRequest: params }),
+  ]) {
+    assert.deepEqual(result.order, [postId]);
+    assert.deepEqual(result.matches[postId], ["polar", "sample"]);
+    assert.equal(result.posts[postId].channelId, channelId);
+    assert.equal(result.firstInaccessiblePostTime, 42);
+    assert.equal(result.hasNext, false);
+    assert.equal(result.prevPostId, "prev");
+    assert.equal(result.nextPostId, "next");
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(PostListWithSearchMatchesToJSON(result))),
+      raw,
+    );
+  }
+  assert.deepEqual(paths, [
+    `/mattermost/api/v4/teams/${teamId}/posts/search`,
+    "/mattermost/api/v4/posts/search",
+  ]);
+  const empty = PostListWithSearchMatchesFromJSON({ ...raw, matches: null });
+  assert.equal(empty.matches, null);
+  assert.equal(PostListWithSearchMatchesToJSON(empty).matches, null);
+});
+
+test("file search uses JSON in both scopes and retains the attachment and its navigation fields", async () => {
+  const team = "t".repeat(26),
+    channel = "c".repeat(26),
+    id = "f".repeat(26);
+  const params = {
+    terms: "in:town-square ext:pdf polar",
+    isOrSearch: true,
+    timeZoneOffset: -10800,
+    includeDeletedChannels: true,
+    page: 2,
+    perPage: 20,
+  };
+  const raw = {
+    order: [id],
+    file_infos: {
+      [id]: {
+        id,
+        channel_id: channel,
+        post_id: "p".repeat(26),
+        name: "polar.pdf",
+        archived: true,
+      },
+    },
+    next_file_info_id: "next",
+    prev_file_info_id: "prev",
+    first_inaccessible_file_time: 17,
+  };
+  const paths: string[] = [];
+  const api = new FilesApi(
+    new Configuration({
+      basePath: "https://example.org/mattermost",
+      fetchApi: async (url: string, init: RequestInit) => {
+        paths.push(new URL(url).pathname);
+        assert.equal(init.method, "POST");
+        assert.equal(
+          new Headers(init.headers).get("content-type"),
+          "application/json",
+        );
+        assert.deepEqual(JSON.parse(String(init.body)), {
+          terms: params.terms,
+          is_or_search: true,
+          time_zone_offset: -10800,
+          include_deleted_channels: true,
+          page: 2,
+          per_page: 20,
+        });
+        return Response.json(raw);
+      },
+    }),
+  );
+  for (const result of [
+    await api.searchFiles({ teamId: team, searchFilesRequest: params }),
+    await api.searchFilesInAllTeams({ searchFilesInAllTeamsRequest: params }),
+  ]) {
+    assert.deepEqual(result.order, [id]);
+    assert.equal(result.fileInfos[id].channelId, channel);
+    assert.equal(result.fileInfos[id].archived, true);
+    assert.equal(result.nextFileInfoId, "next");
+    assert.equal(result.prevFileInfoId, "prev");
+    assert.equal(result.firstInaccessibleFileTime, 17);
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(FileInfoListToJSON(result))),
+      raw,
+    );
+  }
+  assert.deepEqual(paths, [
+    `/mattermost/api/v4/teams/${team}/files/search`,
+    "/mattermost/api/v4/files/search",
+  ]);
 });

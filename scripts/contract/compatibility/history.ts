@@ -33,6 +33,7 @@ import { checkChannelAudience } from "./channel-audience.ts";
 import { checkCommands } from "./commands.ts";
 import { checkCustomEmojiLookup } from "./custom-emoji.ts";
 import { checkEventStream } from "./event-stream.ts";
+import { checkFileSearch } from "./file-search.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
 import {
   checkChannelRoster,
@@ -45,6 +46,7 @@ import {
   checkPostMutations,
   checkPreviouslyAcceptedPost,
 } from "./post-mutations.ts";
+import { checkPostSearch } from "./post-search.ts";
 import { checkProfileReads } from "./profile-reads.ts";
 import { checkReactionActions } from "./reaction-actions.ts";
 import { checkPostReactions } from "./reactions.ts";
@@ -607,6 +609,23 @@ const extraTeam = await (
     token,
   )
 ).json();
+await checkPostSearch(
+  session,
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  team.id,
+  channelId,
+  extraTeam.id,
+  version,
+);
+await checkFileSearch(
+  session,
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  authorization,
+  team.id,
+  channelId,
+  extraTeam.id,
+  version,
+);
 await create(
   `teams/${extraTeam.id}/members`,
   { team_id: extraTeam.id, user_id: reader.id },
