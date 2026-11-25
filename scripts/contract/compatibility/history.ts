@@ -37,6 +37,7 @@ import {
   checkChannelRoster,
   checkEmptyTeamDirectory,
   checkNavigationMemberships,
+  checkOwnMembershipChanges,
 } from "./memberships.ts";
 import { checkMentionLimit } from "./mention-limit.ts";
 import { checkMentionText } from "./mention-text.ts";
@@ -644,6 +645,13 @@ await checkNavigationMemberships(
   extraTeam.id,
   channelId,
   dm.id,
+);
+await checkOwnMembershipChanges(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  reader.id,
+  team.id,
+  extraTeam.id,
+  joinable.id,
 );
 console.log(
   `Mattermost ${version} verified channel and team roles, active and removed membership and anonymous HTTP 401.`,

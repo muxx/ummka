@@ -603,6 +603,32 @@ export function webviewServers(
       visits.push(stats ? "channel-stats" : "channel-timezones");
       return;
     }
+    const ownTeam = `/team/chat/api/v4/teams/${teamId}/members`;
+    if (url.pathname === ownTeam || url.pathname === `${ownTeam}/${userId}`) {
+      const join = url.pathname === ownTeam;
+      assert.equal(url.search, "");
+      assert.equal(req.method, join ? "POST" : "DELETE");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      if (join) {
+        assert.equal(req.headers["content-type"], "application/json");
+        assert.deepEqual(await json(req), { team_id: teamId, user_id: userId });
+      }
+      res
+        .writeHead(join ? 201 : 200, { "Content-Type": "application/json" })
+        .end(
+          JSON.stringify(
+            join
+              ? { team_id: teamId, user_id: userId, delete_at: 0 }
+              : { status: "OK" },
+          ),
+        );
+      visits.push(join ? "own-team-join" : "own-team-leave");
+      return;
+    }
     const member = await respondToChannelMembers(
       req,
       res,
@@ -997,6 +1023,8 @@ export function webviewServers(
         "group-audience-empty",
         "group-audience-timezones",
         "group-audience-timezones",
+        "own-team-join",
+        "own-team-leave",
         "member-add",
         "member-remove",
         "member-self",

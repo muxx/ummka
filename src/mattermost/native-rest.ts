@@ -30,6 +30,11 @@ import { accountMentionGroups } from "./mention-group-reads.ts";
 import { nativeFetch } from "./native-fetch.ts";
 import { loadAccountDirectory, loadTeamDirectory } from "./navigation-data.ts";
 import { refreshNavigation } from "./navigation-refresh.ts";
+import {
+  changeOwnMembership,
+  type MembershipChange,
+  type MembershipTarget,
+} from "./own-membership.ts";
 import { createPostActivity } from "./post-activity.ts";
 import { createRestTransport } from "./rest-transport.ts";
 import { canonicalServerUrl } from "./server-url.ts";
@@ -146,6 +151,11 @@ export async function openAccountRestConnection(
     },
     readCustomEmoji(emojiName: string, signal?: AbortSignal) {
       return readWhileOpen(() => readCustomEmoji(config, emojiName, signal));
+    },
+    changeOwnMembership(target: MembershipTarget, change: MembershipChange) {
+      return readWhileOpen(() =>
+        changeOwnMembership(config, userId, target, change),
+      );
     },
     readAccountDirectory(signal?: AbortSignal) {
       return readWhileOpen(() => loadAccountDirectory(config, userId, signal));
