@@ -32,6 +32,44 @@ async function start(account: Account, message: string, root?: string) {
   return started;
 }
 
+async function checkPreparedRevision(account: Account, neighbor: Account) {
+  const message = "  notify @channel 🐻‍❄️\n";
+  const room = { channelId: "preparedroom".padEnd(26, "0") };
+  const thread = { ...room, rootId };
+  const first = await openDraftEditor(account, room);
+  first.edit(message);
+  const prepared = await first.prepareSubmission();
+  if (!prepared || prepared.message !== message || !prepared.isCurrent())
+    throw Error("Preparing a confirmation lost the visible Markdown");
+  const second = await openDraftEditor(neighbor, room);
+  const reply = await openDraftEditor(neighbor, thread);
+  reply.edit("A separate reply");
+  await reply.flush();
+  second.edit("Changed in the other window");
+  await second.flush();
+  second.edit(message);
+  await second.flush();
+  const result = await prepared.submitPost();
+  const stored = await account.readDraft(room);
+  const unrelated = await account.readDraft(thread);
+  const pending = await account.readPendingPosts({
+    ...room,
+    after: 0,
+    limit: 1,
+  });
+  if (
+    result.kind !== "notStaged" ||
+    prepared.isCurrent() ||
+    pending.length ||
+    stored.revision === prepared.revision ||
+    stored.message !== message ||
+    unrelated.message !== "A separate reply"
+  )
+    throw Error(
+      "A delayed confirmation replaced a newer draft or staged an old revision",
+    );
+}
+
 export async function checkSubmissions(
   prefixed: Account,
   other: Account,
@@ -40,13 +78,20 @@ export async function checkSubmissions(
 ) {
   const neighbor = await openAccountRestConnection(prefixed.basePath, userId);
   try {
+    await checkPreparedRevision(prefixed, neighbor);
     await edit(prefixed, "  **First** 🐻‍❄️\n");
     const editors = await Promise.all(
       [prefixed, neighbor].map((account) =>
         openDraftEditor(account, { channelId }),
       ),
     );
-    const results = await Promise.all(editors.map((editor) => editor.submit()));
+    const confirmed = await editors[0].prepareSubmission();
+    if (!confirmed)
+      throw Error("The confirmed fixture could not prepare a draft");
+    const results = await Promise.all([
+      confirmed.submitPost(),
+      editors[1].submit(),
+    ]);
     const started = results.find((r) => r.kind === "sending");
     if (
       !started ||

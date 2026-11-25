@@ -31,6 +31,7 @@ export async function openDraftEditor(
     submitting: false,
     error: null,
   };
+  let editGeneration = 0;
   const listeners = new Set<() => void>();
   // An IPC failure can hide a committed SQLite write. Only a subsequent device result settles it.
   let writeUnconfirmed = false;
@@ -41,6 +42,8 @@ export async function openDraftEditor(
     | undefined;
 
   function publish(next: EditorState) {
+    if (next.message !== state.message || (next.conflict && !state.conflict))
+      editGeneration++;
     state = next;
     for (const listener of listeners) listener();
   }
@@ -181,10 +184,50 @@ export async function openDraftEditor(
     if (writeUnconfirmed) return refresh();
   }
 
-  async function submit() {
+  // The native staging transaction checks the revision again if another window has written.
+  async function prepareSubmission(signal?: AbortSignal) {
+    const { message, stored } = state;
+    const generation = editGeneration;
+    if (
+      signal?.aborted ||
+      state.submitting ||
+      state.conflict ||
+      !message.trim()
+    )
+      return null;
+    await flush();
+    const revision = state.stored.revision;
+    const isCurrent = () =>
+      !signal?.aborted &&
+      !state.conflict &&
+      editGeneration === generation &&
+      state.message === message &&
+      state.stored.message === message &&
+      state.stored.revision === revision;
+    if (
+      revision === null ||
+      (message === stored.message && revision !== stored.revision) ||
+      state.submitting ||
+      !isCurrent()
+    )
+      return null;
+    return {
+      message,
+      revision,
+      isCurrent,
+      submitPost: () => submit(isCurrent),
+    };
+  }
+
+  async function submit(isCurrent?: () => boolean) {
     const intended = state.message;
     const unchanged = { kind: "unchanged" } as const;
-    if (state.submitting || state.conflict || !intended.trim())
+    if (
+      state.submitting ||
+      state.conflict ||
+      !intended.trim() ||
+      isCurrent?.() === false
+    )
       return unchanged;
     unschedule();
     publish({ ...state, submitting: true });
@@ -196,7 +239,12 @@ export async function openDraftEditor(
         if (pending.kind === "read") await pending.done.catch(() => {});
         else await pending.done;
       }
-      if (state.conflict || state.message !== intended) return unchanged;
+      if (
+        state.conflict ||
+        state.message !== intended ||
+        isCurrent?.() === false
+      )
+        return unchanged;
       return await start("submit", async () => {
         if (writeUnconfirmed || state.stored.message !== intended)
           await saveCurrent();
@@ -205,7 +253,8 @@ export async function openDraftEditor(
           state.conflict ||
           state.message !== intended ||
           state.stored.message !== intended ||
-          revision === null
+          revision === null ||
+          isCurrent?.() === false
         )
           return unchanged;
         const result = await storage.submitDraft({ ...key, revision });
@@ -270,7 +319,8 @@ export async function openDraftEditor(
       };
     },
     edit,
-    submit,
+    submit: () => submit(),
+    prepareSubmission,
     flush,
     refresh,
     takeStored,
