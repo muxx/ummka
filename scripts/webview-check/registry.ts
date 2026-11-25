@@ -85,6 +85,17 @@ export async function resumeRegistryCheck(): Promise<boolean> {
             saved.profiles[firstId]?.username !== "fixture"
       )
         throw Error("offline profile directory changed after process restart");
+      const settings = await recovered.readWorkspaceSettings();
+      if (
+        base === root
+          ? settings.preferences !== null || settings.server !== null
+          : settings.preferences?.limit !== 18 ||
+            settings.server?.collapsedThreads !== "always_on" ||
+            !settings.server.lockNameFormat
+      )
+        throw Error(
+          "offline workspace settings did not belong to the restored account",
+        );
       const teams = await recovered.readJoinedTeams();
       const catalog = await recovered.readTeamSidebar(
         "Team0123456789012345678901",
@@ -93,6 +104,7 @@ export async function resumeRegistryCheck(): Promise<boolean> {
         base === root
           ? catalog !== null
           : catalog?.selectedChannel !== "c".repeat(26) ||
+            catalog.data.channels[0]?.createAt !== 90 ||
             catalog.data.channels[0]?.mentionCountRoot !== 2 ||
             catalog.data.categories[0]?.kind !== "managed"
       ) {

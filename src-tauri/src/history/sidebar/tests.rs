@@ -26,7 +26,7 @@ fn teams(db: &mut AccountHistory, ids: &[&str]) {
             preference_rank: None,
         })
         .collect::<Vec<_>>();
-    assert!(db.store_team_directory(load, &rows).unwrap());
+    assert!(db.store_team_directory(load, &rows, None).unwrap());
 }
 fn sidebar(count: usize) -> SidebarData {
     let channels: Vec<_> = (0..count)
@@ -37,6 +37,7 @@ fn sidebar(count: usize) -> SidebarData {
             display_name: format!("Room {n}"),
             header: "A header".into(),
             purpose: "Discussion".into(),
+            create_at: Some(120),
             delete_at: 0,
             last_post_at: Some(379),
             last_root_post_at: Some(371),

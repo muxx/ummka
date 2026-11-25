@@ -49,7 +49,7 @@ export function channelProfile(user: User) {
 }
 
 export type ChannelProfile = ReturnType<typeof channelProfile>;
-type NameFormat = "username" | "nickname_full_name" | "full_name";
+export type NameFormat = "username" | "nickname_full_name" | "full_name";
 type NameSettings = {
   TeammateNameDisplay?: string;
   LockTeammateNameDisplay?: string;
@@ -60,13 +60,24 @@ export function teammateNameFormat(
   license: Pick<NameSettings, "LockTeammateNameDisplay">,
   preference: string | undefined,
 ): NameFormat {
-  const locked =
-    license.LockTeammateNameDisplay === "true" &&
-    config.LockTeammateNameDisplay === "true";
-  const value =
-    locked || preference === undefined
+  return normalizedNameFormat(
+    locksTeammateName(config, license) || preference === undefined
       ? config.TeammateNameDisplay
-      : preference;
+      : preference,
+  );
+}
+
+export function locksTeammateName(
+  config: NameSettings,
+  license: Pick<NameSettings, "LockTeammateNameDisplay">,
+) {
+  return (
+    license.LockTeammateNameDisplay === "true" &&
+    config.LockTeammateNameDisplay === "true"
+  );
+}
+
+export function normalizedNameFormat(value: string | undefined): NameFormat {
   return value === "nickname_full_name" || value === "full_name"
     ? value
     : "username";

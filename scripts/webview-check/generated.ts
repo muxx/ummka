@@ -4,6 +4,7 @@ import {
   openAccountRestConnection,
   openNativeRestConnection,
 } from "../../src/mattermost/native-rest.ts";
+import { sidebarPreferences } from "../../src/mattermost/workspace-preferences.ts";
 import {
   Configuration,
   FetchError,
@@ -20,6 +21,7 @@ import { prepareHistoryLoads } from "./history-loads.ts";
 import { checkUnavailableHistoryServer } from "./local-history.ts";
 import { checkPostContext } from "./post-context.ts";
 import { checkTeamReads } from "./team-reads.ts";
+import { checkWorkspaceSettings } from "./workspace-settings.ts";
 
 function check(value: unknown, message: string): asserts value {
   if (!value) throw Error(message);
@@ -37,7 +39,12 @@ async function rejected(action: Promise<unknown>) {
 async function checkTeamLoadOwnership(rid: number, other: number) {
   const begin = () => invoke<number>("begin_team_directory_load", { rid });
   const store = (handle: number, load: number, teams: unknown) =>
-    invoke<boolean>("store_team_directory", { rid: handle, load, teams });
+    invoke<boolean>("store_team_directory", {
+      rid: handle,
+      load,
+      teams,
+      preferences: sidebarPreferences("u".repeat(26), []),
+    });
   const older = await begin();
   const current = await begin();
   check(!(await store(rid, older, [])), "replaced-team-directory-load");
@@ -224,7 +231,13 @@ export async function checkGeneratedRequests(ports: string[]) {
       (await accountPrefix.readJoinedTeams()) === null,
       "cold-team-directory",
     );
+    const cold = await accountPrefix.readWorkspaceSettings();
+    check(
+      cold.preferences === null && cold.server === null,
+      "cold-workspace-settings",
+    );
     check(await accountPrefix.refreshJoinedTeams(), "team-directory-published");
+    await checkWorkspaceSettings(accountPrefix, accountRoot);
     const cached = await accountPrefix.readJoinedTeams();
     check(
       cached?.teams[0]?.id === "Team0123456789012345678901" &&
@@ -330,6 +343,7 @@ export async function checkGeneratedRequests(ports: string[]) {
     check(
       catalog?.selectedChannel === channelId &&
         catalog.data.channels[0]?.lastRootPostAt === 300 &&
+        catalog.data.channels[0]?.createAt === 90 &&
         catalog.data.categories[0]?.channelIds[0] === channelId,
       "read-channel-catalog",
     );

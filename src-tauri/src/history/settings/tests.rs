@@ -1,0 +1,284 @@
+use super::*;
+use crate::history::{
+    DirectoryTeam, HistoryDatabase,
+    schema::{MIGRATIONS, Migration},
+};
+use crate::sessions::Account;
+use serde_json::json;
+use std::path::Path;
+use tempfile::tempdir;
+
+const URL: &str = "https://settings.example.test/mm";
+const ME: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
+const OTHER: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+fn account() -> Account {
+    Account::new(URL, ME).unwrap()
+}
+fn open(path: &Path) -> AccountHistory {
+    AccountHistory::open(path, &account()).unwrap()
+}
+fn policy() -> ServerPolicy {
+    ServerPolicy {
+        collapsed_threads: ThreadMode::DefaultOn,
+        separate_unreads: false,
+        name_format: NameFormat::FullName,
+        lock_name_format: true,
+    }
+}
+fn preferences() -> SidebarPreferences {
+    SidebarPreferences {
+        limit: Some(25),
+        name_format: Some(NameFormat::Username),
+        direct_shown: BTreeMap::from([(OTHER.into(), true)]),
+        view_times: BTreeMap::from([(ME.into(), 78)]),
+        ..Default::default()
+    }
+}
+fn team() -> DirectoryTeam {
+    DirectoryTeam {
+        id: ME.into(),
+        name: "north".into(),
+        display_name: "North".into(),
+        preference_rank: None,
+    }
+}
+
+#[test]
+fn publishes_two_independent_sources_and_rejects_stale_or_partial_updates() {
+    let root = tempdir().unwrap();
+    let mut a = open(root.path());
+    let mut b = open(root.path());
+    assert_eq!(
+        a.read_workspace_settings().unwrap(),
+        WorkspaceSettings::default()
+    );
+    let late = a.begin_server_policy_load().unwrap();
+    let newest = b.begin_server_policy_load().unwrap();
+    let late_teams = a.begin_team_directory_load().unwrap();
+    let new_teams = b.begin_team_directory_load().unwrap();
+    assert!(
+        b.store_team_directory(new_teams, &[team()], Some(&preferences()))
+            .unwrap()
+    );
+    assert!(
+        !a.store_team_directory(late_teams, &[], Some(&SidebarPreferences::default()))
+            .unwrap()
+    );
+    assert_eq!(a.read_workspace_settings().unwrap().server, None);
+    assert!(b.store_server_policy(newest, &policy()).unwrap());
+    assert!(!a.store_server_policy(late, &policy()).unwrap());
+    drop(b);
+    let mut restarted = open(root.path());
+    assert_eq!(
+        restarted.read_workspace_settings().unwrap(),
+        WorkspaceSettings {
+            preferences: Some(preferences()),
+            server: Some(policy())
+        }
+    );
+    a.write(|tx| tx.execute_batch("CREATE TEMP TRIGGER refuse_new_team BEFORE INSERT ON joined_team BEGIN SELECT RAISE(ABORT,'fixture rejection'); END")).unwrap();
+    let load = a.begin_team_directory_load().unwrap();
+    assert_eq!(
+        a.store_team_directory(load, &[team()], Some(&SidebarPreferences::default())),
+        Err(HistoryError::Storage)
+    );
+    assert_eq!(
+        restarted.read_workspace_settings().unwrap().preferences,
+        Some(preferences())
+    );
+    let zero = restarted.begin_team_directory_load().unwrap();
+    assert!(
+        restarted
+            .store_team_directory(zero, &[], Some(&SidebarPreferences::default()))
+            .unwrap()
+    );
+    assert_eq!(
+        restarted.read_workspace_settings().unwrap().preferences,
+        Some(SidebarPreferences::default())
+    );
+    let abandoned = a.begin_server_policy_load().unwrap();
+    let newer = a.begin_server_policy_load().unwrap();
+    drop(newer);
+    assert!(!a.store_server_policy(abandoned, &policy()).unwrap());
+    let old_login = a.begin_server_policy_load().unwrap();
+    HistoryDatabase::retire_existing(root.path(), &account(), true).unwrap();
+    assert_eq!(a.read_workspace_settings(), Err(HistoryError::StaleOwner));
+    let mut fresh = open(root.path());
+    assert_eq!(
+        fresh.store_server_policy(old_login, &policy()),
+        Err(HistoryError::StaleOwner)
+    );
+    assert_eq!(
+        fresh.read_workspace_settings().unwrap().server,
+        Some(policy())
+    );
+    HistoryDatabase::purge_account(root.path(), &account()).unwrap();
+    let mut next = AccountHistory::open(root.path(), &Account::new(URL, OTHER).unwrap()).unwrap();
+    assert_eq!(
+        next.read_workspace_settings().unwrap(),
+        WorkspaceSettings::default()
+    );
+}
+
+#[test]
+fn accepts_only_known_settings_and_indexes_an_owner_lookup() {
+    let root = tempdir().unwrap();
+    let mut db = open(root.path());
+    let mut prefs = preferences();
+    for (map, value) in [
+        ("directShown", json!({"bad":true})),
+        ("groupShown", json!({(ME):false})),
+        ("viewTimes", json!({(ME):9007199254740992_u64})),
+        ("limit", json!(9007199254740992_u64)),
+    ] {
+        let mut raw = serde_json::to_value(&prefs).unwrap();
+        raw[map] = value;
+        let bad = serde_json::from_value(raw).unwrap();
+        let load = db.begin_team_directory_load().unwrap();
+        assert_eq!(
+            db.store_team_directory(load, &[], Some(&bad)),
+            Err(HistoryError::InvalidDirectory)
+        );
+    }
+    let mut raw = serde_json::to_value(&prefs).unwrap();
+    raw["email"] = json!("private");
+    assert!(serde_json::from_value::<SidebarPreferences>(raw).is_err());
+    let mut raw = serde_json::to_value(policy()).unwrap();
+    raw["nameFormat"] = json!("unrecognised-value");
+    assert!(serde_json::from_value::<ServerPolicy>(raw).is_err());
+    for n in 0..5000 {
+        prefs.view_times.insert(format!("{n:026}"), n);
+    }
+    let load = db.begin_team_directory_load().unwrap();
+    assert!(
+        db.store_team_directory(load, &[team()], Some(&prefs))
+            .unwrap()
+    );
+    assert_eq!(
+        db.read_workspace_settings().unwrap().preferences,
+        Some(prefs)
+    );
+    db.read(|tx| {
+        let plan: String =
+            tx.query_row(&format!("EXPLAIN QUERY PLAN {READ}"), [], |row| row.get(3))?;
+        assert!(
+            plan.contains("INTEGER PRIMARY KEY") && !plan.contains("SCAN"),
+            "{plan}"
+        );
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn upgrades_populated_v1_through_v6_preserving_content_and_unknown_creation_time() {
+    for version in 1..=6 {
+        let root = tempdir().unwrap();
+        let mut old = HistoryDatabase::open_with(root.path(), URL, &MIGRATIONS[..version]).unwrap();
+        let owner = old.restore(&account()).unwrap();
+        old.write(&owner,|tx|{
+            if version>=2 {
+                tx.execute("INSERT INTO history_post(id,channel_id,user_id,create_at,update_at,edit_at,type,message,hashtags,is_pinned)
+                    VALUES(?1,?1,?1,5,5,0,'','prior post','',0)",[ME])?;
+            }
+            if version>=4 {
+                tx.execute("INSERT INTO team_directory(owner,published) VALUES(1,1)",[])?;
+                tx.execute("INSERT INTO joined_team(position,team_id,name,display_name,selected) VALUES(0,?1,'north','North',1)",[ME])?;
+            }
+            if version>=5 {
+                tx.execute("INSERT INTO sidebar_team(team_id,published,selected_channel) VALUES(?1,1,?2)",[ME,OTHER])?;
+                tx.execute("INSERT INTO sidebar_channel(team_id,position,channel_id,kind,name,display_name,header,purpose,delete_at,muted)
+                    VALUES(?1,0,?2,'O','general','General','','',0,0)",[ME,OTHER])?;
+            }
+            if version==6 {
+                tx.execute("INSERT INTO channel_profile(id,username,first_name,last_name,nickname,position,is_bot,is_guest,remote_username)
+                            VALUES(?1,'alex','','','','',0,0,'')",[ME])?;
+            }
+            Ok(())
+        }).unwrap();
+        drop(old);
+        if version == 6 {
+            let mut broken: Vec<_> = MIGRATIONS[..6]
+                .iter()
+                .map(|m| Migration {
+                    statements: m.statements,
+                    objects: m.objects,
+                })
+                .collect();
+            broken.push(Migration {
+                statements: &[
+                    "ALTER TABLE sidebar_channel ADD COLUMN create_at INTEGER",
+                    "CREATE INDEX broken ON missing_table(col)",
+                ],
+                objects: MIGRATIONS[6].objects,
+            });
+            assert!(matches!(
+                HistoryDatabase::open_with(root.path(), URL, &broken),
+                Err(HistoryError::Storage)
+            ));
+            let mut rolled_back =
+                HistoryDatabase::open_with(root.path(), URL, &MIGRATIONS[..6]).unwrap();
+            assert_eq!(
+                rolled_back.restore(&account()).unwrap().generation,
+                owner.generation
+            );
+        }
+        let mut db = open(root.path());
+        assert_eq!(db.owner.generation, owner.generation);
+        assert_eq!(
+            db.read_workspace_settings().unwrap(),
+            WorkspaceSettings::default()
+        );
+        if version >= 2 {
+            assert_eq!(db.read_post(ME).unwrap().unwrap().message, "prior post");
+        }
+        if version >= 4 {
+            assert_eq!(
+                db.read_team_directory()
+                    .unwrap()
+                    .unwrap()
+                    .selected_team
+                    .as_deref(),
+                Some(ME)
+            );
+        }
+        if version >= 5 {
+            let snap = db.read_sidebar(ME).unwrap().unwrap();
+            assert_eq!(snap.selected_channel.as_deref(), Some(OTHER));
+            assert_eq!(snap.data.channels[0].create_at, None);
+            let mut data = snap.data;
+            data.channels[0].create_at = Some(1000);
+            let load = db.begin_sidebar_load(ME).unwrap().unwrap();
+            assert!(db.store_sidebar(load, &data).unwrap());
+            assert_eq!(
+                open(root.path()).read_sidebar(ME).unwrap().unwrap().data,
+                data
+            );
+        }
+        if version == 6 {
+            db.read(|tx| {
+                tx.query_row(
+                    "SELECT username FROM channel_profile WHERE id=?1",
+                    [ME],
+                    |r| {
+                        assert_eq!(r.get::<_, String>(0)?, "alex");
+                        Ok(())
+                    },
+                )
+            })
+            .unwrap();
+        }
+        let load = db.begin_server_policy_load().unwrap();
+        assert!(db.store_server_policy(load, &policy()).unwrap());
+        drop(db);
+        assert!(matches!(
+            HistoryDatabase::open_with(root.path(), URL, &MIGRATIONS[..version]),
+            Err(HistoryError::UnsupportedSchema)
+        ));
+        assert_eq!(
+            open(root.path()).read_workspace_settings().unwrap().server,
+            Some(policy())
+        );
+    }
+}

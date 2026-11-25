@@ -16,6 +16,8 @@ mod reclamation;
 pub use lifecycle::AccountHistory;
 pub use posts::{ChannelPostLoad, PageWrite, PostChange, StoredPost};
 mod schema;
+mod settings;
+pub use settings::{ServerPolicy, ServerPolicyLoad, SidebarPreferences, WorkspaceSettings};
 mod sidebar;
 pub use sidebar::{SidebarCategory, SidebarChannel, SidebarData, SidebarLoad, SidebarSnapshot};
 mod windows;

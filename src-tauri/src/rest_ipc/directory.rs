@@ -55,6 +55,7 @@ pub(crate) async fn store_team_directory<R: Runtime>(
     rid: ResourceId,
     load: ResourceId,
     teams: serde_json::Value,
+    preferences: serde_json::Value,
 ) -> Result<bool, ExchangeError> {
     let account = session(&webview, rid)?;
     let ticket =
@@ -63,7 +64,9 @@ pub(crate) async fn store_team_directory<R: Runtime>(
         .with_history(&webview.state::<AccountSessions>(), move |view| {
             let teams: Vec<DirectoryTeam> = serde_json::from_value(teams)
                 .map_err(|_| crate::history::HistoryError::InvalidDirectory)?;
-            view.store_team_directory(ticket.0, &teams)
+            let preferences = serde_json::from_value(preferences)
+                .map_err(|_| crate::history::HistoryError::InvalidDirectory)?;
+            view.store_team_directory(ticket.0, &teams, Some(&preferences))
         })
         .await
 }

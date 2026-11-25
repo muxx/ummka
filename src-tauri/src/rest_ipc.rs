@@ -11,6 +11,7 @@ pub(crate) mod history;
 mod history_check;
 pub(crate) mod profiles;
 mod response;
+pub(crate) mod settings;
 pub(crate) mod sidebar;
 #[cfg(all(feature = "webview-check", target_os = "macos"))]
 mod window_check;
