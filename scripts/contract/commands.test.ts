@@ -95,3 +95,109 @@ test("executes a channel command once, preserving its thread context and recursi
     { channel_id: "public", command: "/help" },
   ]);
 });
+
+test("reads member commands and preserves suggestion text and thread context in the URL", async () => {
+  const requests: URL[] = [];
+  const picker = {
+    id: "calendar",
+    trigger: "meet",
+    display_name: "Meet",
+    auto_complete: true,
+    auto_complete_hint: "[person]",
+    auto_complete_desc: "Pick a person",
+    icon_url: "/calendar.png",
+    autocomplete_icon_data: "fixture-icon",
+    token: "administrative-fixture",
+    url: "https://integration.example.test",
+  };
+  const suggestion = {
+    Complete: "meet Ada",
+    Suggestion: "Ada",
+    Hint: "Person",
+    Description: "",
+    IconData: "fixture-icon",
+  };
+  const transport = createRestTransport(
+    "https://example.test/subpath",
+    async (input, init) => {
+      const request = new Request(input, init);
+      assert.equal(request.method, "GET");
+      assert.equal(
+        request.headers.get("authorization"),
+        "Bearer synthetic-session",
+      );
+      const url = new URL(request.url);
+      requests.push(url);
+      return Response.json(
+        url.pathname.endsWith("/autocomplete") ? [picker] : [suggestion],
+      );
+    },
+  );
+  const commands = new CommandsApi(
+    new Configuration({ ...transport, accessToken: "synthetic-session" }),
+  );
+  const rows = await commands.listAutocompleteCommands({ teamId: "workspace" });
+  assert.deepEqual(rows, [
+    {
+      id: "calendar",
+      trigger: "meet",
+      displayName: "Meet",
+      autoComplete: true,
+      autoCompleteHint: "[person]",
+      autoCompleteDesc: "Pick a person",
+      iconUrl: "/calendar.png",
+      autocompleteIconData: "fixture-icon",
+    },
+  ]);
+  const root = { teamId: "workspace", userInput: "/meet a+b & ё?#" };
+  const result = await commands.listCommandAutocompleteSuggestions({
+    ...root,
+    channelId: "channel",
+    rootId: "thread",
+  });
+  assert.deepEqual(result, [
+    {
+      complete: "meet Ada",
+      suggestion: "Ada",
+      hint: "Person",
+      description: "",
+      iconData: "fixture-icon",
+    },
+  ]);
+  await commands.listCommandAutocompleteSuggestions({
+    ...root,
+    channelId: "channel",
+  });
+  assert.deepEqual(
+    requests.map((url) => [
+      url.origin,
+      url.pathname,
+      Object.fromEntries(url.searchParams),
+      url.hash,
+    ]),
+    [
+      [
+        "https://example.test",
+        "/subpath/api/v4/teams/workspace/commands/autocomplete",
+        {},
+        "",
+      ],
+      [
+        "https://example.test",
+        "/subpath/api/v4/teams/workspace/commands/autocomplete_suggestions",
+        {
+          user_input: root.userInput,
+          channel_id: "channel",
+          root_id: "thread",
+        },
+        "",
+      ],
+      [
+        "https://example.test",
+        "/subpath/api/v4/teams/workspace/commands/autocomplete_suggestions",
+        { user_input: root.userInput, channel_id: "channel" },
+        "",
+      ],
+    ],
+  );
+});

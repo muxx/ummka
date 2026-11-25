@@ -170,5 +170,17 @@
     "path": "/api/v4/commands/execute",
     "id": "ExecuteCommand",
     "body": "json"
+  },
+  {
+    "file": "commands.yaml",
+    "method": "GET",
+    "path": "/api/v4/teams/{team_id}/commands/autocomplete",
+    "id": "ListAutocompleteCommands"
+  },
+  {
+    "file": "commands.yaml",
+    "method": "GET",
+    "path": "/api/v4/teams/{team_id}/commands/autocomplete_suggestions",
+    "id": "ListCommandAutocompleteSuggestions"
   }
 ]

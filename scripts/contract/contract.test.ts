@@ -19,6 +19,10 @@ import catalog from "../../contracts/mattermost/operations.json" with {
 };
 import { correctAuthentication } from "./authentication-corrections.ts";
 import {
+  autocompleteCommand,
+  correctAutocomplete,
+} from "./command-autocomplete.ts";
+import {
   correctCommandResponse,
   correctExecuteCommand,
 } from "./command-corrections.ts";
@@ -26,7 +30,7 @@ import {
   correctHistoryQuery,
   correctHistorySchema,
 } from "./history-corrections.ts";
-import { object } from "./objects.ts";
+import { type Fields, object } from "./objects.ts";
 import {
   checkPostInfoOperation,
   postInfoSchema,
@@ -154,6 +158,7 @@ const definitionPaths = [
   ["components", "schemas", "TeamMember"],
   ["components", "schemas", "Role"],
   ["components", "schemas", "CommandResponse"],
+  ["components", "schemas", "AutocompleteSuggestion"],
   ["components", "schemas", "Channel"],
   ["components", "schemas", "ChannelMember"],
   ["components", "schemas", "ChannelNotifyProps"],
@@ -206,6 +211,106 @@ test("rechecks both tagged command contracts when the request or response defini
     assert.throws(
       () => correctCommandResponse(baseline, next),
       /Review CommandResponse/,
+    );
+  }
+});
+
+test("detects suggestion field drift in either pinned definition before generating the client", () => {
+  for (const file of ["definitions.yaml", "definitions-12.1.0.yaml"]) {
+    for (const mutate of [
+      (fields: Fields) => {
+        delete fields.IconData;
+      },
+      (fields: Fields) => {
+        fields.Complete = { type: "integer" };
+      },
+      (fields: Fields) => {
+        fields.Additional = { type: "string" };
+      },
+    ]) {
+      assert.throws(
+        () =>
+          buildSpecification((name) => {
+            const spec = read(name);
+            if (name === file)
+              mutate(
+                object(
+                  at(spec, [
+                    "components",
+                    "schemas",
+                    "AutocompleteSuggestion",
+                    "properties",
+                  ]),
+                  file,
+                ),
+              );
+            return spec;
+          }),
+        /Review AutocompleteSuggestion/,
+      );
+    }
+  }
+});
+
+test("guards both tagged sources of command suggestions and exposes the picker fields", () => {
+  const route = "/api/v4/teams/{team_id}/commands/autocomplete_suggestions";
+  const keys = [
+    "id",
+    "trigger",
+    "display_name",
+    "auto_complete",
+    "auto_complete_hint",
+    "auto_complete_desc",
+    "icon_url",
+    "autocomplete_icon_data",
+  ];
+  assert.deepEqual(
+    Object.keys(
+      object(
+        at(contract, [
+          "components",
+          "schemas",
+          "AutocompleteCommand",
+          "properties",
+        ]),
+        "command picker",
+      ),
+    ).sort(),
+    keys.sort(),
+  );
+  for (const tag of ["original", "newer"]) {
+    const base = read("commands.yaml");
+    const newer = read("commands-12.1.0.yaml");
+    const op = object(at(base, [route, "get"]), route);
+    const changed = at(tag === "original" ? base : newer, [
+      route,
+      "get",
+      "parameters",
+    ]);
+    assert.ok(Array.isArray(changed));
+    changed.push({ name: "root_id", in: "query", schema: { type: "string" } });
+    assert.throws(
+      () => correctAutocomplete(op, newer, route),
+      /Review autocomplete/,
+    );
+    const definitions = read("definitions.yaml");
+    const next = read("definitions-12.1.0.yaml");
+    object(
+      at(tag === "original" ? definitions : next, [
+        "components",
+        "schemas",
+        "Command",
+        "properties",
+      ]),
+      "fields",
+    ).autocomplete_icon_data = { type: "string" };
+    assert.throws(
+      () =>
+        autocompleteCommand(
+          object(at(definitions, ["components", "schemas"]), "v10 schemas"),
+          next,
+        ),
+      /Review Command.autocomplete_icon_data/,
     );
   }
 });
@@ -428,6 +533,15 @@ test("retains the catalog operations, security and transitive models", () => {
       expected = correctCreatePost(source, read("posts-12.1.0.yaml"));
     if (path === "/api/v4/posts/{post_id}/patch")
       expected = correctPatchPost(source, read("posts-12.1.0.yaml"));
+    if (
+      source.operationId === "ListAutocompleteCommands" ||
+      source.operationId === "ListCommandAutocompleteSuggestions"
+    )
+      expected = correctAutocomplete(
+        source,
+        read("commands-12.1.0.yaml"),
+        path,
+      );
     if (source.operationId === "ExecuteCommand")
       expected = correctExecuteCommand(source, read("commands-12.1.0.yaml"));
     if (source.operationId === "GetRolesByNames")
@@ -476,6 +590,8 @@ test("retains the catalog operations, security and transitive models", () => {
     ).sort(),
     [
       "AppError",
+      "AutocompleteCommand",
+      "AutocompleteSuggestion",
       "Channel",
       "ChannelMember",
       "ChannelNotifyProps",

@@ -148,6 +148,14 @@ const validAttachment: object | undefined = attachment;
 commands.executeCommand({ executeCommandRequest: { command: "/help" } });
 // @ts-expect-error The server determines the caller from the session.
 commands.executeCommand({ executeCommandRequest: { channelId: "dm", command: "/help", userId: "other" } });
+const commandChoices = await commands.listAutocompleteCommands({ teamId: "workspace" });
+commandChoices[0]?.autocompleteIconData satisfies string | undefined;
+// @ts-expect-error The command picker exposes only fields needed by its user.
+commandChoices[0]?.token;
+const suggestions = await commands.listCommandAutocompleteSuggestions({ teamId: "workspace", userInput: "/he", channelId: "dm", rootId: "root" });
+suggestions[0]?.suggestion satisfies string | undefined;
+// @ts-expect-error The user input must be present in a suggestion request.
+commands.listCommandAutocompleteSuggestions({ teamId: "workspace" });
 declare const preferences: PreferencesApi;
 const sidebar = await channels.getSidebarCategoriesForTeamForUser({ userId: "me", teamId: "team" });
 sidebar.order satisfies string[] | undefined;

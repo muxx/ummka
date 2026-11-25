@@ -1,4 +1,6 @@
 export * from './AppError.js';
+export * from './AutocompleteCommand.js';
+export * from './AutocompleteSuggestion.js';
 export * from './Channel.js';
 export * from './ChannelMember.js';
 export * from './ChannelNotifyProps.js';

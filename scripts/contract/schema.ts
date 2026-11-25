@@ -9,6 +9,11 @@ import catalog from "../../contracts/mattermost/operations.json" with {
 };
 import { correctAuthentication } from "./authentication-corrections.ts";
 import {
+  autocompleteCommand,
+  checkAutocompleteSuggestion,
+  correctAutocomplete,
+} from "./command-autocomplete.ts";
+import {
   correctCommandResponse,
   correctExecuteCommand,
 } from "./command-corrections.ts";
@@ -104,6 +109,13 @@ export function buildSpecification(
       visit(group[name]);
       return;
     }
+    if (kind === "schemas" && name === "AutocompleteCommand") {
+      group[name] = autocompleteCommand(
+        upstream,
+        read("definitions-12.1.0.yaml"),
+      );
+      return;
+    }
     if (!Object.hasOwn(upstream, name))
       throw new Error(`Missing component ${kind}/${name}`);
     const source = object(upstream[name], `components/${kind}/${name}`);
@@ -113,6 +125,11 @@ export function buildSpecification(
     else if (name === "Channel")
       group[name] = correctChannelSharing(
         correctSidebarSchema(name, correctHistorySchema(name, source)),
+        read("definitions-12.1.0.yaml"),
+      );
+    else if (name === "AutocompleteSuggestion")
+      group[name] = checkAutocompleteSuggestion(
+        source,
         read("definitions-12.1.0.yaml"),
       );
     else if (name === "CommandResponse")
@@ -206,6 +223,15 @@ export function buildSpecification(
       paths[path][method] = correctBulkChannelView(
         operation,
         read("channels.yaml"),
+        path,
+      );
+    else if (
+      id === "ListAutocompleteCommands" ||
+      id === "ListCommandAutocompleteSuggestions"
+    )
+      paths[path][method] = correctAutocomplete(
+        operation,
+        read("commands-12.1.0.yaml"),
         path,
       );
     else if (id === "ExecuteCommand")
