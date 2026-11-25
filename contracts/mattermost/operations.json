@@ -164,6 +164,18 @@
     "id": "GetPostsForChannel"
   },
   {
+    "file": "channels.yaml",
+    "method": "GET",
+    "path": "/api/v4/channels/{channel_id}/pinned",
+    "id": "GetPinnedPosts"
+  },
+  {
+    "file": "posts.yaml",
+    "method": "GET",
+    "path": "/api/v4/users/{user_id}/posts/flagged",
+    "id": "GetFlaggedPostsForUser"
+  },
+  {
     "file": "posts.yaml",
     "method": "GET",
     "path": "/api/v4/posts/{post_id}",

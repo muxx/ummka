@@ -327,6 +327,8 @@ export async function startFixture(dir: string) {
           "users/me/teams/Team0123456789012345678901/channels/categories",
           "users/me/preferences",
           "channels/Channel0123456789012345678/posts?page=0&per_page=60&collapsedThreads=true",
+          "channels/Channel0123456789012345678/pinned",
+          "users/me/posts/flagged?page=1&per_page=60",
           "posts/Post0123456789012345678901/info",
           "posts/Post0123456789012345678901/thread?direction=down&perPage=1",
         ].map((route) => ({

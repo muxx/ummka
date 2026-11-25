@@ -7,6 +7,7 @@ import { ChannelNotifyPropsToJSON, } from '../models/ChannelNotifyProps.js';
 import { ChannelStatsFromJSON, } from '../models/ChannelStats.js';
 import { MarkChannelsReadForUser200ResponseFromJSON, } from '../models/MarkChannelsReadForUser200Response.js';
 import { OrderedSidebarCategoriesFromJSON, } from '../models/OrderedSidebarCategories.js';
+import { PostListFromJSON, } from '../models/PostList.js';
 import { StatusOKFromJSON, } from '../models/StatusOK.js';
 import { ViewChannel200ResponseFromJSON, } from '../models/ViewChannel200Response.js';
 import { ViewChannelRequestToJSON, } from '../models/ViewChannelRequest.js';
@@ -328,6 +329,37 @@ export class ChannelsApi extends runtime.BaseAPI {
     }
     async getChannelsForTeamForUser(requestParameters, initOverrides) {
         const response = await this.getChannelsForTeamForUserRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async getPinnedPostsRequestOpts(requestParameters) {
+        if (requestParameters['channelId'] == null) {
+            throw new runtime.RequiredError('channelId', 'Required parameter "channelId" was null or undefined when calling getPinnedPosts().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/channels/{channel_id}/pinned`;
+        urlPath = urlPath.replace('{channel_id}', encodeURIComponent(String(requestParameters['channelId'])));
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async getPinnedPostsRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.getPinnedPostsRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => PostListFromJSON(jsonValue));
+    }
+    async getPinnedPosts(requestParameters, initOverrides) {
+        const response = await this.getPinnedPostsRaw(requestParameters, initOverrides);
         return await response.value();
     }
     async getSidebarCategoriesForTeamForUserRequestOpts(requestParameters) {

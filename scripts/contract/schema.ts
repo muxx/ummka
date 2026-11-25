@@ -37,6 +37,7 @@ import {
   correctGroupAudienceResponse,
 } from "./group-audience-correction.ts";
 import {
+  correctFlaggedPosts,
   correctHistoryQuery,
   correctHistorySchema,
 } from "./history-corrections.ts";
@@ -301,6 +302,11 @@ export function buildSpecification(
         operation,
         read("posts-12.1.0.yaml"),
         path,
+      );
+    else if (id === "GetFlaggedPostsForUser")
+      paths[path][method] = correctFlaggedPosts(
+        operation,
+        read("posts-12.1.0.yaml"),
       );
     else if (id === "GetPost")
       paths[path][method] = correctSinglePost(
