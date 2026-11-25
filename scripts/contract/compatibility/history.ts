@@ -33,6 +33,7 @@ import {
   checkEmptyTeamDirectory,
   checkNavigationMemberships,
 } from "./memberships.ts";
+import { checkMentionLimit } from "./mention-limit.ts";
 import {
   checkPostMutations,
   checkPreviouslyAcceptedPost,
@@ -789,6 +790,18 @@ await checkPreviouslyAcceptedPost(
       headers: authorization,
     }),
   version,
+);
+
+await checkMentionLimit(
+  base,
+  token,
+  closedReader,
+  posts,
+  channelId,
+  readerLogin.login_id,
+);
+console.log(
+  `Mattermost ${version} verified the channel notification limit against real member counts.`,
 );
 
 const secondLogin = await create("users/login", {
