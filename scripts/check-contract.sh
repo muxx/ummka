@@ -24,6 +24,11 @@ download() {
     sh scripts/contract/download-verified.sh "$cache/$1" "$2" "$3"
 }
 
+emoji_source=webapp/channels/src/utils/emoji.json
+download emoji-10.10.1.json "https://raw.githubusercontent.com/mattermost/mattermost/$revision/$emoji_source" 1466dd6147bbcb1f1fd707bc81a7e20cbdc1a4e45124979aa90357ff30461ba3
+download emoji-12.1.0.json "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/$emoji_source" d38702de0ed432b68c00dfb94bb678c66a3c5f0f3541943debdcd63199f8d08c
+npm run contract:emoji -- "$cache/emoji-10.10.1.json" "$cache/emoji-12.1.0.json" "$work/emoji.json"
+
 download introduction.yaml "$upstream/introduction.yaml" 4b3786cc86ec1097c29f5b1bea8e9a32d09c4ddb6244140ec094425b6fdc5e09
 download system.yaml "$upstream/system.yaml" 10e9e11b14d34d30a661474269f69220f8ebdb05db64cd53e30cb199a665ae8e
 download users.yaml "$upstream/users.yaml" 20d0c9cf9631682f3461c7b13a521321dbd2aa605b60922404183ec2735e8f28
@@ -244,9 +249,15 @@ UMMKA_CONTRACT_SOURCES="$cache" UMMKA_CONTRACT_WORK="$work" npm run contract:tes
 bindings=vendor/mattermost
 native_bindings=vendor/mattermost-native
 if [ "${1-}" = "--write-bindings" ]; then
+    mkdir -p vendor/emoji
+    cp "$work/emoji.json" vendor/emoji/standard.json
     mkdir -p "$bindings" "$native_bindings"
     rsync --recursive --checksum --delete-after --delay-updates "$work/compiled/" "$bindings/"
     rsync --recursive --checksum --delete-after --delay-updates "$work/native/src/models/" "$native_bindings/"
+fi
+if ! cmp "$work/emoji.json" vendor/emoji/standard.json; then
+    echo 'The emoji directory differs. Run make generate-bindings and review the changes.' >&2
+    exit 1
 fi
 if ! diff -qr "$work/compiled" "$bindings" || ! diff -qr "$work/native/src/models" "$native_bindings"; then
     echo 'Mattermost bindings differ. Run make generate-bindings and review the changes.' >&2
