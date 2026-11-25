@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openNativeRestConnection } from "../../src/mattermost/native-rest.ts";
+import { findStandardEmoji } from "../../src/mattermost/standard-emoji.ts";
 import { checkAppearance } from "./appearance.ts";
 import { checkBrowserAction } from "./browser-action.ts";
 import { checkChannelTimeline } from "./channel-timeline.tsx";
@@ -63,6 +64,8 @@ async function checkResources() {
   if (checkAppearance()) return;
   if (await resumeRegistryCheck()) return;
   if (await finishExchangesAfterReload()) {
+    if (findStandardEmoji("thumbsup")?.glyph !== "👍")
+      throw Error("standard-emoji-directory");
     await checkChannelsFrame();
     checkChannelTimeline();
     const ports = String(import.meta.env.VITE_UMMKA_CHECK_PORTS).split(",");

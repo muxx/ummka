@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   copyFileSync,
   existsSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
@@ -1895,5 +1897,75 @@ test("pins exact custom emoji lookup and all six serialized fields on both versi
       () => correctCustomEmoji(object(at(old, model), "Emoji"), next),
       /Review Emoji/,
     );
+  }
+});
+
+test("restored contract inputs must match their pins before generation", () => {
+  assert.ok(work);
+  const directory = mkdtempSync(join(work, "cache-test-"));
+  const target = join(directory, "schema.yaml");
+  const origin = join(directory, "upstream.yaml");
+  const digest = (content: string) =>
+    createHash("sha256").update(content).digest("hex");
+  const fetchPin = (content: string) =>
+    spawnSync(
+      "sh",
+      [
+        fileURLToPath(new URL("./download-verified.sh", import.meta.url)),
+        target,
+        pathToFileURL(origin).href,
+        digest(content),
+      ],
+      { encoding: "utf8" },
+    );
+  writeFileSync(target, "first pin");
+  assert.equal(fetchPin("first pin").status, 0); // Source is deliberately absent on a cache hit.
+  writeFileSync(origin, "new pin");
+  assert.equal(fetchPin("new pin").status, 0);
+  assert.equal(readFileSync(target, "utf8"), "new pin");
+  writeFileSync(origin, "wrong bytes");
+  const refused = fetchPin("unavailable pin");
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /SHA-256 mismatch/);
+  assert.equal(readFileSync(target, "utf8"), "new pin");
+  assert.deepEqual(readdirSync(directory).sort(), [
+    "schema.yaml",
+    "upstream.yaml",
+  ]);
+});
+
+test("emoji compatibility checks reject changed aliases and duplicate names before replacing the directory", () => {
+  assert.ok(work);
+  const directory = mkdtempSync(join(work, "emoji-test-"));
+  const baseline = join(directory, "baseline.json");
+  const other = join(directory, "other.json");
+  const target = join(directory, "result.json");
+  const standard = {
+    short_name: "wave",
+    short_names: ["wave"],
+    unified: "1F44B",
+  };
+  const run = () =>
+    spawnSync(
+      process.execPath,
+      ["scripts/contract/standard-emoji.ts", baseline, other, target],
+      { encoding: "utf8" },
+    );
+  writeFileSync(baseline, JSON.stringify([standard]));
+  writeFileSync(
+    other,
+    JSON.stringify([{ ...standard, category: "extra upstream metadata" }]),
+  );
+  assert.equal(run().status, 0);
+  const original = readFileSync(target, "utf8");
+  assert.deepEqual(JSON.parse(original).rows, [["👋", "wave"]]);
+  for (const changed of [
+    [{ ...standard, short_names: ["wave", "greeting"] }],
+    [{ ...standard, unified: "ZZZZ" }],
+    [standard, standard],
+  ]) {
+    writeFileSync(other, JSON.stringify(changed));
+    assert.notEqual(run().status, 0);
+    assert.equal(readFileSync(target, "utf8"), original);
   }
 });
