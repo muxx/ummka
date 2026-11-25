@@ -86,6 +86,10 @@ const POST_ATTEMPT_V14: &str = include_str!("migrations/0014_post_attempt.sql");
 const ADD_CHANNEL_SHARED: &str =
     "ALTER TABLE sidebar_channel ADD COLUMN shared INTEGER CHECK (shared IN (0,1))";
 const SIDEBAR_CHANNEL_V16: &str = include_str!("migrations/0016_sidebar_channel_schema.sql");
+const ADD_JOINED_TEAM_GROUP_CONSTRAINED: &str = "ALTER TABLE joined_team ADD COLUMN group_constrained INTEGER CHECK (group_constrained IN (0,1))";
+const JOINED_TEAM_V19: &str = include_str!("migrations/0019_joined_team_schema.sql");
+const ADD_SIDEBAR_CHANNEL_GROUP_CONSTRAINED: &str = "ALTER TABLE sidebar_channel ADD COLUMN group_constrained INTEGER CHECK (group_constrained IN (0,1))";
+const SIDEBAR_CHANNEL_V19: &str = include_str!("migrations/0019_sidebar_channel_schema.sql");
 const TEAM_ROLE_SNAPSHOT: &str = include_str!("migrations/0015_team_role_snapshot.sql");
 const COPY_POST_ATTEMPTS: &str = "INSERT INTO post_attempt(pending_id,attempt,prior_uncertain,refusal_status,refusal_code,refusal_message)
     SELECT pending_id,attempt,prior_uncertain,refusal_status,refusal_code,refusal_message FROM old_post_attempt";
@@ -96,38 +100,44 @@ pub(super) struct Migration {
     pub(super) objects: &'static [&'static str],
 }
 
-const SHARED_CHANNEL_OBJECTS: &[&str] = &[
-    CREATE_OWNER,
-    CREATE_POSTS,
-    INDEX_REPLIES,
-    CREATE_DELETIONS,
-    WINDOWS,
-    WINDOW_POSTS,
-    NEIGHBORS,
-    RECENT,
-    ORDER,
-    TIES,
-    NEIGHBOR_ID,
-    NEWER_HINT,
-    OLDER_HINT,
-    TEAM_DIRECTORY,
-    JOINED_TEAMS_V13,
-    SELECTED_TEAM,
-    SIDEBAR_TEAM,
-    SIDEBAR_CHANNEL_V16,
-    SIDEBAR_CATEGORY,
-    SIDEBAR_ITEM,
-    SIDEBAR_ITEM_BY_CHANNEL,
-    CHANNEL_PROFILE,
-    PROFILE_BY_USERNAME,
-    WORKSPACE_SETTINGS,
-    COMPOSER_DRAFT_V12,
-    PENDING_POST,
-    PENDING_BY_CONVERSATION,
-    POST_CONFIRMATION,
-    POST_ATTEMPT_V14,
-    TEAM_ROLE_SNAPSHOT,
-];
+const fn directory_objects(
+    joined_teams: &'static str,
+    sidebar_channel: &'static str,
+) -> [&'static str; 30] {
+    [
+        CREATE_OWNER,
+        CREATE_POSTS,
+        INDEX_REPLIES,
+        CREATE_DELETIONS,
+        WINDOWS,
+        WINDOW_POSTS,
+        NEIGHBORS,
+        RECENT,
+        ORDER,
+        TIES,
+        NEIGHBOR_ID,
+        NEWER_HINT,
+        OLDER_HINT,
+        TEAM_DIRECTORY,
+        joined_teams,
+        SELECTED_TEAM,
+        SIDEBAR_TEAM,
+        sidebar_channel,
+        SIDEBAR_CATEGORY,
+        SIDEBAR_ITEM,
+        SIDEBAR_ITEM_BY_CHANNEL,
+        CHANNEL_PROFILE,
+        PROFILE_BY_USERNAME,
+        WORKSPACE_SETTINGS,
+        COMPOSER_DRAFT_V12,
+        PENDING_POST,
+        PENDING_BY_CONVERSATION,
+        POST_CONFIRMATION,
+        POST_ATTEMPT_V14,
+        TEAM_ROLE_SNAPSHOT,
+    ]
+}
+const SHARED_CHANNEL_OBJECTS: &[&str] = &directory_objects(JOINED_TEAMS_V13, SIDEBAR_CHANNEL_V16);
 
 pub(super) const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -558,6 +568,18 @@ pub(super) const MIGRATIONS: &[Migration] = &[
     Migration {
         statements: &[],
         objects: SHARED_CHANNEL_OBJECTS,
+    },
+    // Format 18 adds mention settings to the strict server policy JSON.
+    Migration {
+        statements: &[],
+        objects: SHARED_CHANNEL_OBJECTS,
+    },
+    Migration {
+        statements: &[
+            ADD_JOINED_TEAM_GROUP_CONSTRAINED,
+            ADD_SIDEBAR_CHANNEL_GROUP_CONSTRAINED,
+        ],
+        objects: &directory_objects(JOINED_TEAM_V19, SIDEBAR_CHANNEL_V19),
     },
 ];
 

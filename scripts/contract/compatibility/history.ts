@@ -26,13 +26,17 @@ import {
   allowFixtureBrowserSignIn,
   checkBrowserSignIn,
 } from "./browser-sign-in.ts";
+import { checkChannelAudience } from "./channel-audience.ts";
 import { checkCommands } from "./commands.ts";
+import { checkEventStream } from "./event-stream.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
 import {
   checkChannelRoster,
   checkEmptyTeamDirectory,
   checkNavigationMemberships,
 } from "./memberships.ts";
+import { checkMentionLimit } from "./mention-limit.ts";
+import { checkMentionText } from "./mention-text.ts";
 import {
   checkPostMutations,
   checkPreviouslyAcceptedPost,
@@ -280,6 +284,17 @@ assert.equal(closedMember.userId, user.id);
 assert.equal(closedMember.channelId, closed.id);
 const closedReader = new ChannelsApi(
   new Configuration({ basePath: base, accessToken: readerToken }),
+);
+await checkChannelAudience(
+  base,
+  team.id,
+  { id: dm.id, postId: dmPost.id },
+  closed.id,
+  { id: user.id, token },
+  { id: reader.id, token: readerToken },
+);
+console.log(
+  `Mattermost ${version} verified channel audience counts, timezones and private channel access.`,
 );
 await checkChannelRoster(closedReader, closed.id, dm.id, [user.id, reader.id]);
 await assert.rejects(
@@ -565,6 +580,8 @@ await checkSidebarCounters(
 console.log(
   `Mattermost ${version} verified root and reply counters through a channel view.`,
 );
+// The earlier non-member checks use this private channel before the reader joins.
+await create(`channels/${closed.id}/members`, { user_id: reader.id }, token);
 await checkSidebarReads(
   base,
   readerToken,
@@ -573,6 +590,7 @@ await checkSidebarReads(
   team.id,
   channelId,
   dm.id,
+  closed.id,
 );
 console.log(
   `Mattermost ${version} verified personal sidebar categories, order, flags, preferences and ownership.`,
@@ -761,6 +779,33 @@ await checkProfileReads(
 
 await checkPostMutations(base, posts, channelId, user.id, version);
 await checkCommands(session, team.id, channelId, version);
+// A self-join avoids the membership notification produced when somebody adds the reader.
+const mentionRoom = await (
+  await create(
+    "channels",
+    {
+      team_id: team.id,
+      name: "mention-text",
+      display_name: "Mention text",
+      type: "O",
+    },
+    token,
+  )
+).json();
+await create(
+  `channels/${mentionRoom.id}/members`,
+  { user_id: reader.id },
+  readerToken,
+);
+await checkMentionText(
+  posts,
+  closedReader,
+  mentionRoom.id,
+  readerLogin.login_id,
+);
+console.log(
+  `Mattermost ${version} verified channel mentions against a second member’s counters.`,
+);
 const receiptRoom = await (
   await create(
     "channels",
@@ -789,6 +834,23 @@ await checkPreviouslyAcceptedPost(
       headers: authorization,
     }),
   version,
+);
+
+await checkMentionLimit(
+  base,
+  token,
+  closedReader,
+  posts,
+  channelId,
+  readerLogin.login_id,
+);
+console.log(
+  `Mattermost ${version} verified the channel notification limit against real member counts.`,
+);
+
+await checkEventStream(base, token, session, team.id, channelId);
+console.log(
+  `Mattermost ${version} verified sequenced posts, command replies and replay of a post after reconnect.`,
 );
 
 const secondLogin = await create("users/login", {

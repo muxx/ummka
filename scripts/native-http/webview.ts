@@ -8,6 +8,8 @@ import { json } from "node:stream/consumers";
 import { respondToAccount } from "./account.ts";
 import { respondToChannelMembers } from "./channel-members.ts";
 import { respondToChannelView } from "./channel-view.ts";
+import { respondToGroupAssociations } from "./group-associations.ts";
+import { respondToGroupAudience } from "./group-audience.ts";
 import { respondToHistory } from "./history.ts";
 import { historyRefreshFixture } from "./history-refresh.ts";
 import { respondToPostContext } from "./post-context.ts";
@@ -69,7 +71,9 @@ export function webviewServers(
       "/api/v4/users/me/teams",
       {
         name: "my-teams",
-        body: [{ id: teamId, display_name: "Fixture Team" }],
+        body: [
+          { id: teamId, display_name: "Fixture Team", group_constrained: true },
+        ],
       },
     ],
     [
@@ -81,6 +85,7 @@ export function webviewServers(
             id: teamId,
             name: "fixture",
             display_name: "Fixture Team",
+            group_constrained: true,
             delete_at: 0,
           },
         ],
@@ -108,7 +113,14 @@ export function webviewServers(
       `/team/chat/api/v4/users/me/teams/${teamId}/channels?include_deleted=false&last_delete_at=123`,
       {
         name: "team-channels",
-        body: [{ id: channelId, team_id: teamId, name: "town-square" }],
+        body: [
+          {
+            id: channelId,
+            team_id: teamId,
+            name: "town-square",
+            group_constrained: true,
+          },
+        ],
       },
     ],
     [
@@ -204,6 +216,7 @@ export function webviewServers(
             display_name: "Town Square",
             delete_at: 0,
             create_at: 90,
+            group_constrained: true,
             last_root_post_at: 300,
             shared: true,
           },
@@ -366,6 +379,117 @@ export function webviewServers(
       visits.push(account);
       return;
     }
+    if (
+      url.pathname === "/team/chat/api/v4/groups" ||
+      url.pathname === "/api/v4/groups"
+    ) {
+      const prefixed = url.pathname.startsWith("/team/chat/");
+      assert.equal(req.method, "GET");
+      assert.equal(req.headers.cookie, undefined);
+      assert.equal(
+        req.headers.authorization,
+        prefixed
+          ? "Bearer fixture-prefixed-session"
+          : "Bearer fixture-root-session",
+      );
+      assert.deepEqual(
+        Object.fromEntries(url.searchParams),
+        prefixed
+          ? {
+              q: "release qa",
+              page: "0",
+              per_page: "60",
+              filter_allow_reference: "true",
+              include_member_count: "true",
+            }
+          : { q: "absent", filter_allow_reference: "true" },
+      );
+      const result = prefixed
+        ? [
+            {
+              id: "g".repeat(26),
+              name: "release-qa",
+              display_name: "Release QA",
+              source: "custom",
+              remote_id: null,
+              allow_reference: true,
+              member_count: 7,
+            },
+            {
+              id: "h".repeat(26),
+              name: "qa",
+              display_name: "Release QA Directory",
+              source: "ldap",
+              remote_id: "directory-record",
+              allow_reference: true,
+              member_count: 3,
+            },
+          ]
+        : [];
+      visits.push(prefixed ? "group-directory-page" : "group-directory-empty");
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end(JSON.stringify(result));
+      return;
+    }
+    const associations = respondToGroupAssociations(
+      req,
+      res,
+      url,
+      teamId,
+      channelId,
+    );
+    if (associations) {
+      visits.push(associations);
+      return;
+    }
+    const groupAudience = respondToGroupAudience(req, res, url, channelId);
+    if (groupAudience) {
+      visits.push(groupAudience);
+      return;
+    }
+    if (url.pathname === `/team/chat/api/v4/channels/${channelId}/timezones`) {
+      assert.equal(req.method, "GET");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      assert.equal(url.search, "");
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end(JSON.stringify(["Europe/Moscow", "Asia/Tokyo"]));
+      visits.push("broadcast-timezones");
+      return;
+    }
+    const stats =
+      url.pathname === `/team/chat/api/v4/channels/${channelId}/stats`;
+    if (stats || url.pathname === `/api/v4/channels/${channelId}/timezones`) {
+      assert.equal(req.method, "GET");
+      assert.equal(req.headers.cookie, undefined);
+      assert.equal(
+        req.headers.authorization,
+        stats
+          ? "Bearer fixture-prefixed-session"
+          : "Bearer fixture-root-session",
+      );
+      assert.equal(url.search, stats ? "?exclude_files_count=true" : "");
+      res.writeHead(200, { "Content-Type": "application/json" }).end(
+        JSON.stringify(
+          stats
+            ? {
+                channel_id: channelId,
+                member_count: 30,
+                guest_count: 3,
+                pinnedpost_count: 5,
+                files_count: -1,
+              }
+            : null,
+        ),
+      );
+      visits.push(stats ? "channel-stats" : "channel-timezones");
+      return;
+    }
     const member = await respondToChannelMembers(
       req,
       res,
@@ -505,11 +629,19 @@ export function webviewServers(
             ? {
                 CollapsedThreads: "always_on",
                 FeatureFlagEnableSharedChannelsDMs: "true",
+                EnableConfirmNotificationsToChannel: "false",
+                MaxNotificationsPerChannel: "9223372036854775807",
+                EnableCustomGroups: "true",
                 TeammateNameDisplay: "full_name",
                 LockTeammateNameDisplay: "true",
                 Unrelated: "ignored",
               }
-            : { LockTeammateNameDisplay: "true", Company: "ignored" },
+            : {
+                LockTeammateNameDisplay: "true",
+                IsLicensed: "true",
+                LDAPGroups: "true",
+                Company: "ignored",
+              },
         ),
       );
       return;
@@ -720,6 +852,20 @@ export function webviewServers(
         "delete-post",
         "bulk-channel-view",
         "single-channel-view",
+        "channel-stats",
+        "channel-stats",
+        "broadcast-timezones",
+        "channel-timezones",
+        "team-group-associations-all",
+        "team-group-associations-empty",
+        "channel-group-associations-all",
+        "channel-group-associations-all",
+        "channel-group-associations-empty",
+        "group-directory-page",
+        "group-directory-empty",
+        "group-audience-empty",
+        "group-audience-timezones",
+        "group-audience-timezones",
         "member-self",
         "member-id",
         "members-page",

@@ -25,6 +25,12 @@ fn policy() -> ServerPolicy {
         name_format: NameFormat::FullName,
         lock_name_format: true,
         shared_channel_dms: Some(true),
+        mentions: Some(MentionSettings {
+            confirm_notifications: true,
+            max_notifications_per_channel: i64::MAX.to_string(),
+            custom_groups: false,
+            ldap_groups: true,
+        }),
     }
 }
 fn preferences() -> SidebarPreferences {
@@ -43,6 +49,7 @@ fn team() -> DirectoryTeam {
         display_name: "North".into(),
         preference_rank: None,
         roles: Some("team_user".into()),
+        group_constrained: None,
     }
 }
 
@@ -180,6 +187,63 @@ fn accepts_only_known_settings_and_indexes_an_owner_lookup() {
         Ok(())
     })
     .unwrap();
+}
+
+#[test]
+fn v17_keeps_unknown_mention_policy_until_refresh_and_protects_the_new_format() {
+    let root = tempdir().unwrap();
+    let v17 = &MIGRATIONS[..17];
+    let mut old = HistoryDatabase::open_with(root.path(), URL, v17).unwrap();
+    let owner = old.restore(&account()).unwrap();
+    let mut legacy = policy();
+    legacy.mentions = None;
+    let saved = serde_json::to_string(&legacy).unwrap();
+    old.write(&owner, |tx| {
+        tx.execute("INSERT INTO workspace_settings(owner,server) VALUES(1,?1)", [&saved])?;
+        tx.execute("INSERT INTO composer_draft(channel_id,root_id,message,revision) VALUES(?1,'','preserved',lower(hex(randomblob(16))))", [OTHER])?;
+        Ok(())
+    }).unwrap();
+    let mut db = open(root.path());
+    assert_eq!(db.read_workspace_settings().unwrap().server, Some(legacy));
+    let load = db.begin_server_policy_load().unwrap();
+    assert!(db.store_server_policy(load, &policy()).unwrap());
+    assert_eq!(
+        old.write(&owner, |tx| tx
+            .execute("DELETE FROM workspace_settings", [])),
+        Err(HistoryError::UnsupportedSchema)
+    );
+    drop(db);
+    assert!(matches!(
+        HistoryDatabase::open_with(root.path(), URL, v17),
+        Err(HistoryError::UnsupportedSchema)
+    ));
+    let mut reopened = open(root.path());
+    assert_eq!(
+        reopened.read_workspace_settings().unwrap().server,
+        Some(policy())
+    );
+    assert_eq!(
+        reopened.read_draft(OTHER, None).unwrap().message,
+        "preserved"
+    );
+}
+
+#[test]
+fn invalid_mention_limits_never_replace_the_last_policy() {
+    let root = tempdir().unwrap();
+    let mut db = open(root.path());
+    let load = db.begin_server_policy_load().unwrap();
+    assert!(db.store_server_policy(load, &policy()).unwrap());
+    for invalid in ["0", "-1", "+20", "01", "2x", "9223372036854775808"] {
+        let mut bad = policy();
+        bad.mentions.as_mut().unwrap().max_notifications_per_channel = invalid.into();
+        let next = db.begin_server_policy_load().unwrap();
+        assert_eq!(
+            db.store_server_policy(next, &bad),
+            Err(HistoryError::InvalidDirectory)
+        );
+        assert_eq!(db.read_workspace_settings().unwrap().server, Some(policy()));
+    }
 }
 
 #[test]

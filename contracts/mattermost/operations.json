@@ -63,6 +63,24 @@
   {
     "file": "channels.yaml",
     "method": "GET",
+    "path": "/api/v4/channels/{channel_id}/stats",
+    "id": "GetChannelStats"
+  },
+  {
+    "file": "channels.yaml",
+    "method": "GET",
+    "path": "/api/v4/channels/{channel_id}/timezones",
+    "id": "GetChannelMembersTimezones"
+  },
+  {
+    "file": "channels.yaml",
+    "method": "GET",
+    "path": "/api/v4/channels/{channel_id}/member_counts_by_group",
+    "id": "GetChannelMemberCountsByGroup"
+  },
+  {
+    "file": "channels.yaml",
+    "method": "GET",
     "path": "/api/v4/channels/{channel_id}/members",
     "id": "GetChannelMembers"
   },
@@ -182,5 +200,23 @@
     "method": "GET",
     "path": "/api/v4/teams/{team_id}/commands/autocomplete_suggestions",
     "id": "ListCommandAutocompleteSuggestions"
+  },
+  {
+    "file": "groups.yaml",
+    "method": "GET",
+    "path": "/api/v4/groups",
+    "id": "GetGroups"
+  },
+  {
+    "file": "groups.yaml",
+    "method": "GET",
+    "path": "/api/v4/teams/{team_id}/groups",
+    "id": "GetGroupsByTeam"
+  },
+  {
+    "file": "groups.yaml",
+    "method": "GET",
+    "path": "/api/v4/teams/{team_id}/groups_by_channels",
+    "id": "GetGroupsAssociatedToChannelsByTeam"
   }
 ]

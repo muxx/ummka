@@ -18,27 +18,16 @@ generator=openapi-generator-cli-7.27.0.jar
 cache=".check-tools/mattermost-contract/$version"
 mkdir -p "$cache" artifacts
 work=$(mktemp -d artifacts/.contract.XXXXXXXX)
-partial=''
-trap 'rm -rf "$work"; if [ -n "$partial" ]; then rm -f "$partial"; fi' EXIT
-
+trap 'rm -rf "$work"' EXIT
+trap 'exit 1' HUP INT TERM
 download() {
-    target="$cache/$1"
-    candidate="$target"
-    if [ ! -f "$target" ]; then
-        partial=$(mktemp "$cache/.download.XXXXXXXX")
-        candidate="$partial"
-        printf 'Downloading %s\n' "$1"
-        curl -fsSL --retry 3 --max-time 300 "$2" -o "$candidate"
-    fi
-    if ! printf '%s  %s\n' "$3" "$candidate" | shasum -a 256 --check --status; then
-        echo "SHA-256 mismatch for $1" >&2
-        exit 1
-    fi
-    if [ -n "$partial" ]; then
-        mv "$partial" "$target"
-        partial=''
-    fi
+    sh scripts/contract/download-verified.sh "$cache/$1" "$2" "$3"
 }
+
+emoji_source=webapp/channels/src/utils/emoji.json
+download emoji-10.10.1.json "https://raw.githubusercontent.com/mattermost/mattermost/$revision/$emoji_source" 1466dd6147bbcb1f1fd707bc81a7e20cbdc1a4e45124979aa90357ff30461ba3
+download emoji-12.1.0.json "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/$emoji_source" d38702de0ed432b68c00dfb94bb678c66a3c5f0f3541943debdcd63199f8d08c
+npm run contract:emoji -- "$cache/emoji-10.10.1.json" "$cache/emoji-12.1.0.json" "$work/emoji.json"
 
 download introduction.yaml "$upstream/introduction.yaml" 4b3786cc86ec1097c29f5b1bea8e9a32d09c4ddb6244140ec094425b6fdc5e09
 download system.yaml "$upstream/system.yaml" 10e9e11b14d34d30a661474269f69220f8ebdb05db64cd53e30cb199a665ae8e
@@ -46,6 +35,8 @@ download users.yaml "$upstream/users.yaml" 20d0c9cf9631682f3461c7b13a521321dbd2a
 download teams.yaml "$upstream/teams.yaml" dc0723e5164d19b5d147ee9133db170fb83eedb3b884e320cd58ee36435cd3b3
 download roles.yaml "$upstream/roles.yaml" 6869450fda52c0b2e06dd228cef1e08c309e35493e15fbdda604e35db9593258
 download roles-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/roles.yaml" 6869450fda52c0b2e06dd228cef1e08c309e35493e15fbdda604e35db9593258
+download groups.yaml "$upstream/groups.yaml" 728ea0e63e5e996f0f8b13d450a695ced4d09adddfb8571e884c89cc456079bb
+download groups-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/groups.yaml" dfd8365bd2bf490a4857663ed2ec1cab9d6889665423abe1b4a9d7d244777f67
 download commands.yaml "$upstream/commands.yaml" 91517ad53a1d46cf2cbeaa5143865d12cdce9e20997f1bc84e74c98908578f25
 download commands-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/commands.yaml" 2ed01e423ff689cc230d0d049b2c9c92bb791b879bfcc7ca93a3bd3cc6d5b8d7
 download channels.yaml "$upstream/channels.yaml" 34282bb7db184ae792493b97b384f9b47c0789d9f8dce7527cb2f3df9c09f9b3
@@ -68,11 +59,13 @@ npm run contract:build -- "$cache" "$work/openapi.json" "$work/native-auth.json"
     --type-mappings 'string+password=models::SecretInput'
 rustfmt --edition 2024 "$work/native/src/models/login_request.rs"
 mkdir "$work/templates"
-for template in apis.mustache apisReturnType.mustache; do
+for template in apis.mustache apisReturnType.mustache modelGeneric.mustache; do
     unzip -p "$cache/$generator" "typescript-fetch/$template" > "$work/templates/$template"
 done
 # Pinned typescript-fetch otherwise drops nullable on a top-level array response.
 patch -s -F 0 -p1 -d "$work/templates" < contracts/mattermost/nullable-array.patch
+# Convert the models inside array-valued response dictionaries in both directions.
+patch -s -F 0 -p1 -d "$work/templates" < contracts/mattermost/model-array-map.patch
 "$JAVA_HOME/bin/java" -jar "$cache/$generator" generate -g typescript-fetch \
     -i "$work/openapi.json" -o "$work/client" -t "$work/templates" --additional-properties=importFileExtension=.js
 strict_tsc() {
@@ -122,6 +115,33 @@ const badCursor: GetPostThreadRequest = { postId: "a-post-id", fromCreateAt: "12
 declare const page: PostList;
 import type { ChannelsApi, Preference, PreferencesApi } from "./compiled/index.js";
 declare const channels: ChannelsApi;
+const groupCounts = await channels.getChannelMemberCountsByGroup({ channelId: "room", includeTimezones: true });
+for (const group of groupCounts) {
+    group.groupId satisfies string;
+    group.channelMemberCount satisfies number;
+    group.channelMemberTimezonesCount satisfies number;
+}
+const stats = await channels.getChannelStats({ channelId: "room", excludeFilesCount: true });
+stats.channelId satisfies string;
+stats.memberCount satisfies number;
+stats.guestCount satisfies number;
+stats.pinnedpostCount satisfies number;
+stats.filesCount satisfies number;
+const zones = await channels.getChannelMembersTimezones({ channelId: "room" });
+zones satisfies string[] | null;
+// @ts-expect-error Fresh accounts with no known timezones return JSON null.
+zones satisfies string[];
+import type { GroupsApi } from "./compiled/index.js";
+declare const mentionGroups: GroupsApi;
+const matches = await mentionGroups.getGroups({ q: "release", page: 0, perPage: 60, filterAllowReference: true, includeMemberCount: true });
+for (const group of matches) {
+    group.remoteId satisfies string | null;
+    group.allowReference satisfies boolean;
+    group.name satisfies string | undefined;
+    group.memberCount satisfies number | undefined;
+}
+// @ts-expect-error A textual flag would change the wire representation.
+mentionGroups.getGroups({ filterAllowReference: "true" });
 import type { Role, RolesApi } from "./compiled/index.js";
 declare const roles: RolesApi;
 const assigned = await roles.getRolesByNames({ requestBody: ["channel_user", "team_guest"] });
@@ -208,9 +228,15 @@ UMMKA_CONTRACT_SOURCES="$cache" UMMKA_CONTRACT_WORK="$work" npm run contract:tes
 bindings=vendor/mattermost
 native_bindings=vendor/mattermost-native
 if [ "${1-}" = "--write-bindings" ]; then
+    mkdir -p vendor/emoji
+    cp "$work/emoji.json" vendor/emoji/standard.json
     mkdir -p "$bindings" "$native_bindings"
     rsync --recursive --checksum --delete-after --delay-updates "$work/compiled/" "$bindings/"
     rsync --recursive --checksum --delete-after --delay-updates "$work/native/src/models/" "$native_bindings/"
+fi
+if ! cmp "$work/emoji.json" vendor/emoji/standard.json; then
+    echo 'The emoji directory differs. Run make generate-bindings and review the changes.' >&2
+    exit 1
 fi
 if ! diff -qr "$work/compiled" "$bindings" || ! diff -qr "$work/native/src/models" "$native_bindings"; then
     echo 'Mattermost bindings differ. Run make generate-bindings and review the changes.' >&2

@@ -1,4 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import { readBroadcastDecision } from "../../src/channels/broadcast-audience.ts";
+import { readGroupMentionAudience } from "../../src/channels/group-mention-audience.ts";
 import { inspectInstallation } from "../../src/mattermost/inspect-installation.ts";
 import {
   openAccountRestConnection,
@@ -248,6 +250,7 @@ export async function checkGeneratedRequests(ports: string[]) {
     check(
       cached?.teams[0]?.id === "Team0123456789012345678901" &&
         cached.teams[0].displayName === "Fixture Team" &&
+        cached.teams[0].groupConstrained === true &&
         cached.selectedTeam === "Team0123456789012345678901",
       "cached-team-names",
     );
@@ -277,6 +280,44 @@ export async function checkGeneratedRequests(ports: string[]) {
     );
     const teamId = "Team0123456789012345678901";
     const channelId = "c".repeat(26);
+    const broadcast = await readBroadcastDecision(
+      accountPrefix,
+      channelId,
+      ["@here"],
+      {
+        confirmNotifications: true,
+        maxNotificationsPerChannel: 100n,
+        canMentionChannel: true,
+        canMentionGroups: false,
+      },
+    );
+    check(
+      broadcast.confirmation?.kind === "here" &&
+        broadcast.confirmation.members === 29 &&
+        broadcast.confirmation.timezones === 2,
+      "account-broadcast-confirmation",
+    );
+    const audience = await readGroupMentionAudience(
+      accountPrefix,
+      { id: channelId, groupConstrained: true },
+      { id: teamId, groupConstrained: true },
+      ["release-qa."],
+      {
+        ldapGroups: true,
+        customGroups: false,
+        canMentionGroups: true,
+        confirmNotifications: true,
+      },
+    );
+    check(
+      audience.kind === "ready" &&
+        audience.groups.length === 1 &&
+        audience.groups[0]?.handle === "release-qa" &&
+        audience.groups[0].members === 3 &&
+        audience.groups[0].timezones === 2,
+      "account-scoped-group-audience",
+    );
+
     check(
       (await accountPrefix.readTeamSidebar(teamId)) === null,
       "cold-channel-catalog",
@@ -351,6 +392,7 @@ export async function checkGeneratedRequests(ports: string[]) {
       catalog?.selectedChannel === channelId &&
         catalog.data.channels[0]?.lastRootPostAt === 300 &&
         catalog.data.channels[0]?.createAt === 90 &&
+        catalog.data.channels[0]?.groupConstrained === true &&
         catalog.data.categories[0]?.channelIds[0] === channelId,
       "read-channel-catalog",
     );

@@ -13,6 +13,8 @@ pub struct DirectoryTeam {
     pub preference_rank: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub roles: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_constrained: Option<bool>,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize)]
@@ -28,7 +30,7 @@ pub struct TeamDirectoryLoad {
     id: [u8; 16],
 }
 
-const ORDERED: &str = "SELECT team_id, name, display_name, preference_rank, selected, roles FROM joined_team ORDER BY position";
+const ORDERED: &str = "SELECT team_id, name, display_name, preference_rank, selected, roles, group_constrained FROM joined_team ORDER BY position";
 const SELECTED: &str = "SELECT team_id FROM joined_team WHERE selected = 1";
 const HAS_TEAM: &str = "SELECT EXISTS(SELECT 1 FROM joined_team WHERE team_id = ?1)";
 
@@ -56,6 +58,7 @@ impl AccountHistory {
                     display_name: row.get(2)?,
                     preference_rank: row.get(3)?,
                     roles: row.get(5)?,
+                    group_constrained: row.get(6)?,
                 };
                 if row.get::<_, bool>(4)? {
                     result.selected_team = Some(team.id.clone());
@@ -122,11 +125,11 @@ impl AccountHistory {
             };
             tx.execute("DELETE FROM joined_team", [])?;
             let mut insert = tx.prepare_cached(
-                "INSERT INTO joined_team(position, team_id, name, display_name, preference_rank, selected, roles)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT INTO joined_team(position, team_id, name, display_name, preference_rank, selected, roles, group_constrained)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             )?;
             for (position, team) in (0_i64..).zip(teams) {
-                insert.execute(params![position, team.id, team.name, team.display_name, team.preference_rank, selected == Some(team.id.as_str()), team.roles])?;
+                insert.execute(params![position, team.id, team.name, team.display_name, team.preference_rank, selected == Some(team.id.as_str()), team.roles, team.group_constrained])?;
             }
             tx.execute(
                 "DELETE FROM sidebar_team WHERE NOT EXISTS

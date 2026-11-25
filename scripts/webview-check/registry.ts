@@ -100,6 +100,11 @@ export async function resumeRegistryCheck(): Promise<boolean> {
             settings.preferences.composerKeys.codeBlockOnCtrlEnter !== false ||
             settings.server?.collapsedThreads !== "always_on" ||
             settings.server.sharedChannelDMs !== true ||
+            settings.server.mentions?.maxNotificationsPerChannel !==
+              "9223372036854775807" ||
+            settings.server.mentions.confirmNotifications ||
+            !settings.server.mentions.customGroups ||
+            !settings.server.mentions.ldapGroups ||
             !settings.server.lockNameFormat
       )
         throw Error(
@@ -112,8 +117,10 @@ export async function resumeRegistryCheck(): Promise<boolean> {
       if (
         base === root
           ? catalog !== null
-          : catalog?.selectedChannel !== "c".repeat(26) ||
+          : teams?.teams[0]?.groupConstrained !== true ||
+            catalog?.selectedChannel !== "c".repeat(26) ||
             catalog.data.channels[0]?.createAt !== 90 ||
+            catalog.data.channels[0]?.groupConstrained !== true ||
             catalog.data.channels[0]?.mentionCountRoot !== 2 ||
             catalog.data.channels[0]?.roles !== "channel_user custom_writer" ||
             catalog.data.categories[0]?.kind !== "managed"

@@ -1,11 +1,14 @@
 import {
   ChannelsApi,
   type Configuration,
+  GroupFromJSON,
+  GroupsApi,
   PostsApi,
   PreferencesApi,
   RolesApi,
   TeamsApi,
 } from "../../vendor/mattermost/index.js";
+import { checkGroupAssociations } from "./group-associations.ts";
 
 export async function checkTeamReads(
   root: Configuration,
@@ -35,7 +38,12 @@ export async function checkTeamReads(
     throw Error("generated role definitions");
   const teams = await new TeamsApi(root).getTeamsForUser({ userId: "me" });
   const teamId = teams[0]?.id;
-  if (teams.length !== 1 || !teamId || teams[0].displayName !== "Fixture Team")
+  if (
+    teams.length !== 1 ||
+    !teamId ||
+    teams[0].displayName !== "Fixture Team" ||
+    teams[0].groupConstrained !== true
+  )
     throw Error("generated team list");
   const [teamMember] = await new TeamsApi(prefixed).getTeamMembersForUser({
     userId: "me",
@@ -61,10 +69,90 @@ export async function checkTeamReads(
   if (
     channels.length !== 1 ||
     !channelId ||
+    channels[0].groupConstrained !== true ||
     channels[0].name !== "town-square" ||
     channels[0].teamId !== teamId
   )
     throw Error("generated channel list");
+  const stats = await api.getChannelStats({
+    channelId,
+    excludeFilesCount: true,
+  });
+  if (
+    stats.channelId !== channelId ||
+    stats.memberCount !== 30 ||
+    stats.guestCount !== 3 ||
+    stats.pinnedpostCount !== 5 ||
+    stats.filesCount !== -1
+  )
+    throw Error("generated channel stats");
+  if (
+    (await new ChannelsApi(root).getChannelMembersTimezones({ channelId })) !==
+    null
+  )
+    throw Error("generated nullable channel timezones");
+  const groups = await api.getChannelMemberCountsByGroup({
+    channelId,
+    includeTimezones: true,
+  });
+  if (
+    groups.length !== 2 ||
+    groups[0].groupId !== "g".repeat(26) ||
+    groups[0].channelMemberCount !== 3 ||
+    groups[0].channelMemberTimezonesCount !== 2 ||
+    groups[1].groupId !== "h".repeat(26) ||
+    groups[1].channelMemberCount !== 1 ||
+    groups[1].channelMemberTimezonesCount !== 0
+  )
+    throw Error("generated channel group counts");
+  if (
+    (await new ChannelsApi(root).getChannelMemberCountsByGroup({ channelId }))
+      .length !== 0
+  )
+    throw Error("empty channel group counts");
+  await checkGroupAssociations(root, prefixed, teamId, channelId);
+  const matches = await new GroupsApi(prefixed).getGroups({
+    q: "release qa",
+    page: 0,
+    perPage: 60,
+    filterAllowReference: true,
+    includeMemberCount: true,
+  });
+  if (
+    matches.length !== 2 ||
+    matches[0].name !== "release-qa" ||
+    matches[0].source !== "custom" ||
+    matches[0].remoteId !== null ||
+    !matches[0].allowReference ||
+    matches[0].memberCount !== 7 ||
+    matches[1].remoteId !== "directory-record" ||
+    matches[1].source !== "ldap" ||
+    matches[1].name !== "qa"
+  )
+    throw Error("generated group search projection");
+  // A group without a handle is valid only outside referenceable search results.
+  const unnamed = GroupFromJSON({
+    id: "j".repeat(26),
+    display_name: "Legacy directory",
+    source: "ldap",
+    remote_id: "legacy-record",
+    allow_reference: false,
+  });
+  if (
+    unnamed.name !== undefined ||
+    unnamed.allowReference ||
+    unnamed.memberCount !== undefined
+  )
+    throw Error("generated non-referenceable group");
+  if (
+    (
+      await new GroupsApi(root).getGroups({
+        q: "absent",
+        filterAllowReference: true,
+      })
+    ).length
+  )
+    throw Error("empty group directory search");
   const single = await new ChannelsApi(root).viewChannel({
     userId: "me",
     viewChannelRequest: { channelId, collapsedThreadsSupported: true },
