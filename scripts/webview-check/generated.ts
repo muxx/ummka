@@ -277,6 +277,17 @@ export async function checkGeneratedRequests(ports: string[]) {
     );
     const teamId = "Team0123456789012345678901";
     const channelId = "c".repeat(26);
+    const command = await accountPrefix.executeServerCommand(
+      { channelId, teamId, rootId: "r".repeat(26) },
+      "/RELEASE  —Status  ",
+    );
+    check(
+      command.kind === "executed" &&
+        command.response.responseType === "ephemeral" &&
+        command.response.text === "Fixture status",
+      "account-server-command",
+    );
+
     check(
       (await accountPrefix.readTeamSidebar(teamId)) === null,
       "cold-channel-catalog",

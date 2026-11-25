@@ -367,6 +367,39 @@ export function webviewServers(
       visits.push(account);
       return;
     }
+    if (url.pathname === "/team/chat/api/v4/commands/execute") {
+      assert.equal(req.method, "POST");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      assert.equal(url.search, "");
+      assert.deepEqual(await json(req), {
+        channel_id: channelId,
+        team_id: teamId,
+        root_id: "r".repeat(26),
+        command: "/release --Status",
+      });
+      res.writeHead(200, { "Content-Type": "application/json" }).end(
+        JSON.stringify({
+          response_type: "ephemeral",
+          text: "Fixture status",
+          username: "Integration",
+          channel_id: channelId,
+          icon_url: "",
+          type: "",
+          props: null,
+          goto_location: "",
+          trigger_id: "",
+          skip_slack_parsing: false,
+          attachments: null,
+          extra_responses: null,
+        }),
+      );
+      visits.push("signed-slash-command");
+      return;
+    }
     const groupAudience = respondToGroupAudience(req, res, url, channelId);
     if (groupAudience) {
       visits.push(groupAudience);
@@ -762,6 +795,7 @@ export function webviewServers(
         "delete-post",
         "bulk-channel-view",
         "single-channel-view",
+        "signed-slash-command",
         "channel-stats",
         "channel-timezones",
         "group-audience-empty",
