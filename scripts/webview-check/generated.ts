@@ -146,8 +146,9 @@ export async function checkGeneratedRequests(ports: string[]) {
     );
     const signed = new Configuration(accountPrefix);
     const users = new UsersApi(signed);
-    const named = await users.getUsersByUsernames({
-      requestBody: ["unknown", "fixture"],
+    const named = await accountPrefix.readVisibleProfiles({
+      ids: [],
+      usernames: ["unknown", "fixture"],
     });
     check(
       named.length === 1 && named[0].id === userId,
