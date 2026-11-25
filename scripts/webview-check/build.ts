@@ -24,7 +24,7 @@ export async function buildWebviewFixture(
         {
           label: "main",
           title: "ummka",
-          visible: false,
+          visible: platform === "android",
           ...(platform === "macos" && { width: 1180, height: 750 }),
         },
       ],

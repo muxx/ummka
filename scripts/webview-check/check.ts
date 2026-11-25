@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { openNativeRestConnection } from "../../src/mattermost/native-rest.ts";
 import { checkAppearance } from "./appearance.ts";
 import { checkBrowserAction } from "./browser-action.ts";
+import { checkChannelsFrame } from "./channels-frame.tsx";
 import { checkEntryWindow } from "./entry-window.tsx";
 import { beginExchanges, finishExchangesAfterReload } from "./exchanges.ts";
 import { checkGeneratedRequests } from "./generated.ts";
@@ -55,6 +56,7 @@ async function checkResources() {
   if (checkAppearance()) return;
   if (await resumeRegistryCheck()) return;
   if (await finishExchangesAfterReload()) {
+    await checkChannelsFrame();
     const ports = String(import.meta.env.VITE_UMMKA_CHECK_PORTS).split(",");
     await checkGeneratedRequests(ports);
     await checkBrowserAction(ports[0]);
