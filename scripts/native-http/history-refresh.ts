@@ -59,7 +59,23 @@ export function historyRefreshFixture(userId: string, onHold: () => void) {
         "Bearer fixture-prefixed-session",
       );
       const q = url.searchParams;
-      if (thread) {
+      if (thread && q.get("direction") === "up") {
+        assert.deepEqual(Object.fromEntries(q), {
+          direction: "up",
+          perPage: "1",
+          collapsedThreads: "true",
+          fromPost: cursor,
+          fromCreateAt: "400",
+        });
+        calls.push("replies");
+        res.writeHead(200, { "Content-Type": "application/json" }).end(
+          JSON.stringify({
+            order: [root, reply],
+            posts: { [root]: records[root], [reply]: records[reply] },
+            has_next: false,
+          }),
+        );
+      } else if (thread) {
         assert.equal(q.get("perPage"), "60");
         assert.equal(q.get("direction"), "down");
         calls.push("thread");
@@ -118,6 +134,7 @@ export function historyRefreshFixture(userId: string, onHold: () => void) {
         calls.sort(),
         [
           "plain",
+          "replies",
           "collapsed",
           "thread",
           "before",
