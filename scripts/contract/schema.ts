@@ -9,6 +9,15 @@ import catalog from "../../contracts/mattermost/operations.json" with {
 };
 import { correctAuthentication } from "./authentication-corrections.ts";
 import {
+  autocompleteCommand,
+  checkAutocompleteSuggestion,
+  correctAutocomplete,
+} from "./command-autocomplete.ts";
+import {
+  correctCommandResponse,
+  correctExecuteCommand,
+} from "./command-corrections.ts";
+import {
   correctHistoryQuery,
   correctHistorySchema,
 } from "./history-corrections.ts";
@@ -100,6 +109,13 @@ export function buildSpecification(
       visit(group[name]);
       return;
     }
+    if (kind === "schemas" && name === "AutocompleteCommand") {
+      group[name] = autocompleteCommand(
+        upstream,
+        read("definitions-12.1.0.yaml"),
+      );
+      return;
+    }
     if (!Object.hasOwn(upstream, name))
       throw new Error(`Missing component ${kind}/${name}`);
     const source = object(upstream[name], `components/${kind}/${name}`);
@@ -109,6 +125,16 @@ export function buildSpecification(
     else if (name === "Channel")
       group[name] = correctChannelSharing(
         correctSidebarSchema(name, correctHistorySchema(name, source)),
+        read("definitions-12.1.0.yaml"),
+      );
+    else if (name === "AutocompleteSuggestion")
+      group[name] = checkAutocompleteSuggestion(
+        source,
+        read("definitions-12.1.0.yaml"),
+      );
+    else if (name === "CommandResponse")
+      group[name] = correctCommandResponse(
+        source,
         read("definitions-12.1.0.yaml"),
       );
     else if (name === "User") group[name] = correctUserProfile(source);
@@ -198,6 +224,20 @@ export function buildSpecification(
         operation,
         read("channels.yaml"),
         path,
+      );
+    else if (
+      id === "ListAutocompleteCommands" ||
+      id === "ListCommandAutocompleteSuggestions"
+    )
+      paths[path][method] = correctAutocomplete(
+        operation,
+        read("commands-12.1.0.yaml"),
+        path,
+      );
+    else if (id === "ExecuteCommand")
+      paths[path][method] = correctExecuteCommand(
+        operation,
+        read("commands-12.1.0.yaml"),
       );
     else if (id === "GetRolesByNames")
       paths[path][method] = correctRoleList(
