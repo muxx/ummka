@@ -9,6 +9,8 @@ Mattermost App, the way it should be ♥️
 
 Ummka (`u-mm-ka`, with `MM` for Mattermost) is an alternative client that addresses everyday frustrations with the official apps. We spend a lot of time chatting in Mattermost, so we wanted a fast, easy-to-use app that looks good.
 
+Currently **in alpha**.
+
 ## Features
 
 - macOS and Android. iOS, Windows, and Linux are planned.
