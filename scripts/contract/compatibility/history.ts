@@ -29,6 +29,7 @@ import {
   checkBrowserSignIn,
 } from "./browser-sign-in.ts";
 import { checkChannelAudience } from "./channel-audience.ts";
+import { checkChannelNotifications } from "./channel-notifications.ts";
 import { checkCommands } from "./commands.ts";
 import { checkCustomEmojiLookup } from "./custom-emoji.ts";
 import { checkEventStream } from "./event-stream.ts";
@@ -596,6 +597,8 @@ const joinable = await (
 const memberApi = new ChannelsApi(
   new Configuration({ basePath: base, accessToken: readerToken }),
 );
+assert.equal(reader.roles, "system_user");
+await checkChannelNotifications(memberApi, channelId);
 const ownMembership = { channelId: joinable.id, userId: reader.id };
 const beforeJoin = await memberApi.getChannelMembersForUser({
   teamId: team.id,

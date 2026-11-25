@@ -25,6 +25,7 @@ import {
   correctChannelStatsQuery,
 } from "./channel-audience-corrections.ts";
 import { singleChannelMember } from "./channel-member-correction.ts";
+import { correctChannelNotifyProps } from "./channel-notify-props.ts";
 import {
   autocompleteCommand,
   correctAutocomplete,
@@ -384,6 +385,25 @@ for (const [id, file, path, method] of [
     }
   });
 }
+
+test("rechecks notification overrides when either pinned model changes", () => {
+  const path = ["components", "schemas", "ChannelNotifyProps"];
+  for (const reference of [false, true]) {
+    for (const change of ["added", "required", "type"]) {
+      const source = object(at(read("definitions.yaml"), path), "baseline");
+      const next = read("definitions-12.1.0.yaml");
+      const target = reference ? object(at(next, path), "comparison") : source;
+      const props = object(target.properties, "properties");
+      if (change === "added") props.desktop_sound = { type: "string" };
+      if (change === "required") target.required = ["push"];
+      if (change === "type") props.email = { type: "boolean" };
+      assert.throws(
+        () => correctChannelNotifyProps(source, next),
+        /Review ChannelNotifyProps/,
+      );
+    }
+  }
+});
 
 test("channel stats corrections detect upstream fields on either pin", () => {
   const path = "/api/v4/channels/{channel_id}/stats";
@@ -844,6 +864,11 @@ test("retains the catalog operations, security and transitive models", () => {
       );
     if (name === "ChannelUnreadAt")
       expected = correctUnreadAt(
+        object(source, name),
+        read("definitions-12.1.0.yaml"),
+      );
+    if (name === "ChannelNotifyProps")
+      expected = correctChannelNotifyProps(
         object(source, name),
         read("definitions-12.1.0.yaml"),
       );

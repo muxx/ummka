@@ -13,6 +13,7 @@ import {
   correctChannelStatsQuery,
 } from "./channel-audience-corrections.ts";
 import { singleChannelMember } from "./channel-member-correction.ts";
+import { correctChannelNotifyProps } from "./channel-notify-props.ts";
 import {
   autocompleteCommand,
   checkAutocompleteSuggestion,
@@ -118,7 +119,13 @@ function checkRequestBody(
 
 export function buildSpecification(
   read: (file: string) => Fields,
-  operations = catalog,
+  operations: ReadonlyArray<{
+    file: string;
+    path: string;
+    method: string;
+    id: string;
+    body?: string;
+  }> = catalog,
 ) {
   const introduction = read("introduction.yaml");
   const definitions = read("definitions.yaml");
@@ -147,6 +154,11 @@ export function buildSpecification(
       throw new Error(`Missing component ${kind}/${name}`);
     const source = object(upstream[name], `components/${kind}/${name}`);
     if (kind !== "schemas") group[name] = source;
+    else if (name === "ChannelNotifyProps")
+      group[name] = correctChannelNotifyProps(
+        source,
+        read("definitions-12.1.0.yaml"),
+      );
     else if (name === "ChannelMemberCountByGroup")
       group[name] = correctGroupAudienceModel(
         source,

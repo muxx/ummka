@@ -184,6 +184,16 @@ export async function checkTeamReads(
   )
     throw Error("generated channel read timestamps");
   const userId = "Abc01234567890123456789012";
+  const notification = await api.updateChannelNotifyProps({
+    channelId,
+    userId: "me",
+    channelNotifyProps: {
+      desktopNotificationSound: "Crackle",
+      channelAutoFollowThreads: "on",
+    },
+  });
+  if (notification.status !== "OK")
+    throw Error("signed partial channel notification update");
   const added = await api.addChannelMember({
     channelId,
     addChannelMemberRequest: { userId, postRootId: "r".repeat(26) },

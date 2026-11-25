@@ -3,6 +3,7 @@ import { AddChannelMemberRequestToJSON, } from '../models/AddChannelMemberReques
 import { ChannelFromJSON, } from '../models/Channel.js';
 import { ChannelMemberFromJSON, } from '../models/ChannelMember.js';
 import { ChannelMemberCountByGroupFromJSON, } from '../models/ChannelMemberCountByGroup.js';
+import { ChannelNotifyPropsToJSON, } from '../models/ChannelNotifyProps.js';
 import { ChannelStatsFromJSON, } from '../models/ChannelStats.js';
 import { MarkChannelsReadForUser200ResponseFromJSON, } from '../models/MarkChannelsReadForUser200Response.js';
 import { OrderedSidebarCategoriesFromJSON, } from '../models/OrderedSidebarCategories.js';
@@ -433,6 +434,46 @@ export class ChannelsApi extends runtime.BaseAPI {
     }
     async removeUserFromChannel(requestParameters, initOverrides) {
         const response = await this.removeUserFromChannelRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async updateChannelNotifyPropsRequestOpts(requestParameters) {
+        if (requestParameters['channelId'] == null) {
+            throw new runtime.RequiredError('channelId', 'Required parameter "channelId" was null or undefined when calling updateChannelNotifyProps().');
+        }
+        if (requestParameters['userId'] == null) {
+            throw new runtime.RequiredError('userId', 'Required parameter "userId" was null or undefined when calling updateChannelNotifyProps().');
+        }
+        if (requestParameters['channelNotifyProps'] == null) {
+            throw new runtime.RequiredError('channelNotifyProps', 'Required parameter "channelNotifyProps" was null or undefined when calling updateChannelNotifyProps().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        headerParameters['Content-Type'] = 'application/json';
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/channels/{channel_id}/members/{user_id}/notify_props`;
+        urlPath = urlPath.replace('{channel_id}', encodeURIComponent(String(requestParameters['channelId'])));
+        urlPath = urlPath.replace('{user_id}', encodeURIComponent(String(requestParameters['userId'])));
+        return {
+            path: urlPath,
+            method: 'PUT',
+            headers: headerParameters,
+            query: queryParameters,
+            body: ChannelNotifyPropsToJSON(requestParameters['channelNotifyProps']),
+        };
+    }
+    async updateChannelNotifyPropsRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.updateChannelNotifyPropsRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => StatusOKFromJSON(jsonValue));
+    }
+    async updateChannelNotifyProps(requestParameters, initOverrides) {
+        const response = await this.updateChannelNotifyPropsRaw(requestParameters, initOverrides);
         return await response.value();
     }
     async viewChannelRequestOpts(requestParameters) {

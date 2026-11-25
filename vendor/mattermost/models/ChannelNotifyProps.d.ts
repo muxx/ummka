@@ -3,6 +3,12 @@ export interface ChannelNotifyProps {
     push?: string;
     desktop?: string;
     markUnread?: string;
+    desktopThreads?: string;
+    pushThreads?: string;
+    ignoreChannelMentions?: string;
+    channelAutoFollowThreads?: string;
+    desktopSound?: string;
+    desktopNotificationSound?: string;
 }
 export declare function instanceOfChannelNotifyProps(value: object): value is ChannelNotifyProps;
 export declare function ChannelNotifyPropsFromJSON(json: any): ChannelNotifyProps;
