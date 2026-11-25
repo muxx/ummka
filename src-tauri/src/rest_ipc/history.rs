@@ -63,9 +63,9 @@ impl ChannelWindowQuery {
 impl From<HistoryError> for ExchangeError {
     fn from(cause: HistoryError) -> Self {
         match cause {
-            HistoryError::InvalidPost | HistoryError::InvalidInstallation => {
-                ExchangeError::InvalidHistoryRequest
-            }
+            HistoryError::InvalidPost
+            | HistoryError::InvalidInstallation
+            | HistoryError::InvalidDraft => ExchangeError::InvalidHistoryRequest,
             HistoryError::InvalidDirectory => ExchangeError::InvalidDirectory,
             HistoryError::StaleOwner | HistoryError::OwnerConflict => {
                 ExchangeError::Transport(TransportError::SessionUnavailable)

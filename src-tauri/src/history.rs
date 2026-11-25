@@ -8,6 +8,8 @@ pub(crate) mod checks;
 
 mod directory;
 pub use directory::{DirectoryTeam, TeamDirectory, TeamDirectoryLoad};
+mod drafts;
+pub use drafts::{ComposerDraft, DraftSave};
 mod lifecycle;
 mod posts;
 mod profiles;
@@ -28,6 +30,7 @@ pub enum HistoryError {
     InvalidInstallation,
     InvalidPost,
     InvalidDirectory,
+    InvalidDraft,
     UnsupportedSchema,
     OwnerConflict,
     StaleOwner,
@@ -38,6 +41,7 @@ impl fmt::Display for HistoryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::InvalidInstallation => "Invalid canonical HTTPS installation",
+            Self::InvalidDraft => "Invalid composer draft key or revision",
             Self::InvalidDirectory => "Invalid directory data",
             Self::InvalidPost => "Invalid channel history record",
             Self::UnsupportedSchema => "Unsupported local history database",
