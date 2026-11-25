@@ -12,6 +12,7 @@ import {
   correctChannelStats,
   correctChannelStatsQuery,
 } from "./channel-audience-corrections.ts";
+import { singleChannelMember } from "./channel-member-correction.ts";
 import {
   autocompleteCommand,
   checkAutocompleteSuggestion,
@@ -285,6 +286,11 @@ export function buildSpecification(
         operation,
         read("posts-12.1.0.yaml"),
         path,
+      );
+    else if (id === "AddChannelMember")
+      paths[path][method] = singleChannelMember(
+        operation,
+        read("channels-12.1.0.yaml"),
       );
     else if (id === "SaveReaction")
       paths[path][method] = correctSaveReaction(

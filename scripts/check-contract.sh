@@ -121,6 +121,13 @@ const badCursor: GetPostThreadRequest = { postId: "a-post-id", fromCreateAt: "12
 declare const page: PostList;
 import type { ChannelsApi, Preference, PreferencesApi } from "./compiled/index.js";
 declare const channels: ChannelsApi;
+const memberAdded = await channels.addChannelMember({ channelId: "channel", addChannelMemberRequest: { userId: "user", postRootId: "root" } });
+memberAdded.channelId satisfies string | undefined;
+(await channels.removeUserFromChannel({ channelId: "channel", userId: "user" })).status satisfies string | undefined;
+// @ts-expect-error An individual addition requires the user ID.
+channels.addChannelMember({ channelId: "channel", addChannelMemberRequest: {} });
+// @ts-expect-error The server returns a different shape for a bulk invitation.
+channels.addChannelMember({ channelId: "channel", addChannelMemberRequest: { userIds: ["user"] } });
 const groupCounts = await channels.getChannelMemberCountsByGroup({ channelId: "room", includeTimezones: true });
 for (const group of groupCounts) {
     group.groupId satisfies string;

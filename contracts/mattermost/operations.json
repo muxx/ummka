@@ -62,6 +62,19 @@
   },
   {
     "file": "channels.yaml",
+    "method": "POST",
+    "path": "/api/v4/channels/{channel_id}/members",
+    "id": "AddChannelMember",
+    "body": "json"
+  },
+  {
+    "file": "channels.yaml",
+    "method": "DELETE",
+    "path": "/api/v4/channels/{channel_id}/members/{user_id}",
+    "id": "RemoveUserFromChannel"
+  },
+  {
+    "file": "channels.yaml",
     "method": "GET",
     "path": "/api/v4/channels/{channel_id}/stats",
     "id": "GetChannelStats"

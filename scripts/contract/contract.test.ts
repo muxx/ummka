@@ -24,6 +24,7 @@ import {
   correctChannelStats,
   correctChannelStatsQuery,
 } from "./channel-audience-corrections.ts";
+import { singleChannelMember } from "./channel-member-correction.ts";
 import {
   autocompleteCommand,
   correctAutocomplete,
@@ -764,6 +765,8 @@ test("retains the catalog operations, security and transitive models", () => {
     let expected = source;
     if (source.operationId === "SearchFiles")
       expected = correctFileSearch(path, source, read("files-12.1.0.yaml"));
+    if (source.operationId === "AddChannelMember")
+      expected = singleChannelMember(source, read("channels-12.1.0.yaml"));
     if (source.operationId === "SaveReaction")
       expected = correctSaveReaction(source, read("reactions-12.1.0.yaml"));
     if (path === "/api/v4/posts" && method === "POST")
