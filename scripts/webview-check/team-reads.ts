@@ -184,6 +184,14 @@ export async function checkTeamReads(
   )
     throw Error("generated channel read timestamps");
   const userId = "Abc01234567890123456789012";
+  const added = await api.addChannelMember({
+    channelId,
+    addChannelMemberRequest: { userId, postRootId: "r".repeat(26) },
+  });
+  if (added.channelId !== channelId || added.userId !== userId)
+    throw Error("signed channel member addition");
+  const removed = await api.removeUserFromChannel({ channelId, userId });
+  if (removed.status !== "OK") throw Error("signed channel member removal");
   for (const member of [
     await new ChannelsApi(root).getChannelMember({ channelId, userId: "me" }),
     await api.getChannelMember({ channelId, userId }),

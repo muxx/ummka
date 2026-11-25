@@ -312,6 +312,41 @@ mod tests {
     }
 
     #[test]
+    fn individual_membership_changes_match_only_exact_routes() {
+        let base = "https://chat.example.test/team/chat";
+        let connection = RestConnection::new(base).unwrap();
+        let channel = "c".repeat(26);
+        let user = "u".repeat(26);
+        let members = format!("/api/v4/channels/{channel}/members");
+        for (method, path, allowed) in [
+            (reqwest::Method::POST, members.clone(), true),
+            (reqwest::Method::DELETE, format!("{members}/{user}"), true),
+            (reqwest::Method::DELETE, format!("{members}/"), false),
+            (reqwest::Method::POST, format!("{members}/{user}"), false),
+            (
+                reqwest::Method::POST,
+                "/api/v4/channels//members".into(),
+                false,
+            ),
+        ] {
+            let url = Url::parse(&format!("{base}{path}")).unwrap();
+            let mut request = Request::new(method, url);
+            if request.method() == reqwest::Method::POST {
+                *request.body_mut() = Some(format!(r#"{{"user_id":"{user}"}}"#).into());
+                request.headers_mut().insert(
+                    CONTENT_TYPE,
+                    reqwest::header::HeaderValue::from_static("application/json"),
+                );
+            }
+            assert_eq!(
+                connection.check_request(&request).is_ok(),
+                allowed,
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
     fn reactions_are_read_by_post_id_in_the_selected_installation() {
         let base = "https://chat.example.test/team/chat";
         let connection = RestConnection::new(base).unwrap();
