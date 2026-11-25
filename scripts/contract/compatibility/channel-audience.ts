@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import {
   ChannelsApi,
   Configuration,
+  GroupsApi,
   ResponseError,
 } from "../../../vendor/mattermost/index.js";
 
 export async function checkChannelAudience(
   base: string,
+  teamId: string,
   dm: { id: string; postId: string },
   closedId: string,
   owner: { id: string; token: string },
@@ -32,6 +34,51 @@ export async function checkChannelAudience(
     (await groupFailure.json()).id,
     "api.channel.channel_member_counts_by_group.license.error",
   );
+  for (const [credentials, status, code] of [
+    [
+      new Configuration({ basePath: base }),
+      401,
+      "api.context.session_expired.app_error",
+    ],
+    [
+      new Configuration({ basePath: base, accessToken: reader.token }),
+      501,
+      "api.license_error",
+    ],
+  ] as const) {
+    const groups = new GroupsApi(credentials);
+    for (const request of [
+      () =>
+        groups.getGroups({
+          q: "qa",
+          page: 0,
+          perPage: 60,
+          filterAllowReference: true,
+        }),
+      () =>
+        groups.getGroupsByTeam({
+          teamId,
+          paginate: false,
+          filterAllowReference: true,
+        }),
+      () =>
+        groups.getGroupsAssociatedToChannelsByTeam({
+          teamId,
+          paginate: false,
+          filterAllowReference: true,
+        }),
+    ]) {
+      const failure = await request().then(
+        () => assert.fail("unlicensed group directory unexpectedly succeeded"),
+        (error: unknown) => {
+          assert.ok(error instanceof ResponseError);
+          return error.response;
+        },
+      );
+      assert.equal(failure.status, status);
+      assert.equal((await failure.json()).id, code);
+    }
+  }
   const baseline = {
     channelId: dm.id,
     memberCount: 2,

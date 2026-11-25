@@ -34,6 +34,7 @@ export async function checkSidebarReads(
   teamId: string,
   channelId: string,
   directIdToRead: string,
+  privateChannelId: string,
 ) {
   const config = new Configuration({ basePath: base, accessToken: token });
   const channels = new ChannelsApi(config);
@@ -41,14 +42,20 @@ export async function checkSidebarReads(
     userId,
     teamId,
   });
-  const raw: { id: string; shared: boolean | null }[] = await response.raw
-    .clone()
-    .json();
+  const raw: {
+    id: string;
+    shared: boolean | null;
+    group_constrained: boolean | null;
+  }[] = await response.raw.clone().json();
   const decoded = await response.value();
-  for (const id of [channelId, directIdToRead]) {
+  for (const id of [channelId, directIdToRead, privateChannelId]) {
     const wire = raw.find((channel) => channel.id === id);
     const typed = decoded.find((channel) => channel.id === id);
     assert.ok(wire && typed);
+    assert.ok(Object.hasOwn(wire, "group_constrained"));
+    assert.equal(wire.group_constrained, null);
+    if (id === privateChannelId) assert.equal(typed.type, "P");
+    assert.equal(typed.groupConstrained, wire.group_constrained);
     assert.ok(Object.hasOwn(wire, "shared"));
     assert.ok(wire.shared === false || wire.shared === null);
     assert.equal(typed.shared ?? null, wire.shared);

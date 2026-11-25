@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   copyFileSync,
   existsSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
@@ -31,6 +33,10 @@ import {
   correctExecuteCommand,
 } from "./command-corrections.ts";
 import {
+  correctAssociatedGroup,
+  correctGroupAssociations,
+} from "./group-association-corrections.ts";
+import {
   correctGroupAudienceModel,
   correctGroupAudienceResponse,
 } from "./group-audience-correction.ts";
@@ -38,6 +44,7 @@ import {
   correctHistoryQuery,
   correctHistorySchema,
 } from "./history-corrections.ts";
+import { correctMentionGroup } from "./mention-group-correction.ts";
 import { correctNullableList } from "./nullable-list-corrections.ts";
 import { type Fields, object } from "./objects.ts";
 import {
@@ -60,7 +67,7 @@ import {
 } from "./read-state-corrections.ts";
 import { buildSpecification, readSource } from "./schema.ts";
 import {
-  correctChannelSharing,
+  correctDirectoryFlags,
   correctSidebarCategory,
   correctSidebarResponse,
   correctSidebarSchema,
@@ -399,6 +406,139 @@ test("channel stats corrections detect upstream fields on either pin", () => {
   }
 });
 
+test("group association corrections reject newly documented response shapes in either version", () => {
+  for (const [id, path] of [
+    ["GetGroupsByTeam", "/api/v4/teams/{team_id}/groups"],
+    [
+      "GetGroupsAssociatedToChannelsByTeam",
+      "/api/v4/teams/{team_id}/groups_by_channels",
+    ],
+  ] as const) {
+    for (const version of ["10", "12"]) {
+      const source = structuredClone(
+        object(at(read("groups.yaml"), [path, "get"]), id),
+      );
+      const newer = structuredClone(read("groups-12.1.0.yaml"));
+      const op =
+        version === "10" ? source : object(at(newer, [path, "get"]), id);
+      const body = object(
+        at(op, ["responses", "200", "content", "application/json"]),
+        id,
+      );
+      body.schema = {
+        type: "object",
+        properties: { new_result: { type: "object" } },
+      };
+      assert.throws(
+        () => correctGroupAssociations(id, path, source, newer),
+        /Review .* response/,
+      );
+    }
+  }
+});
+
+test("the channel group map keeps its array item type in each pinned source", () => {
+  const operations = catalog.filter(
+    (op) => op.id === "GetGroupsAssociatedToChannelsByTeam",
+  );
+  assert.equal(operations.length, 1);
+  for (const changed of [
+    ["definitions.yaml"],
+    ["definitions-12.1.0.yaml"],
+    ["definitions.yaml", "definitions-12.1.0.yaml"],
+  ]) {
+    const build = () =>
+      buildSpecification((file) => {
+        const doc = read(file);
+        if (changed.includes(file)) {
+          object(
+            at(doc, [
+              "components",
+              "schemas",
+              "GroupsAssociatedToChannels",
+              "additionalProperties",
+            ]),
+            "map value",
+          ).items = { type: "string" };
+        }
+        return doc;
+      }, operations);
+    assert.throws(
+      build,
+      /Review GroupsAssociatedToChannels against the pinned sources/,
+    );
+  }
+});
+
+test("group associations reject changes to the location, requiredness, type or default of a parameter", () => {
+  const baseline = read("groups.yaml");
+  const reference = read("groups-12.1.0.yaml");
+  for (const path of [
+    "/api/v4/teams/{team_id}/groups",
+    "/api/v4/teams/{team_id}/groups_by_channels",
+  ]) {
+    for (const version of ["baseline", "newer", "both"]) {
+      for (const [name, change] of [
+        ["team_id", { in: "query" }],
+        ["team_id", { required: false }],
+        ["page", { schema: { type: "string", default: 0 } }],
+        ["per_page", { schema: { type: "integer", default: 30 } }],
+      ] as const) {
+        const source = structuredClone(
+          object(at(baseline, [path, "get"]), path),
+        );
+        const newer = { [path]: structuredClone(reference[path]) };
+        const next = object(at(newer, [path, "get"]), path);
+        const id = source.operationId;
+        assert.ok(
+          id === "GetGroupsByTeam" ||
+            id === "GetGroupsAssociatedToChannelsByTeam",
+        );
+        for (const op of version === "both"
+          ? [source, next]
+          : [version === "baseline" ? source : next]) {
+          assert.ok(Array.isArray(op.parameters));
+          const parameter = op.parameters.find(
+            (item: Fields) => item.name === name,
+          );
+          assert.ok(parameter);
+          Object.assign(parameter, change);
+        }
+        assert.throws(
+          () => correctGroupAssociations(id, path, source, newer),
+          /Review .* parameters/,
+        );
+      }
+    }
+  }
+});
+
+test("group search keeps the same public parameters and result model in both releases", () => {
+  const opPath = ["/api/v4/groups", "get"];
+  const baseline = object(at(read("groups.yaml"), opPath), "GetGroups");
+  const newer = object(at(read("groups-12.1.0.yaml"), opPath), "GetGroups");
+  assert.deepEqual(newer.parameters, baseline.parameters);
+  for (const op of [baseline, newer]) {
+    assert.equal(op.operationId, "GetGroups");
+    assert.deepEqual(
+      at(op, ["responses", "200", "content", "application/json", "schema"]),
+      { type: "array", items: { $ref: "#/components/schemas/Group" } },
+    );
+  }
+});
+
+test("group projection stops on drift in either definition", () => {
+  const path = ["components", "schemas", "Group"];
+  for (const version of ["10", "12"]) {
+    const baseline = structuredClone(object(at(definitions, path), "Group"));
+    const newer = structuredClone(read("definitions-12.1.0.yaml"));
+    const model =
+      version === "10" ? baseline : object(at(newer, path), "Group");
+    object(model.properties, "Group").allow_reference = { type: "boolean" };
+    assert.throws(() => correctMentionGroup(baseline, newer), /Review Group/);
+  }
+});
+
 test("group audience corrections stop if either source documents the missing contract", () => {
   const route = "/api/v4/channels/{channel_id}/member_counts_by_group";
   const modelPath = ["components", "schemas", "ChannelMemberCountByGroup"];
@@ -652,6 +792,16 @@ test("retains the catalog operations, security and transitive models", () => {
     if (source.operationId === "SetPostUnread")
       expected = correctSetPostUnread(source, read("posts-12.1.0.yaml"), path);
     if (path === sidebar) expected = correctSidebarResponse(source);
+    if (
+      source.operationId === "GetGroupsByTeam" ||
+      source.operationId === "GetGroupsAssociatedToChannelsByTeam"
+    )
+      expected = correctGroupAssociations(
+        source.operationId,
+        path,
+        source,
+        read("groups-12.1.0.yaml"),
+      );
     if (path === profileImage) expected = correctProfileImage(source);
     assert.deepEqual(actual, expected);
   }
@@ -669,6 +819,16 @@ test("retains the catalog operations, security and transitive models", () => {
         object(source, name),
         read("definitions-12.1.0.yaml"),
       );
+    if (name === "GroupWithSchemeAdmin")
+      expected = correctAssociatedGroup(
+        object(source, name),
+        read("definitions-12.1.0.yaml"),
+      );
+    if (name === "Group")
+      expected = correctMentionGroup(
+        object(source, name),
+        read("definitions-12.1.0.yaml"),
+      );
     if (name === "ChannelStats")
       expected = correctChannelStats(
         object(source, name),
@@ -682,8 +842,9 @@ test("retains the catalog operations, security and transitive models", () => {
     if (name === "User") expected = correctUserProfile(object(source, name));
     if (["Channel", "ChannelMember", "TeamMember"].includes(name))
       expected = correctSidebarSchema(name, object(source, name));
-    if (name === "Channel")
-      expected = correctChannelSharing(
+    if (name === "Channel" || name === "Team")
+      expected = correctDirectoryFlags(
+        name,
         object(expected, name),
         read("definitions-12.1.0.yaml"),
       );
@@ -710,6 +871,9 @@ test("retains the catalog operations, security and transitive models", () => {
       "CommandResponse",
       "Emoji",
       "FileInfo",
+      "Group",
+      "GroupWithSchemeAdmin",
+      "GroupsAssociatedToChannels",
       "OrderedSidebarCategories",
       "Post",
       "PostAcknowledgement",
@@ -1009,6 +1173,7 @@ function copySources() {
     "definitions.yaml",
     "definitions-12.1.0.yaml",
     "roles-12.1.0.yaml",
+    "groups-12.1.0.yaml",
     "preferences-12.1.0.yaml",
     "commands-12.1.0.yaml",
     "posts-12.1.0.yaml",
@@ -1307,19 +1472,87 @@ const {
   Configuration,
   SystemApi,
   PostListFromJSON,
+  GetGroupsAssociatedToChannelsByTeam200ResponseFromJSON,
+  GetGroupsAssociatedToChannelsByTeam200ResponseToJSON,
   ChannelFromJSON,
   ChannelToJSON,
   ChannelMemberFromJSON,
   ChannelMemberToJSON,
+  TeamFromJSON,
+  TeamToJSON,
   TeamMemberFromJSON,
   TeamMemberToJSON,
 } = await import(pathToFileURL(resolve(work, "compiled/index.js")).href);
+test("channel group maps convert every group in both directions", () => {
+  const one = {
+    id: "g".repeat(26),
+    name: "release",
+    display_name: "Release",
+    remote_id: null,
+    allow_reference: true,
+  };
+  const wire = {
+    groups: {
+      first: [{ ...one, scheme_admin: false }],
+      second: [{ ...one, scheme_admin: true }, one],
+      empty: [],
+    },
+  };
+  const result = GetGroupsAssociatedToChannelsByTeam200ResponseFromJSON(wire);
+  assert.equal(result.groups.first[0].allowReference, true);
+  assert.equal(result.groups.first[0].schemeAdmin, false);
+  assert.equal(result.groups.second[0].schemeAdmin, true);
+  assert.equal(result.groups.second[1].schemeAdmin, undefined);
+  assert.equal(result.groups.second[1].remoteId, null);
+  assert.deepEqual(result.groups.empty, []);
+  assert.deepEqual(
+    JSON.parse(
+      JSON.stringify(
+        GetGroupsAssociatedToChannelsByTeam200ResponseToJSON(result),
+      ),
+    ),
+    wire,
+  );
+});
 const channelRoleFields = {
   scheme_guest: { type: "boolean" },
   scheme_user: { type: "boolean" },
   scheme_admin: { type: "boolean" },
   explicit_roles: { type: "string" },
 };
+test("both group-constraint flags preserve all wire states and stop on upstream drift", () => {
+  for (const [name, from, to] of [
+    ["Team", TeamFromJSON, TeamToJSON],
+    ["Channel", ChannelFromJSON, ChannelToJSON],
+  ] as const) {
+    const path = ["components", "schemas", name];
+    assert.deepEqual(
+      at(contract, [...path, "properties", "group_constrained"]),
+      { type: "boolean", nullable: true },
+    );
+    for (const flag of [true, false, null, undefined]) {
+      const wire =
+        flag === undefined
+          ? { id: "sample" }
+          : { id: "sample", group_constrained: flag };
+      const dto = from(wire);
+      assert.equal(dto.groupConstrained, flag);
+      assert.deepEqual(JSON.parse(JSON.stringify(to(dto))), wire);
+    }
+    for (const version of ["10", "12"]) {
+      const original = structuredClone(object(at(definitions, path), name));
+      const newer = structuredClone(read("definitions-12.1.0.yaml"));
+      const altered =
+        version === "10" ? original : object(at(newer, path), name);
+      object(altered.properties, name).group_constrained = { type: "boolean" };
+      assert.throws(
+        () => correctDirectoryFlags(name, original, newer),
+        /group_constrained/,
+      );
+    }
+  }
+});
+
 test("models the shared channel flag and detects its addition to either pinned source", () => {
   const path = ["components", "schemas", "Channel"];
   assert.deepEqual(at(contract, [...path, "properties", "shared"]), {
@@ -1336,12 +1569,12 @@ test("models the shared channel flag and detects its addition to either pinned s
     },
   });
   assert.throws(
-    () => correctChannelSharing(changed(model), newer),
+    () => correctDirectoryFlags("Channel", changed(model), newer),
     /Review the Channel.shared correction/,
   );
   assert.throws(
     () =>
-      correctChannelSharing(model, {
+      correctDirectoryFlags("Channel", model, {
         components: {
           schemas: {
             Channel: changed(object(at(newer, path), "newer Channel")),
@@ -1391,7 +1624,10 @@ test("root-only and urgent counts survive generation, including zero and absent 
       ...properties,
       ...additions,
       ...(name === "Channel"
-        ? { shared: { type: "boolean", nullable: true } }
+        ? {
+            shared: { type: "boolean", nullable: true },
+            group_constrained: { type: "boolean", nullable: true },
+          }
         : channelRoleFields),
     });
     for (const key of keys) {
@@ -1507,3 +1743,37 @@ for (const base of [
     });
   }
 }
+
+test("restored contract inputs must match their pins before generation", () => {
+  assert.ok(work);
+  const directory = mkdtempSync(join(work, "cache-test-"));
+  const target = join(directory, "schema.yaml");
+  const origin = join(directory, "upstream.yaml");
+  const digest = (content: string) =>
+    createHash("sha256").update(content).digest("hex");
+  const fetchPin = (content: string) =>
+    spawnSync(
+      "sh",
+      [
+        fileURLToPath(new URL("./download-verified.sh", import.meta.url)),
+        target,
+        pathToFileURL(origin).href,
+        digest(content),
+      ],
+      { encoding: "utf8" },
+    );
+  writeFileSync(target, "first pin");
+  assert.equal(fetchPin("first pin").status, 0); // Source is deliberately absent on a cache hit.
+  writeFileSync(origin, "new pin");
+  assert.equal(fetchPin("new pin").status, 0);
+  assert.equal(readFileSync(target, "utf8"), "new pin");
+  writeFileSync(origin, "wrong bytes");
+  const refused = fetchPin("unavailable pin");
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /SHA-256 mismatch/);
+  assert.equal(readFileSync(target, "utf8"), "new pin");
+  assert.deepEqual(readdirSync(directory).sort(), [
+    "schema.yaml",
+    "upstream.yaml",
+  ]);
+});
