@@ -38,10 +38,11 @@ async fn check_scope(
     const PING: &str = "api/v4/system/ping";
     const HISTORY: &str =
         "api/v4/channels/Channel0123456789012345678/posts?page=0&per_page=60&collapsedThreads=true";
-    const READ_ROUTES: [&str; 13] = [
+    const READ_ROUTES: [&str; 14] = [
         "api/v4/config/client?format=old",
         "api/v4/license/client?format=old",
         "api/v4/users/me",
+        "api/v4/users/me/image",
         "api/v4/users/Abc01234567890123456789012",
         "api/v4/users/me/teams",
         "api/v4/users/me/teams/members",
@@ -103,7 +104,9 @@ async fn check_scope(
         get(selected, "api/v4/users/Abc012345678901234567890123"),
         get(selected, "api/v4/users/%6de"),
         get(selected, "api/v4/users/me%2Fimage"),
-        get(selected, "api/v4/users/me/image"),
+        get(selected, "api/v4/users/me/image/default"),
+        get(selected, "api/v4/users/short/image"),
+        get(selected, "api/v4/users/usernames"),
         get(selected, "api/v4/users/me/"),
         get(selected, "api/v4/posts/short/info"),
         get(selected, "api/v4/posts/me/info"),

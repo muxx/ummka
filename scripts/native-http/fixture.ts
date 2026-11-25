@@ -317,6 +317,7 @@ export async function startFixture(dir: string) {
           "config/client?format=old",
           "license/client?format=old",
           "users/me",
+          "users/me/image",
           "users/Abc01234567890123456789012",
           "users/me/teams",
           "users/me/teams/members",

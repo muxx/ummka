@@ -20,6 +20,10 @@ import {
   postInfoSchema,
 } from "./post-info-correction.ts";
 import {
+  correctProfileImage,
+  correctUserProfile,
+} from "./profile-corrections.ts";
+import {
   correctSidebarResponse,
   correctSidebarSchema,
 } from "./sidebar-corrections.ts";
@@ -88,10 +92,13 @@ export function buildSpecification(
     if (!Object.hasOwn(upstream, name))
       throw new Error(`Missing component ${kind}/${name}`);
     const source = object(upstream[name], `components/${kind}/${name}`);
-    group[name] =
-      kind === "schemas"
-        ? correctSidebarSchema(name, correctHistorySchema(name, source))
-        : source;
+    if (kind !== "schemas") group[name] = source;
+    else if (name === "User") group[name] = correctUserProfile(source);
+    else
+      group[name] = correctSidebarSchema(
+        name,
+        correctHistorySchema(name, source),
+      );
     visit(group[name]);
   }
 
@@ -146,6 +153,8 @@ export function buildSpecification(
       );
     else if (id === "GetSidebarCategoriesForTeamForUser")
       paths[path][method] = correctSidebarResponse(operation);
+    else if (id === "GetProfileImage")
+      paths[path][method] = correctProfileImage(operation);
     else paths[path][method] = correctAuthentication(operation);
     if (Object.hasOwn(operation, "security"))
       includeSecurity(operation.security);
