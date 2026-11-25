@@ -300,6 +300,91 @@ fn v8_upgrade_rollback_and_older_client_preserve_fixture_data() {
 }
 
 #[test]
+fn reads_recent_attempts_across_a_new_insert_and_a_deleted_boundary() {
+    let dir = tempdir().unwrap();
+    let mut view = open(dir.path());
+    let (first, _) = send(&mut view, None, "first");
+    let (middle, _) = send(&mut view, None, "middle");
+    let (reply, _) = send(&mut view, Some(THREAD), "reply");
+    let (last, _) = send(&mut view, None, "last");
+    let mut peer = open(dir.path());
+    let newest = peer.recent_pending_posts(ROOM, None, None, 2).unwrap();
+    assert_eq!(
+        newest.iter().map(|r| r.sequence).collect::<Vec<_>>(),
+        [last.sequence, middle.sequence]
+    );
+    assert!(view.dismiss_pending_post(&middle.pending_id, 1).unwrap());
+    let (added, _) = send(&mut view, None, "new arrival");
+    assert_eq!(
+        peer.recent_pending_posts(ROOM, None, Some(middle.sequence), 2)
+            .unwrap(),
+        [first]
+    );
+    assert_eq!(
+        peer.recent_pending_posts(ROOM, None, None, 1).unwrap(),
+        [added]
+    );
+    assert_eq!(
+        peer.recent_pending_posts(ROOM, Some(THREAD), None, 1)
+            .unwrap(),
+        [reply]
+    );
+    assert!(
+        peer.recent_pending_posts(ROOM, None, Some(1), 5)
+            .unwrap()
+            .is_empty()
+    );
+    for before in [i64::MIN, -1, 0] {
+        assert_eq!(
+            peer.recent_pending_posts(ROOM, None, Some(before), 2),
+            Err(HistoryError::InvalidDraft)
+        );
+    }
+    assert_eq!(
+        peer.recent_pending_posts(ROOM, None, None, 0),
+        Err(HistoryError::InvalidDraft)
+    );
+}
+
+#[test]
+fn round_trips_large_page_numbers_as_exact_json_cursors() {
+    let path = tempdir().unwrap();
+    let mut view = open(path.path());
+    for sequence in [JS_MAX_SAFE_INTEGER, JS_MAX_SAFE_INTEGER + 1, i64::MAX] {
+        view.write(|tx| tx.execute(
+            "INSERT INTO pending_post(sequence,pending_id,channel_id,root_id,message,login_generation) VALUES(?1,CAST(?1 AS TEXT),?2,'','same',zeroblob(16))",
+            params![sequence,ROOM],
+        )).unwrap();
+    }
+    let newest = view.recent_pending_posts(ROOM, None, None, 1).unwrap();
+    let json = serde_json::to_value(&newest[0]).unwrap();
+    assert_eq!(json["sequence"], "9223372036854775807");
+    let bound: PendingCursor = serde_json::from_value(json["sequence"].clone()).unwrap();
+    let before = view
+        .recent_pending_posts(ROOM, None, Some(bound.sequence().unwrap()), 2)
+        .unwrap();
+    let json = serde_json::to_value(&before).unwrap();
+    assert_eq!(json[0]["sequence"], "9007199254740992");
+    assert_eq!(json[1]["sequence"], JS_MAX_SAFE_INTEGER);
+    let mid: PendingCursor = serde_json::from_value(json[0]["sequence"].clone()).unwrap();
+    assert_eq!(
+        view.pending_posts(ROOM, None, mid.sequence().unwrap(), 1)
+            .unwrap(),
+        newest
+    );
+    assert_eq!(
+        PendingCursor::Number(JS_MAX_SAFE_INTEGER + 1).sequence(),
+        Err(HistoryError::InvalidDraft)
+    );
+    for invalid in ["01", "-1", "", "9223372036854775808", "+1"] {
+        assert_eq!(
+            PendingCursor::Decimal(invalid.to_owned()).sequence(),
+            Err(HistoryError::InvalidDraft)
+        );
+    }
+}
+
+#[test]
 fn paginates_by_an_index_across_five_thousand_pending_posts() {
     let path = tempdir().unwrap();
     let mut view = open(path.path());
@@ -310,17 +395,15 @@ fn paginates_by_an_index_across_five_thousand_pending_posts() {
              SELECT ?1,CASE WHEN i%2=0 THEN '' ELSE ?2 END,CAST(i AS TEXT),'same text',5,zeroblob(16) FROM n",
             [ROOM, THREAD],
         )?;
-        let details = tx
-            .prepare(&format!("EXPLAIN QUERY PLAN {LIST}"))?
+        for (query,range) in [(LIST, "rowid>?"), (RECENT,"rowid<?")] {
+            let details = tx
+            .prepare(&format!("EXPLAIN QUERY PLAN {query}"))?
             .query_map(params![ROOM, "", 4980, 3, [0u8; 16]], |r| r.get::<_, String>(3))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        assert!(details.iter().any(|s| s.contains(
-            "SEARCH pending_post USING INDEX pending_post_by_conversation (channel_id=? AND root_id=? AND rowid>?)"
-        )), "{details:?}");
-        assert!(
-            !details.iter().any(|s| s.contains("TEMP B-TREE")),
-            "{details:?}"
-        );
+            let index = format!("SEARCH pending_post USING INDEX pending_post_by_conversation (channel_id=? AND root_id=? AND {range})");
+            assert!(details.iter().any(|s| s.contains(&index)), "{details:?}");
+            assert!(!details.iter().any(|s| s.contains("TEMP B-TREE")), "{details:?}");
+        }
         Ok(())
     })
     .unwrap();
@@ -328,5 +411,17 @@ fn paginates_by_an_index_across_five_thousand_pending_posts() {
     assert_eq!(
         page.iter().map(|p| p.sequence).collect::<Vec<_>>(),
         [4982, 4984, 4986]
+    );
+    let recent = view.recent_pending_posts(ROOM, None, None, 3).unwrap();
+    assert_eq!(
+        recent.iter().map(|p| p.sequence).collect::<Vec<_>>(),
+        [5000, 4998, 4996]
+    );
+    let older = view
+        .recent_pending_posts(ROOM, None, Some(4996), 3)
+        .unwrap();
+    assert_eq!(
+        older.iter().map(|p| p.sequence).collect::<Vec<_>>(),
+        [4994, 4992, 4990]
     );
 }

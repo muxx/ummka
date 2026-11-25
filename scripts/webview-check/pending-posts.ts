@@ -1,4 +1,6 @@
+import { invoke } from "@tauri-apps/api/core";
 import type { openAccountRestConnection } from "../../src/mattermost/native-rest.ts";
+import { expectCode } from "./local-history.ts";
 
 type Account = Awaited<ReturnType<typeof openAccountRestConnection>>;
 const channel = { channelId: "w".repeat(26) };
@@ -92,15 +94,27 @@ export async function stagePendingPosts(
   )
     throw Error("Conflicting editor lost the cause of clearing");
   await checkPendingRestore(neighbor, true);
+  await expectCode(
+    invoke("read_pending_posts", {
+      rid: account.rid,
+      ...channel,
+      rootId: null,
+      after: 0,
+      before: 5,
+      limit: 2,
+    }),
+    "invalid_history_request",
+  );
 }
 
 export async function checkPendingRestore(account: Account, saved: boolean) {
   const page = { after: 0, limit: 1 };
-  const [first, replies, roomDraft, threadDraft] = await Promise.all([
+  const [first, replies, roomDraft, threadDraft, newest] = await Promise.all([
     account.readPendingPosts({ ...channel, ...page }),
     account.readPendingPosts({ ...thread, ...page }),
     account.readDraft(channel),
     account.readDraft(thread),
+    account.readPendingPosts({ ...channel, limit: 1 }),
   ]);
   if (
     roomDraft.message !== "" ||
@@ -110,7 +124,7 @@ export async function checkPendingRestore(account: Account, saved: boolean) {
   )
     throw Error("Restored drafts lost their account or clearing cause");
   if (!saved) {
-    if (first.length || replies.length)
+    if (first.length || replies.length || newest.length)
       throw Error("Another installation exposed pending messages");
     return;
   }
@@ -140,7 +154,45 @@ export async function checkPendingRestore(account: Account, saved: boolean) {
   if (
     next.length !== 1 ||
     next[0]?.message !== secondText ||
-    next[0].sequence <= post.sequence
+    BigInt(next[0].sequence) <= BigInt(post.sequence)
   )
     throw Error("Pending messages did not resume at the exclusive cursor");
+  if (newest.length !== 1 || newest[0].pendingId !== next[0].pendingId)
+    throw Error(
+      "Opening the conversation did not return its latest outgoing message",
+    );
+  const earlier = await account.readPendingPosts({
+    ...channel,
+    before: newest[0].sequence,
+    limit: 2,
+  });
+  if (earlier.length !== 1 || earlier[0].pendingId !== post.pendingId)
+    throw Error(
+      "Reading backwards crossed the channel, thread or cursor boundary",
+    );
+  const belowMaximum = await account.readPendingPosts({
+    ...channel,
+    before: "9223372036854775807",
+    limit: 1,
+  });
+  if (belowMaximum[0]?.pendingId !== newest[0].pendingId)
+    throw Error(
+      "An exact 64-bit boundary was lost between the WebView and SQLite",
+    );
+  await expectCode(
+    account.readPendingPosts({
+      ...channel,
+      after: "9223372036854775808",
+      limit: 1,
+    }),
+    "invalid_history_request",
+  );
+  await expectCode(
+    account.readPendingPosts({
+      ...channel,
+      before: Number.MAX_SAFE_INTEGER + 1,
+      limit: 1,
+    }),
+    "invalid_history_request",
+  );
 }

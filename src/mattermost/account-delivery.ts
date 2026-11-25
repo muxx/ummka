@@ -12,12 +12,18 @@ export type PostRefusal = {
 };
 export type RefusalScope = "delivery" | "retry";
 type AttemptKey = { pendingId: string; attempt: number };
+/** SQLite returns a decimal string when a sequence exceeds JavaScript's exact integer range. */
+type PendingSequence = number | string;
+type PendingPage = DraftLocation & { limit: number } & (
+    | { after: PendingSequence; before?: never }
+    | { before?: PendingSequence; after?: never }
+  );
 type RetryChoice =
   | { kind: "despiteUnknownDelivery" }
   | { kind: "afterRefusal"; message: string };
 
 export type PendingPost = {
-  sequence: number;
+  sequence: PendingSequence;
   pendingId: string;
   channelId: string;
   rootId: string | null;
@@ -86,18 +92,14 @@ export function accountDelivery(
         }),
       );
     },
-    readPendingPosts({
-      channelId,
-      rootId,
-      after,
-      limit,
-    }: DraftLocation & { after: number; limit: number }) {
+    readPendingPosts({ channelId, rootId, after, before, limit }: PendingPage) {
       return whileOpen(() =>
         invoke<PendingPost[]>("read_pending_posts", {
           rid,
           channelId,
           rootId: rootId ?? null,
           after,
+          before,
           limit,
         }),
       );

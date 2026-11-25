@@ -16,7 +16,7 @@ mod confirmation;
 mod lifecycle;
 pub use confirmation::{DeliveryPost, DeliverySource};
 mod pending;
-pub use pending::{PendingPost, StagePost};
+pub use pending::{PendingCursor, PendingPost, StagePost};
 mod posts;
 mod profiles;
 pub use profiles::{ChannelProfile, ProfileLookup, ProfileQuery};
