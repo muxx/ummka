@@ -5,7 +5,11 @@ import {
   EmojiApi,
   ResponseError,
 } from "../../vendor/mattermost/index.js";
-import { isMattermostId, isMattermostTime } from "./model-fields.ts";
+import {
+  isMattermostEmojiName,
+  isMattermostId,
+  isMattermostTime,
+} from "./model-fields.ts";
 
 type CustomEmojiLookup =
   | { kind: "found"; emoji: Emoji }
@@ -18,12 +22,7 @@ export async function readCustomEmoji(
   signal?: AbortSignal,
 ): Promise<CustomEmojiLookup> {
   signal?.throwIfAborted();
-  if (
-    typeof name !== "string" ||
-    name.length === 0 ||
-    name.length > 64 ||
-    /[^a-zA-Z0-9_+-]/u.test(name)
-  )
+  if (!isMattermostEmojiName(name))
     throw new TypeError("Invalid Mattermost custom emoji name.");
   let emoji: Emoji;
   try {

@@ -1,23 +1,29 @@
-type Submission = {
+import { isMattermostEmojiName } from "../mattermost/model-fields.ts";
+import type { openAccountRestConnection } from "../mattermost/native-rest.ts";
+
+type DraftInput = {
   message: string;
   hasAttachments: boolean;
   scheduled: boolean;
-  isKnownEmoji: (name: string) => boolean;
 };
-
-type SubmissionRoute =
+type PostRoute =
   | { kind: "post" }
   | { kind: "command" }
-  | { kind: "blockedCommand"; reason: "scheduled" | "attachments" }
-  | { kind: "reaction"; action: "add" | "remove"; emoji: string };
+  | { kind: "blockedCommand"; reason: "scheduled" | "attachments" };
+type ReactionRoute = {
+  kind: "reaction";
+  action: "add" | "remove";
+  emoji: string;
+};
+type Candidate =
+  | PostRoute
+  | { kind: "candidate"; action: "add" | "remove"; emoji: string };
 
-/** Route a new draft before staging a post or checking its mention audience. */
-export function composerSubmissionRoute({
+function parseSubmission({
   message,
   hasAttachments,
   scheduled,
-  isKnownEmoji,
-}: Submission): SubmissionRoute {
+}: DraftInput): Candidate {
   if (message.startsWith("/")) {
     if (scheduled) return { kind: "blockedCommand", reason: "scheduled" };
     if (hasAttachments)
@@ -26,13 +32,60 @@ export function composerSubmissionRoute({
   }
   if (!scheduled && !hasAttachments) {
     const match = /^([+-]):([^:\s]+):\s*$/.exec(message);
-    if (match && isKnownEmoji(match[2])) {
+    if (match)
       return {
-        kind: "reaction",
+        kind: "candidate",
         action: match[1] === "+" ? "add" : "remove",
         emoji: match[2],
       };
-    }
   }
   return { kind: "post" };
+}
+
+function resolveCandidate(
+  candidate: Extract<Candidate, { kind: "candidate" }>,
+  known: boolean,
+): PostRoute | ReactionRoute {
+  return known
+    ? { kind: "reaction", action: candidate.action, emoji: candidate.emoji }
+    : { kind: "post" };
+}
+
+/** Classify a draft against emoji names already available to the caller. */
+export function composerSubmissionRoute(
+  input: DraftInput & { isKnownEmoji: (name: string) => boolean },
+): PostRoute | ReactionRoute {
+  const route = parseSubmission(input);
+  return route.kind === "candidate"
+    ? resolveCandidate(route, input.isKnownEmoji(route.emoji))
+    : route;
+}
+
+type EmojiReader = Pick<
+  Awaited<ReturnType<typeof openAccountRestConnection>>,
+  "readCustomEmoji"
+>;
+
+/** Resolve an explicit submit. Ordinary messages and slash-command arguments stay on device here. */
+export async function resolveComposerSubmission(
+  input: DraftInput,
+  account: EmojiReader,
+  signal?: AbortSignal,
+): Promise<
+  PostRoute | ReactionRoute | { kind: "blockedReaction"; reason: "nameTooLong" }
+> {
+  signal?.throwIfAborted();
+  const route = parseSubmission(input);
+  if (route.kind !== "candidate") return route;
+  const { findStandardEmoji } = await import("../mattermost/standard-emoji.ts");
+  signal?.throwIfAborted();
+  if (findStandardEmoji(route.emoji)) {
+    if (route.emoji.length > 64)
+      return { kind: "blockedReaction", reason: "nameTooLong" };
+    return resolveCandidate(route, true);
+  }
+  if (!isMattermostEmojiName(route.emoji)) return { kind: "post" };
+  const result = await account.readCustomEmoji(route.emoji, signal);
+  signal?.throwIfAborted();
+  return resolveCandidate(route, result.kind === "found");
 }
