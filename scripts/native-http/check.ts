@@ -30,6 +30,7 @@ try {
         fixture.webviewPorts,
         fixture.ca,
         config,
+        fixture.onKeyboardReady,
       );
     else {
       const result = await promisify(execFile)(

@@ -47,8 +47,10 @@ test("waits through an ordinary Chromium error and accepts the actual marker", a
   assert.equal(check.reads(), 2);
 });
 
-test("the emulator enters keyboard navigation before launching the first WebView activity", async () => {
+test("Android sends one Tab after the reloaded document contacts the fixture", async () => {
   const events: string[] = [];
+  let logReads = 0;
+  let ready!: () => Promise<void>;
   async function adb(...args: string[]) {
     if (args[1] === "input") {
       assert.deepEqual(args, ["shell", "input", "keyevent", "KEYCODE_TAB"]);
@@ -61,8 +63,19 @@ test("the emulator enters keyboard navigation before launching the first WebView
     }
     if (args[1] === "pidof") return "125";
     assert.equal(args[0], "logcat");
-    return "UMMKA_WEBVIEW_CHECK browser-checked";
+    events.push("log");
+    logReads++;
+    if (logReads === 2) await ready();
+    return logReads === 3 ? "UMMKA_WEBVIEW_CHECK browser-checked" : "";
   }
-  await launchWebview(adb, "app", "app/.MainActivity", "browser-checked");
-  assert.deepEqual(events, ["keyboard", "launch"]);
+  await launchWebview(
+    adb,
+    "app",
+    "app/.MainActivity",
+    "browser-checked",
+    (sendTab) => {
+      ready = sendTab;
+    },
+  );
+  assert.deepEqual(events, ["launch", "log", "log", "keyboard", "log"]);
 });
