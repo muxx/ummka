@@ -1,4 +1,4 @@
-use super::{AccountHistory, ComposerDraft, HistoryError, drafts};
+use super::{AccountHistory, ComposerDraft, HistoryError, PostRefusal, drafts};
 use rusqlite::{Row, params};
 use serde::Serialize;
 use uuid::Uuid;
@@ -14,6 +14,8 @@ pub struct PendingPost {
     pub created_at: i64,
     pub previous_login: bool,
     pub confirmed_post_id: Option<String>,
+    pub attempt: u32,
+    pub refusal: Option<PostRefusal>,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
@@ -28,13 +30,22 @@ pub enum StagePost {
     },
 }
 
-const LIST: &str = "SELECT sequence,pending_id,channel_id,NULLIF(root_id,''),message,created_at,login_generation<>?5,post_id
-    FROM pending_post LEFT JOIN post_confirmation USING(pending_id)
+const LIST: &str = "SELECT sequence,pending_id,channel_id,NULLIF(root_id,''),message,created_at,login_generation<>?5,post_id,
+        COALESCE(attempt,1),CASE WHEN post_id IS NULL THEN refusal_status END,refusal_code,refusal_message
+    FROM pending_post LEFT JOIN post_confirmation USING(pending_id) LEFT JOIN post_attempt USING(pending_id)
     WHERE channel_id=?1 AND root_id=?2 AND sequence>?3 ORDER BY sequence LIMIT ?4";
 const INSERT: &str = "INSERT INTO pending_post(pending_id,channel_id,root_id,message,login_generation)
-    VALUES (?1,?2,?3,?4,?5) RETURNING sequence,pending_id,channel_id,NULLIF(root_id,''),message,created_at,0,NULL";
+    VALUES (?1,?2,?3,?4,?5) RETURNING sequence,pending_id,channel_id,NULLIF(root_id,''),message,created_at,0,NULL,1,NULL,NULL,NULL";
 
 fn post(row: &Row<'_>) -> rusqlite::Result<PendingPost> {
+    let refusal = match row.get(9)? {
+        Some(status) => Some(PostRefusal {
+            status,
+            code: row.get(10)?,
+            message: row.get(11)?,
+        }),
+        None => None,
+    };
     Ok(PendingPost {
         sequence: row.get(0)?,
         pending_id: row.get(1)?,
@@ -44,6 +55,8 @@ fn post(row: &Row<'_>) -> rusqlite::Result<PendingPost> {
         created_at: row.get(5)?,
         previous_login: row.get(6)?,
         confirmed_post_id: row.get(7)?,
+        attempt: row.get(8)?,
+        refusal,
     })
 }
 

@@ -78,6 +78,8 @@ type PendingPost = {
   createdAt: number;
   previousLogin: boolean;
   confirmedPostId: string | null;
+  attempt: number;
+  refusal: { status: number; code: string; message: string | null } | null;
 };
 type StagePost =
   | { kind: "created"; post: PendingPost; draft: ComposerDraft }
