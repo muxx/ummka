@@ -581,6 +581,11 @@ pub(super) const MIGRATIONS: &[Migration] = &[
         ],
         objects: &directory_objects(JOINED_TEAM_V19, SIDEBAR_CHANNEL_V19),
     },
+    // Older readers reject unknown server policy JSON fields.
+    Migration {
+        statements: &[],
+        objects: &directory_objects(JOINED_TEAM_V19, SIDEBAR_CHANNEL_V19),
+    },
 ];
 
 pub(super) fn version(connection: &Connection) -> rusqlite::Result<i64> {

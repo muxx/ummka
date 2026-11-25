@@ -70,6 +70,8 @@ impl SidebarPreferences {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ServerPolicy {
     #[serde(skip_serializing_if = "Option::is_none")]
+    unique_reaction_limit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     mentions: Option<MentionSettings>,
     collapsed_threads: ThreadMode,
     separate_unreads: bool,
@@ -88,11 +90,15 @@ struct MentionSettings {
     ldap_groups: bool,
 }
 
+fn canonical_i64(raw: &str) -> Option<i64> {
+    raw.parse::<i64>()
+        .ok()
+        .filter(|value| value.to_string() == raw)
+}
+
 impl MentionSettings {
     fn valid(&self) -> bool {
-        let raw = &self.max_notifications_per_channel;
-        raw.parse::<i64>()
-            .is_ok_and(|limit| limit > 0 && limit.to_string() == *raw)
+        canonical_i64(&self.max_notifications_per_channel).is_some_and(|limit| limit > 0)
     }
 }
 
@@ -165,6 +171,10 @@ impl AccountHistory {
             .mentions
             .as_ref()
             .is_some_and(|settings| !settings.valid())
+            || value
+                .unique_reaction_limit
+                .as_ref()
+                .is_some_and(|raw| canonical_i64(raw).is_none())
         {
             return Err(HistoryError::InvalidDirectory);
         }

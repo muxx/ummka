@@ -53,6 +53,7 @@ export function webviewServers(
   let offlineHistoryRequests = 0;
   let connections = 0;
   let before = false;
+  let prepareKeyboard: (() => Promise<void>) | undefined;
   let disconnect: Socket | undefined;
   let pingSocket: Socket | undefined;
   const settings = new Map<string, ServerResponse>();
@@ -743,6 +744,7 @@ export function webviewServers(
                 FeatureFlagEnableSharedChannelsDMs: "true",
                 EnableConfirmNotificationsToChannel: "false",
                 MaxNotificationsPerChannel: "9223372036854775807",
+                UniqueEmojiReactionLimitPerPost: "-2",
                 EnableCustomGroups: "true",
                 TeammateNameDisplay: "full_name",
                 LockTeammateNameDisplay: "true",
@@ -884,6 +886,12 @@ export function webviewServers(
       assert(wait);
       assert(step === "received" || step === "closed");
       await wait[step];
+      if (name === "reload" && step === "closed" && prepareKeyboard) {
+        const sendTab = prepareKeyboard;
+        prepareKeyboard = undefined;
+        // Hold the fixture response until the input reaches the reloaded Activity.
+        await sendTab();
+      }
     }
     res.writeHead(204).end();
   });
@@ -894,6 +902,9 @@ export function webviewServers(
   });
   return {
     servers: [data, control, foreign],
+    onKeyboardReady(sendTab: () => Promise<void>) {
+      prepareKeyboard = sendTab;
+    },
     verify(platform: "macos" | "android") {
       refresh.verify();
       assert.equal(

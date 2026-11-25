@@ -25,6 +25,7 @@ fn policy() -> ServerPolicy {
         name_format: NameFormat::FullName,
         lock_name_format: true,
         shared_channel_dms: Some(true),
+        unique_reaction_limit: Some("-2".into()),
         mentions: Some(MentionSettings {
             confirm_notifications: true,
             max_notifications_per_channel: i64::MAX.to_string(),
@@ -190,42 +191,47 @@ fn accepts_only_known_settings_and_indexes_an_owner_lookup() {
 }
 
 #[test]
-fn v17_keeps_unknown_mention_policy_until_refresh_and_protects_the_new_format() {
-    let root = tempdir().unwrap();
-    let v17 = &MIGRATIONS[..17];
-    let mut old = HistoryDatabase::open_with(root.path(), URL, v17).unwrap();
-    let owner = old.restore(&account()).unwrap();
-    let mut legacy = policy();
-    legacy.mentions = None;
-    let saved = serde_json::to_string(&legacy).unwrap();
-    old.write(&owner, |tx| {
-        tx.execute("INSERT INTO workspace_settings(owner,server) VALUES(1,?1)", [&saved])?;
-        tx.execute("INSERT INTO composer_draft(channel_id,root_id,message,revision) VALUES(?1,'','preserved',lower(hex(randomblob(16))))", [OTHER])?;
-        Ok(())
-    }).unwrap();
-    let mut db = open(root.path());
-    assert_eq!(db.read_workspace_settings().unwrap().server, Some(legacy));
-    let load = db.begin_server_policy_load().unwrap();
-    assert!(db.store_server_policy(load, &policy()).unwrap());
-    assert_eq!(
-        old.write(&owner, |tx| tx
-            .execute("DELETE FROM workspace_settings", [])),
-        Err(HistoryError::UnsupportedSchema)
-    );
-    drop(db);
-    assert!(matches!(
-        HistoryDatabase::open_with(root.path(), URL, v17),
-        Err(HistoryError::UnsupportedSchema)
-    ));
-    let mut reopened = open(root.path());
-    assert_eq!(
-        reopened.read_workspace_settings().unwrap().server,
-        Some(policy())
-    );
-    assert_eq!(
-        reopened.read_draft(OTHER, None).unwrap().message,
-        "preserved"
-    );
+fn upgrades_settings_and_drafts_from_v17_and_v19_and_protects_the_new_policy() {
+    for version in [17, 19] {
+        let root = tempdir().unwrap();
+        let previous = &MIGRATIONS[..version];
+        let mut old = HistoryDatabase::open_with(root.path(), URL, previous).unwrap();
+        let owner = old.restore(&account()).unwrap();
+        let mut legacy = policy();
+        legacy.unique_reaction_limit = None;
+        if version == 17 {
+            legacy.mentions = None;
+        }
+        let saved = serde_json::to_string(&legacy).unwrap();
+        old.write(&owner, |tx| {
+            tx.execute("INSERT INTO workspace_settings(owner,server) VALUES(1,?1)", [&saved])?;
+            tx.execute("INSERT INTO composer_draft(channel_id,root_id,message,revision) VALUES(?1,'','preserved',lower(hex(randomblob(16))))", [OTHER])?;
+            Ok(())
+        }).unwrap();
+        let mut db = open(root.path());
+        assert_eq!(db.read_workspace_settings().unwrap().server, Some(legacy));
+        let load = db.begin_server_policy_load().unwrap();
+        assert!(db.store_server_policy(load, &policy()).unwrap());
+        assert_eq!(
+            old.write(&owner, |tx| tx
+                .execute("DELETE FROM workspace_settings", [])),
+            Err(HistoryError::UnsupportedSchema)
+        );
+        drop(db);
+        assert!(matches!(
+            HistoryDatabase::open_with(root.path(), URL, previous),
+            Err(HistoryError::UnsupportedSchema)
+        ));
+        let mut reopened = open(root.path());
+        assert_eq!(
+            reopened.read_workspace_settings().unwrap().server,
+            Some(policy())
+        );
+        assert_eq!(
+            reopened.read_draft(OTHER, None).unwrap().message,
+            "preserved"
+        );
+    }
 }
 
 #[test]
@@ -405,4 +411,41 @@ fn upgrades_populated_v1_through_v6_preserving_content_and_unknown_creation_time
             Some(policy())
         );
     }
+}
+
+#[test]
+fn reaction_limits_preserve_signed_values_and_reject_invalid_refreshes() {
+    let root = tempdir().unwrap();
+    let mut db = open(root.path());
+    let mut value = policy();
+    for raw in ["0", "-9223372036854775808", "500", "9223372036854775807"] {
+        value.unique_reaction_limit = Some(raw.into());
+        let load = db.begin_server_policy_load().unwrap();
+        assert!(db.store_server_policy(load, &value).unwrap());
+        assert_eq!(
+            db.read_workspace_settings().unwrap().server,
+            Some(policy_with_limit(raw))
+        );
+    }
+    for raw in [
+        "",
+        "1.0",
+        "-0",
+        "+1",
+        "-9223372036854775809",
+        "9223372036854775808",
+    ] {
+        let load = db.begin_server_policy_load().unwrap();
+        assert_eq!(
+            db.store_server_policy(load, &policy_with_limit(raw)),
+            Err(HistoryError::InvalidDirectory)
+        );
+    }
+    assert_eq!(db.read_workspace_settings().unwrap().server, Some(value));
+}
+
+fn policy_with_limit(raw: &str) -> ServerPolicy {
+    let mut value = policy();
+    value.unique_reaction_limit = Some(raw.into());
+    value
 }
