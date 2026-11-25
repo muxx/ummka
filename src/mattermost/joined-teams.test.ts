@@ -48,3 +48,19 @@ test("keeps first known preference ranks and uses Mattermost's numeric display-n
   expect(rows[2]).not.toHaveProperty("roles");
   expect(projectJoinedTeams({ teams: [], preferences: [] })).toEqual([]);
 });
+
+test.each([true, false, null, undefined])(
+  "projects the observed team group constraint %j",
+  (groupConstrained) => {
+    const [row] = projectJoinedTeams({
+      teams: [
+        {
+          team: { id: a, name: "one", displayName: "One", groupConstrained },
+          membership: { teamId: a },
+        },
+      ],
+      preferences: [],
+    });
+    expect(row.groupConstrained).toBe(groupConstrained === true);
+  },
+);
