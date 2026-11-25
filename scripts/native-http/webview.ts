@@ -631,6 +631,7 @@ export function webviewServers(
                 FeatureFlagEnableSharedChannelsDMs: "true",
                 EnableConfirmNotificationsToChannel: "false",
                 MaxNotificationsPerChannel: "9223372036854775807",
+                UniqueEmojiReactionLimitPerPost: "-2",
                 EnableCustomGroups: "true",
                 TeammateNameDisplay: "full_name",
                 LockTeammateNameDisplay: "true",

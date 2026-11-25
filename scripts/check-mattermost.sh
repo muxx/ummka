@@ -20,9 +20,6 @@ trap 'rm -f "$sources"; compose down --volumes' EXIT
 trap 'exit 1' HUP INT TERM
 # Snapshot the generated bindings and probe together. A macOS shared mount can
 # expose an old file length to Node's module loader after a binding is replaced.
-COPYFILE_DISABLE=1 tar -cf "$sources" package.json vendor/mattermost \
-    src/channels/composer-access.ts src/channels/workspace-data.ts src/mattermost/focused-history.ts src/mattermost/model-fields.ts src/mattermost/account-directory-error.ts src/mattermost/channel-profiles.ts src/mattermost/visible-profiles.ts src/mattermost/workspace-preferences.ts src/mattermost/workspace-server.ts src/mattermost/installation-profile.ts src/mattermost/sidebar-rows.ts src/mattermost/channel-post-records.ts src/mattermost/navigation-data.ts src/mattermost/joined-teams.ts src/mattermost/team-sidebar.ts \
-    src/mattermost/channel-history-page.ts src/mattermost/channel-history-refresh.ts src/mattermost/channel-permissions.ts \
-    scripts/contract/compatibility/*.ts
+COPYFILE_DISABLE=1 tar -cf "$sources" package.json src vendor scripts/contract/compatibility/*.ts
 compose up -d --wait --wait-timeout 180 database images gitlab mattermost
 compose run --rm --no-deps -T probe sh -ec "tar -xf - && exec node scripts/contract/compatibility/history.ts '$1'" <"$sources"
