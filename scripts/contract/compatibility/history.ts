@@ -41,6 +41,7 @@ import {
   checkPreviouslyAcceptedPost,
 } from "./post-mutations.ts";
 import { checkProfileReads } from "./profile-reads.ts";
+import { checkReactionActions } from "./reaction-actions.ts";
 import { checkPostReactions } from "./reactions.ts";
 import { checkRoleReads } from "./role-reads.ts";
 import { checkSidebarReads } from "./sidebar.ts";
@@ -297,6 +298,15 @@ const closedMember = await new ChannelsApi(session).getChannelMember({
   channelId: closed.id,
   userId: "me",
 });
+await checkReactionActions(
+  base,
+  { id: user.id, token },
+  { id: reader.id, token: readerToken },
+  dm.id,
+);
+console.log(
+  `Mattermost ${version} verified two users joining and leaving one reaction at the distinct emoji limit.`,
+);
 assert.equal(closedMember.userId, user.id);
 assert.equal(closedMember.channelId, closed.id);
 const closedReader = new ChannelsApi(
