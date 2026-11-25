@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   CommandsApi,
   Configuration,
+  FilesApi,
   PostsApi,
 } from "../../vendor/mattermost/index.js";
 import { readCustomEmoji } from "./account-custom-emoji.ts";
@@ -21,12 +22,18 @@ import {
 } from "./channel-permissions.ts";
 import type { ChannelProfile } from "./channel-profiles.ts";
 import { executeAccountCommand } from "./execute-account-command.ts";
+import {
+  type CommandIntent,
+  executeSavedCommand,
+} from "./execute-saved-command.ts";
 import { type JoinedTeams, projectJoinedTeams } from "./joined-teams.ts";
 import type {
   ChannelWindowQuery,
   LocalChannelWindow,
+  LocalPost,
 } from "./local-history.ts";
 import { accountMentionGroups } from "./mention-group-reads.ts";
+import { readFileAnchor, readPostAnchor } from "./message-anchors.ts";
 import { nativeFetch } from "./native-fetch.ts";
 import { loadAccountDirectory, loadTeamDirectory } from "./navigation-data.ts";
 import { refreshNavigation } from "./navigation-refresh.ts";
@@ -84,6 +91,8 @@ export type ComposerDraft = {
   revision: string | null;
   /** Present only when the cause of this empty revision is known. */
   clearedBySubmission?: boolean;
+  /** The server may already have received the command from this revision. */
+  commandPending?: true;
 };
 export type DraftSave = { kind: "saved" | "conflict"; draft: ComposerDraft };
 
@@ -104,6 +113,7 @@ export async function openAccountRestConnection(
   const { rid } = connection;
   const config = new Configuration(connection);
   const posts = new PostsApi(config);
+  const files = new FilesApi(config);
   const activity = createPostActivity();
   let retired:
     | "unknown_connection"
@@ -114,16 +124,28 @@ export async function openAccountRestConnection(
     retired = reason;
     activity.close();
   }
-  async function readWhileOpen<T>(read: () => Promise<T>) {
+  async function readWhileOpen<T>(
+    read: () => Promise<T>,
+    signal?: AbortSignal,
+  ) {
     if (retired) throw retired;
     const result = await read();
     if (retired) throw "cancelled";
+    signal?.throwIfAborted();
     return result;
   }
+  const delivery = accountDelivery(rid, readWhileOpen, posts, userId, activity);
+  const commands = new CommandsApi(config);
   return {
     ...connection,
     ...accountPostReactions(config, userId, readWhileOpen),
     ...accountSearch(config, readWhileOpen),
+    readPostAnchor(postId: string, signal?: AbortSignal) {
+      return readWhileOpen(() => readPostAnchor(posts, postId, signal), signal);
+    },
+    readFileAnchor(fileId: string, signal?: AbortSignal) {
+      return readWhileOpen(() => readFileAnchor(files, fileId, signal), signal);
+    },
     ...accountChannelAudience(config, readWhileOpen),
     ...accountMentionGroups(config, readWhileOpen),
     readSavedProfiles(query: VisibleProfileQuery) {
@@ -190,13 +212,28 @@ export async function openAccountRestConnection(
         ),
       );
     },
-    ...accountDelivery(rid, readWhileOpen, posts, userId, activity),
+    ...delivery,
+    submitDraftCommand(
+      location: DraftLocation & { teamId: string },
+      revision: string,
+      intent?: CommandIntent,
+    ) {
+      return readWhileOpen(() =>
+        executeSavedCommand(
+          commands,
+          delivery.transitionDraftCommand,
+          location,
+          revision,
+          intent,
+        ),
+      );
+    },
     executeServerCommand(
       location: DraftLocation & { teamId: string },
       text: string,
     ) {
       return readWhileOpen(() =>
-        executeAccountCommand(new CommandsApi(config), location, text),
+        executeAccountCommand(commands, location, text),
       );
     },
     readWorkspaceSettings() {
@@ -298,6 +335,11 @@ export async function openAccountRestConnection(
     close() {
       retire("unknown_connection");
       return connection.close();
+    },
+    readSavedPost(channelId: string, postId: string) {
+      return readWhileOpen(() =>
+        invoke<LocalPost | null>("read_saved_post", { rid, channelId, postId }),
+      );
     },
     readChannelWindow(query: ChannelWindowQuery) {
       return readWhileOpen(() =>

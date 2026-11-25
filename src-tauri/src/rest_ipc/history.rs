@@ -1,7 +1,8 @@
 use super::exchange::{ExchangeError, Session};
 use crate::{
     history::{
-        AccountHistory, ChannelHistoryPage, ChannelPostLoad, HistoryError, PageWrite, WindowSlice,
+        AccountHistory, ChannelHistoryPage, ChannelPostLoad, HistoryError, PageWrite, StoredPost,
+        WindowSlice,
     },
     rest::TransportError,
     sessions::AccountSessions,
@@ -207,6 +208,25 @@ pub(crate) fn cancel_channel_history_load<R: Runtime>(
     super::session(&webview, rid)?
         .take_history_load(load)
         .map(drop)
+}
+
+#[tauri::command]
+pub(crate) async fn read_saved_post<R: Runtime>(
+    webview: Webview<R>,
+    rid: ResourceId,
+    channel_id: String,
+    post_id: String,
+) -> Result<Option<StoredPost>, ExchangeError> {
+    super::session(&webview, rid)?
+        .with_history(&webview.state::<AccountSessions>(), move |view| {
+            if !crate::rest::is_mattermost_id(&channel_id) {
+                return Err(HistoryError::InvalidPost);
+            }
+            Ok(view
+                .read_post(&post_id)?
+                .filter(|post| post.channel_id == channel_id))
+        })
+        .await
 }
 
 #[tauri::command]

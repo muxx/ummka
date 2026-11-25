@@ -1,6 +1,7 @@
 import { openAccountRestConnection } from "../../src/mattermost/native-rest.ts";
 import { checkAttemptActions, checkAttemptRestore } from "./attempt-actions.ts";
 import { checkReceipts, checkReceiptsRestore } from "./delivery-receipts.ts";
+import { checkCommandRestored, checkDraftCommand } from "./draft-command.ts";
 import {
   checkDraftEditors,
   checkDraftEditorsRestored,
@@ -21,6 +22,7 @@ export async function checkDraftWrites(
   const neighbor = await openAccountRestConnection(account.basePath, userId);
   try {
     await checkDraftEditors(account, neighbor);
+    await checkDraftCommand(account, neighbor);
     const original = await neighbor.readDraft(channel);
     if (original.message !== "" || original.revision !== null)
       throw Error("new editor already has a draft");
@@ -72,6 +74,7 @@ export async function checkDraftWrites(
 }
 
 export async function checkDraftRestore(account: Account, saved: boolean) {
+  await checkCommandRestored(account, saved);
   await checkAttemptRestore(account, saved);
   await checkPendingRestore(account, saved);
   await checkReceiptsRestore(account, saved);

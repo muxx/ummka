@@ -312,6 +312,38 @@ export async function checkGeneratedRequests(ports: string[]) {
       "account-server-command",
     );
 
+    const commandThread = { channelId, teamId, rootId: "k".repeat(26) };
+    const localCommand = await accountPrefix.saveDraft({
+      ...commandThread,
+      expectedRevision: null,
+      message: "/RELEASE  —Saved  ",
+    });
+    const commandRevision = localCommand.draft.revision;
+    check(
+      localCommand.kind === "saved" && commandRevision,
+      "saved-command-local-draft",
+    );
+    const commandOutcomes = await Promise.all(
+      [1, 2].map(() =>
+        accountPrefix.submitDraftCommand(commandThread, commandRevision),
+      ),
+    );
+    check(
+      commandOutcomes.some(
+        (s) =>
+          s.kind === "answered" &&
+          s.settlement === "saved" &&
+          s.result.kind === "executed" &&
+          s.result.response.text === "Fixture status",
+      ) && commandOutcomes.some((s) => s.kind === "conflict"),
+      "saved-command-single-request",
+    );
+    const afterCommand = await accountPrefix.readDraft(commandThread);
+    check(
+      afterCommand.message === "" && afterCommand.clearedBySubmission,
+      "saved-command-cleared",
+    );
+
     const broadcast = await readPostMentionDecision(
       accountPrefix,
       { id: channelId, groupConstrained: true },
@@ -445,6 +477,19 @@ export async function checkGeneratedRequests(ports: string[]) {
     );
     await checkChannelHistory(rootSession, signed, new Configuration(root));
     await checkPostContext(rootSession, signed);
+    const postId = "p".repeat(26),
+      fileId = "f".repeat(26);
+    const postAnchor = await accountPrefix.readPostAnchor(postId);
+    const fileAnchor = await accountPrefix.readFileAnchor(fileId);
+    check(
+      postAnchor.postId === postId &&
+        postAnchor.channelId === channelId &&
+        postAnchor.rootId === "r".repeat(26) &&
+        fileAnchor.fileId === fileId &&
+        fileAnchor.channelId === channelId &&
+        fileAnchor.postId === postId,
+      "account-message-anchors",
+    );
     await checkPostMutations(rootSession, signed, channelId);
     await checkConnectServer(origin);
     const profile = await inspectInstallation(

@@ -306,12 +306,15 @@ test("opens a native account by installation and user ID", async () => {
     "readChannelWindow",
     "readCustomEmoji",
     "readDraft",
+    "readFileAnchor",
     "readFileSearchPage",
     "readJoinedTeams",
     "readMentionGroupCounts",
     "readPendingPosts",
+    "readPostAnchor",
     "readPostReactions",
     "readPostSearchPage",
+    "readSavedPost",
     "readSavedProfiles",
     "readSavedTeamRoles",
     "readTeamDirectory",
@@ -338,7 +341,9 @@ test("opens a native account by installation and user ID", async () => {
     "signOutOnDevice",
     "stagePost",
     "submitDraft",
+    "submitDraftCommand",
     "subscribeToPostActivity",
+    "transitionDraftCommand",
   ]);
 });
 

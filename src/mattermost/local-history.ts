@@ -14,8 +14,10 @@ export type ChannelWindowQuery = ChannelScope &
 
 type Edge = { kind: "end" | "unknown" } | { kind: "more"; postId: string };
 
+export type LocalPost = Omit<Saved, "kind">;
+
 export interface LocalChannelWindow {
-  posts: Omit<Saved, "kind">[];
+  posts: LocalPost[];
   newer: Edge;
   older: Edge;
   firstInaccessiblePostTime: number;
