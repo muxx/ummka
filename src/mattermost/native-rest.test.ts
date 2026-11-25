@@ -18,6 +18,7 @@ import {
 } from "./native-rest.ts";
 import * as directory from "./navigation-data.ts";
 import * as membership from "./own-membership.ts";
+import * as searchClock from "./search-timezone.ts";
 import * as profiles from "./visible-profiles.ts";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -84,6 +85,87 @@ test.each(["close", "signOut", "signOutOnDevice"] as const)(
       operation === "close" ? "unknown_connection" : "cancelled",
     );
     expect(ipc).toHaveBeenCalledTimes(3);
+  },
+);
+
+test.each(["close", "abort"])(
+  "discards collection responses after %s",
+  async (action) => {
+    ipc.mockResolvedValueOnce(41);
+    const account = await openAccountRestConnection(
+      "https://chat.example.test",
+      "u".repeat(26),
+    );
+    const controller = new AbortController();
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const fetch = vi
+      .spyOn(PostsApi.prototype, "getFlaggedPostsForUser")
+      .mockImplementation(async () => {
+        await gate;
+        return { order: [], posts: {}, firstInaccessiblePostTime: 0 };
+      });
+    try {
+      const pending = account.readSavedPosts(
+        { kind: "all" },
+        0,
+        controller.signal,
+      );
+      if (action === "close") await account.close();
+      else controller.abort();
+      finish();
+      if (action === "close") {
+        await expect(pending).rejects.toBe("cancelled");
+        await expect(
+          account.readPinnedChannelPosts("c".repeat(26)),
+        ).rejects.toBe("unknown_connection");
+      } else {
+        await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+      }
+      expect(fetch).toHaveBeenCalledOnce();
+    } finally {
+      fetch.mockRestore();
+    }
+  },
+);
+
+test.each(["abort", "close"])(
+  "a pending collection change cannot confirm after %s",
+  async (action) => {
+    ipc.mockResolvedValueOnce(41);
+    const account = await openAccountRestConnection(
+      "https://chat.example.test",
+      "u".repeat(26),
+    );
+    const controller = new AbortController();
+    let finish!: () => void;
+    const pendingBody = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const write = vi.spyOn(PostsApi.prototype, "pinPostRaw").mockResolvedValue({
+      raw: new Response(null, { status: 200 }),
+      value: async () => {
+        await pendingBody;
+        return { status: "OK" };
+      },
+    });
+    try {
+      const pending = account.setPostPinned(
+        "a".repeat(26),
+        true,
+        controller.signal,
+      );
+      if (action === "close") await account.close();
+      else controller.abort();
+      finish();
+      if (action === "close") await expect(pending).rejects.toBe("cancelled");
+      else await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+      expect(write).toHaveBeenCalledOnce();
+    } finally {
+      write.mockRestore();
+    }
   },
 );
 
@@ -324,14 +406,17 @@ test("opens a native account by installation and user ID", async () => {
     "readJoinedTeams",
     "readMentionGroupCounts",
     "readPendingPosts",
+    "readPinnedChannelPosts",
     "readPostAnchor",
     "readPostDestination",
     "readPostReactions",
     "readPostSearchPage",
     "readRecentTeamSearches",
     "readSavedPost",
+    "readSavedPosts",
     "readSavedProfiles",
     "readSavedTeamRoles",
+    "readSearchTimezone",
     "readTeamDirectory",
     "readTeamSidebar",
     "readThreadPage",
@@ -354,6 +439,8 @@ test("opens a native account by installation and user ID", async () => {
     "searchMentionGroups",
     "selectJoinedTeam",
     "selectSidebarChannel",
+    "setPostPinned",
+    "setPostSaved",
     "signOut",
     "signOutOnDevice",
     "stagePost",
@@ -924,5 +1011,35 @@ test("a post destination from a retired account cannot open in the replacement w
     expect(call).toHaveBeenCalledOnce();
   } finally {
     call.mockRestore();
+  }
+});
+
+test("retiring an account hides its in-flight timezone", async () => {
+  ipc.mockResolvedValueOnce(51);
+  const userId = "u".repeat(26);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    userId,
+  );
+  let resolve!: (zone: string) => void;
+  const read = vi
+    .spyOn(searchClock, "readSearchTimezone")
+    .mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+  try {
+    const pending = account.readSearchTimezone();
+    await account.close();
+    resolve("Asia/Kathmandu");
+    await expect(pending).rejects.toBe("cancelled");
+    await expect(account.readSearchTimezone()).rejects.toBe(
+      "unknown_connection",
+    );
+    expect(read).toHaveBeenCalledOnce();
+  } finally {
+    read.mockRestore();
   }
 });

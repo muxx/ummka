@@ -354,13 +354,19 @@ test.each(["button", "enter"])(
   async (action) => {
     const { connection, rows } = storage();
     const props = { ...inputs(connection), online: true };
+    let finishStaging!: () => void;
+    const staged = new Promise<void>((resolve) => {
+      finishStaging = resolve;
+    });
+    const message = "Первая строка\nВторая";
     connection.submitDraft.mockImplementation(
       async (place: DraftLocation & { revision: string }) => {
         const saved = rows.get("A/root");
         expect(saved).toEqual({
-          message: "Первая строка\nВторая",
+          message,
           revision: place.revision,
         });
+        await staged;
         const draft = {
           message: "",
           revision: "sent",
@@ -376,18 +382,24 @@ test.each(["button", "enter"])(
     );
     render(<DraftComposer {...props} rootId="root" />);
     const input = await field();
-    fireEvent.change(input, { target: { value: "Первая строка\nВторая" } });
+    fireEvent.change(input, { target: { value: message } });
+    expect(input.value).toBe(message);
     if (action === "button")
       fireEvent.click(
         screen.getByRole("button", { name: "Отправить сообщение" }),
       );
     else fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() =>
+      expect(connection.submitDraft).toHaveBeenCalledExactlyOnceWith({
+        channelId: "A",
+        rootId: "root",
+        revision: "1",
+      }),
+    );
+    expect(input.value).toBe(message);
+    await act(async () => finishStaging());
     await waitFor(() => expect(input.value).toBe(""));
-    expect(connection.submitDraft).toHaveBeenCalledExactlyOnceWith({
-      channelId: "A",
-      rootId: "root",
-      revision: "1",
-    });
+    expect(connection.submitDraft).toHaveBeenCalledTimes(1);
     expect(
       props.sendContext.post.account.readChannelMemberCount,
     ).not.toHaveBeenCalled();

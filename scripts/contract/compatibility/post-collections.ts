@@ -1,10 +1,34 @@
 import assert from "node:assert/strict";
+import { accountPostCollections } from "../../../src/mattermost/account-post-collections.ts";
 import {
   ChannelsApi,
   Configuration,
   PostsApi,
   ResponseError,
 } from "../../../vendor/mattermost/index.js";
+
+async function flagPosts(
+  base: string,
+  reader: { token: string; id: string },
+  ids: string[],
+) {
+  const result = await fetch(`${base}/api/v4/users/me/preferences`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${reader.token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(
+      ids.map((id) => ({
+        user_id: reader.id,
+        category: "flagged_post",
+        name: id,
+        value: "true",
+      })),
+    ),
+  });
+  assert.equal(result.status, 200);
+}
 
 export async function checkPostCollections(
   owner: { session: Configuration; id: string },
@@ -61,25 +85,7 @@ export async function checkPostCollections(
     } = {},
   ) => posts.getFlaggedPostsForUser({ userId: "me", ...filters });
   assert.deepEqual((await saved()).order, []);
-  const setFlags = await fetch(
-    `${owner.session.basePath}/api/v4/users/me/preferences`,
-    {
-      method: "PUT",
-      headers: {
-        Authorization: `Bearer ${reader.token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(
-        [pins.older, pins.newer].map((id) => ({
-          user_id: reader.id,
-          category: "flagged_post",
-          name: id,
-          value: "true",
-        })),
-      ),
-    },
-  );
-  assert.equal(setFlags.status, 200);
+  await flagPosts(owner.session.basePath, reader, [pins.older, pins.newer]);
   const all = await saved();
   assert.deepEqual(all.order, [pins.newer, pins.older]);
   assert.ok(all.posts);
@@ -114,6 +120,39 @@ export async function checkPostCollections(
     other.getFlaggedPostsForUser({ userId: reader.id }),
     denied,
   );
+  const readerAccount = accountPostCollections(config, (read) => read());
+  const otherAccount = accountPostCollections(secondReader, (read) => read());
+  const channelPins = await readerAccount.readPinnedChannelPosts(scope.channel);
+  assert.deepEqual(
+    channelPins.items.map((post) => post.id),
+    pinned.order,
+  );
+  assert.equal(channelPins.firstInaccessiblePostTime, 0);
+  await assert.rejects(
+    readerAccount.readPinnedChannelPosts(scope.privateChannel),
+    denied,
+  );
+  for (const filter of [
+    { kind: "all" },
+    { kind: "team", teamId: scope.team },
+    { kind: "channel", channelId: scope.channel },
+  ] as const) {
+    const savedPage = await readerAccount.readSavedPosts(filter, 0);
+    assert.deepEqual(
+      savedPage.items.map((post) => post.id),
+      all.order,
+    );
+    assert.equal(savedPage.firstInaccessiblePostTime, 0);
+  }
+  for (const page of [
+    await readerAccount.readSavedPosts({ kind: "all" }, 1),
+    await readerAccount.readSavedPosts(
+      { kind: "team", teamId: scope.otherTeam },
+      0,
+    ),
+    await otherAccount.readSavedPosts({ kind: "all" }, 0),
+  ])
+    assert.deepEqual(page.items, []);
   const anonymous = new PostsApi(
     new Configuration({ basePath: owner.session.basePath }),
   );
@@ -123,5 +162,45 @@ export async function checkPostCollections(
   );
   console.log(
     `Mattermost ${version} verified saved and pinned PostLists, account and channel access, scopes, page order and an empty page.`,
+  );
+}
+
+export async function checkSavedPageBoundary(
+  base: string,
+  reader: { token: string; id: string },
+  direct: string,
+  version: string,
+) {
+  const config = new Configuration({
+    basePath: base,
+    accessToken: reader.token,
+  });
+  const posts = new PostsApi(config);
+  const ids: string[] = [];
+  for (let i = 0; i < 61; i++) {
+    const post = await posts.createPost({
+      createPostRequest: {
+        channelId: direct,
+        message: `Saved boundary fixture ${i}`,
+      },
+    });
+    assert.ok(post.id);
+    ids.push(post.id);
+  }
+  await flagPosts(base, reader, ids);
+  const account = accountPostCollections(config, (read) => read());
+  const scope = { kind: "channel" as const, channelId: direct };
+  const first = await account.readSavedPosts(scope, 0);
+  const second = await account.readSavedPosts(scope, 1);
+  const empty = await account.readSavedPosts(scope, 2);
+  assert.equal(first.items.length, 60);
+  assert.equal(second.items.length, 1);
+  assert.deepEqual(empty.items, []);
+  assert.deepEqual(
+    new Set([...first.items, ...second.items].map((post) => post.id)),
+    new Set(ids),
+  );
+  console.log(
+    `Mattermost ${version} returned 61 distinct saved posts in two pages of 60 and one.`,
   );
 }

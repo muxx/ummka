@@ -20,6 +20,7 @@ mod pending;
 pub use pending::{PendingCursor, PendingPost, StagePost};
 mod posts;
 mod profiles;
+mod thread_summary;
 pub use profiles::{ChannelProfile, ProfileLookup, ProfileQuery};
 mod reclamation;
 pub use lifecycle::AccountHistory;

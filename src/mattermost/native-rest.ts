@@ -9,6 +9,7 @@ import {
 import { readCustomEmoji } from "./account-custom-emoji.ts";
 import { accountDelivery } from "./account-delivery.ts";
 import { atDirectoryStep } from "./account-directory-error.ts";
+import { accountPostCollections } from "./account-post-collections.ts";
 import { accountPostReactions } from "./account-post-reactions.ts";
 import { accountSearch } from "./account-search.ts";
 import { accountChannelAudience } from "./channel-audience.ts";
@@ -48,8 +49,10 @@ import {
   type MembershipTarget,
 } from "./own-membership.ts";
 import { createPostActivity } from "./post-activity.ts";
+import { accountCollectionActions } from "./post-collection-actions.ts";
 import { readPostDestination } from "./post-destination.ts";
 import { createRestTransport } from "./rest-transport.ts";
+import { readSearchTimezone } from "./search-timezone.ts";
 import { canonicalServerUrl } from "./server-url.ts";
 import { projectTeamSidebar, type TeamSidebar } from "./team-sidebar.ts";
 import { readThreadPage, type ThreadPageRequest } from "./thread-page.ts";
@@ -150,10 +153,18 @@ export async function openAccountRestConnection(
   const commands = new CommandsApi(config);
   return {
     ...connection,
+    ...accountPostCollections(config, readWhileOpen),
+    ...accountCollectionActions(config, userId, readWhileOpen),
     ...accountPostReactions(config, userId, readWhileOpen),
     ...accountSearch(config, readWhileOpen),
     readThreadPage(query: ThreadPageRequest, signal?: AbortSignal) {
       return readWhileOpen(() => readThreadPage(posts, query, signal), signal);
+    },
+    readSearchTimezone(signal?: AbortSignal) {
+      return readWhileOpen(
+        () => readSearchTimezone(config, userId, signal),
+        signal,
+      );
     },
     readPostAnchor(postId: string, signal?: AbortSignal) {
       return readWhileOpen(() => readPostAnchor(posts, postId, signal), signal);

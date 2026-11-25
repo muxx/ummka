@@ -289,6 +289,7 @@ async fn check_wire(
         fixture_dir,
     )
     .await?;
+    crate::realtime::checks::wire(&client, &base).await?;
     let prefix = "/Teams/Blue%20Sky//A%2FB";
     let selected = format!("https://127.0.0.1:{selected}{prefix}");
     let other = format!("https://127.0.0.1:{other}{prefix}");
