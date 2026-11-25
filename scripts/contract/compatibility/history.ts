@@ -72,6 +72,7 @@ import { checkSearchScopePolicy } from "./search-scope.ts";
 import { expectedNavigationPost } from "./search-target.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
+import { checkThreadFollow } from "./thread-follow.ts";
 import { checkThreadSummary } from "./thread-summary.ts";
 import { checkThreadWindow } from "./thread-window.ts";
 import { checkUserNotifications } from "./user-notifications.ts";
@@ -926,6 +927,15 @@ await checkSidebarCounters(
 );
 console.log(
   `Mattermost ${version} verified root and reply counters through a channel view.`,
+);
+await checkThreadFollow(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  new Configuration({ basePath: base }),
+  { posts: memberPosts, userId: user.id },
+  team.id,
+  [channelId, dm.id],
+  closedPost.id,
+  version,
 );
 // The earlier non-member checks use this private channel before the reader joins.
 await create(`channels/${closed.id}/members`, { user_id: reader.id }, token);

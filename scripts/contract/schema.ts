@@ -77,6 +77,7 @@ import {
 } from "./sidebar-corrections.ts";
 import { correctSinglePost } from "./single-post-correction.ts";
 import { correctTeamMemberRequest } from "./team-member-correction.ts";
+import { correctThreadFollow } from "./thread-follow-correction.ts";
 
 const methods = new Set([
   "get",
@@ -319,6 +320,11 @@ export function buildSpecification(
         operation,
         read("posts-12.1.0.yaml"),
         definitions,
+      );
+    else if (id === "StartFollowingThread" || id === "StopFollowingThread")
+      paths[path][method] = correctThreadFollow(
+        operation,
+        object(object(read("users-12.1.0.yaml")[path], path)[method], id),
       );
     else if (id === "AddTeamMember")
       paths[path][method] = correctTeamMemberRequest(

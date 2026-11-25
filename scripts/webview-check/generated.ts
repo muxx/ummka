@@ -16,6 +16,7 @@ import {
   type InitOverrideFunction,
   ResponseError,
   SystemApi,
+  ThreadsApi,
   UsersApi,
 } from "../../vendor/mattermost/index.js";
 import { checkAccountResponses } from "./account.ts";
@@ -553,6 +554,30 @@ export async function checkGeneratedRequests(ports: string[]) {
         target.post.message === "Later reply",
       "inspect-file-post-destination",
     );
+    const threads = new ThreadsApi(signed);
+    const follow = { userId: "me", teamId, threadId: postId };
+    check(
+      (await threads.startFollowingThread(follow)).status === "OK",
+      "signed thread follow",
+    );
+    check(
+      (await threads.stopFollowingThread(follow)).status === "OK",
+      "signed thread unfollow",
+    );
+    const guestThreads = new ThreadsApi(new Configuration(prefixed));
+    for (const request of [
+      () => guestThreads.startFollowingThread(follow),
+      () => threads.stopFollowingThread({ ...follow, userId: "b".repeat(26) }),
+      () => threads.startFollowingThread({ ...follow, threadId: "short" }),
+    ]) {
+      const denied = await rejected(request());
+      check(
+        denied instanceof FetchError &&
+          denied.cause instanceof TypeError &&
+          denied.cause.cause === "operation_denied",
+        "thread-follow-denied-before-dispatch",
+      );
+    }
     await checkPostMutations(rootSession, signed, channelId);
     await checkConnectServer(origin);
     const profile = await inspectInstallation(

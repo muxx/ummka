@@ -194,6 +194,20 @@
     "id": "GetPostThread"
   },
   {
+    "file": "users.yaml",
+    "method": "PUT",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/threads/{thread_id}/following",
+    "id": "StartFollowingThread",
+    "selfOnly": true
+  },
+  {
+    "file": "users.yaml",
+    "method": "DELETE",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/threads/{thread_id}/following",
+    "id": "StopFollowingThread",
+    "selfOnly": true
+  },
+  {
     "file": "posts.yaml",
     "method": "POST",
     "path": "/api/v4/teams/{team_id}/posts/search",
