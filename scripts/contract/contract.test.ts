@@ -65,7 +65,7 @@ import {
 } from "./read-state-corrections.ts";
 import { buildSpecification, readSource } from "./schema.ts";
 import {
-  correctChannelSharing,
+  correctDirectoryFlags,
   correctSidebarCategory,
   correctSidebarResponse,
   correctSidebarSchema,
@@ -840,8 +840,9 @@ test("retains the catalog operations, security and transitive models", () => {
     if (name === "User") expected = correctUserProfile(object(source, name));
     if (["Channel", "ChannelMember", "TeamMember"].includes(name))
       expected = correctSidebarSchema(name, object(source, name));
-    if (name === "Channel")
-      expected = correctChannelSharing(
+    if (name === "Channel" || name === "Team")
+      expected = correctDirectoryFlags(
+        name,
         object(expected, name),
         read("definitions-12.1.0.yaml"),
       );
@@ -1475,6 +1476,8 @@ const {
   ChannelToJSON,
   ChannelMemberFromJSON,
   ChannelMemberToJSON,
+  TeamFromJSON,
+  TeamToJSON,
   TeamMemberFromJSON,
   TeamMemberToJSON,
 } = await import(pathToFileURL(resolve(work, "compiled/index.js")).href);
@@ -1515,6 +1518,39 @@ const channelRoleFields = {
   scheme_admin: { type: "boolean" },
   explicit_roles: { type: "string" },
 };
+test("both group-constraint flags preserve all wire states and stop on upstream drift", () => {
+  for (const [name, from, to] of [
+    ["Team", TeamFromJSON, TeamToJSON],
+    ["Channel", ChannelFromJSON, ChannelToJSON],
+  ] as const) {
+    const path = ["components", "schemas", name];
+    assert.deepEqual(
+      at(contract, [...path, "properties", "group_constrained"]),
+      { type: "boolean", nullable: true },
+    );
+    for (const flag of [true, false, null, undefined]) {
+      const wire =
+        flag === undefined
+          ? { id: "sample" }
+          : { id: "sample", group_constrained: flag };
+      const dto = from(wire);
+      assert.equal(dto.groupConstrained, flag);
+      assert.deepEqual(JSON.parse(JSON.stringify(to(dto))), wire);
+    }
+    for (const version of ["10", "12"]) {
+      const original = structuredClone(object(at(definitions, path), name));
+      const newer = structuredClone(read("definitions-12.1.0.yaml"));
+      const altered =
+        version === "10" ? original : object(at(newer, path), name);
+      object(altered.properties, name).group_constrained = { type: "boolean" };
+      assert.throws(
+        () => correctDirectoryFlags(name, original, newer),
+        /group_constrained/,
+      );
+    }
+  }
+});
+
 test("models the shared channel flag and detects its addition to either pinned source", () => {
   const path = ["components", "schemas", "Channel"];
   assert.deepEqual(at(contract, [...path, "properties", "shared"]), {
@@ -1531,12 +1567,12 @@ test("models the shared channel flag and detects its addition to either pinned s
     },
   });
   assert.throws(
-    () => correctChannelSharing(changed(model), newer),
+    () => correctDirectoryFlags("Channel", changed(model), newer),
     /Review the Channel.shared correction/,
   );
   assert.throws(
     () =>
-      correctChannelSharing(model, {
+      correctDirectoryFlags("Channel", model, {
         components: {
           schemas: {
             Channel: changed(object(at(newer, path), "newer Channel")),
@@ -1586,7 +1622,10 @@ test("root-only and urgent counts survive generation, including zero and absent 
       ...properties,
       ...additions,
       ...(name === "Channel"
-        ? { shared: { type: "boolean", nullable: true } }
+        ? {
+            shared: { type: "boolean", nullable: true },
+            group_constrained: { type: "boolean", nullable: true },
+          }
         : channelRoleFields),
     });
     for (const key of keys) {

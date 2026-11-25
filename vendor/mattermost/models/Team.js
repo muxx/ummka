@@ -22,6 +22,7 @@ export function TeamFromJSONTyped(json, ignoreDiscriminator) {
         'inviteId': json['invite_id'] == null ? undefined : json['invite_id'],
         'allowOpenInvite': json['allow_open_invite'] == null ? undefined : json['allow_open_invite'],
         'policyId': json['policy_id'] == null ? undefined : json['policy_id'],
+        'groupConstrained': json['group_constrained'] === undefined ? undefined : json['group_constrained'] === null ? null : json['group_constrained'],
     };
 }
 export function TeamToJSON(json) {
@@ -45,5 +46,6 @@ export function TeamToJSONTyped(value, ignoreDiscriminator = false) {
         'invite_id': value['inviteId'],
         'allow_open_invite': value['allowOpenInvite'],
         'policy_id': value['policyId'],
+        'group_constrained': value['groupConstrained'],
     };
 }

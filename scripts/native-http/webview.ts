@@ -71,7 +71,9 @@ export function webviewServers(
       "/api/v4/users/me/teams",
       {
         name: "my-teams",
-        body: [{ id: teamId, display_name: "Fixture Team" }],
+        body: [
+          { id: teamId, display_name: "Fixture Team", group_constrained: true },
+        ],
       },
     ],
     [
@@ -110,7 +112,14 @@ export function webviewServers(
       `/team/chat/api/v4/users/me/teams/${teamId}/channels?include_deleted=false&last_delete_at=123`,
       {
         name: "team-channels",
-        body: [{ id: channelId, team_id: teamId, name: "town-square" }],
+        body: [
+          {
+            id: channelId,
+            team_id: teamId,
+            name: "town-square",
+            group_constrained: true,
+          },
+        ],
       },
     ],
     [

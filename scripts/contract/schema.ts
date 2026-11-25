@@ -57,7 +57,7 @@ import {
   correctUnreadAt,
 } from "./read-state-corrections.ts";
 import {
-  correctChannelSharing,
+  correctDirectoryFlags,
   correctSidebarResponse,
   correctSidebarSchema,
 } from "./sidebar-corrections.ts";
@@ -161,8 +161,9 @@ export function buildSpecification(
       );
     else if (name === "ChannelUnreadAt")
       group[name] = correctUnreadAt(source, read("definitions-12.1.0.yaml"));
-    else if (name === "Channel")
-      group[name] = correctChannelSharing(
+    else if (name === "Channel" || name === "Team")
+      group[name] = correctDirectoryFlags(
+        name,
         correctSidebarSchema(name, correctHistorySchema(name, source)),
         read("definitions-12.1.0.yaml"),
       );

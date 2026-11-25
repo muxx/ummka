@@ -97,31 +97,43 @@ export function correctSidebarSchema(name: string, source: Fields): Fields {
   return { ...model, properties: next };
 }
 
-// Both tagged Go models always serialize Channel.Shared, including a nil pointer.
-// https://github.com/mattermost/mattermost/blob/v10.10.1/server/public/model/channel.go#L97
-// https://github.com/mattermost/mattermost/blob/v12.1.0/server/public/model/channel.go#L104
-export function correctChannelSharing(
+// These Go pointer fields have no omitempty tag on either version.
+// https://github.com/mattermost/mattermost/blob/v10.10.1/server/public/model/team.go#L42
+// https://github.com/mattermost/mattermost/blob/v12.1.0/server/public/model/team.go#L42
+// https://github.com/mattermost/mattermost/blob/v10.10.1/server/public/model/channel.go#L96-L98
+// https://github.com/mattermost/mattermost/blob/v12.1.0/server/public/model/channel.go#L102-L104
+export function correctDirectoryFlags(
+  name: "Team" | "Channel",
   source: Fields,
   newerDefinitions: Fields,
 ): Fields {
   const components = object(newerDefinitions.components, "newer components");
   const schemas = object(components.schemas, "newer schemas");
-  for (const model of [source, object(schemas.Channel, "newer Channel")]) {
-    const properties = object(model.properties, "Channel properties");
+  const fields =
+    name === "Channel"
+      ? ["shared", "group_constrained"]
+      : ["group_constrained"];
+  for (const model of [source, object(schemas[name], name)]) {
+    const props = object(model.properties, name + " properties");
     if (
       model.type !== "object" ||
-      object(properties.type, "channel type").type !== "string" ||
-      Object.hasOwn(properties, "shared")
+      object(props.type, name + " type").type !== "string"
     )
       throw Error(
-        "Review the Channel.shared correction against the pinned sources",
+        "Review the " + name + " definition against the pinned sources",
       );
+    for (const field of fields)
+      if (Object.hasOwn(props, field))
+        throw Error(
+          "Review the " +
+            name +
+            "." +
+            field +
+            " correction against the pinned sources",
+        );
   }
-  return {
-    ...source,
-    properties: {
-      ...object(source.properties, "Channel properties"),
-      shared: { type: "boolean", nullable: true },
-    },
-  };
+  const properties = { ...object(source.properties, name + " properties") };
+  for (const field of fields)
+    properties[field] = { type: "boolean", nullable: true };
+  return { ...source, properties };
 }

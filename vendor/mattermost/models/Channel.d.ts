@@ -16,6 +16,7 @@ export interface Channel {
     totalMsgCountRoot?: number;
     lastRootPostAt?: number;
     shared?: boolean | null;
+    groupConstrained?: boolean | null;
 }
 export declare function instanceOfChannel(value: object): value is Channel;
 export declare function ChannelFromJSON(json: any): Channel;

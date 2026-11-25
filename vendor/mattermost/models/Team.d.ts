@@ -12,6 +12,7 @@ export interface Team {
     inviteId?: string;
     allowOpenInvite?: boolean;
     policyId?: string;
+    groupConstrained?: boolean | null;
 }
 export declare function instanceOfTeam(value: object): value is Team;
 export declare function TeamFromJSON(json: any): Team;

@@ -577,6 +577,8 @@ await checkSidebarCounters(
 console.log(
   `Mattermost ${version} verified root and reply counters through a channel view.`,
 );
+// The earlier non-member checks use this private channel before the reader joins.
+await create(`channels/${closed.id}/members`, { user_id: reader.id }, token);
 await checkSidebarReads(
   base,
   readerToken,
@@ -585,6 +587,7 @@ await checkSidebarReads(
   team.id,
   channelId,
   dm.id,
+  closed.id,
 );
 console.log(
   `Mattermost ${version} verified personal sidebar categories, order, flags, preferences and ownership.`,

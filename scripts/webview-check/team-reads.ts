@@ -38,7 +38,12 @@ export async function checkTeamReads(
     throw Error("generated role definitions");
   const teams = await new TeamsApi(root).getTeamsForUser({ userId: "me" });
   const teamId = teams[0]?.id;
-  if (teams.length !== 1 || !teamId || teams[0].displayName !== "Fixture Team")
+  if (
+    teams.length !== 1 ||
+    !teamId ||
+    teams[0].displayName !== "Fixture Team" ||
+    teams[0].groupConstrained !== true
+  )
     throw Error("generated team list");
   const [teamMember] = await new TeamsApi(prefixed).getTeamMembersForUser({
     userId: "me",
@@ -64,6 +69,7 @@ export async function checkTeamReads(
   if (
     channels.length !== 1 ||
     !channelId ||
+    channels[0].groupConstrained !== true ||
     channels[0].name !== "town-square" ||
     channels[0].teamId !== teamId
   )
