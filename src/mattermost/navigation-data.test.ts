@@ -1,5 +1,9 @@
 import { expect, test } from "vitest";
 import { Configuration, ResponseError } from "../../vendor/mattermost/index.js";
+import {
+  atDirectoryStep,
+  directoryProblem,
+} from "./account-directory-error.ts";
 import { loadAccountDirectory } from "./navigation-data.ts";
 
 const user = "u".repeat(26);
@@ -151,4 +155,87 @@ test("propagates cancellation before network and while three reads are pending",
     TypeError,
   );
   expect(started).toBe(3);
+});
+
+test.each([
+  ["teams", "teams", 403],
+  ["teams/members", "memberships", 502],
+  ["preferences", "preferences", 503],
+] as const)(
+  "identifies the %s request using only its step and HTTP status",
+  async (path, step, status) => {
+    const config = configuration(async (input) =>
+      new URL(String(input)).pathname.endsWith(`/me/${path}`)
+        ? new Response("private diagnostic", { status })
+        : Response.json([]),
+    );
+    const caught = await loadAccountDirectory(
+      config,
+      user,
+      undefined,
+      atDirectoryStep,
+    ).then(() => null, directoryProblem);
+    expect(caught).toEqual({ issue: "server", code: `${step}.http-${status}` });
+  },
+);
+
+test.each([
+  ["{private", "preferences.json"],
+  ['{"private":true}', "preferences.format"],
+  [JSON.stringify([{ ...pref, user_id: teamId("x") }]), "preferences.owner"],
+])(
+  "diagnoses invalid account data without rendering the response",
+  async (body, code) => {
+    const config = configuration(async (input) =>
+      new URL(String(input)).pathname.endsWith("/preferences")
+        ? new Response(body)
+        : Response.json([]),
+    );
+    const caught = await loadAccountDirectory(
+      config,
+      user,
+      undefined,
+      atDirectoryStep,
+    ).then(() => null, directoryProblem);
+    expect(caught).toEqual({ issue: "data", code });
+  },
+);
+
+test.each([
+  ["teams.row", directory([null], [], [])],
+  ["memberships.row", directory([], [null], [])],
+  ["preferences.fields", directory([], [], [null])],
+] as const)("identifies an empty row as %s", async (code, config) => {
+  const caught = await loadAccountDirectory(
+    config,
+    user,
+    undefined,
+    atDirectoryStep,
+  ).then(() => null, directoryProblem);
+  expect(caught).toEqual({ issue: "data", code });
+});
+
+test("releases every HTTP error body from parallel account reads", async () => {
+  const released: string[] = [];
+  const config = configuration(async (input) => {
+    const route = new URL(String(input)).pathname;
+    return new Response(
+      new ReadableStream({
+        cancel() {
+          released.push(route);
+        },
+      }),
+      { status: 403 },
+    );
+  });
+  await expect(
+    loadAccountDirectory(config, user, undefined, atDirectoryStep),
+  ).rejects.toThrow();
+  await expect
+    .poll(() => released.sort())
+    .toEqual([
+      "/sub/api/v4/users/me/preferences",
+      "/sub/api/v4/users/me/teams",
+      "/sub/api/v4/users/me/teams/members",
+    ]);
 });

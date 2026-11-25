@@ -10,6 +10,10 @@ import {
   TeamsApi,
 } from "../../vendor/mattermost/index.js";
 import {
+  type atDirectoryStep,
+  DirectoryValueError,
+} from "./account-directory-error.ts";
+import {
   assertAccountPreference,
   isMattermostId,
   isMattermostTime,
@@ -57,7 +61,7 @@ function hasTeamIdentity(
   team: Team,
 ): team is Team & { id: string; name: string; displayName: string } {
   return (
-    isMattermostId(team.id) &&
+    isMattermostId(team?.id) &&
     typeof team.name === "string" &&
     typeof team.displayName === "string"
   );
@@ -67,6 +71,7 @@ export function loadAccountDirectory(
   config: Configuration,
   userId: string,
   signal?: AbortSignal,
+  step: typeof atDirectoryStep = async (_name, read) => read(),
 ) {
   return readDirectory(signal, async (request) => {
     if (!isMattermostId(userId))
@@ -74,21 +79,30 @@ export function loadAccountDirectory(
     const api = new TeamsApi(config);
     const scope = { userId: "me" };
     const [teams, members, storedPreferences] = await Promise.all([
-      request((options) => api.getTeamsForUser(scope, options)),
-      request((options) => api.getTeamMembersForUser(scope, options)),
       request((options) =>
-        new PreferencesApi(config).getPreferences(scope, options),
+        step("teams", () => api.getTeamsForUser(scope, options)),
+      ),
+      request((options) =>
+        step("memberships", () => api.getTeamMembersForUser(scope, options)),
+      ),
+      request((options) =>
+        step("preferences", () =>
+          new PreferencesApi(config).getPreferences(scope, options),
+        ),
       ),
     ]);
     const byTeam = new Map<string, (typeof members)[number]>();
     for (const member of members) {
       if (
-        !isMattermostId(member.teamId) ||
+        !isMattermostId(member?.teamId) ||
         member.userId !== userId ||
         !isMattermostTime(member.deleteAt, 0) ||
         byTeam.has(member.teamId)
       )
-        throw new TypeError("Invalid Mattermost team membership.");
+        throw new DirectoryValueError(
+          "memberships.row",
+          "Invalid Mattermost team membership.",
+        );
       byTeam.set(member.teamId, member);
     }
     const seen = new Set<string>();
@@ -98,7 +112,7 @@ export function loadAccountDirectory(
         seen.has(team.id) ||
         !isMattermostTime(team.deleteAt, 0)
       )
-        throw new TypeError("Invalid Mattermost team.");
+        throw new DirectoryValueError("teams.row", "Invalid Mattermost team.");
       seen.add(team.id);
       const membership = byTeam.get(team.id);
       return team.deleteAt === 0 && membership?.deleteAt === 0

@@ -1,5 +1,7 @@
 import type { Preference } from "../../vendor/mattermost/index.js";
 
+import { DirectoryValueError } from "./account-directory-error.ts";
+
 const idPattern = /^[A-Za-z0-9]{26}$/u;
 
 export function isMattermostId(value: unknown): value is string {
@@ -22,11 +24,19 @@ export function assertAccountPreference(
   userId: string,
 ): asserts row is Required<Preference> {
   if (
-    row.userId !== userId ||
+    !row ||
     typeof row.category !== "string" ||
     typeof row.name !== "string" ||
     typeof row.value !== "string"
   ) {
-    throw new TypeError("Invalid Mattermost account preference.");
+    throw new DirectoryValueError(
+      "preferences.fields",
+      "Invalid Mattermost account preference.",
+    );
   }
+  if (row.userId !== userId)
+    throw new DirectoryValueError(
+      "preferences.owner",
+      "Invalid Mattermost account preference owner.",
+    );
 }

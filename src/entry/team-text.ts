@@ -8,6 +8,9 @@ export const teamText = {
       "На устройстве пока нет списка команд. Подключитесь к серверу и повторите попытку.",
     network:
       "Не удалось обновить команды. Проверьте соединение и попробуйте ещё раз.",
+    server: "Mattermost отклонил запрос при загрузке команд.",
+    data: "Не удалось прочитать данные команд, полученные от Mattermost.",
+    failed: "Не удалось завершить загрузку команд.",
     storage: "Не удалось прочитать данные аккаунта на устройстве.",
     chooseFailed: "Не удалось сохранить выбор команды.",
     retry: "Попробовать снова",
@@ -20,6 +23,9 @@ export const teamText = {
     noCache:
       "This device has no saved team list yet. Reconnect to the server and try again.",
     network: "Couldn’t update your teams. Check the connection and try again.",
+    server: "Mattermost returned an error while loading your teams.",
+    data: "Couldn’t read the team data returned by Mattermost.",
+    failed: "Couldn’t finish loading your teams.",
     storage: "Couldn’t read the account data on this device.",
     chooseFailed: "Couldn’t save your team selection.",
     retry: "Try again",

@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { ResponseError } from "../../vendor/mattermost/index.js";
+import { atDirectoryStep } from "../mattermost/account-directory-error";
 import type { JoinedTeams } from "../mattermost/joined-teams";
 import { openAccountRestConnection } from "../mattermost/native-rest";
 import { AccountTeamWindow, type TeamWorkspace } from "./AccountTeamWindow";
@@ -80,11 +81,13 @@ function view(onSessionEnded = vi.fn(), account = user) {
         chooseAnotherTeam,
         userId,
         directoryNotice,
+        directoryCode,
       }: TeamWorkspace) => (
         <button
           type="button"
           data-user={userId}
           data-notice={directoryNotice ?? ""}
+          data-code={directoryCode ?? ""}
           onClick={chooseAnotherTeam}
         >
           Открыта {team.displayName}
@@ -318,3 +321,74 @@ test("a successful SQLite selection survives a read failure before any new refre
   ).toBe("");
   expect(db.selectJoinedTeam).toHaveBeenCalledOnce();
 });
+
+test("shows a safe server error code and clears it when a retry opens the team", async () => {
+  const db = fixture(null);
+  db.refreshJoinedTeams.mockImplementationOnce(() =>
+    atDirectoryStep("preferences", () => {
+      throw new ResponseError(
+        new Response("private response body", { status: 503 }),
+        "private error message",
+      );
+    }),
+  );
+  render(view());
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain("preferences.http-503");
+  expect(alert.textContent).not.toContain("Проверьте соединение");
+  expect(document.body.textContent).not.toContain("private");
+  db.readJoinedTeams.mockResolvedValue({
+    teams: [first],
+    selectedTeam: first.id,
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Попробовать снова" }));
+  await screen.findByRole("button", { name: "Открыта Альфа" });
+  expect(document.body.textContent).not.toContain("preferences.http-503");
+  expect(db.signOutOnDevice).not.toHaveBeenCalled();
+});
+
+test("shows a local publication error separately from network failures", async () => {
+  const db = fixture(null);
+  db.refreshJoinedTeams.mockImplementationOnce(() =>
+    atDirectoryStep("publish", () => {
+      throw "history_storage_unavailable";
+    }),
+  );
+  render(view());
+  expect((await screen.findByRole("alert")).textContent).toContain(
+    "publish.history_storage_unavailable",
+  );
+});
+
+test.each(["older succeeds", "older fails"] as const)(
+  "a superseded refresh cannot replace the latest notice (%s)",
+  async (outcome) => {
+    const db = fixture({ teams: [first], selectedTeam: first.id });
+    const older = deferred<boolean>(),
+      newer = deferred<boolean>();
+    db.refreshJoinedTeams
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newer.promise);
+    render(view());
+    const workspace = await screen.findByRole("button", {
+      name: "Открыта Альфа",
+    });
+    await waitFor(() => expect(db.refreshJoinedTeams).toHaveBeenCalledTimes(1));
+    fireEvent(window, new Event("online"));
+    await waitFor(() => expect(db.refreshJoinedTeams).toHaveBeenCalledTimes(2));
+    if (outcome === "older succeeds") {
+      await act(async () =>
+        newer.reject(new ResponseError(new Response(null, { status: 503 }))),
+      );
+      expect(workspace.getAttribute("data-code")).toBe("directory.http-503");
+      await act(async () => older.resolve(false));
+      expect(workspace.getAttribute("data-code")).toBe("directory.http-503");
+    } else {
+      await act(async () => newer.resolve(true));
+      await act(async () =>
+        older.reject(new ResponseError(new Response(null, { status: 403 }))),
+      );
+      expect(workspace.getAttribute("data-notice")).toBe("");
+    }
+  },
+);
