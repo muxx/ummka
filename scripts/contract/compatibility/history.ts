@@ -37,6 +37,7 @@ import {
   checkPreviouslyAcceptedPost,
 } from "./post-mutations.ts";
 import { checkProfileReads } from "./profile-reads.ts";
+import { checkRoleReads } from "./role-reads.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
 
@@ -211,6 +212,7 @@ const readerToken = (await create("users/login", readerLogin)).headers.get(
   "token",
 );
 assert.ok(readerToken);
+await checkRoleReads(base, readerToken, version);
 const readerPosts = new PostsApi(
   new Configuration({ basePath: base, accessToken: readerToken }),
 );

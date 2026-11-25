@@ -44,6 +44,8 @@ download introduction.yaml "$upstream/introduction.yaml" 4b3786cc86ec1097c29f5b1
 download system.yaml "$upstream/system.yaml" 10e9e11b14d34d30a661474269f69220f8ebdb05db64cd53e30cb199a665ae8e
 download users.yaml "$upstream/users.yaml" 20d0c9cf9631682f3461c7b13a521321dbd2aa605b60922404183ec2735e8f28
 download teams.yaml "$upstream/teams.yaml" dc0723e5164d19b5d147ee9133db170fb83eedb3b884e320cd58ee36435cd3b3
+download roles.yaml "$upstream/roles.yaml" 6869450fda52c0b2e06dd228cef1e08c309e35493e15fbdda604e35db9593258
+download roles-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/roles.yaml" 6869450fda52c0b2e06dd228cef1e08c309e35493e15fbdda604e35db9593258
 download channels.yaml "$upstream/channels.yaml" 34282bb7db184ae792493b97b384f9b47c0789d9f8dce7527cb2f3df9c09f9b3
 download channels-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/channels.yaml" 57be9442965e8a747d88d579df013fdff377a5315cc91a8dc55f58eefeef2a6d
 download preferences.yaml "$upstream/preferences.yaml" 3bf3c9734d69bfdf20e1dd4e71158a65a81fca9dd64ee1703269b460111625a2
@@ -62,8 +64,14 @@ npm run contract:build -- "$cache" "$work/openapi.json" "$work/native-auth.json"
     --global-property models=Login_request,modelDocs=false,modelTests=false \
     --type-mappings 'string+password=models::SecretInput'
 rustfmt --edition 2024 "$work/native/src/models/login_request.rs"
+mkdir "$work/templates"
+for template in apis.mustache apisReturnType.mustache; do
+    unzip -p "$cache/$generator" "typescript-fetch/$template" > "$work/templates/$template"
+done
+# Pinned typescript-fetch otherwise drops nullable on a top-level array response.
+patch -s -F 0 -p1 -d "$work/templates" < contracts/mattermost/nullable-array.patch
 "$JAVA_HOME/bin/java" -jar "$cache/$generator" generate -g typescript-fetch \
-    -i "$work/openapi.json" -o "$work/client" --additional-properties=importFileExtension=.js
+    -i "$work/openapi.json" -o "$work/client" -t "$work/templates" --additional-properties=importFileExtension=.js
 strict_tsc() {
     node_modules/.bin/tsc --ignoreConfig --strict --target ES2022 --module NodeNext \
         --lib ES2022,DOM,DOM.Iterable --types node "$@"
@@ -111,6 +119,16 @@ const badCursor: GetPostThreadRequest = { postId: "a-post-id", fromCreateAt: "12
 declare const page: PostList;
 import type { ChannelsApi, PreferencesApi } from "./compiled/index.js";
 declare const channels: ChannelsApi;
+import type { Role, RolesApi } from "./compiled/index.js";
+declare const roles: RolesApi;
+const assigned = await roles.getRolesByNames({ requestBody: ["channel_user", "team_guest"] });
+assigned satisfies Role[] | null;
+assigned?.[0]?.permissions satisfies string[] | undefined;
+assigned?.[0]?.schemeManaged satisfies boolean | undefined;
+// @ts-expect-error An all-missing batch can return null.
+assigned satisfies Role[];
+// @ts-expect-error The endpoint requires an array of role names.
+roles.getRolesByNames({ requestBody: "channel_user" });
 declare const preferences: PreferencesApi;
 const sidebar = await channels.getSidebarCategoriesForTeamForUser({ userId: "me", teamId: "team" });
 sidebar.order satisfies string[] | undefined;

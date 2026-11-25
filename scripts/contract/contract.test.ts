@@ -41,6 +41,7 @@ import {
   correctSetPostUnread,
   correctUnreadAt,
 } from "./read-state-corrections.ts";
+import { correctRoleList } from "./role-correction.ts";
 import { buildSpecification, readSource } from "./schema.ts";
 import {
   correctSidebarCategory,
@@ -146,6 +147,7 @@ const definitionPaths = [
   ["components", "schemas", "AppError"],
   ["components", "schemas", "Team"],
   ["components", "schemas", "TeamMember"],
+  ["components", "schemas", "Role"],
   ["components", "schemas", "Channel"],
   ["components", "schemas", "ChannelMember"],
   ["components", "schemas", "ChannelNotifyProps"],
@@ -161,6 +163,32 @@ const definitionPaths = [
   ["components", "responses", "Unauthorized"],
   ["components", "responses", "NotFound"],
 ];
+
+test("makes only the successful role list nullable and detects changes in either tagged schema", () => {
+  const path = "/api/v4/roles/names";
+  const base = object(at(read("roles.yaml"), [path, "post"]), "role operation");
+  const newer = read("roles-12.1.0.yaml");
+  const response = [
+    "responses",
+    "200",
+    "content",
+    "application/json",
+    "schema",
+  ];
+  const expected = structuredClone(base);
+  object(at(expected, response), "role list").nullable = true;
+  assert.deepEqual(correctRoleList(base, newer), expected);
+  for (const target of ["baseline", "reference"]) {
+    const first = structuredClone(base);
+    const other = structuredClone(newer);
+    const changed = target === "baseline" ? first : at(other, [path, "post"]);
+    object(at(changed, response), "changed role list").nullable = true;
+    assert.throws(
+      () => correctRoleList(first, other),
+      /Review the nullable role list/,
+    );
+  }
+});
 
 test("create-post correction detects changes in either tagged source", () => {
   const route = "/api/v4/posts";
@@ -354,6 +382,8 @@ test("retains the catalog operations, security and transitive models", () => {
       expected = correctCreatePost(source, read("posts-12.1.0.yaml"));
     if (path === "/api/v4/posts/{post_id}/patch")
       expected = correctPatchPost(source, read("posts-12.1.0.yaml"));
+    if (source.operationId === "GetRolesByNames")
+      expected = correctRoleList(source, read("roles-12.1.0.yaml"));
     if (source.operationId === "ViewChannel")
       expected = correctChannelView(source, read("channels-12.1.0.yaml"), path);
     if (source.operationId === "MarkChannelsReadForUser")
@@ -402,6 +432,7 @@ test("retains the catalog operations, security and transitive models", () => {
       "PostMetadata",
       "Preference",
       "Reaction",
+      "Role",
       "SidebarCategoryWithChannels",
       "StatusOK",
       "SystemStatusResponse",
@@ -691,6 +722,7 @@ function copySources() {
     "introduction.yaml",
     "definitions.yaml",
     "definitions-12.1.0.yaml",
+    "roles-12.1.0.yaml",
     "posts-12.1.0.yaml",
     ...catalog.map(({ file }) => file),
   ])) {

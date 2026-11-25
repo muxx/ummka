@@ -24,6 +24,13 @@
     "id": "GetUser"
   },
   {
+    "file": "roles.yaml",
+    "method": "POST",
+    "path": "/api/v4/roles/names",
+    "id": "GetRolesByNames",
+    "body": "json"
+  },
+  {
     "file": "teams.yaml",
     "method": "GET",
     "path": "/api/v4/users/{user_id}/teams",
