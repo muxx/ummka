@@ -25,6 +25,7 @@ import { type JoinedTeams, projectJoinedTeams } from "./joined-teams.ts";
 import type {
   ChannelWindowQuery,
   LocalChannelWindow,
+  LocalPost,
 } from "./local-history.ts";
 import { accountMentionGroups } from "./mention-group-reads.ts";
 import { nativeFetch } from "./native-fetch.ts";
@@ -298,6 +299,11 @@ export async function openAccountRestConnection(
     close() {
       retire("unknown_connection");
       return connection.close();
+    },
+    readSavedPost(channelId: string, postId: string) {
+      return readWhileOpen(() =>
+        invoke<LocalPost | null>("read_saved_post", { rid, channelId, postId }),
+      );
     },
     readChannelWindow(query: ChannelWindowQuery) {
       return readWhileOpen(() =>
