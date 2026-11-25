@@ -62,7 +62,14 @@ export async function checkSidebarCounters(
       urgent,
     };
   }
+  const api = new ChannelsApi(session);
+  const getOwn = () => api.getChannelMember({ channelId, userId: "me" });
+  const member = await getOwn();
+  assert.deepEqual(member, await api.getChannelMember({ channelId, userId }));
+  assert.equal(member.channelId, channelId);
+  assert.equal(member.userId, userId);
   const baseline = await counts();
+  assert.equal(member.msgCount, baseline.seen);
   const root = await post(`Root mention @${username}`);
   const withRoot = await counts();
   assert.deepEqual(withRoot, {
@@ -82,7 +89,6 @@ export async function checkSidebarCounters(
     last: reply.create_at,
     mentions: withRoot.mentions + 1,
   });
-  const api = new ChannelsApi(session);
   const single = {
     userId: "me",
     viewChannelRequest: { channelId, collapsedThreadsSupported: true },
@@ -111,6 +117,13 @@ export async function checkSidebarCounters(
     setPostUnreadRequest: { collapsedThreadsSupported: true },
   });
   const marked = await counts();
+  const markedMember = await getOwn();
+  assert.equal(markedMember.lastViewedAt, unread.lastViewedAt);
+  assert.equal(markedMember.msgCount, marked.seen);
+  assert.equal(markedMember.msgCountRoot, marked.seenRoots);
+  assert.equal(markedMember.mentionCount, marked.mentions);
+  assert.equal(markedMember.mentionCountRoot, marked.rootMentions);
+  assert.equal(markedMember.urgentMentionCount, marked.urgent);
   assert.equal(unread.teamId, teamId);
   assert.equal(unread.userId, userId);
   assert.equal(unread.channelId, channelId);
