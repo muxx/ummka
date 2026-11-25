@@ -4,9 +4,10 @@ import { isMattermostId } from "./model-fields.ts";
 import type { DraftLocation, DraftSave } from "./native-rest.ts";
 
 type CommandLocation = DraftLocation & { teamId: string };
+export type CommandIntent = "firstAttempt" | "repeatAfterConfirmation";
 type Transition = (
   location: DraftLocation & { revision: string },
-  action: "start" | "complete" | "release",
+  action: "start" | "restart" | "complete" | "release",
 ) => Promise<DraftSave>;
 
 export async function executeSavedCommand(
@@ -14,11 +15,15 @@ export async function executeSavedCommand(
   transition: Transition,
   location: CommandLocation,
   revision: string,
+  intent: CommandIntent = "firstAttempt",
 ) {
   if (!isMattermostId(location.teamId))
     throw new TypeError("Invalid Mattermost team.");
   if (navigator.onLine === false) return { kind: "offline" } as const;
-  const claim = await transition({ ...location, revision }, "start");
+  const claim = await transition(
+    { ...location, revision },
+    intent === "repeatAfterConfirmation" ? "restart" : "start",
+  );
   if (claim.kind === "conflict")
     return { kind: "conflict", draft: claim.draft } as const;
   if (!claim.draft.revision || !claim.draft.commandPending)

@@ -77,7 +77,7 @@ export function accountDelivery(
     },
     transitionDraftCommand(
       { channelId, rootId, revision }: DraftLocation & { revision: string },
-      action: "start" | "complete" | "release",
+      action: "start" | "restart" | "complete" | "release",
     ) {
       return whileOpen(() =>
         invoke<DraftSave>("transition_draft_command", {
