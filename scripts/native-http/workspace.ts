@@ -177,6 +177,16 @@ export async function respondToWorkspace(
         {
           response_type: "ephemeral",
           text: "The fixture received the confirmed repeat.",
+          username: "",
+          channel_id: town,
+          icon_url: "",
+          type: "",
+          props: null,
+          goto_location: "",
+          trigger_id: "",
+          skip_slack_parsing: false,
+          attachments: null,
+          extra_responses: null,
         },
         "live-window-command-repeat",
       );

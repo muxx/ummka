@@ -659,7 +659,10 @@ test("losing connectivity after handing off a command still displays its saved a
     await new Promise<void>((resolve) => {
       finish = resolve;
     });
-    return { kind: "command", answer: { kind: "unconfirmed" } };
+    return {
+      kind: "command",
+      answer: { kind: "unconfirmed", attemptRevision: "started" },
+    };
   });
   const view = render(<DraftComposer {...props} />);
   const input = await field();
@@ -677,3 +680,59 @@ test("losing connectivity after handing off a command still displays its saved a
       .disabled,
   ).toBe(true);
 });
+
+test.each(["saved", "storageUnavailable"] as const)(
+  "a new attempt from another window cannot inherit an earlier %s reply",
+  async (settlement) => {
+    const { connection, rows } = storage();
+    const props = {
+      ...inputs(connection),
+      language: "en" as const,
+      online: true,
+    };
+    const place = "A/";
+    const message = "/me same text";
+    props.sendContext.route.mockResolvedValue({ kind: "command" });
+    props.sendContext.performOther.mockImplementationOnce(async () => {
+      const stored: ComposerDraft =
+        settlement === "saved"
+          ? { message: "", revision: "finished", clearedBySubmission: true }
+          : { message, revision: "first-attempt", commandPending: true };
+      rows.set(place, stored);
+      return {
+        kind: "command",
+        answer: {
+          kind: "answered",
+          attemptRevision: "first-attempt",
+          result: {
+            kind: "executed",
+            response: {
+              responseType: "ephemeral",
+              text: "Response from the first attempt",
+            },
+          },
+          settlement,
+          draft: stored,
+        },
+      };
+    });
+    render(<DraftComposer {...props} />);
+    const input = await field();
+    fireEvent.change(input, { target: { value: message } });
+    fireEvent.click(screen.getByRole("button", { name: "Run command" }));
+    await screen.findByText("Response from the first attempt");
+    rows.set(place, {
+      message,
+      revision: "second-attempt",
+      commandPending: true,
+    });
+    fireEvent(window, new Event("focus"));
+    await waitFor(() =>
+      expect(screen.queryByText("Response from the first attempt")).toBeNull(),
+    );
+    expect(input.value).toBe(message);
+    expect(input.readOnly).toBe(true);
+    expect(screen.getByRole("button", { name: "Run again" })).toBeTruthy();
+    expect(screen.queryByText(/server answered/i)).toBeNull();
+  },
+);

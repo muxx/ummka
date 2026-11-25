@@ -12,6 +12,21 @@ export type ActionFeedback =
   | { kind: "blockedCommand"; reason: "attachments" | "scheduled" }
   | { kind: "blockedReaction" };
 
+export function feedbackForDraft(
+  feedback: ActionFeedback | null,
+  revision: string | null,
+): ActionFeedback | null {
+  if (feedback?.kind !== "command") return feedback;
+  const answer = feedback.answer;
+  if (answer.kind !== "answered" && answer.kind !== "unconfirmed")
+    return feedback;
+  const expected =
+    answer.kind === "answered" && answer.settlement === "saved"
+      ? answer.draft.revision
+      : answer.attemptRevision;
+  return expected && expected === revision ? feedback : null;
+}
+
 export function draftActionFeedback(
   action: ActionFeedback,
   lang: EntryLanguage,

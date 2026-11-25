@@ -11,7 +11,10 @@ import type { EntryLanguage } from "../entry/language.ts";
 import type { SidebarPreferences } from "../mattermost/workspace-preferences.ts";
 import { composerEnter } from "./composer-enter.ts";
 import { DraftPostConfirmation } from "./DraftPostConfirmation.tsx";
-import { draftActionFeedback } from "./draft-action-feedback.ts";
+import {
+  draftActionFeedback,
+  feedbackForDraft,
+} from "./draft-action-feedback.ts";
 import { draftCopy } from "./draft-copy.ts";
 import { openVisibleDraft, type VisibleDraft } from "./open-visible-draft.ts";
 import { PendingCommandActions } from "./PendingCommandActions.tsx";
@@ -165,7 +168,12 @@ function DraftField({
       else setSendError(copy.sendFailed);
     },
   );
-  const feedback = sending.feedback;
+  const feedback = feedbackForDraft(
+    sending.feedback,
+    state.message === state.stored.message && !state.conflict
+      ? state.stored.revision
+      : null,
+  );
   const answer = feedback?.kind === "command" ? feedback.answer : null;
   const unknown =
     answer?.kind === "answered" &&
