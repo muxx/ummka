@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, expect, test, vi } from "vitest";
 import {
+  connectInstallation,
   forgetInstallation,
   listInstallations,
   readInstallationSelection,
@@ -20,6 +21,7 @@ test("returns the host's ordered addresses through a single local call", async (
 });
 
 test.each([
+  ["connect_installation", connectInstallation],
   ["select_installation", selectInstallation],
   ["remember_installation", rememberInstallation],
   ["forget_installation", forgetInstallation],

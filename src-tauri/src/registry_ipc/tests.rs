@@ -25,6 +25,7 @@ fn only_local_main_can_open_and_change_the_private_registry() {
         for (command, body) in [
             ("list_installations", json!({})),
             ("read_installation_selection", json!({})),
+            ("connect_installation", change.clone()),
             ("select_installation", change.clone()),
             ("remember_installation", change.clone()),
             ("forget_installation", change.clone()),
@@ -56,6 +57,7 @@ fn only_local_main_can_open_and_change_the_private_registry() {
         "reading must not create a first-run database"
     );
     for command in [
+        "connect_installation",
         "remember_installation",
         "forget_installation",
         "select_installation",
@@ -67,7 +69,7 @@ fn only_local_main_can_open_and_change_the_private_registry() {
         );
     }
     assert!(list().unwrap().is_empty());
-    invoke(main, "remember_installation", LOCAL, change.clone()).unwrap();
+    invoke(main, "connect_installation", LOCAL, change.clone()).unwrap();
     assert_eq!(list().unwrap(), [address]);
     assert_eq!(
         selection().unwrap(),

@@ -46,6 +46,7 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
             registry_ipc::list_installations,
             registry_ipc::read_installation_selection,
             registry_ipc::select_installation,
+            registry_ipc::connect_installation,
             registry_ipc::remember_installation,
             registry_ipc::forget_installation
         ])

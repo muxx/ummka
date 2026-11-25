@@ -11,6 +11,12 @@ export function readInstallationSelection() {
   );
 }
 
+export async function connectInstallation(serverUrl: string): Promise<void> {
+  return invoke<void>("connect_installation", {
+    serverUrl: canonicalServerUrl(serverUrl),
+  });
+}
+
 export async function selectInstallation(serverUrl: string): Promise<void> {
   return invoke<void>("select_installation", {
     serverUrl: canonicalServerUrl(serverUrl),

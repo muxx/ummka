@@ -20,6 +20,7 @@ fn main() {
         "list_installations",
         "read_installation_selection",
         "select_installation",
+        "connect_installation",
         "remember_installation",
         "forget_installation",
     ]);

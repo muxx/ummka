@@ -47,6 +47,14 @@ pub(crate) async fn read_installation_selection<R: Runtime>(
 }
 
 #[tauri::command]
+pub(crate) async fn connect_installation<R: Runtime>(
+    app: AppHandle<R>,
+    server_url: String,
+) -> Result<(), RegistryError> {
+    with_registry(app, move |registry| registry.connect(&server_url)).await
+}
+
+#[tauri::command]
 pub(crate) async fn select_installation<R: Runtime>(
     app: AppHandle<R>,
     server_url: String,
