@@ -11,7 +11,7 @@ pub use attempts::{PostRefusal, RefusalScope, RetryPost};
 mod directory;
 pub use directory::{DirectoryTeam, TeamDirectory, TeamDirectoryLoad};
 mod drafts;
-pub use drafts::{ComposerDraft, DraftSave};
+pub use drafts::{ComposerDraft, DraftCommandAction, DraftSave};
 mod confirmation;
 mod lifecycle;
 pub use confirmation::{DeliveryPost, DeliverySource};

@@ -80,6 +80,8 @@ const ADD_DRAFT_ORIGIN: &str = "ALTER TABLE composer_draft ADD COLUMN cleared_by
 const COMPOSER_DRAFT_V12: &str = include_str!("migrations/0012_composer_draft_schema.sql");
 const ADD_TEAM_ROLES: &str = "ALTER TABLE joined_team ADD COLUMN roles TEXT";
 const ADD_CHANNEL_ROLES: &str = "ALTER TABLE sidebar_channel ADD COLUMN roles TEXT";
+const ADD_DRAFT_COMMAND_PENDING: &str = "ALTER TABLE composer_draft ADD COLUMN command_pending INTEGER NOT NULL DEFAULT 0 CHECK (command_pending IN (0,1) AND (command_pending = 0 OR substr(message,1,1) = '/'))";
+const COMPOSER_DRAFT_V21: &str = include_str!("migrations/0021_composer_draft_schema.sql");
 const JOINED_TEAMS_V13: &str = include_str!("migrations/0013_joined_team_schema.sql");
 const SIDEBAR_CHANNEL_V13: &str = include_str!("migrations/0013_sidebar_channel_schema.sql");
 const POST_ATTEMPT_V14: &str = include_str!("migrations/0014_post_attempt.sql");
@@ -103,6 +105,7 @@ pub(super) struct Migration {
 const fn directory_objects(
     joined_teams: &'static str,
     sidebar_channel: &'static str,
+    composer_draft: &'static str,
 ) -> [&'static str; 30] {
     [
         CREATE_OWNER,
@@ -129,7 +132,7 @@ const fn directory_objects(
         CHANNEL_PROFILE,
         PROFILE_BY_USERNAME,
         WORKSPACE_SETTINGS,
-        COMPOSER_DRAFT_V12,
+        composer_draft,
         PENDING_POST,
         PENDING_BY_CONVERSATION,
         POST_CONFIRMATION,
@@ -137,7 +140,8 @@ const fn directory_objects(
         TEAM_ROLE_SNAPSHOT,
     ]
 }
-const SHARED_CHANNEL_OBJECTS: &[&str] = &directory_objects(JOINED_TEAMS_V13, SIDEBAR_CHANNEL_V16);
+const SHARED_CHANNEL_OBJECTS: &[&str] =
+    &directory_objects(JOINED_TEAMS_V13, SIDEBAR_CHANNEL_V16, COMPOSER_DRAFT_V12);
 
 pub(super) const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -579,12 +583,16 @@ pub(super) const MIGRATIONS: &[Migration] = &[
             ADD_JOINED_TEAM_GROUP_CONSTRAINED,
             ADD_SIDEBAR_CHANNEL_GROUP_CONSTRAINED,
         ],
-        objects: &directory_objects(JOINED_TEAM_V19, SIDEBAR_CHANNEL_V19),
+        objects: &directory_objects(JOINED_TEAM_V19, SIDEBAR_CHANNEL_V19, COMPOSER_DRAFT_V12),
     },
     // Older readers reject unknown server policy JSON fields.
     Migration {
         statements: &[],
-        objects: &directory_objects(JOINED_TEAM_V19, SIDEBAR_CHANNEL_V19),
+        objects: &directory_objects(JOINED_TEAM_V19, SIDEBAR_CHANNEL_V19, COMPOSER_DRAFT_V12),
+    },
+    Migration {
+        statements: &[ADD_DRAFT_COMMAND_PENDING],
+        objects: &directory_objects(JOINED_TEAM_V19, SIDEBAR_CHANNEL_V19, COMPOSER_DRAFT_V21),
     },
 ];
 
