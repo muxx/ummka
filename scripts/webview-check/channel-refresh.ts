@@ -10,6 +10,21 @@ export async function checkChannelRefresh(
   account: Account,
   observe: (step: string, name: string) => Promise<void>,
 ) {
+  const thread = await account.readThreadPage({
+    channelId,
+    rootId: root,
+    direction: "up",
+    collapsedThreads: true,
+    perPage: 1,
+    cursor: { id: "x".repeat(26), createAt: 400 },
+  });
+  if (
+    thread.kind !== "page" ||
+    thread.root.id !== root ||
+    thread.replies[0]?.id !== reply ||
+    thread.next !== null
+  )
+    throw Error("Account did not read the requested thread page.");
   const scoped = { channelId, collapsedThreads: false };
   for (const collapsedThreads of [false, true]) {
     const result = await account.refreshChannelHistory({

@@ -15,6 +15,10 @@ import {
 } from "../../../src/mattermost/focused-history.ts";
 import { readPostAnchor } from "../../../src/mattermost/message-anchors.ts";
 import { readPostDestination } from "../../../src/mattermost/post-destination.ts";
+import {
+  readThreadPage,
+  type ThreadPageRequest,
+} from "../../../src/mattermost/thread-page.ts";
 import { loadVisibleProfiles } from "../../../src/mattermost/visible-profiles.ts";
 import {
   ChannelsApi,
@@ -116,11 +120,16 @@ const channels = await new ChannelsApi(session).getChannelsForTeamForUser({
 const channel = channels.find((c) => c.name === "town-square");
 assert.ok(channel?.id);
 const channelId = channel.id;
-async function message(text: string, rootId?: string) {
+async function message(text: string, rootId?: string, createAt?: number) {
   return (
     await create(
       "posts",
-      { channel_id: channelId, message: text, root_id: rootId },
+      {
+        channel_id: channelId,
+        message: text,
+        root_id: rootId,
+        create_at: createAt,
+      },
       token,
     )
   ).json();
@@ -450,6 +459,16 @@ await assert.rejects(
     error instanceof ResponseError && error.response.status === 404,
 );
 
+await assert.rejects(
+  readThreadPage(anonymous, {
+    channelId,
+    rootId: root.id,
+    collapsedThreads: true,
+    direction: "up",
+  }),
+  (error: unknown) =>
+    error instanceof ResponseError && error.response.status === 401,
+);
 const followingPage = await memberPosts.getPostThread({
   postId: root.id,
   perPage: 1,
@@ -624,6 +643,80 @@ await create(
   { team_id: team.id, user_id: reader.id },
   token,
 );
+assert.equal(reader.roles, "system_user");
+const focusedReply = await readerPosts.getPostThread({
+  postId: reply.id,
+  perPage: 60,
+  direction: "down",
+  skipFetchThreads: false,
+  collapsedThreads: true,
+  collapsedThreadsExtended: true,
+});
+assert.deepEqual(focusedReply.order, [reply.id]);
+assert.deepEqual(Object.keys(focusedReply.posts ?? {}), [reply.id]);
+assert.equal(focusedReply.posts?.[reply.id]?.rootId, root.id);
+assert.equal(focusedReply.hasNext, false);
+// A system administrator importing history can preserve a reply created earlier than its root.
+const importedAt = Date.now() - 360_000;
+const imported = await message("Imported discussion", undefined, importedAt);
+const early = await message(
+  "First imported reply",
+  imported.id,
+  importedAt - 1000,
+);
+const tied = await message(
+  "Second imported reply",
+  imported.id,
+  importedAt - 1000,
+);
+const late = await message(
+  "Latest imported reply",
+  imported.id,
+  importedAt + 1000,
+);
+assert.equal(early.create_at, tied.create_at);
+assert.equal(imported.create_at, importedAt);
+for (const [thread, chronological] of [
+  [root, [reply.id, lastReply.id]],
+  [imported, [...[early.id, tied.id].sort(), late.id]],
+] as const) {
+  for (const collapsedThreads of [false, true]) {
+    for (const direction of ["up", "down"] as const) {
+      const ids: string[] = [],
+        cursors: string[] = [];
+      let cursor: ThreadPageRequest["cursor"];
+      do {
+        assert(
+          cursors.length <= chronological.length,
+          "Bounded thread cursor must terminate",
+        );
+        const page = await readThreadPage(readerPosts, {
+          channelId,
+          rootId: thread.id,
+          collapsedThreads,
+          direction,
+          perPage: 1,
+          cursor,
+        });
+        assert.equal(page.kind, "page");
+        assert.equal(page.root.id, thread.id);
+        ids.push(...page.replies.map((post) => post.id));
+        cursor = page.next ?? undefined;
+        if (cursor) cursors.push(cursor.id);
+      } while (cursor);
+      assert.deepEqual(
+        ids,
+        direction === "down" ? chronological : [...chronological].reverse(),
+      );
+      if (!collapsedThreads && thread.id === imported.id)
+        assert(cursors.includes(imported.id));
+    }
+  }
+}
+console.log(
+  `Mattermost ${version} verified ordinary-member thread pagination and reply anchors in both modes.`,
+);
+
 const joinable = await (
   await create(
     "channels",
