@@ -41,6 +41,7 @@ import { checkCustomEmojiLookup } from "./custom-emoji.ts";
 import { checkEventStream } from "./event-stream.ts";
 import { checkFileSearch } from "./file-search.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
+import { checkJoinPostTarget } from "./join-post-target.ts";
 import {
   checkChannelRoster,
   checkEmptyTeamDirectory,
@@ -813,6 +814,14 @@ await checkOwnMembershipChanges(
   team.id,
   extraTeam.id,
   joinable.id,
+);
+await checkJoinPostTarget(
+  session,
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  reader.id,
+  team.id,
+  joinable.id,
+  extraTeam.id,
 );
 console.log(
   `Mattermost ${version} verified channel and team roles, active and removed membership and anonymous HTTP 401.`,
