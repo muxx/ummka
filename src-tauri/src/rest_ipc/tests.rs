@@ -107,6 +107,10 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
                 json!({"rid":0,"query":{"ids":[],"usernames":[]}}),
             ),
             ("store_channel_profiles", json!({"rid":0,"profiles":[]})),
+            (
+                "read_saved_post",
+                json!({"rid":0,"channelId":"x","postId":"y"}),
+            ),
             ("read_team_sidebar", json!({"rid":0,"teamId":"x"})),
             (
                 "select_sidebar_channel",
@@ -208,6 +212,16 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
         (foreign, "unknown_connection"),
         (first, "session_unavailable"),
     ] {
+        assert_eq!(
+            invoke(
+                main,
+                "read_saved_post",
+                LOCAL,
+                json!({"rid":rid,"channelId":"c".repeat(26),"postId":"p".repeat(26)})
+            )
+            .unwrap_err(),
+            expected
+        );
         assert_eq!(
             invoke(
                 main,
