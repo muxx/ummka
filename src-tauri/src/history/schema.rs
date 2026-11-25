@@ -50,6 +50,11 @@ const NEIGHBOR_ID: &str =
 const NEWER_HINT: &str = "CREATE INDEX history_window_newer ON history_window(newer, channel_id) WHERE newer IS NOT NULL";
 const OLDER_HINT: &str = "CREATE INDEX history_window_older ON history_window(older, channel_id) WHERE older IS NOT NULL";
 
+const TEAM_DIRECTORY: &str = include_str!("migrations/0004_team_directory.sql");
+const JOINED_TEAMS: &str = include_str!("migrations/0004_joined_teams.sql");
+const SELECTED_TEAM: &str =
+    "CREATE UNIQUE INDEX joined_team_selected ON joined_team(selected) WHERE selected = 1";
+
 /// Each entry advances user_version by one. Keep published entries in order.
 pub(super) struct Migration {
     pub(super) statements: &'static [&'static str],
@@ -91,6 +96,27 @@ pub(super) const MIGRATIONS: &[Migration] = &[
             NEIGHBOR_ID,
             NEWER_HINT,
             OLDER_HINT,
+        ],
+    },
+    Migration {
+        statements: &[TEAM_DIRECTORY, JOINED_TEAMS, SELECTED_TEAM],
+        objects: &[
+            CREATE_OWNER,
+            CREATE_POSTS,
+            INDEX_REPLIES,
+            CREATE_DELETIONS,
+            WINDOWS,
+            WINDOW_POSTS,
+            NEIGHBORS,
+            RECENT,
+            ORDER,
+            TIES,
+            NEIGHBOR_ID,
+            NEWER_HINT,
+            OLDER_HINT,
+            TEAM_DIRECTORY,
+            JOINED_TEAMS,
+            SELECTED_TEAM,
         ],
     },
 ];

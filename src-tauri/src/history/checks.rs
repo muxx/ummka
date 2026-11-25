@@ -117,7 +117,7 @@ pub(crate) fn round_trip(root: &Path) -> Result<(), HistoryError> {
 mod tests {
     use super::*;
     use crate::history::filename;
-    use crate::history::schema::{APPLICATION_ID, CREATE_OWNER};
+    use crate::history::schema::{APPLICATION_ID, CREATE_OWNER, MIGRATIONS};
     use rusqlite::Connection;
     use std::fs;
     use tempfile::tempdir;
@@ -167,7 +167,7 @@ mod tests {
         );
         for (key, expected) in [
             ("application_id", APPLICATION_ID),
-            ("user_version", 3),
+            ("user_version", i64::try_from(MIGRATIONS.len()).unwrap()),
             ("foreign_keys", 1),
             ("auto_vacuum", 2),
             ("busy_timeout", 5000),

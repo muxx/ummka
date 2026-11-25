@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { projectJoinedTeams } from "../../../src/mattermost/joined-teams.ts";
 import {
   loadAccountDirectory,
   loadTeamDirectory,
@@ -36,6 +37,11 @@ export async function checkNavigationMemberships(
   const member = active.find((m) => m.teamId === leaveTeamId);
   assert.ok(member);
   const joined = await loadAccountDirectory(session, userId);
+  const teamRows = projectJoinedTeams(joined);
+  for (const id of [keepTeamId, leaveTeamId]) {
+    const row = teamRows.find((team) => team.id === id);
+    assert.ok(row?.name && row.displayName);
+  }
   for (const teamId of [keepTeamId, leaveTeamId]) {
     const directory = await loadTeamDirectory(session, userId, teamId);
     const dm = directory.channels.find((row) => row.channel.id === directId);
@@ -96,6 +102,10 @@ export async function checkNavigationMemberships(
   assert.ok(removed?.deleteAt && removed.deleteAt > 0);
   assert.equal(after.find((m) => m.teamId === keepTeamId)?.deleteAt, 0);
   const remaining = await loadAccountDirectory(session, userId);
+  assert.equal(
+    projectJoinedTeams(remaining).some((team) => team.id === leaveTeamId),
+    false,
+  );
   assert.ok(remaining.teams.some(({ team }) => team.id === keepTeamId));
   assert.ok(!remaining.teams.some(({ team }) => team.id === leaveTeamId));
   await assert.rejects(

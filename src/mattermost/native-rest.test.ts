@@ -156,9 +156,12 @@ test("opens a native account by installation and user ID", async () => {
     "fetchApi",
     "readAccountDirectory",
     "readChannelWindow",
+    "readJoinedTeams",
     "readTeamDirectory",
     "refreshChannelHistory",
+    "refreshJoinedTeams",
     "rid",
+    "selectJoinedTeam",
     "signOut",
     "signOutOnDevice",
   ]);
@@ -231,4 +234,37 @@ test("preserves native errors from open and close", async () => {
     "https://chat.example.test",
   );
   await expect(connection.close()).rejects.toBe("unknown_connection");
+});
+
+test("an aborted directory refresh releases its ticket without publishing teams", async () => {
+  const accountId = "a".repeat(26);
+  ipc.mockResolvedValueOnce(7);
+  const connection = await openAccountRestConnection(
+    "https://chat.example.test",
+    accountId,
+  );
+  const abort = new AbortController();
+  const reason = new Error("stopped test request");
+  const read = vi
+    .spyOn(directory, "loadAccountDirectory")
+    .mockImplementation(async () => {
+      abort.abort(reason);
+      return { teams: [], preferences: [] };
+    });
+  try {
+    ipc.mockResolvedValueOnce(21).mockResolvedValueOnce(undefined);
+    await expect(connection.refreshJoinedTeams(abort.signal)).rejects.toBe(
+      reason,
+    );
+    expect(ipc.mock.calls.slice(1)).toEqual([
+      ["begin_team_directory_load", { rid: 7 }],
+      ["cancel_team_directory_load", { rid: 7, load: 21 }],
+    ]);
+    await expect(connection.refreshJoinedTeams(abort.signal)).rejects.toBe(
+      reason,
+    );
+    expect(read).toHaveBeenCalledTimes(1);
+  } finally {
+    read.mockRestore();
+  }
 });

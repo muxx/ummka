@@ -507,6 +507,11 @@ export function webviewServers(
       ];
       if (platform === "macos") expected.push("window");
       if (platform === "android") expected.push("account-logout-local-failure");
+      expected.push(
+        "directory-teams",
+        "my-team-members",
+        "sidebar-preferences",
+      );
       if (platform === "android") expected.push("browser-action-confirmed");
       assert.deepEqual(visits.sort(), expected.sort());
     },
