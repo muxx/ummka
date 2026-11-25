@@ -146,6 +146,57 @@ export async function checkBrowserApp(server: string) {
       townDraft.value !== "Draft from the channel window"
     )
       throw Error("Leaving native search lost the header or draft");
+    flushSync(() =>
+      fireEvent.input(townDraft, {
+        target: { value: "/SeArCh window fixture" },
+      }),
+    );
+    flushSync(() =>
+      fireEvent.click(ui.getByRole("button", { name: "Run command" })),
+    );
+    const commandResults = within(
+      await ui.findByRole(
+        "complementary",
+        { name: "Search results" },
+        { timeout: 10_000 },
+      ),
+    );
+    await commandResults.findByText("Search found this fixture post");
+    await waitFor(() => {
+      if (townDraft.value !== "")
+        throw Error("The local search command is still in the channel draft");
+    });
+    flushSync(() =>
+      fireEvent.click(
+        commandResults.getByRole("button", { name: "Close search" }),
+      ),
+    );
+    flushSync(() =>
+      fireEvent.input(townDraft, { target: { value: "/search" } }),
+    );
+    flushSync(() =>
+      fireEvent.click(ui.getByRole("button", { name: "Run command" })),
+    );
+    const emptySearch = within(await ui.findByRole("dialog"));
+    const emptyQuery = emptySearch.getByRole<HTMLInputElement>("searchbox");
+    if (emptyQuery.value || document.activeElement !== emptyQuery)
+      throw Error(
+        "A search command without arguments did not open the empty input",
+      );
+    await waitFor(() => {
+      if (townDraft.value !== "")
+        throw Error("The bare command was not cleared");
+    });
+    flushSync(() =>
+      fireEvent.click(
+        emptySearch.getByRole("button", { name: "Close search" }),
+      ),
+    );
+    flushSync(() =>
+      fireEvent.input(townDraft, {
+        target: { value: "Draft from the channel window" },
+      }),
+    );
     openChannelNavigation(host, "Channels");
     const design = ui.getByRole("button", { name: "Design" });
     flushSync(() => fireEvent.click(design));

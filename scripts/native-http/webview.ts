@@ -1106,6 +1106,8 @@ export function webviewServers(
           "browser-action-confirmed",
           "live-search-posts",
           "live-search-files",
+          "browser-action-confirmed",
+          "live-search-posts",
           "live-posts-" + "c".repeat(26),
           "live-posts-" + "d".repeat(26),
           "live-posts-" + "d".repeat(26),

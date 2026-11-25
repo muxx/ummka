@@ -347,6 +347,17 @@ test("each edited query reads the current profile timezone; both tabs and pagina
   await screen.findByRole("button", {
     name: "Изменить запрос, after:2026-01-02",
   });
+  await screen.findByText("release.pdf");
+  expect(
+    account.readFileSearchPage.mock.calls.map(([q]) => [
+      q.terms,
+      q.timeZoneOffsetSeconds,
+    ]),
+  ).toEqual([
+    ["on:2026-01-01", 20700],
+    ["after:2026-01-02", 0],
+  ]);
+  fireEvent.click(screen.getByRole("button", { name: /Сообщения/ }));
   await screen.findByText("Готово к выпуску");
   fireEvent.click(screen.getByRole("button", { name: "Показать ещё" }));
   await waitFor(() =>

@@ -44,7 +44,8 @@ export function useWorkspaceSearch(
     ? [settings.allTeams, settings.files, settings.archivedChannels].join("/")
     : "";
   const text = searchCopy[language];
-  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState<SearchInput | null>(null);
+  const open = form !== null;
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [entry, setEntry] = useState<{
@@ -81,7 +82,7 @@ export function useWorkspaceSearch(
     request.current = null;
     setPending(false);
     setError(null);
-    setOpen(false);
+    setForm(null);
     trigger.current?.focus();
   }
   function dismiss() {
@@ -90,13 +91,28 @@ export function useWorkspaceSearch(
     result.current = null;
     setEntry(null);
   }
+  function currentQuery(): SearchInput {
+    return {
+      terms: entry?.query.terms ?? "",
+      scope: settings?.allTeams && entry ? entry.query.scope : team,
+      kind:
+        settings?.files && entry
+          ? entry.result.getSnapshot().selected
+          : "posts",
+    };
+  }
   function edit() {
     setError(null);
-    setOpen(true);
+    setForm(currentQuery());
   }
-  async function run(query: SearchInput) {
-    if (request.current) return;
+  async function run(query: SearchInput, origin?: AbortSignal) {
+    if (request.current || origin?.aborted) return false;
     const token = new AbortController();
+    const leaveOrigin = () => {
+      token.abort();
+      if (request.current === token) setForm(null);
+    };
+    origin?.addEventListener("abort", leaveOrigin, { once: true });
     request.current = token;
     setPending(true);
     setError(null);
@@ -110,11 +126,11 @@ export function useWorkspaceSearch(
       token.signal.throwIfAborted();
       if (!online) {
         setError(text.offline);
-        return;
+        return false;
       }
       if (!settings) {
         setError(text.readError);
-        return;
+        return false;
       }
       source = "network";
       const [timeZone, { openSearchResults }] = await Promise.all([
@@ -133,27 +149,32 @@ export function useWorkspaceSearch(
       result.current?.close();
       result.current = session;
       setEntry({ query, result: session, policyKey });
-      setOpen(false);
+      setForm(null);
       void session.select(query.kind);
+      return true;
     } catch (cause) {
-      if (token.signal.aborted) return;
+      if (token.signal.aborted) return false;
       const failure = workspaceFailure(cause, source);
       if (failure === "session" || failure === "unauthorized")
         sessionIssue(failure);
       else setError(source === "storage" ? text.saveError : text.readError);
+      return false;
     } finally {
+      origin?.removeEventListener("abort", leaveOrigin);
       if (request.current === token) {
         request.current = null;
         setPending(false);
       }
     }
   }
-  const initial = entry?.query ?? {
-    terms: "",
-    scope: team,
-    kind: "posts" as const,
-  };
   return {
+    async fromCommand(terms: string, origin: AbortSignal) {
+      if (request.current || origin.aborted) return false;
+      const query = { ...currentQuery(), terms: terms.trim() };
+      setError(null);
+      setForm(query);
+      return query.terms ? run(query, origin) : true;
+    },
     trigger: (
       <button
         ref={trigger}
@@ -179,12 +200,12 @@ export function useWorkspaceSearch(
         <span>{entry?.query.terms ?? text.open}</span>
       </button>
     ),
-    dialog: open && (
+    dialog: form && (
       <Suspense fallback={null}>
         <SearchDialog
           account={connection}
           team={team}
-          initial={initial}
+          initial={form}
           allTeams={settings?.allTeams === true}
           files={settings?.files === true}
           language={language}

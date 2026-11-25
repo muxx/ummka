@@ -498,6 +498,7 @@ export function ChannelsWorkspace({
                 channel,
                 permission,
                 settings?.collapsedThreads ?? null,
+                search.fromCommand,
               )}
               label={draftLabel()}
               language={language}
