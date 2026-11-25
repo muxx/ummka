@@ -101,6 +101,9 @@ export async function resumeRegistryCheck(): Promise<boolean> {
             settings.server?.collapsedThreads !== "always_on" ||
             settings.server.sharedChannelDMs !== true ||
             settings.server.uniqueReactionLimit !== "-2" ||
+            settings.server.search?.allTeams !== true ||
+            settings.server.search.files !== false ||
+            settings.server.search.archivedChannels !== true ||
             settings.server.mentions?.maxNotificationsPerChannel !==
               "9223372036854775807" ||
             settings.server.mentions.confirmNotifications ||
@@ -152,7 +155,12 @@ export async function resumeRegistryCheck(): Promise<boolean> {
       await recovered.close();
     }
   }
-  await checkSavedTeamWindow(`${root}/team/chat`, firstId);
+  // Read the saved outgoing row on the first restart, then remove it on the second.
+  await checkSavedTeamWindow(
+    `${root}/team/chat`,
+    firstId,
+    urls.length === 1 && urls[0] === second,
+  );
   if ((await getCurrentAccountId(`${root}/team/chat/secondary`)) !== null)
     throw Error("signed-out installation has a current account offline");
   const forgotten = await openAccountRestConnection(

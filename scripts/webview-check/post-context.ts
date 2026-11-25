@@ -80,13 +80,18 @@ export async function checkPostContext(
     collapsedThreadsExtended: true,
   });
   if (
-    page.order?.join(",") !== `${query.postId},${rootId}` ||
-    page.posts?.[query.postId]?.rootId !== rootId ||
-    page.posts?.[rootId]?.channelId !== member.channelId ||
+    page.order?.length !== 1 ||
+    page.order[0] !== query.postId ||
+    !page.posts ||
+    Object.keys(page.posts).length !== 1 ||
+    page.posts[query.postId]?.rootId !== rootId ||
+    page.posts[query.postId]?.channelId !== member.channelId ||
     page.firstInaccessiblePostTime !== 0 ||
     page.hasNext !== false
   )
-    throw Error("Generated thread lost its focused reply or root");
+    throw Error(
+      "Generated thread did not preserve the focused reply and its root ID",
+    );
   const archive = await new PostsApi(prefixed).getPostThread({
     ...query,
     perPage: 1,

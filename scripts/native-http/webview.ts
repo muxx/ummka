@@ -606,6 +606,32 @@ export function webviewServers(
       visits.push(stats ? "channel-stats" : "channel-timezones");
       return;
     }
+    const ownTeam = `/team/chat/api/v4/teams/${teamId}/members`;
+    if (url.pathname === ownTeam || url.pathname === `${ownTeam}/${userId}`) {
+      const join = url.pathname === ownTeam;
+      assert.equal(url.search, "");
+      assert.equal(req.method, join ? "POST" : "DELETE");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      if (join) {
+        assert.equal(req.headers["content-type"], "application/json");
+        assert.deepEqual(await json(req), { team_id: teamId, user_id: userId });
+      }
+      res
+        .writeHead(join ? 201 : 200, { "Content-Type": "application/json" })
+        .end(
+          JSON.stringify(
+            join
+              ? { team_id: teamId, user_id: userId, delete_at: 0 }
+              : { status: "OK" },
+          ),
+        );
+      visits.push(join ? "own-team-join" : "own-team-leave");
+      return;
+    }
     const member = await respondToChannelMembers(
       req,
       res,
@@ -748,6 +774,9 @@ export function webviewServers(
                 EnableConfirmNotificationsToChannel: "false",
                 MaxNotificationsPerChannel: "9223372036854775807",
                 UniqueEmojiReactionLimitPerPost: "-2",
+                EnableCrossTeamSearch: "true",
+                EnableFileAttachments: "true",
+                EnableFileSearch: "false",
                 EnableCustomGroups: "true",
                 TeammateNameDisplay: "full_name",
                 LockTeammateNameDisplay: "true",
@@ -1002,6 +1031,8 @@ export function webviewServers(
         "group-audience-timezones",
         "group-audience-timezones",
         "member-notifications",
+        "own-team-join",
+        "own-team-leave",
         "member-add",
         "member-remove",
         "member-self",
@@ -1021,11 +1052,14 @@ export function webviewServers(
         "saved-room-history",
         "single-file-info",
         "single-file-info",
+        "single-file-info",
         "single-file-retention",
+        "single-post-reply",
         "single-post-reply",
         "single-post-reply",
         "single-post-retention",
         "post-info-root",
+        "post-info-prefixed",
         "post-info-prefixed",
         "post-thread-archive",
         "post-thread-reply",
@@ -1067,6 +1101,8 @@ export function webviewServers(
           "live-channels",
           "live-members",
           "live-categories",
+          "live-window-send",
+          "live-window-command-repeat",
           "live-posts-" + "c".repeat(26),
           "live-posts-" + "d".repeat(26),
           "live-posts-" + "d".repeat(26),

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { channelComposerAccess } from "../../../src/channels/composer-access.ts";
+import { readChannelNotifications } from "../../../src/mattermost/channel-notifications.ts";
 import {
   fetchTeamRoleSnapshot,
   loadChannelPermissions,
@@ -10,6 +11,7 @@ import {
   loadAccountDirectory,
   loadTeamDirectory,
 } from "../../../src/mattermost/navigation-data.ts";
+import { changeOwnMembership } from "../../../src/mattermost/own-membership.ts";
 import { projectTeamSidebar } from "../../../src/mattermost/team-sidebar.ts";
 import {
   ChannelsApi,
@@ -28,6 +30,15 @@ export async function checkNavigationMemberships(
   channelId: string,
   directId: string,
 ) {
+  const notifications = await readChannelNotifications(
+    session,
+    userId,
+    channelId,
+  );
+  assert.equal(notifications.account.desktopThreads, "all");
+  assert.equal(notifications.account.pushThreads, "all");
+  assert.equal(notifications.channel.desktop, "default");
+  assert.equal(notifications.channel.push, "default");
   const teams = new TeamsApi(session);
   const own = { userId: "me" };
   const target = { teamId: leaveTeamId, userId };
@@ -303,4 +314,42 @@ export async function checkChannelRoster(
     }),
     denied,
   );
+}
+
+export async function checkOwnMembershipChanges(
+  config: Configuration,
+  userId: string,
+  workspace: string,
+  team: string,
+  channel: string,
+) {
+  const teams = new TeamsApi(config);
+  const channels = new ChannelsApi(config);
+  const hasTeam = async () =>
+    (await teams.getTeamsForUser({ userId: "me" })).some(
+      (row) => row.id === team,
+    );
+  const hasChannel = async () =>
+    (
+      await channels.getChannelMembersForUser({
+        userId: "me",
+        teamId: workspace,
+      })
+    ).some((row) => row.channelId === channel);
+  for (const [target, read] of [
+    [{ kind: "team", id: team }, hasTeam],
+    [{ kind: "channel", id: channel }, hasChannel],
+  ] as const) {
+    assert.equal(await read(), false);
+    assert.deepEqual(
+      await changeOwnMembership(config, userId, target, "join"),
+      { kind: "applied" },
+    );
+    assert.equal(await read(), true);
+    assert.deepEqual(
+      await changeOwnMembership(config, userId, target, "leave"),
+      { kind: "applied" },
+    );
+    assert.equal(await read(), false);
+  }
 }

@@ -15,6 +15,10 @@ import {
 } from "../../../src/mattermost/focused-history.ts";
 import { readPostAnchor } from "../../../src/mattermost/message-anchors.ts";
 import { readPostDestination } from "../../../src/mattermost/post-destination.ts";
+import {
+  readThreadPage,
+  type ThreadPageRequest,
+} from "../../../src/mattermost/thread-page.ts";
 import { loadVisibleProfiles } from "../../../src/mattermost/visible-profiles.ts";
 import {
   ChannelsApi,
@@ -31,17 +35,22 @@ import {
   checkBrowserSignIn,
 } from "./browser-sign-in.ts";
 import { checkChannelAudience } from "./channel-audience.ts";
-import { checkChannelNotifications } from "./channel-notifications.ts";
+import {
+  checkChannelNotifications,
+  checkPersonalNotificationUpdate,
+} from "./channel-notifications.ts";
 import { checkCollectionActions } from "./collection-actions.ts";
 import { checkCommands } from "./commands.ts";
 import { checkCustomEmojiLookup } from "./custom-emoji.ts";
 import { checkEventStream } from "./event-stream.ts";
 import { checkFileSearch } from "./file-search.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
+import { checkJoinPostTarget } from "./join-post-target.ts";
 import {
   checkChannelRoster,
   checkEmptyTeamDirectory,
   checkNavigationMemberships,
+  checkOwnMembershipChanges,
 } from "./memberships.ts";
 import { checkMentionLimit } from "./mention-limit.ts";
 import { checkMentionText } from "./mention-text.ts";
@@ -56,9 +65,12 @@ import { checkReactionActions } from "./reaction-actions.ts";
 import { checkReactionLimit } from "./reaction-limit.ts";
 import { checkPostReactions } from "./reactions.ts";
 import { checkRoleReads } from "./role-reads.ts";
+import { checkSearchScopePolicy } from "./search-scope.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
+import { checkThreadWindow } from "./thread-window.ts";
 import { checkUserNotifications } from "./user-notifications.ts";
+import { checkUserTimezone } from "./user-timezone.ts";
 
 const base = "http://mattermost:8065";
 const version = process.argv[2];
@@ -117,11 +129,16 @@ const channels = await new ChannelsApi(session).getChannelsForTeamForUser({
 const channel = channels.find((c) => c.name === "town-square");
 assert.ok(channel?.id);
 const channelId = channel.id;
-async function message(text: string, rootId?: string) {
+async function message(text: string, rootId?: string, createAt?: number) {
   return (
     await create(
       "posts",
-      { channel_id: channelId, message: text, root_id: rootId },
+      {
+        channel_id: channelId,
+        message: text,
+        root_id: rootId,
+        create_at: createAt,
+      },
       token,
     )
   ).json();
@@ -451,6 +468,16 @@ await assert.rejects(
     error instanceof ResponseError && error.response.status === 404,
 );
 
+await assert.rejects(
+  readThreadPage(anonymous, {
+    channelId,
+    rootId: root.id,
+    collapsedThreads: true,
+    direction: "up",
+  }),
+  (error: unknown) =>
+    error instanceof ResponseError && error.response.status === 401,
+);
 const followingPage = await memberPosts.getPostThread({
   postId: root.id,
   perPage: 1,
@@ -625,6 +652,84 @@ await create(
   { team_id: team.id, user_id: reader.id },
   token,
 );
+assert.equal(reader.roles, "system_user");
+const focusedReply = await readerPosts.getPostThread({
+  postId: reply.id,
+  perPage: 60,
+  direction: "down",
+  skipFetchThreads: false,
+  collapsedThreads: true,
+  collapsedThreadsExtended: true,
+});
+assert.deepEqual(focusedReply.order, [reply.id]);
+assert.deepEqual(Object.keys(focusedReply.posts ?? {}), [reply.id]);
+assert.equal(focusedReply.posts?.[reply.id]?.rootId, root.id);
+assert.equal(focusedReply.hasNext, false);
+// A system administrator importing history can preserve a reply created earlier than its root.
+const importedAt = Date.now() - 360_000;
+const imported = await message("Imported discussion", undefined, importedAt);
+const early = await message(
+  "First imported reply",
+  imported.id,
+  importedAt - 1000,
+);
+const tied = await message(
+  "Second imported reply",
+  imported.id,
+  importedAt - 1000,
+);
+const late = await message(
+  "Latest imported reply",
+  imported.id,
+  importedAt + 1000,
+);
+assert.equal(early.create_at, tied.create_at);
+assert.equal(imported.create_at, importedAt);
+for (const [thread, chronological] of [
+  [root, [reply.id, lastReply.id]],
+  [imported, [...[early.id, tied.id].sort(), late.id]],
+] as const) {
+  for (const collapsedThreads of [false, true]) {
+    for (const direction of ["up", "down"] as const) {
+      const ids: string[] = [],
+        cursors: string[] = [];
+      let cursor: ThreadPageRequest["cursor"];
+      do {
+        assert(
+          cursors.length <= chronological.length,
+          "Bounded thread cursor must terminate",
+        );
+        const page = await readThreadPage(readerPosts, {
+          channelId,
+          rootId: thread.id,
+          collapsedThreads,
+          direction,
+          perPage: 1,
+          cursor,
+        });
+        assert.equal(page.kind, "page");
+        assert.equal(page.root.id, thread.id);
+        ids.push(...page.replies.map((post) => post.id));
+        cursor = page.next ?? undefined;
+        if (cursor) cursors.push(cursor.id);
+      } while (cursor);
+      assert.deepEqual(
+        ids,
+        direction === "down" ? chronological : [...chronological].reverse(),
+      );
+      if (!collapsedThreads && thread.id === imported.id)
+        assert(cursors.includes(imported.id));
+    }
+  }
+}
+await checkThreadWindow(readerPosts, channelId, imported.id, [
+  ...[early.id, tied.id].sort(),
+  late.id,
+]);
+console.log(
+  `Mattermost ${version} verified ordinary-member thread pagination and reply anchors in both modes.`,
+);
+
 const joinable = await (
   await create(
     "channels",
@@ -641,6 +746,7 @@ const memberApi = new ChannelsApi(
   new Configuration({ basePath: base, accessToken: readerToken }),
 );
 assert.equal(reader.roles, "system_user");
+await checkUserTimezone(base, readerToken);
 await checkUserNotifications(base, readerToken);
 await checkChannelNotifications(memberApi, channelId);
 const ownMembership = { channelId: joinable.id, userId: reader.id };
@@ -649,6 +755,11 @@ const beforeJoin = await memberApi.getChannelMembersForUser({
   userId: "me",
 });
 assert.ok(!beforeJoin.some((row) => row.channelId === joinable.id));
+await checkPersonalNotificationUpdate(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  channelId,
+  joinable.id,
+);
 const addition = await memberApi.addChannelMemberRaw({
   channelId: joinable.id,
   addChannelMemberRequest: { userId: reader.id },
@@ -754,6 +865,21 @@ await checkNavigationMemberships(
   extraTeam.id,
   channelId,
   dm.id,
+);
+await checkOwnMembershipChanges(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  reader.id,
+  team.id,
+  extraTeam.id,
+  joinable.id,
+);
+await checkJoinPostTarget(
+  session,
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  reader.id,
+  team.id,
+  joinable.id,
+  extraTeam.id,
 );
 console.log(
   `Mattermost ${version} verified channel and team roles, active and removed membership and anonymous HTTP 401.`,
@@ -1035,6 +1161,7 @@ await checkPreviouslyAcceptedPost(
   version,
 );
 
+await checkSearchScopePolicy(base, token, readerToken, version);
 await checkReactionLimit(base, token, user.id, readerToken, channelId);
 console.log(
   `Mattermost ${version} verified the signed reaction limit against adding a new emoji name.`,

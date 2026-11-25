@@ -10,6 +10,10 @@ type LicenseSettings = {
 };
 
 type Settings = {
+  EnableCrossTeamSearch?: string;
+  EnableFileAttachments?: string;
+  EnableFileSearch?: string;
+  ExperimentalViewArchivedChannels?: string;
   UniqueEmojiReactionLimitPerPost?: string;
   MaxNotificationsPerChannel?: string;
   EnableConfirmNotificationsToChannel?: string;
@@ -178,6 +182,7 @@ export type ServerPolicy = {
   nameFormat: ReturnType<typeof normalizedNameFormat>;
   lockNameFormat: boolean;
   sharedChannelDMs?: boolean;
+  search?: { allTeams: boolean; files: boolean; archivedChannels: boolean };
 };
 export function workspaceServerPolicy(
   config: Settings,
@@ -202,6 +207,16 @@ export function workspaceServerPolicy(
     separateUnreads: config.ExperimentalGroupUnreadChannels === "default_on",
     nameFormat: normalizedNameFormat(config.TeammateNameDisplay),
     lockNameFormat: locksTeammateName(config, license),
+    search: {
+      allTeams: config.EnableCrossTeamSearch === "true",
+      files:
+        config.EnableFileAttachments === "true" &&
+        (config.EnableFileSearch === undefined ||
+          config.EnableFileSearch === "true"),
+      archivedChannels:
+        config.ExperimentalViewArchivedChannels === undefined ||
+        config.ExperimentalViewArchivedChannels === "true",
+    },
     sharedChannelDMs: config.FeatureFlagEnableSharedChannelsDMs === "true",
   };
 }

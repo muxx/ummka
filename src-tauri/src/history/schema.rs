@@ -599,15 +599,22 @@ pub(super) const MIGRATIONS: &[Migration] = &[
     },
     Migration {
         statements: &[TEAM_SEARCH, TEAM_SEARCH_ORDER],
-        objects: &directory_objects!(
-            JOINED_TEAM_V19,
-            SIDEBAR_CHANNEL_V19,
-            COMPOSER_DRAFT_V21,
-            TEAM_SEARCH,
-            TEAM_SEARCH_ORDER
-        ),
+        objects: SEARCH_OBJECTS,
+    },
+    // Format 23 adds search settings to the strict server policy JSON.
+    Migration {
+        statements: &[],
+        objects: SEARCH_OBJECTS,
     },
 ];
+
+const SEARCH_OBJECTS: &[&str] = &directory_objects!(
+    JOINED_TEAM_V19,
+    SIDEBAR_CHANNEL_V19,
+    COMPOSER_DRAFT_V21,
+    TEAM_SEARCH,
+    TEAM_SEARCH_ORDER
+);
 
 pub(super) fn version(connection: &Connection) -> rusqlite::Result<i64> {
     connection.pragma_query_value(None, "user_version", |row| row.get(0))

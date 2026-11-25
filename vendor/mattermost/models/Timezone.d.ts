@@ -1,5 +1,5 @@
 export interface Timezone {
-    useAutomaticTimezone?: boolean;
+    useAutomaticTimezone?: string;
     manualTimezone?: string;
     automaticTimezone?: string;
 }

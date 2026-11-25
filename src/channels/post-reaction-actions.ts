@@ -30,7 +30,7 @@ type Access = {
   archived: boolean;
   add: ChannelPermission;
   remove: ChannelPermission;
-  uniqueLimit?: number;
+  uniqueLimit?: number | bigint;
 };
 export function postReactionDecision(
   badges: ReadonlyMap<string, Readonly<Badge>>,
@@ -50,7 +50,8 @@ export function postReactionDecision(
   if (badge) return "add";
   if (
     access.uniqueLimit === undefined ||
-    !Number.isSafeInteger(access.uniqueLimit)
+    (typeof access.uniqueLimit === "number" &&
+      !Number.isSafeInteger(access.uniqueLimit))
   )
     return "limitUnknown";
   return badges.size >= access.uniqueLimit ? "limitReached" : "add";

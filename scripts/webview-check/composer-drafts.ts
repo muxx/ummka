@@ -64,6 +64,26 @@ export async function checkDraftWrites(
       repeated.draft.revision !== first.draft.revision
     )
       throw Error("retry changed the draft revision");
+    const outgoing = await account.saveDraft({
+      ...channel,
+      expectedRevision: first.draft.revision,
+      message: "Исходящее после перезапуска",
+    });
+    if (outgoing.kind !== "saved" || !outgoing.draft.revision)
+      throw Error("Could not prepare offline outgoing text");
+    const staged = await account.stagePost({
+      ...channel,
+      revision: outgoing.draft.revision,
+    });
+    if (staged.kind !== "created")
+      throw Error("Could not stage the offline timeline fixture");
+    const restored = await account.saveDraft({
+      ...channel,
+      expectedRevision: staged.draft.revision,
+      message: channelText,
+    });
+    if (restored.kind !== "saved")
+      throw Error("Could not restore the independent live draft");
     await stagePendingPosts(account, neighbor, userId);
     await checkReceipts(account, other, userId);
     await checkAttemptActions(account, neighbor, other);

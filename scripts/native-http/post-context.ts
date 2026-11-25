@@ -113,14 +113,8 @@ export function respondToPostContext(
           first_inaccessible_post_time: 1800,
         }
       : {
-          order: [post, root],
+          order: [post],
           posts: {
-            [root]: {
-              id: root,
-              root_id: "",
-              channel_id: channelId,
-              message: "Root",
-            },
             [post]: {
               id: post,
               root_id: root,

@@ -9,6 +9,7 @@ import {
   PostsApi,
   ResponseError,
 } from "../../../vendor/mattermost/index.js";
+import { checkMessageTarget } from "./search-target.ts";
 
 export async function checkFileSearch(
   session: Configuration,
@@ -160,6 +161,7 @@ export async function checkFileSearch(
   await results.more();
   assert.equal(results.getSnapshot().posts.isEnd, true);
   results.close();
+  await checkMessageTarget(session, first.id, first.postId, channelId, teamId);
   console.log(
     `Mattermost ${version} file search verified two attached files, team scopes, viewer access and empty results.`,
   );

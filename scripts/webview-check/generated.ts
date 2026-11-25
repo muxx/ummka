@@ -3,6 +3,7 @@ import { composerPostMentions } from "../../src/channels/composer-mentions.ts";
 import { resolveComposerSubmission } from "../../src/channels/composer-submission.ts";
 import { readGroupMentionAudience } from "../../src/channels/group-mention-audience.ts";
 import { readPostMentionDecision } from "../../src/channels/post-mention-decision.ts";
+import { openPostNavigation } from "../../src/channels/post-navigation.ts";
 import { inspectInstallation } from "../../src/mattermost/inspect-installation.ts";
 import {
   openAccountRestConnection,
@@ -300,6 +301,15 @@ export async function checkGeneratedRequests(ports: string[]) {
       "team-navigation-directory",
     );
     const teamId = "Team0123456789012345678901";
+    const teamMembership = { kind: "team" as const, id: teamId };
+    for (const change of ["join", "leave"] as const) {
+      const result = await accountPrefix.changeOwnMembership(
+        teamMembership,
+        change,
+      );
+      check(result.kind === "applied", `signed-team-membership-${change}`);
+    }
+
     const channelId = "c".repeat(26);
     const term = "from:fixture Привет";
     check(
@@ -516,6 +526,23 @@ export async function checkGeneratedRequests(ports: string[]) {
         fileAnchor.channelId === channelId &&
         fileAnchor.postId === postId,
       "account-message-anchors",
+    );
+    const { target, joined } = await openPostNavigation(
+      accountPrefix,
+      { kind: "file", id: fileId },
+      teamId,
+      async () => {
+        throw Error("An existing DM unexpectedly requested membership");
+      },
+    ).open();
+    check(
+      joined.length === 0 &&
+        target.kind === "ready" &&
+        target.teamId === teamId &&
+        target.channelId === channelId &&
+        target.rootId === "r".repeat(26) &&
+        target.postId === postId,
+      "inspect-file-post-destination",
     );
     await checkPostMutations(rootSession, signed, channelId);
     await checkConnectServer(origin);

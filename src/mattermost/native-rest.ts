@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import {
+  type ChannelNotifyProps,
   CommandsApi,
   Configuration,
   FilesApi,
@@ -16,6 +17,10 @@ import {
   type ChannelRefreshResult,
   refreshChannelHistory,
 } from "./channel-history-refresh.ts";
+import {
+  readChannelNotifications,
+  updateChannelNotifications,
+} from "./channel-notifications.ts";
 import {
   fetchTeamRoleSnapshot,
   type TeamRoleSnapshot,
@@ -37,11 +42,17 @@ import { readFileAnchor, readPostAnchor } from "./message-anchors.ts";
 import { nativeFetch } from "./native-fetch.ts";
 import { loadAccountDirectory, loadTeamDirectory } from "./navigation-data.ts";
 import { refreshNavigation } from "./navigation-refresh.ts";
+import {
+  changeOwnMembership,
+  type MembershipChange,
+  type MembershipTarget,
+} from "./own-membership.ts";
 import { createPostActivity } from "./post-activity.ts";
 import { readPostDestination } from "./post-destination.ts";
 import { createRestTransport } from "./rest-transport.ts";
 import { canonicalServerUrl } from "./server-url.ts";
 import { projectTeamSidebar, type TeamSidebar } from "./team-sidebar.ts";
+import { readThreadPage, type ThreadPageRequest } from "./thread-page.ts";
 import {
   loadVisibleProfiles,
   type VisibleProfileQuery,
@@ -141,6 +152,9 @@ export async function openAccountRestConnection(
     ...connection,
     ...accountPostReactions(config, userId, readWhileOpen),
     ...accountSearch(config, readWhileOpen),
+    readThreadPage(query: ThreadPageRequest, signal?: AbortSignal) {
+      return readWhileOpen(() => readThreadPage(posts, query, signal), signal);
+    },
     readPostAnchor(postId: string, signal?: AbortSignal) {
       return readWhileOpen(() => readPostAnchor(posts, postId, signal), signal);
     },
@@ -148,6 +162,22 @@ export async function openAccountRestConnection(
       return readWhileOpen(() => readFileAnchor(files, fileId, signal), signal);
     },
     ...accountChannelAudience(config, readWhileOpen),
+    readChannelNotifications(channelId: string, signal?: AbortSignal) {
+      return readWhileOpen(
+        () => readChannelNotifications(config, userId, channelId, signal),
+        signal,
+      );
+    },
+    updateChannelNotifications(
+      channelId: string,
+      changes: ChannelNotifyProps,
+      signal?: AbortSignal,
+    ) {
+      return readWhileOpen(
+        () => updateChannelNotifications(config, channelId, changes, signal),
+        signal,
+      );
+    },
     ...accountMentionGroups(config, readWhileOpen),
     readSavedProfiles(query: VisibleProfileQuery) {
       return readWhileOpen(() =>
@@ -169,6 +199,11 @@ export async function openAccountRestConnection(
     },
     readCustomEmoji(emojiName: string, signal?: AbortSignal) {
       return readWhileOpen(() => readCustomEmoji(config, emojiName, signal));
+    },
+    changeOwnMembership(target: MembershipTarget, change: MembershipChange) {
+      return readWhileOpen(() =>
+        changeOwnMembership(config, userId, target, change),
+      );
     },
     readPostDestination(postId: string, signal?: AbortSignal) {
       return readWhileOpen(() => readPostDestination(posts, postId, signal));
