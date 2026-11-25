@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { ResponseError } from "../../vendor/mattermost/index.js";
 import { getDeviceLaunchContext } from "../mattermost/device-launch";
 import {
@@ -89,7 +83,8 @@ export function ServerSignIn({
     [onAccountChanged],
   );
 
-  useEffect(() => {
+  // The saved-server Back button must own the request from the first visible frame.
+  useLayoutEffect(() => {
     if (savedServer) void inspect(savedServer, false);
     return () => {
       active.current?.abort();

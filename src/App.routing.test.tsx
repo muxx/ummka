@@ -5,9 +5,11 @@ import {
   render,
   screen,
 } from "@testing-library/react";
+import { useLayoutEffect } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import "./channels/workspace-dom.test-utils.ts";
 import { App } from "./App";
+import { ServerSignIn } from "./entry/ServerSignIn";
 import { getDeviceLaunchContext } from "./mattermost/device-launch";
 import { inspectInstallation } from "./mattermost/inspect-installation";
 import { connectInstallation } from "./mattermost/installation-registry";
@@ -69,6 +71,38 @@ test("returns to saved sign-in without selecting a server again", async () => {
   );
   expect(screen.getByRole<HTMLInputElement>("textbox").value).toBe(origin);
 });
+function BackOnFirstFrame() {
+  useLayoutEffect(() => {
+    screen.getByRole("button", { name: "Change server address" }).click();
+  }, []);
+  return null;
+}
+
+test("Back cancels a saved server even in the first visible frame", async () => {
+  inspect.mockResolvedValue(profile);
+  await act(async () => {
+    render(
+      <>
+        <ServerSignIn
+          savedServer={origin}
+          language="en"
+          onAccountChanged={vi.fn()}
+        />
+        <BackOnFirstFrame />
+      </>,
+    );
+  });
+  expect(inspect).toHaveBeenCalledOnce();
+  expect(inspect.mock.calls[0][1]?.aborted).toBe(true);
+  const field = screen.getByRole<HTMLInputElement>("textbox", {
+    name: "Server address",
+  });
+  expect(field.value).toBe(origin);
+  expect(field.readOnly).toBe(false);
+  expect(document.activeElement).toBe(field);
+  expect(screen.queryByRole("button", { name: "GitLab" })).toBeNull();
+});
+
 test("allows switching away from a slow saved server and ignores its delayed profile", async () => {
   launch.mockResolvedValue({ status: "sign_in_required", serverUrl: origin });
   let finish!: (value: typeof profile) => void;
