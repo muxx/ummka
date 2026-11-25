@@ -578,15 +578,16 @@ test.each([false, true])(
 );
 
 test("Escape restores focus and text, and a later confirmed mention can send", async () => {
-  const { connection } = storage();
+  const { connection, rows } = storage();
+  const draft = { message: "@here встречаемся", revision: "mention" };
+  rows.set("A/", draft);
   const props = { ...inputs(connection), online: true };
   let releaseAudience!: (count: number) => void;
   const audience = new Promise<number>((resolve) => {
     releaseAudience = resolve;
   });
-  props.sendContext.post.account.readChannelTimezoneCount.mockReturnValueOnce(
-    audience,
-  );
+  const { readChannelTimezoneCount } = props.sendContext.post.account;
+  readChannelTimezoneCount.mockReturnValueOnce(audience);
   connection.submitDraft.mockResolvedValue({
     kind: "sending",
     draft: { message: "", revision: "sent", clearedBySubmission: true },
@@ -594,30 +595,29 @@ test("Escape restores focus and text, and a later confirmed mention can send", a
   });
   render(<DraftComposer {...props} />);
   const input = await field();
-  fireEvent.change(input, { target: { value: "@here встречаемся" } });
+  expect(input.value).toBe(draft.message);
   const sendButton = screen.getByRole("button", {
     name: "Отправить сообщение",
   });
-  await act(async () => {
-    fireEvent.click(sendButton);
-  });
-  expect(
-    props.sendContext.post.account.readChannelTimezoneCount,
-  ).toHaveBeenCalledOnce();
+  fireEvent.click(sendButton);
+  await waitFor(() => expect(readChannelTimezoneCount).toHaveBeenCalledOnce());
   expect(screen.queryByRole("button", { name: "Отправить" })).toBeNull();
   await act(async () => releaseAudience(2));
-  const confirm = screen.getByRole("button", { name: "Отправить" });
+  const confirm = await screen.findByRole("button", { name: "Отправить" });
   expect(document.activeElement).toBe(confirm);
   fireEvent.keyDown(confirm, { key: "Escape" });
   expect(document.activeElement).toBe(input);
-  expect(input.value).toBe("@here встречаемся");
+  expect(input.value).toBe(draft.message);
+  expect(rows.get("A/")).toEqual(draft);
   expect(connection.submitDraft).not.toHaveBeenCalled();
-  await act(async () => {
-    fireEvent.click(sendButton);
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Отправить" }));
+  fireEvent.click(sendButton);
+  fireEvent.click(await screen.findByRole("button", { name: "Отправить" }));
+  expect(readChannelTimezoneCount).toHaveBeenCalledTimes(2);
   await waitFor(() => expect(input.value).toBe(""));
-  expect(connection.submitDraft).toHaveBeenCalledTimes(1);
+  expect(connection.submitDraft).toHaveBeenCalledExactlyOnceWith({
+    channelId: "A",
+    revision: draft.revision,
+  });
 });
 
 test("switching rooms while the audience is loading never submits the other room's draft", async () => {
