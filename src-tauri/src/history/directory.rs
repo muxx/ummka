@@ -119,6 +119,11 @@ impl AccountHistory {
             for (position, team) in (0_i64..).zip(teams) {
                 insert.execute(params![position, team.id, team.name, team.display_name, team.preference_rank, selected == Some(team.id.as_str())])?;
             }
+            tx.execute(
+                "DELETE FROM sidebar_team WHERE NOT EXISTS
+                 (SELECT 1 FROM joined_team WHERE joined_team.team_id = sidebar_team.team_id)",
+                [],
+            )?;
             Ok(true)
         })
     }
