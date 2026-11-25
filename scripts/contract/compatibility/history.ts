@@ -28,6 +28,7 @@ import {
 } from "./browser-sign-in.ts";
 import { checkChannelAudience } from "./channel-audience.ts";
 import { checkCommands } from "./commands.ts";
+import { checkEventStream } from "./event-stream.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
 import {
   checkChannelRoster,
@@ -35,6 +36,7 @@ import {
   checkNavigationMemberships,
 } from "./memberships.ts";
 import { checkMentionLimit } from "./mention-limit.ts";
+import { checkMentionText } from "./mention-text.ts";
 import {
   checkPostMutations,
   checkPreviouslyAcceptedPost,
@@ -778,6 +780,33 @@ await checkProfileReads(
 
 await checkPostMutations(base, posts, channelId, user.id, version);
 await checkCommands(session, team.id, channelId, version);
+// A self-join avoids the membership notification produced when somebody adds the reader.
+const mentionRoom = await (
+  await create(
+    "channels",
+    {
+      team_id: team.id,
+      name: "mention-text",
+      display_name: "Mention text",
+      type: "O",
+    },
+    token,
+  )
+).json();
+await create(
+  `channels/${mentionRoom.id}/members`,
+  { user_id: reader.id },
+  readerToken,
+);
+await checkMentionText(
+  posts,
+  closedReader,
+  mentionRoom.id,
+  readerLogin.login_id,
+);
+console.log(
+  `Mattermost ${version} verified channel mentions against a second member’s counters.`,
+);
 const receiptRoom = await (
   await create(
     "channels",
@@ -823,6 +852,11 @@ console.log(
 await checkPostReactions(base, token, session, user.id, reader.id, channelId);
 console.log(
   `Mattermost ${version} verified empty and populated reaction lists and post metadata.`,
+);
+
+await checkEventStream(base, token, session, team.id, channelId);
+console.log(
+  `Mattermost ${version} verified sequenced posts, command replies and replay of a post after reconnect.`,
 );
 
 const secondLogin = await create("users/login", {

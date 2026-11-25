@@ -33,6 +33,7 @@ export function respondToGroupAssociations(
   const association = {
     id: "g".repeat(26),
     name: "release-qa",
+    delete_at: 0,
     display_name: "Release QA",
     source: "ldap",
     remote_id: "directory-record",
