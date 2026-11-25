@@ -10,7 +10,7 @@ import {
 } from "./workspace-preferences.ts";
 
 type Source = TeamSidebar["data"];
-type Channel = Source["channels"][number] & { createAt?: number | null };
+type Channel = Source["channels"][number];
 type Category = Source["categories"][number];
 type Locale = "en" | "ru";
 type Context = {

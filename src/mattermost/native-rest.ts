@@ -22,6 +22,12 @@ import {
   type VisibleProfileQuery,
 } from "./visible-profiles.ts";
 
+import {
+  type SavedWorkspaceSettings,
+  sidebarPreferences,
+} from "./workspace-preferences.ts";
+import { loadWorkspaceServerPolicy } from "./workspace-server.ts";
+
 export async function getCurrentAccountId(
   serverUrl: string,
 ): Promise<string | null> {
@@ -117,13 +123,37 @@ export async function openAccountRestConnection(
         refreshNavigation(
           signal,
           () => invoke<number>("begin_team_directory_load", { rid }),
-          async () =>
-            projectJoinedTeams(
-              await loadAccountDirectory(config, userId, signal),
-            ),
-          (load, teams) =>
-            invoke<boolean>("store_team_directory", { rid, load, teams }),
+          async () => {
+            const directory = await loadAccountDirectory(
+              config,
+              userId,
+              signal,
+            );
+            return {
+              teams: projectJoinedTeams(directory),
+              preferences: sidebarPreferences(userId, directory.preferences),
+            };
+          },
+          (load, data) =>
+            invoke<boolean>("store_team_directory", { rid, load, ...data }),
           (load) => invoke<void>("cancel_team_directory_load", { rid, load }),
+        ),
+      );
+    },
+    readWorkspaceSettings() {
+      return readWhileOpen(() =>
+        invoke<SavedWorkspaceSettings>("read_workspace_settings", { rid }),
+      );
+    },
+    refreshWorkspaceServerPolicy(signal?: AbortSignal) {
+      return readWhileOpen(() =>
+        refreshNavigation(
+          signal,
+          () => invoke<number>("begin_workspace_policy_load", { rid }),
+          () => loadWorkspaceServerPolicy(config, signal),
+          (load, server) =>
+            invoke<boolean>("store_workspace_policy", { rid, load, server }),
+          (load) => invoke<void>("cancel_workspace_policy_load", { rid, load }),
         ),
       );
     },

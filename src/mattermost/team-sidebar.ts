@@ -29,6 +29,7 @@ export function projectTeamSidebar({
         displayName: c.displayName,
         header: c.header ?? "",
         purpose: c.purpose ?? "",
+        createAt: amount(c.createAt),
         deleteAt: c.deleteAt,
         lastPostAt: amount(c.lastPostAt),
         lastRootPostAt: amount(c.lastRootPostAt),
