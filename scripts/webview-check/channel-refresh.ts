@@ -90,6 +90,8 @@ export async function checkRefreshedAfterRestart(origin: string) {
     "Abc01234567890123456789012",
   );
   try {
+    if ((await connection.readSavedPost(channelId, "m".repeat(26))) !== null)
+      throw Error("Deleted post remained available by ID after restart");
     for (const collapsedThreads of [false, true]) {
       const page = await connection.readChannelWindow({
         kind: "latest",

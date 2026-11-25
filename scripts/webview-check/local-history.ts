@@ -72,6 +72,33 @@ export async function checkOfflineWindows(origin: string) {
       )
         throw Error("wrong persisted offline account or post projection");
 
+      const savedReply = await connection.readSavedPost(channelId, reply);
+      const savedRoot = await connection.readSavedPost(channelId, root);
+      if (
+        savedReply?.message !== head.message ||
+        savedReply.rootId !== root ||
+        savedReply.createAt !== head.createAt ||
+        savedRoot?.id !== root ||
+        savedRoot.messageSource !== full.posts[1].messageSource
+      )
+        throw Error(
+          "Single offline read lost the account, post or reply anchor",
+        );
+      if (
+        (await connection.readSavedPost("z".repeat(26), reply)) !== null ||
+        (await connection.readSavedPost(channelId, "z".repeat(26))) !== null
+      )
+        throw Error(
+          "Single offline read found a post outside the given channel",
+        );
+      for (const [room, id] of [
+        ["bad", reply],
+        [channelId, "bad"],
+      ] as const)
+        await expectCode(
+          connection.readSavedPost(room, id),
+          "invalid_history_request",
+        );
       const top = await connection.readChannelWindow({ ...latest, limit: 1 });
       if (
         top?.posts.length !== 1 ||
@@ -139,6 +166,10 @@ export async function checkOfflineWindows(origin: string) {
     } finally {
       await connection.close();
     }
+    await expectCode(
+      connection.readSavedPost(channelId, reply),
+      "unknown_connection",
+    );
     await expectCode(
       connection.readChannelWindow(latest),
       "unknown_connection",
