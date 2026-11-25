@@ -35,6 +35,47 @@ pub(crate) async fn select_joined_team<R: Runtime>(
 }
 
 #[tauri::command]
+pub(crate) async fn read_recent_team_searches<R: Runtime>(
+    webview: Webview<R>,
+    rid: ResourceId,
+    team_id: String,
+) -> Result<Vec<String>, ExchangeError> {
+    session(&webview, rid)?
+        .with_history(&webview.state::<AccountSessions>(), move |view| {
+            view.recent_team_searches(&team_id)
+        })
+        .await
+}
+
+#[tauri::command]
+pub(crate) async fn remember_team_search<R: Runtime>(
+    webview: Webview<R>,
+    rid: ResourceId,
+    team_id: String,
+    term: String,
+) -> Result<bool, ExchangeError> {
+    session(&webview, rid)?
+        .with_history(&webview.state::<AccountSessions>(), move |view| {
+            view.remember_team_search(&team_id, &term)
+        })
+        .await
+}
+
+#[tauri::command]
+pub(crate) async fn forget_team_search<R: Runtime>(
+    webview: Webview<R>,
+    rid: ResourceId,
+    team_id: String,
+    term: String,
+) -> Result<(), ExchangeError> {
+    session(&webview, rid)?
+        .with_history(&webview.state::<AccountSessions>(), move |view| {
+            view.forget_team_search(&team_id, &term)
+        })
+        .await
+}
+
+#[tauri::command]
 pub(crate) async fn begin_team_directory_load<R: Runtime>(
     webview: Webview<R>,
     rid: ResourceId,

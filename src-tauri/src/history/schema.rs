@@ -102,46 +102,49 @@ pub(super) struct Migration {
     pub(super) objects: &'static [&'static str],
 }
 
-const fn directory_objects(
-    joined_teams: &'static str,
-    sidebar_channel: &'static str,
-    composer_draft: &'static str,
-) -> [&'static str; 30] {
-    [
-        CREATE_OWNER,
-        CREATE_POSTS,
-        INDEX_REPLIES,
-        CREATE_DELETIONS,
-        WINDOWS,
-        WINDOW_POSTS,
-        NEIGHBORS,
-        RECENT,
-        ORDER,
-        TIES,
-        NEIGHBOR_ID,
-        NEWER_HINT,
-        OLDER_HINT,
-        TEAM_DIRECTORY,
-        joined_teams,
-        SELECTED_TEAM,
-        SIDEBAR_TEAM,
-        sidebar_channel,
-        SIDEBAR_CATEGORY,
-        SIDEBAR_ITEM,
-        SIDEBAR_ITEM_BY_CHANNEL,
-        CHANNEL_PROFILE,
-        PROFILE_BY_USERNAME,
-        WORKSPACE_SETTINGS,
-        composer_draft,
-        PENDING_POST,
-        PENDING_BY_CONVERSATION,
-        POST_CONFIRMATION,
-        POST_ATTEMPT_V14,
-        TEAM_ROLE_SNAPSHOT,
-    ]
+const TEAM_SEARCH: &str = include_str!("migrations/0022_team_search.sql");
+const TEAM_SEARCH_ORDER: &str =
+    "CREATE INDEX team_search_order ON team_search(team_id, position DESC)";
+
+macro_rules! directory_objects {
+    ($joined_teams:expr, $sidebar_channel:expr, $composer_draft:expr $(, $extra:expr)* $(,)?) => {
+        [
+            CREATE_OWNER,
+            CREATE_POSTS,
+            INDEX_REPLIES,
+            CREATE_DELETIONS,
+            WINDOWS,
+            WINDOW_POSTS,
+            NEIGHBORS,
+            RECENT,
+            ORDER,
+            TIES,
+            NEIGHBOR_ID,
+            NEWER_HINT,
+            OLDER_HINT,
+            TEAM_DIRECTORY,
+            $joined_teams,
+            SELECTED_TEAM,
+            SIDEBAR_TEAM,
+            $sidebar_channel,
+            SIDEBAR_CATEGORY,
+            SIDEBAR_ITEM,
+            SIDEBAR_ITEM_BY_CHANNEL,
+            CHANNEL_PROFILE,
+            PROFILE_BY_USERNAME,
+            WORKSPACE_SETTINGS,
+            $composer_draft,
+            PENDING_POST,
+            PENDING_BY_CONVERSATION,
+            POST_CONFIRMATION,
+            POST_ATTEMPT_V14,
+            TEAM_ROLE_SNAPSHOT,
+            $($extra,)*
+        ]
+    };
 }
 const SHARED_CHANNEL_OBJECTS: &[&str] =
-    &directory_objects(JOINED_TEAMS_V13, SIDEBAR_CHANNEL_V16, COMPOSER_DRAFT_V12);
+    &directory_objects!(JOINED_TEAMS_V13, SIDEBAR_CHANNEL_V16, COMPOSER_DRAFT_V12);
 
 pub(super) const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -583,16 +586,26 @@ pub(super) const MIGRATIONS: &[Migration] = &[
             ADD_JOINED_TEAM_GROUP_CONSTRAINED,
             ADD_SIDEBAR_CHANNEL_GROUP_CONSTRAINED,
         ],
-        objects: &directory_objects(JOINED_TEAM_V19, SIDEBAR_CHANNEL_V19, COMPOSER_DRAFT_V12),
+        objects: &directory_objects!(JOINED_TEAM_V19, SIDEBAR_CHANNEL_V19, COMPOSER_DRAFT_V12),
     },
     // Older readers reject unknown server policy JSON fields.
     Migration {
         statements: &[],
-        objects: &directory_objects(JOINED_TEAM_V19, SIDEBAR_CHANNEL_V19, COMPOSER_DRAFT_V12),
+        objects: &directory_objects!(JOINED_TEAM_V19, SIDEBAR_CHANNEL_V19, COMPOSER_DRAFT_V12),
     },
     Migration {
         statements: &[ADD_DRAFT_COMMAND_PENDING],
-        objects: &directory_objects(JOINED_TEAM_V19, SIDEBAR_CHANNEL_V19, COMPOSER_DRAFT_V21),
+        objects: &directory_objects!(JOINED_TEAM_V19, SIDEBAR_CHANNEL_V19, COMPOSER_DRAFT_V21),
+    },
+    Migration {
+        statements: &[TEAM_SEARCH, TEAM_SEARCH_ORDER],
+        objects: &directory_objects!(
+            JOINED_TEAM_V19,
+            SIDEBAR_CHANNEL_V19,
+            COMPOSER_DRAFT_V21,
+            TEAM_SEARCH,
+            TEAM_SEARCH_ORDER
+        ),
     },
 ];
 

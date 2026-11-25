@@ -273,6 +273,9 @@ test("passes the canonical installation and closes the exact native handle", asy
   expect("confirmPostDelivery" in connection).toBe(false);
   expect("retireDeliveredPosts" in connection).toBe(false);
   expect("readAccountDirectory" in connection).toBe(false);
+  expect("readRecentTeamSearches" in connection).toBe(false);
+  expect("rememberTeamSearch" in connection).toBe(false);
+  expect("forgetTeamSearch" in connection).toBe(false);
   expect("readTeamDirectory" in connection).toBe(false);
   expect("refreshChannelHistory" in connection).toBe(false);
   await connection.close();
@@ -305,6 +308,7 @@ test("opens a native account by installation and user ID", async () => {
     "dismissPendingPost",
     "executeServerCommand",
     "fetchApi",
+    "forgetTeamSearch",
     "getOutgoingPostState",
     "isPostSending",
     "readAccountDirectory",
@@ -324,6 +328,7 @@ test("opens a native account by installation and user ID", async () => {
     "readPostDestination",
     "readPostReactions",
     "readPostSearchPage",
+    "readRecentTeamSearches",
     "readSavedPost",
     "readSavedProfiles",
     "readSavedTeamRoles",
@@ -338,6 +343,7 @@ test("opens a native account by installation and user ID", async () => {
     "refreshTeamRoles",
     "refreshTeamSidebar",
     "refreshWorkspaceServerPolicy",
+    "rememberTeamSearch",
     "removeOwnReaction",
     "resendPost",
     "retireDeliveredPosts",
@@ -356,6 +362,57 @@ test("opens a native account by installation and user ID", async () => {
     "transitionDraftCommand",
     "updateChannelNotifications",
   ]);
+});
+
+test("local recent search operations discard results after their account closes", async () => {
+  ipc.mockResolvedValueOnce(31);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    "u".repeat(26),
+  );
+  const teamId = "t".repeat(26);
+  const term = "from:ada Привет";
+  let finish!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  ipc.mockImplementationOnce(() => gate.then(() => [term]));
+  ipc.mockImplementationOnce(() => gate.then(() => true));
+  ipc.mockImplementationOnce(() => gate);
+  const operations = [
+    account.readRecentTeamSearches(teamId),
+    account.rememberTeamSearch(teamId, term),
+    account.forgetTeamSearch(teamId, term),
+  ];
+  expect(ipc).toHaveBeenCalledWith("read_recent_team_searches", {
+    rid: 31,
+    teamId,
+  });
+  expect(ipc).toHaveBeenCalledWith("remember_team_search", {
+    rid: 31,
+    teamId,
+    term,
+  });
+  expect(ipc).toHaveBeenCalledWith("forget_team_search", {
+    rid: 31,
+    teamId,
+    term,
+  });
+  await account.close();
+  finish();
+  for (const result of await Promise.allSettled(operations)) {
+    expect(result).toEqual({ status: "rejected", reason: "cancelled" });
+  }
+  await expect(account.readRecentTeamSearches(teamId)).rejects.toBe(
+    "unknown_connection",
+  );
+  await expect(account.rememberTeamSearch(teamId, term)).rejects.toBe(
+    "unknown_connection",
+  );
+  await expect(account.forgetTeamSearch(teamId, term)).rejects.toBe(
+    "unknown_connection",
+  );
+  expect(ipc).toHaveBeenLastCalledWith("close_rest_connection", { rid: 31 });
 });
 
 test("drafts use the account handle and discard a late read after closing it", async () => {

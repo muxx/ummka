@@ -9,6 +9,7 @@ pub(crate) mod checks;
 mod attempts;
 pub use attempts::{PostRefusal, RefusalScope, RetryPost};
 mod directory;
+mod recent_searches;
 pub use directory::{DirectoryTeam, TeamDirectory, TeamDirectoryLoad};
 mod drafts;
 pub use drafts::{ComposerDraft, DraftCommandAction, DraftSave};

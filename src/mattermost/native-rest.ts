@@ -212,6 +212,21 @@ export async function openAccountRestConnection(
         invoke<JoinedTeams | null>("read_joined_teams", { rid }),
       );
     },
+    readRecentTeamSearches(teamId: string) {
+      return readWhileOpen(() =>
+        invoke<string[]>("read_recent_team_searches", { rid, teamId }),
+      );
+    },
+    rememberTeamSearch(teamId: string, term: string) {
+      return readWhileOpen(() =>
+        invoke<boolean>("remember_team_search", { rid, teamId, term }),
+      );
+    },
+    forgetTeamSearch(teamId: string, term: string) {
+      return readWhileOpen(() =>
+        invoke<void>("forget_team_search", { rid, teamId, term }),
+      );
+    },
     selectJoinedTeam(teamId: string) {
       return readWhileOpen(() =>
         invoke<boolean>("select_joined_team", { rid, teamId }),
