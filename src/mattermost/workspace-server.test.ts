@@ -14,6 +14,7 @@ test("projects display and mention policy from the old config and license endpoi
           EnableConfirmNotificationsToChannel: "false",
           EnableCustomGroups: "true",
           MaxNotificationsPerChannel: "6",
+          UniqueEmojiReactionLimitPerPost: "-2",
           FeatureFlagEnableSharedChannelsDMs: "true",
           ExperimentalGroupUnreadChannels: "default_on",
           TeammateNameDisplay: "full_name",
@@ -42,6 +43,7 @@ test("projects display and mention policy from the old config and license endpoi
     nameFormat: "full_name",
     lockNameFormat: false,
     sharedChannelDMs: true,
+    uniqueReactionLimit: "-2",
     mentions: {
       confirmNotifications: false,
       maxNotificationsPerChannel: "6",
@@ -160,4 +162,36 @@ test("a malformed flag prevents publication", () => {
       LDAPGroups: "unknown",
     }),
   ).toThrow(TypeError);
+});
+
+test("keeps the exact signed limit and distinguishes an absent value", () => {
+  expect(workspaceServerPolicy({}, {}).uniqueReactionLimit).toBeUndefined();
+  for (const value of [
+    "-9223372036854775808",
+    "-2",
+    "0",
+    "1",
+    "500",
+    "9223372036854775807",
+  ]) {
+    expect(
+      workspaceServerPolicy({ UniqueEmojiReactionLimitPerPost: value }, {})
+        .uniqueReactionLimit,
+    ).toBe(value);
+  }
+  for (const value of [
+    "",
+    "00",
+    "-0",
+    "+1",
+    "3.0",
+    "1\n",
+    "1e2",
+    "-9223372036854775809",
+    "9223372036854775808",
+  ]) {
+    expect(() =>
+      workspaceServerPolicy({ UniqueEmojiReactionLimitPerPost: value }, {}),
+    ).toThrow(TypeError);
+  }
 });
