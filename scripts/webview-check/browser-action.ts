@@ -10,6 +10,7 @@ import {
   forgetLocalAccount,
   getCurrentAccountId,
 } from "../../src/mattermost/native-rest.ts";
+import { checkBrowserApp } from "./browser-app.tsx";
 
 function matches(actual: unknown, fields: Record<string, string>) {
   if (actual === null || typeof actual !== "object") return false;
@@ -61,5 +62,9 @@ export async function checkBrowserAction(port: string) {
     throw Error("browser account was not restored after system sign-in");
   }
   await forgetLocalAccount(server, user);
+  await forgetInstallation(server);
+  await checkBrowserApp(server);
+  if ((await getCurrentAccountId(server)) !== null)
+    throw Error("explicit device sign-out retained the account");
   await forgetInstallation(server);
 }

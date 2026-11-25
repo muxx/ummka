@@ -8,18 +8,27 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ResponseError } from "../vendor/mattermost/index.js";
-import { App } from "./App";
 import { entryLanguage } from "./entry/language";
+import { ServerSignIn } from "./entry/ServerSignIn";
+import { getDeviceLaunchContext } from "./mattermost/device-launch";
 import {
   InstallationAddressError,
   inspectInstallation,
 } from "./mattermost/inspect-installation";
+import { connectInstallation } from "./mattermost/installation-registry";
 
 vi.mock("./mattermost/inspect-installation", async (original) => ({
   ...(await original<typeof import("./mattermost/inspect-installation")>()),
   inspectInstallation: vi.fn(),
 }));
 
+vi.mock("./mattermost/installation-registry", () => ({
+  connectInstallation: vi.fn(),
+}));
+vi.mock("./mattermost/device-launch", () => ({
+  getDeviceLaunchContext: vi.fn(),
+}));
+const changed = vi.fn();
 const inspect = vi.mocked(inspectInstallation);
 const profile: Awaited<ReturnType<typeof inspectInstallation>> = {
   serverUrl: "https://chat.example.org/Team",
@@ -31,6 +40,12 @@ const profile: Awaited<ReturnType<typeof inspectInstallation>> = {
 };
 beforeEach(() => {
   inspect.mockReset();
+  vi.mocked(connectInstallation).mockReset().mockResolvedValue();
+  vi.mocked(getDeviceLaunchContext).mockReset().mockResolvedValue({
+    status: "sign_in_required",
+    serverUrl: profile.serverUrl,
+  });
+  changed.mockReset();
 });
 afterEach(cleanup);
 
@@ -47,7 +62,7 @@ test("opens offline in the preferred supported language", () => {
   expect(entryLanguage(["de", "ru-RU", "en"])).toBe("ru");
   expect(entryLanguage(["en-US", "ru"])).toBe("en");
   expect(entryLanguage(["fr-FR"])).toBe("en");
-  render(<App language="ru" />);
+  render(<ServerSignIn onAccountChanged={changed} language="ru" />);
   expect(
     screen.getByRole("heading", { name: "Подключите сервер Mattermost" }),
   ).toBeTruthy();
@@ -63,7 +78,7 @@ test("submits once, shows only the verified methods and restores the typed addre
         finish = resolve;
       }),
   );
-  render(<App language="en" />);
+  render(<ServerSignIn onAccountChanged={changed} language="en" />);
   const { field, form } = enter("Chat.example.org/Team/");
   expect(field.readOnly).toBe(true);
   expect(
@@ -94,7 +109,7 @@ test.each(["empty", "protocol", "extra-parts", "invalid"] as const)(
   "marks the %s address error and clears it on editing",
   async (issue) => {
     inspect.mockRejectedValueOnce(new InstallationAddressError(issue));
-    render(<App language="ru" />);
+    render(<ServerSignIn onAccountChanged={changed} language="ru" />);
     const { field } = enter("http:/chat");
     await screen.findByRole("alert");
     expect(field.getAttribute("aria-invalid")).toBe("true");
@@ -125,7 +140,7 @@ test.each([
       ssoProviders: ["office365", "openid", "saml", "google"],
       guestMagicLink: true,
     });
-    render(<App language="en" />);
+    render(<ServerSignIn onAccountChanged={changed} language="en" />);
     const { field, form } = enter("chat.example.org/Team");
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain(message);
@@ -149,7 +164,9 @@ test.each([
 
 test("reports a server with no methods and cancels an in-flight inspection when the window closes", async () => {
   inspect.mockResolvedValueOnce({ ...profile, ssoProviders: [] });
-  const view = render(<App language="en" />);
+  const view = render(
+    <ServerSignIn onAccountChanged={changed} language="en" />,
+  );
   enter("chat/Team");
   expect(
     (await screen.findByText(/no sign-in methods enabled/)).textContent,
