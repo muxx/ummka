@@ -153,6 +153,7 @@ function DraftField({
     sendContext,
     online,
     fieldRef,
+    sessionIssue,
     (error) => {
       if (error === "mention_policy_unavailable") {
         setSendError(copy.mentionPolicy);

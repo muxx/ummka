@@ -366,7 +366,11 @@ test.each(["button", "enter"])(
           clearedBySubmission: true,
         };
         rows.set("A/root", draft);
-        return { kind: "sending", draft, completion: Promise.resolve() };
+        return {
+          kind: "sending",
+          draft,
+          completion: Promise.resolve({ kind: "unconfirmed" }),
+        };
       },
     );
     render(<DraftComposer {...props} rootId="root" />);
@@ -389,13 +393,52 @@ test.each(["button", "enter"])(
   },
 );
 
+test.each([false, true])(
+  "an unauthorized first delivery reports only to its original room (switched %s)",
+  async (switched) => {
+    const { connection, rows } = storage();
+    const props = { ...inputs(connection), online: true };
+    let unauthorized!: () => void;
+    const completion = new Promise<{ kind: "unauthorized" }>((resolve) => {
+      unauthorized = () => resolve({ kind: "unauthorized" });
+    });
+    connection.submitDraft.mockImplementation(async () => {
+      const draft = {
+        message: "",
+        revision: "sent",
+        clearedBySubmission: true,
+      };
+      rows.set("A/", draft);
+      return { kind: "sending", draft, completion };
+    });
+    const view = render(<DraftComposer {...props} />);
+    const input = await field();
+    fireEvent.change(input, { target: { value: "ready to send" } });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Отправить сообщение" }),
+    );
+    await waitFor(() => expect(input.value).toBe(""));
+    if (switched) {
+      view.rerender(<DraftComposer {...props} channelId="B" />);
+      await waitFor(() => expect(input.isConnected).toBe(false));
+    }
+    await act(async () => unauthorized());
+    if (switched) expect(props.sessionIssue).not.toHaveBeenCalled();
+    else
+      expect(props.sessionIssue).toHaveBeenCalledExactlyOnceWith(
+        "unauthorized",
+      );
+    expect(connection.submitDraft).toHaveBeenCalledTimes(1);
+  },
+);
+
 test("Escape restores focus and text, and a later confirmed mention can send", async () => {
   const { connection } = storage();
   const props = { ...inputs(connection), online: true };
   connection.submitDraft.mockResolvedValue({
     kind: "sending",
     draft: { message: "", revision: "sent", clearedBySubmission: true },
-    completion: Promise.resolve(),
+    completion: Promise.resolve({ kind: "unconfirmed" }),
   });
   render(<DraftComposer {...props} />);
   const input = await field();
@@ -465,7 +508,7 @@ test("only an explicit send-as-text sends an unknown command, and its released r
   connection.submitDraft.mockResolvedValue({
     kind: "sending",
     draft: { message: "", revision: "sent" },
-    completion: Promise.resolve(),
+    completion: Promise.resolve({ kind: "unconfirmed" }),
   });
   render(<DraftComposer {...props} />);
   const input = await field();

@@ -60,6 +60,7 @@ test.each([
     );
     expect(desc?.textContent).toContain(description);
     const send = within(group).getByRole("button", { name: "Отправить" });
+    expect(send.getAttribute("aria-describedby")).toBe(desc?.id);
     expect(document.activeElement).toBe(send);
     fireEvent.keyDown(send, { key: "Escape", isComposing: true });
     expect(cancel).not.toHaveBeenCalled();

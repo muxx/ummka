@@ -35,6 +35,7 @@ export function useDraftSend(
   context: DraftSendContext,
   online: boolean,
   field: RefObject<HTMLTextAreaElement | null>,
+  sessionIssue: (issue: "unauthorized") => void,
   report: (error: unknown) => void,
 ) {
   const active = useRef<ActiveSend | null>(null);
@@ -83,10 +84,16 @@ export function useDraftSend(
     const input = field.current;
     const result = await prepared.submitPost();
     if (result.kind === "sending") {
-      // The timeline listens to delivery activity. Surface a local failure without issuing another request.
-      void result.completion.catch((error: unknown) => {
-        if (input?.isConnected && field.current === input) report(error);
-      });
+      const stillVisible = () => input?.isConnected && field.current === input;
+      void result.completion.then(
+        (outcome) => {
+          if (outcome.kind === "unauthorized" && stillVisible())
+            sessionIssue("unauthorized");
+        },
+        (error: unknown) => {
+          if (stillVisible()) report(error);
+        },
+      );
     }
   }
   async function begin(message?: string, textRevision?: string) {

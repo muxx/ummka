@@ -115,7 +115,12 @@ export function DraftPostConfirmation(props: Props) {
         <button type="button" onClick={props.cancel}>
           {text.cancel}
         </button>
-        <button type="button" ref={send} onClick={props.confirm}>
+        <button
+          type="button"
+          ref={send}
+          onClick={props.confirm}
+          aria-describedby={`${id}-description`}
+        >
           {text.confirm}
         </button>
       </div>

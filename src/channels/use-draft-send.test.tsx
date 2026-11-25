@@ -43,9 +43,11 @@ async function fixture(message: string) {
     performOther: vi.fn(),
   };
   const report = vi.fn();
+  const sessionIssue = vi.fn();
   const field = createRef<HTMLTextAreaElement>();
   const hook = renderHook(
-    ({ online }) => useDraftSend(editor, ctx, online, field, report),
+    ({ online }) =>
+      useDraftSend(editor, ctx, online, field, sessionIssue, report),
     { initialProps: { online: true } },
   );
   return { ctx, storage, editor, report, ...hook };
