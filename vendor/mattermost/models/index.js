@@ -3,6 +3,7 @@ export * from './AutocompleteCommand.js';
 export * from './AutocompleteSuggestion.js';
 export * from './Channel.js';
 export * from './ChannelMember.js';
+export * from './ChannelMemberCountByGroup.js';
 export * from './ChannelNotifyProps.js';
 export * from './ChannelStats.js';
 export * from './ChannelUnreadAt.js';

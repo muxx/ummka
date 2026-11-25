@@ -82,6 +82,25 @@ export async function checkTeamReads(
     null
   )
     throw Error("generated nullable channel timezones");
+  const groups = await api.getChannelMemberCountsByGroup({
+    channelId,
+    includeTimezones: true,
+  });
+  if (
+    groups.length !== 2 ||
+    groups[0].groupId !== "g".repeat(26) ||
+    groups[0].channelMemberCount !== 3 ||
+    groups[0].channelMemberTimezonesCount !== 2 ||
+    groups[1].groupId !== "h".repeat(26) ||
+    groups[1].channelMemberCount !== 1 ||
+    groups[1].channelMemberTimezonesCount !== 0
+  )
+    throw Error("generated channel group counts");
+  if (
+    (await new ChannelsApi(root).getChannelMemberCountsByGroup({ channelId }))
+      .length !== 0
+  )
+    throw Error("empty channel group counts");
   const single = await new ChannelsApi(root).viewChannel({
     userId: "me",
     viewChannelRequest: { channelId, collapsedThreadsSupported: true },

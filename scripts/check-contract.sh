@@ -122,6 +122,12 @@ const badCursor: GetPostThreadRequest = { postId: "a-post-id", fromCreateAt: "12
 declare const page: PostList;
 import type { ChannelsApi, Preference, PreferencesApi } from "./compiled/index.js";
 declare const channels: ChannelsApi;
+const groupCounts = await channels.getChannelMemberCountsByGroup({ channelId: "room", includeTimezones: true });
+for (const group of groupCounts) {
+    group.groupId satisfies string;
+    group.channelMemberCount satisfies number;
+    group.channelMemberTimezonesCount satisfies number;
+}
 const stats = await channels.getChannelStats({ channelId: "room", excludeFilesCount: true });
 stats.channelId satisfies string;
 stats.memberCount satisfies number;

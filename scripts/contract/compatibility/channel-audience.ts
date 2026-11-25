@@ -17,6 +17,21 @@ export async function checkChannelAudience(
   );
   const anonymous = new ChannelsApi(new Configuration({ basePath: base }));
   const channel = { channelId: dm.id };
+  // The stock compatibility servers do not have a subscription for group counts.
+  const groupFailure = await channels
+    .getChannelMemberCountsByGroup({ ...channel, includeTimezones: true })
+    .then(
+      () => assert.fail("An unlicensed group count should fail"),
+      (error: unknown) => {
+        assert.ok(error instanceof ResponseError);
+        return error.response;
+      },
+    );
+  assert.equal(groupFailure.status, 403);
+  assert.equal(
+    (await groupFailure.json()).id,
+    "api.channel.channel_member_counts_by_group.license.error",
+  );
   const baseline = {
     channelId: dm.id,
     memberCount: 2,

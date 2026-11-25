@@ -31,6 +31,10 @@ import {
   correctExecuteCommand,
 } from "./command-corrections.ts";
 import {
+  correctGroupAudienceModel,
+  correctGroupAudienceResponse,
+} from "./group-audience-correction.ts";
+import {
   correctHistoryQuery,
   correctHistorySchema,
 } from "./history-corrections.ts";
@@ -167,6 +171,7 @@ const definitionPaths = [
   ["components", "schemas", "ChannelMember"],
   ["components", "schemas", "ChannelNotifyProps"],
   ["components", "schemas", "ChannelStats"],
+  ["components", "schemas", "ChannelMemberCountByGroup"],
   ...["Emoji", "FileInfo", "PostAcknowledgement", "Reaction"].map((name) => [
     "components",
     "schemas",
@@ -394,6 +399,32 @@ test("channel stats corrections detect upstream fields on either pin", () => {
   }
 });
 
+test("group audience corrections stop if either source documents the missing contract", () => {
+  const route = "/api/v4/channels/{channel_id}/member_counts_by_group";
+  const modelPath = ["components", "schemas", "ChannelMemberCountByGroup"];
+  for (const reference of [false, true]) {
+    const baseline = object(at(read("channels.yaml"), [route, "get"]), route);
+    const newer = read("channels-12.1.0.yaml");
+    const changed = reference ? at(newer, [route, "get"]) : baseline;
+    object(at(changed, ["responses", "200"]), "success").content = {};
+    assert.throws(
+      () => correctGroupAudienceResponse(baseline, newer),
+      /Review GetChannelMemberCountsByGroup/,
+    );
+    const model = object(at(read("definitions.yaml"), modelPath), "group");
+    const definitions = read("definitions-12.1.0.yaml");
+    const changedModel = reference ? at(definitions, modelPath) : model;
+    object(
+      at(changedModel, ["properties", "channel_member_timezones_count"]),
+      "count",
+    ).type = "integer";
+    assert.throws(
+      () => correctGroupAudienceModel(model, definitions),
+      /Review ChannelMemberCountByGroup/,
+    );
+  }
+});
+
 test("create-post correction detects changes in either tagged source", () => {
   const route = "/api/v4/posts";
   const old = at(read("posts.yaml"), [route, "post"]);
@@ -607,6 +638,11 @@ test("retains the catalog operations, security and transitive models", () => {
         source,
         read(file.replace(".yaml", "-12.1.0.yaml")),
       );
+    if (source.operationId === "GetChannelMemberCountsByGroup")
+      expected = correctGroupAudienceResponse(
+        source,
+        read("channels-12.1.0.yaml"),
+      );
     if (source.operationId === "GetChannelStats")
       expected = correctChannelStatsQuery(source, read("channels-12.1.0.yaml"));
     if (source.operationId === "ViewChannel")
@@ -625,6 +661,11 @@ test("retains the catalog operations, security and transitive models", () => {
     let expected = source;
     if (name === "ChannelUnreadAt")
       expected = correctUnreadAt(
+        object(source, name),
+        read("definitions-12.1.0.yaml"),
+      );
+    if (name === "ChannelMemberCountByGroup")
+      expected = correctGroupAudienceModel(
         object(source, name),
         read("definitions-12.1.0.yaml"),
       );
@@ -662,6 +703,7 @@ test("retains the catalog operations, security and transitive models", () => {
       "AutocompleteSuggestion",
       "Channel",
       "ChannelMember",
+      "ChannelMemberCountByGroup",
       "ChannelNotifyProps",
       "ChannelStats",
       "ChannelUnreadAt",

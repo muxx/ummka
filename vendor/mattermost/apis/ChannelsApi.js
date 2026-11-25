@@ -1,6 +1,7 @@
 import * as runtime from '../runtime.js';
 import { ChannelFromJSON, } from '../models/Channel.js';
 import { ChannelMemberFromJSON, } from '../models/ChannelMember.js';
+import { ChannelMemberCountByGroupFromJSON, } from '../models/ChannelMemberCountByGroup.js';
 import { ChannelStatsFromJSON, } from '../models/ChannelStats.js';
 import { MarkChannelsReadForUser200ResponseFromJSON, } from '../models/MarkChannelsReadForUser200Response.js';
 import { OrderedSidebarCategoriesFromJSON, } from '../models/OrderedSidebarCategories.js';
@@ -40,6 +41,40 @@ export class ChannelsApi extends runtime.BaseAPI {
     }
     async getChannelMember(requestParameters, initOverrides) {
         const response = await this.getChannelMemberRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async getChannelMemberCountsByGroupRequestOpts(requestParameters) {
+        if (requestParameters['channelId'] == null) {
+            throw new runtime.RequiredError('channelId', 'Required parameter "channelId" was null or undefined when calling getChannelMemberCountsByGroup().');
+        }
+        const queryParameters = {};
+        if (requestParameters['includeTimezones'] != null) {
+            queryParameters['include_timezones'] = requestParameters['includeTimezones'];
+        }
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/channels/{channel_id}/member_counts_by_group`;
+        urlPath = urlPath.replace('{channel_id}', encodeURIComponent(String(requestParameters['channelId'])));
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async getChannelMemberCountsByGroupRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.getChannelMemberCountsByGroupRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => jsonValue.map(ChannelMemberCountByGroupFromJSON));
+    }
+    async getChannelMemberCountsByGroup(requestParameters, initOverrides) {
+        const response = await this.getChannelMemberCountsByGroupRaw(requestParameters, initOverrides);
         return await response.value();
     }
     async getChannelMembersRequestOpts(requestParameters) {

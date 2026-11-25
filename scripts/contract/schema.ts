@@ -22,6 +22,10 @@ import {
   correctExecuteCommand,
 } from "./command-corrections.ts";
 import {
+  correctGroupAudienceModel,
+  correctGroupAudienceResponse,
+} from "./group-audience-correction.ts";
+import {
   correctHistoryQuery,
   correctHistorySchema,
 } from "./history-corrections.ts";
@@ -124,6 +128,11 @@ export function buildSpecification(
       throw new Error(`Missing component ${kind}/${name}`);
     const source = object(upstream[name], `components/${kind}/${name}`);
     if (kind !== "schemas") group[name] = source;
+    else if (name === "ChannelMemberCountByGroup")
+      group[name] = correctGroupAudienceModel(
+        source,
+        read("definitions-12.1.0.yaml"),
+      );
     else if (name === "ChannelStats")
       group[name] = correctChannelStats(
         source,
@@ -221,6 +230,11 @@ export function buildSpecification(
       paths[path][method] = correctPatchPost(
         operation,
         read("posts-12.1.0.yaml"),
+      );
+    else if (id === "GetChannelMemberCountsByGroup")
+      paths[path][method] = correctGroupAudienceResponse(
+        operation,
+        read("channels-12.1.0.yaml"),
       );
     else if (id === "GetChannelStats")
       paths[path][method] = correctChannelStatsQuery(

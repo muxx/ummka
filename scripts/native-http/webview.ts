@@ -8,6 +8,7 @@ import { json } from "node:stream/consumers";
 import { respondToAccount } from "./account.ts";
 import { respondToChannelMembers } from "./channel-members.ts";
 import { respondToChannelView } from "./channel-view.ts";
+import { respondToGroupAudience } from "./group-audience.ts";
 import { respondToHistory } from "./history.ts";
 import { historyRefreshFixture } from "./history-refresh.ts";
 import { respondToPostContext } from "./post-context.ts";
@@ -364,6 +365,11 @@ export function webviewServers(
     );
     if (account) {
       visits.push(account);
+      return;
+    }
+    const groupAudience = respondToGroupAudience(req, res, url, channelId);
+    if (groupAudience) {
+      visits.push(groupAudience);
       return;
     }
     const stats =
@@ -750,6 +756,8 @@ export function webviewServers(
         "single-channel-view",
         "channel-stats",
         "channel-timezones",
+        "group-audience-empty",
+        "group-audience-timezones",
         "member-self",
         "member-id",
         "members-page",

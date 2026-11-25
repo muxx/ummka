@@ -75,6 +75,12 @@
   {
     "file": "channels.yaml",
     "method": "GET",
+    "path": "/api/v4/channels/{channel_id}/member_counts_by_group",
+    "id": "GetChannelMemberCountsByGroup"
+  },
+  {
+    "file": "channels.yaml",
+    "method": "GET",
     "path": "/api/v4/channels/{channel_id}/members",
     "id": "GetChannelMembers"
   },

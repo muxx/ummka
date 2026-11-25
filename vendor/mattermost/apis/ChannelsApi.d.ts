@@ -1,6 +1,7 @@
 import * as runtime from '../runtime.js';
 import { type Channel } from '../models/Channel.js';
 import { type ChannelMember } from '../models/ChannelMember.js';
+import { type ChannelMemberCountByGroup } from '../models/ChannelMemberCountByGroup.js';
 import { type ChannelStats } from '../models/ChannelStats.js';
 import { type MarkChannelsReadForUser200Response } from '../models/MarkChannelsReadForUser200Response.js';
 import { type OrderedSidebarCategories } from '../models/OrderedSidebarCategories.js';
@@ -9,6 +10,10 @@ import { type ViewChannelRequest } from '../models/ViewChannelRequest.js';
 export interface GetChannelMemberRequest {
     channelId: string;
     userId: string;
+}
+export interface GetChannelMemberCountsByGroupRequest {
+    channelId: string;
+    includeTimezones?: boolean;
 }
 export interface GetChannelMembersRequest {
     channelId: string;
@@ -52,6 +57,9 @@ export declare class ChannelsApi extends runtime.BaseAPI {
     getChannelMemberRequestOpts(requestParameters: GetChannelMemberRequest): Promise<runtime.RequestOpts>;
     getChannelMemberRaw(requestParameters: GetChannelMemberRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<ChannelMember>>;
     getChannelMember(requestParameters: GetChannelMemberRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<ChannelMember>;
+    getChannelMemberCountsByGroupRequestOpts(requestParameters: GetChannelMemberCountsByGroupRequest): Promise<runtime.RequestOpts>;
+    getChannelMemberCountsByGroupRaw(requestParameters: GetChannelMemberCountsByGroupRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Array<ChannelMemberCountByGroup>>>;
+    getChannelMemberCountsByGroup(requestParameters: GetChannelMemberCountsByGroupRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Array<ChannelMemberCountByGroup>>;
     getChannelMembersRequestOpts(requestParameters: GetChannelMembersRequest): Promise<runtime.RequestOpts>;
     getChannelMembersRaw(requestParameters: GetChannelMembersRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Array<ChannelMember>>>;
     getChannelMembers(requestParameters: GetChannelMembersRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Array<ChannelMember>>;
