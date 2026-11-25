@@ -544,7 +544,13 @@ export async function checkGeneratedRequests(ports: string[]) {
         target.postId === postId,
       "inspect-file-post-destination",
     );
-    await checkPostMutations(rootSession, signed, channelId);
+    await checkPostMutations(
+      rootSession,
+      signed,
+      channelId,
+      accountPrefix,
+      userId,
+    );
     await checkConnectServer(origin);
     const profile = await inspectInstallation(
       `${prefixed.basePath.slice("https://".length)}/`,

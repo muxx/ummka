@@ -49,6 +49,10 @@ import {
 } from "./own-membership.ts";
 import { createPostActivity } from "./post-activity.ts";
 import { readPostDestination } from "./post-destination.ts";
+import {
+  type EditHistoryTarget,
+  readPostEditHistory,
+} from "./post-edit-history.ts";
 import { createRestTransport } from "./rest-transport.ts";
 import { canonicalServerUrl } from "./server-url.ts";
 import { projectTeamSidebar, type TeamSidebar } from "./team-sidebar.ts";
@@ -152,6 +156,12 @@ export async function openAccountRestConnection(
     ...connection,
     ...accountPostReactions(config, userId, readWhileOpen),
     ...accountSearch(config, readWhileOpen),
+    readPostEditHistory(target: EditHistoryTarget, signal?: AbortSignal) {
+      return readWhileOpen(
+        () => readPostEditHistory(posts, userId, target, signal),
+        signal,
+      );
+    },
     readThreadPage(query: ThreadPageRequest, signal?: AbortSignal) {
       return readWhileOpen(() => readThreadPage(posts, query, signal), signal);
     },
