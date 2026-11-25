@@ -35,12 +35,16 @@ import {
   checkBrowserSignIn,
 } from "./browser-sign-in.ts";
 import { checkChannelAudience } from "./channel-audience.ts";
-import { checkChannelNotifications } from "./channel-notifications.ts";
+import {
+  checkChannelNotifications,
+  checkPersonalNotificationUpdate,
+} from "./channel-notifications.ts";
 import { checkCommands } from "./commands.ts";
 import { checkCustomEmojiLookup } from "./custom-emoji.ts";
 import { checkEventStream } from "./event-stream.ts";
 import { checkFileSearch } from "./file-search.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
+import { checkJoinPostTarget } from "./join-post-target.ts";
 import {
   checkChannelRoster,
   checkEmptyTeamDirectory,
@@ -746,6 +750,11 @@ const beforeJoin = await memberApi.getChannelMembersForUser({
   userId: "me",
 });
 assert.ok(!beforeJoin.some((row) => row.channelId === joinable.id));
+await checkPersonalNotificationUpdate(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  channelId,
+  joinable.id,
+);
 const addition = await memberApi.addChannelMemberRaw({
   channelId: joinable.id,
   addChannelMemberRequest: { userId: reader.id },
@@ -818,6 +827,14 @@ await checkOwnMembershipChanges(
   team.id,
   extraTeam.id,
   joinable.id,
+);
+await checkJoinPostTarget(
+  session,
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  reader.id,
+  team.id,
+  joinable.id,
+  extraTeam.id,
 );
 console.log(
   `Mattermost ${version} verified channel and team roles, active and removed membership and anonymous HTTP 401.`,

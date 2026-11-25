@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { channelComposerAccess } from "../../../src/channels/composer-access.ts";
+import { readChannelNotifications } from "../../../src/mattermost/channel-notifications.ts";
 import {
   fetchTeamRoleSnapshot,
   loadChannelPermissions,
@@ -29,6 +30,15 @@ export async function checkNavigationMemberships(
   channelId: string,
   directId: string,
 ) {
+  const notifications = await readChannelNotifications(
+    session,
+    userId,
+    channelId,
+  );
+  assert.equal(notifications.account.desktopThreads, "all");
+  assert.equal(notifications.account.pushThreads, "all");
+  assert.equal(notifications.channel.desktop, "default");
+  assert.equal(notifications.channel.push, "default");
   const teams = new TeamsApi(session);
   const own = { userId: "me" };
   const target = { teamId: leaveTeamId, userId };
