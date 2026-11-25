@@ -1,6 +1,8 @@
 import {
   ChannelsApi,
   type Configuration,
+  GroupFromJSON,
+  GroupsApi,
   PostsApi,
   PreferencesApi,
   RolesApi,
@@ -101,6 +103,48 @@ export async function checkTeamReads(
       .length !== 0
   )
     throw Error("empty channel group counts");
+  const matches = await new GroupsApi(prefixed).getGroups({
+    q: "release qa",
+    page: 0,
+    perPage: 60,
+    filterAllowReference: true,
+    includeMemberCount: true,
+  });
+  if (
+    matches.length !== 2 ||
+    matches[0].name !== "release-qa" ||
+    matches[0].source !== "custom" ||
+    matches[0].remoteId !== null ||
+    !matches[0].allowReference ||
+    matches[0].memberCount !== 7 ||
+    matches[1].remoteId !== "directory-record" ||
+    matches[1].source !== "ldap" ||
+    matches[1].name !== "qa"
+  )
+    throw Error("generated group search projection");
+  // A group without a handle is valid only outside referenceable search results.
+  const unnamed = GroupFromJSON({
+    id: "j".repeat(26),
+    display_name: "Legacy directory",
+    source: "ldap",
+    remote_id: "legacy-record",
+    allow_reference: false,
+  });
+  if (
+    unnamed.name !== undefined ||
+    unnamed.allowReference ||
+    unnamed.memberCount !== undefined
+  )
+    throw Error("generated non-referenceable group");
+  if (
+    (
+      await new GroupsApi(root).getGroups({
+        q: "absent",
+        filterAllowReference: true,
+      })
+    ).length
+  )
+    throw Error("empty group directory search");
   const single = await new ChannelsApi(root).viewChannel({
     userId: "me",
     viewChannelRequest: { channelId, collapsedThreadsSupported: true },

@@ -367,6 +367,59 @@ export function webviewServers(
       visits.push(account);
       return;
     }
+    if (
+      url.pathname === "/team/chat/api/v4/groups" ||
+      url.pathname === "/api/v4/groups"
+    ) {
+      const prefixed = url.pathname.startsWith("/team/chat/");
+      assert.equal(req.method, "GET");
+      assert.equal(req.headers.cookie, undefined);
+      assert.equal(
+        req.headers.authorization,
+        prefixed
+          ? "Bearer fixture-prefixed-session"
+          : "Bearer fixture-root-session",
+      );
+      assert.deepEqual(
+        Object.fromEntries(url.searchParams),
+        prefixed
+          ? {
+              q: "release qa",
+              page: "0",
+              per_page: "60",
+              filter_allow_reference: "true",
+              include_member_count: "true",
+            }
+          : { q: "absent", filter_allow_reference: "true" },
+      );
+      const result = prefixed
+        ? [
+            {
+              id: "g".repeat(26),
+              name: "release-qa",
+              display_name: "Release QA",
+              source: "custom",
+              remote_id: null,
+              allow_reference: true,
+              member_count: 7,
+            },
+            {
+              id: "h".repeat(26),
+              name: "qa",
+              display_name: "Release QA Directory",
+              source: "ldap",
+              remote_id: "directory-record",
+              allow_reference: true,
+              member_count: 3,
+            },
+          ]
+        : [];
+      visits.push(prefixed ? "group-directory-page" : "group-directory-empty");
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end(JSON.stringify(result));
+      return;
+    }
     const groupAudience = respondToGroupAudience(req, res, url, channelId);
     if (groupAudience) {
       visits.push(groupAudience);
@@ -756,6 +809,8 @@ export function webviewServers(
         "single-channel-view",
         "channel-stats",
         "channel-timezones",
+        "group-directory-page",
+        "group-directory-empty",
         "group-audience-empty",
         "group-audience-timezones",
         "member-self",

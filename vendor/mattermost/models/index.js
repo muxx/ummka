@@ -14,6 +14,7 @@ export * from './CreatePostRequestMetadataPriority.js';
 export * from './Emoji.js';
 export * from './ExecuteCommandRequest.js';
 export * from './FileInfo.js';
+export * from './Group.js';
 export * from './MarkChannelsReadForUser200Response.js';
 export * from './OrderedSidebarCategories.js';
 export * from './PatchPostRequest.js';

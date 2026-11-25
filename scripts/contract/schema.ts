@@ -29,6 +29,7 @@ import {
   correctHistoryQuery,
   correctHistorySchema,
 } from "./history-corrections.ts";
+import { correctMentionGroup } from "./mention-group-correction.ts";
 import { correctNullableList } from "./nullable-list-corrections.ts";
 import { type Fields, object } from "./objects.ts";
 import { checkPathParameters } from "./path-parameters.ts";
@@ -130,6 +131,11 @@ export function buildSpecification(
     if (kind !== "schemas") group[name] = source;
     else if (name === "ChannelMemberCountByGroup")
       group[name] = correctGroupAudienceModel(
+        source,
+        read("definitions-12.1.0.yaml"),
+      );
+    else if (name === "Group")
+      group[name] = correctMentionGroup(
         source,
         read("definitions-12.1.0.yaml"),
       );

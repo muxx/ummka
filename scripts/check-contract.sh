@@ -46,6 +46,8 @@ download users.yaml "$upstream/users.yaml" 20d0c9cf9631682f3461c7b13a521321dbd2a
 download teams.yaml "$upstream/teams.yaml" dc0723e5164d19b5d147ee9133db170fb83eedb3b884e320cd58ee36435cd3b3
 download roles.yaml "$upstream/roles.yaml" 6869450fda52c0b2e06dd228cef1e08c309e35493e15fbdda604e35db9593258
 download roles-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/roles.yaml" 6869450fda52c0b2e06dd228cef1e08c309e35493e15fbdda604e35db9593258
+download groups.yaml "$upstream/groups.yaml" 728ea0e63e5e996f0f8b13d450a695ced4d09adddfb8571e884c89cc456079bb
+download groups-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/groups.yaml" dfd8365bd2bf490a4857663ed2ec1cab9d6889665423abe1b4a9d7d244777f67
 download commands.yaml "$upstream/commands.yaml" 91517ad53a1d46cf2cbeaa5143865d12cdce9e20997f1bc84e74c98908578f25
 download commands-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/commands.yaml" 2ed01e423ff689cc230d0d049b2c9c92bb791b879bfcc7ca93a3bd3cc6d5b8d7
 download channels.yaml "$upstream/channels.yaml" 34282bb7db184ae792493b97b384f9b47c0789d9f8dce7527cb2f3df9c09f9b3
@@ -138,6 +140,17 @@ const zones = await channels.getChannelMembersTimezones({ channelId: "room" });
 zones satisfies string[] | null;
 // @ts-expect-error Fresh accounts with no known timezones return JSON null.
 zones satisfies string[];
+import type { GroupsApi } from "./compiled/index.js";
+declare const mentionGroups: GroupsApi;
+const matches = await mentionGroups.getGroups({ q: "release", page: 0, perPage: 60, filterAllowReference: true, includeMemberCount: true });
+for (const group of matches) {
+    group.remoteId satisfies string | null;
+    group.allowReference satisfies boolean;
+    group.name satisfies string | undefined;
+    group.memberCount satisfies number | undefined;
+}
+// @ts-expect-error A textual flag would change the wire representation.
+mentionGroups.getGroups({ filterAllowReference: "true" });
 import type { Role, RolesApi } from "./compiled/index.js";
 declare const roles: RolesApi;
 const assigned = await roles.getRolesByNames({ requestBody: ["channel_user", "team_guest"] });

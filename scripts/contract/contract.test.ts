@@ -38,6 +38,7 @@ import {
   correctHistoryQuery,
   correctHistorySchema,
 } from "./history-corrections.ts";
+import { correctMentionGroup } from "./mention-group-correction.ts";
 import { correctNullableList } from "./nullable-list-corrections.ts";
 import { type Fields, object } from "./objects.ts";
 import {
@@ -399,6 +400,32 @@ test("channel stats corrections detect upstream fields on either pin", () => {
   }
 });
 
+test("group search keeps the same public parameters and result model in both releases", () => {
+  const opPath = ["/api/v4/groups", "get"];
+  const baseline = object(at(read("groups.yaml"), opPath), "GetGroups");
+  const newer = object(at(read("groups-12.1.0.yaml"), opPath), "GetGroups");
+  assert.deepEqual(newer.parameters, baseline.parameters);
+  for (const op of [baseline, newer]) {
+    assert.equal(op.operationId, "GetGroups");
+    assert.deepEqual(
+      at(op, ["responses", "200", "content", "application/json", "schema"]),
+      { type: "array", items: { $ref: "#/components/schemas/Group" } },
+    );
+  }
+});
+
+test("group projection stops on drift in either definition", () => {
+  const path = ["components", "schemas", "Group"];
+  for (const version of ["10", "12"]) {
+    const baseline = structuredClone(object(at(definitions, path), "Group"));
+    const newer = structuredClone(read("definitions-12.1.0.yaml"));
+    const model =
+      version === "10" ? baseline : object(at(newer, path), "Group");
+    object(model.properties, "Group").allow_reference = { type: "boolean" };
+    assert.throws(() => correctMentionGroup(baseline, newer), /Review Group/);
+  }
+});
+
 test("group audience corrections stop if either source documents the missing contract", () => {
   const route = "/api/v4/channels/{channel_id}/member_counts_by_group";
   const modelPath = ["components", "schemas", "ChannelMemberCountByGroup"];
@@ -669,6 +696,11 @@ test("retains the catalog operations, security and transitive models", () => {
         object(source, name),
         read("definitions-12.1.0.yaml"),
       );
+    if (name === "Group")
+      expected = correctMentionGroup(
+        object(source, name),
+        read("definitions-12.1.0.yaml"),
+      );
     if (name === "ChannelStats")
       expected = correctChannelStats(
         object(source, name),
@@ -710,6 +742,7 @@ test("retains the catalog operations, security and transitive models", () => {
       "CommandResponse",
       "Emoji",
       "FileInfo",
+      "Group",
       "OrderedSidebarCategories",
       "Post",
       "PostAcknowledgement",
@@ -1009,6 +1042,7 @@ function copySources() {
     "definitions.yaml",
     "definitions-12.1.0.yaml",
     "roles-12.1.0.yaml",
+    "groups-12.1.0.yaml",
     "preferences-12.1.0.yaml",
     "commands-12.1.0.yaml",
     "posts-12.1.0.yaml",
