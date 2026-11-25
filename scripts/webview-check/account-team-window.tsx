@@ -68,6 +68,12 @@ export async function checkSavedTeamWindow(
       !ui.getByText("Черновик · без сети")
     )
       throw Error("offline startup lost the exact channel draft");
+    if (
+      !ui.getByRole<HTMLButtonElement>("button", {
+        name: "Отправить сообщение",
+      }).disabled
+    )
+      throw Error("An offline draft offered sending");
     const edited = field.value + " Ещё строка.";
     flushSync(() => fireEvent.input(field, { target: { value: edited } }));
     if (typeof navigator.clipboard?.writeText !== "function")

@@ -1,5 +1,16 @@
 export const draftCopy = {
   en: {
+    runningCommand: "Running command…",
+    asText: "Send as a message",
+    dismiss: "Dismiss",
+    onlyYou: "Only visible to you",
+    pendingCommand:
+      "The command may have run. Check its result before editing or sending again.",
+    settlementFailed: "Couldn’t update the saved draft on this device.",
+    send: "Send message",
+    command: "Run command",
+    sendFailed: "Couldn’t send. Your text is still here.",
+    mentionPolicy: "Couldn’t check who will be notified. Try again.",
     loading: "Opening draft…",
     loadFailed: "Couldn’t open the draft on this device.",
     saveFailed: "Couldn’t update the draft on this device.",
@@ -25,6 +36,18 @@ export const draftCopy = {
     direct: (name: string) => `Message ${name}…`,
   },
   ru: {
+    runningCommand: "Команда выполняется…",
+    asText: "Отправить текстом",
+    dismiss: "Убрать ответ",
+    onlyYou: "Видно только вам",
+    pendingCommand:
+      "Сервер мог выполнить команду. Проверьте результат перед правкой или повтором.",
+    settlementFailed: "Не удалось обновить сохранённый черновик на устройстве.",
+    send: "Отправить сообщение",
+    command: "Выполнить команду",
+    sendFailed: "Не удалось отправить. Текст остался в поле.",
+    mentionPolicy:
+      "Не удалось проверить, кто получит уведомление. Попробуйте ещё раз.",
     loading: "Открываем черновик…",
     loadFailed: "Не удалось открыть черновик на устройстве.",
     saveFailed: "Не удалось обновить черновик на устройстве.",

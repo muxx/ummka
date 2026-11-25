@@ -103,3 +103,117 @@
     align-items: stretch;
   }
 }
+
+.draft-mention {
+  min-inline-size: 0;
+  margin: 0 0 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--divider);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+.draft-mention legend {
+  float: inline-start;
+  width: 100%;
+  margin-bottom: 4px;
+  padding: 0;
+  overflow-wrap: anywhere;
+  font-weight: 650;
+}
+.draft-mention p {
+  clear: both;
+  margin: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.draft-mention-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: end;
+  gap: 8px;
+  margin-top: 8px;
+}
+.draft-mention-actions button {
+  min-height: 36px;
+  border: 1px solid var(--divider);
+  border-radius: 7px;
+  padding: 0 12px;
+  background: var(--canvas);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.draft-mention-actions button:last-child {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+@media (max-width: 400px), (pointer: coarse) {
+  .draft-mention-actions button {
+    min-height: 44px;
+  }
+}
+.draft-box {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  column-gap: 4px;
+}
+.draft-box small {
+  grid-column: 1 / -1;
+}
+.draft-send {
+  display: grid;
+  place-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--on-accent);
+  cursor: pointer;
+}
+.draft-send:disabled {
+  background: transparent;
+  color: var(--muted);
+  cursor: default;
+}
+.draft-submit-error {
+  color: var(--text);
+  font-size: 0.85rem;
+}
+.draft-feedback {
+  min-width: 0;
+  padding: 6px 12px;
+  color: var(--text);
+  background: var(--surface);
+  overflow-wrap: anywhere;
+}
+.draft-feedback p {
+  margin: 4px 0;
+  white-space: pre-wrap;
+}
+.draft-feedback small {
+  color: var(--muted);
+}
+.draft-feedback button {
+  min-height: 36px;
+  padding: 4px 10px;
+  border: 1px solid var(--divider);
+  border-radius: 7px;
+  background: var(--canvas);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.draft-feedback button + button {
+  margin-inline-start: 6px;
+}
+@media (max-width: 400px), (pointer: coarse) {
+  .draft-feedback button {
+    min-height: 44px;
+  }
+}

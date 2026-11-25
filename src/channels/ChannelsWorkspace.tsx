@@ -22,6 +22,7 @@ import { effectiveWorkspacePreferences } from "../mattermost/workspace-preferenc
 import { ChannelsFrame } from "./ChannelsFrame.tsx";
 import { ComposerAccessNotice } from "./ComposerAccessNotice.tsx";
 import { ConversationTimeline } from "./ConversationTimeline.tsx";
+import { channelDraftActions } from "./channel-draft-actions.ts";
 import { channelComposerAccess } from "./composer-access.ts";
 import { DraftComposer } from "./DraftComposer.tsx";
 import { draftCopy } from "./draft-copy.ts";
@@ -476,6 +477,17 @@ export function ChannelsWorkspace({
             <DraftComposer
               connection={connection}
               channelId={channel.id}
+              conversation={{
+                name: selectedLabel || channel.displayName || channel.name,
+                direct: channel.kind === "D" || channel.kind === "G",
+              }}
+              keys={policy.user?.composerKeys}
+              sendContext={channelDraftActions(
+                workspace,
+                channel,
+                permission,
+                settings?.collapsedThreads ?? null,
+              )}
               label={draftLabel()}
               language={language}
               online={online}

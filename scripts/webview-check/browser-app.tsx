@@ -66,6 +66,42 @@ export async function checkBrowserApp(server: string) {
     const townDraft = await ui.findByRole<HTMLTextAreaElement>("textbox", {
       name: "Message #Town Square…",
     });
+    const sentText = "Posted from the channel window";
+    flushSync(() =>
+      fireEvent.input(townDraft, { target: { value: sentText } }),
+    );
+    const sendButton = ui.getByRole<HTMLButtonElement>("button", {
+      name: "Send message",
+    });
+    if (sendButton.disabled)
+      throw Error("The online composer did not enable sending");
+    flushSync(() => fireEvent.click(sendButton));
+    await ui.findByText(sentText, {}, { timeout: 10_000 });
+    const delivery = await openAccountRestConnection(server, "f".repeat(26));
+    try {
+      await waitFor(
+        async () => {
+          const rows = await delivery.readPendingPosts({
+            channelId: "c".repeat(26),
+            limit: 10,
+          });
+          if (
+            townDraft.value ||
+            !rows.some(
+              (row) =>
+                row.message === sentText &&
+                row.confirmedPostId === "windowpost".padEnd(26, "0"),
+            )
+          )
+            throw Error(
+              "The window did not hand off the exact draft and receive server confirmation",
+            );
+        },
+        { timeout: 10_000 },
+      );
+    } finally {
+      await delivery.close();
+    }
     flushSync(() =>
       fireEvent.input(townDraft, {
         target: { value: "Draft from the channel window" },

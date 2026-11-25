@@ -47,7 +47,33 @@ function storage(rid = 1) {
   return { rows, connection };
 }
 function inputs(connection: ReturnType<typeof storage>["connection"]) {
+  const directory = {
+    readChannelMemberCount: vi.fn().mockResolvedValue(12),
+    readChannelTimezoneCount: vi.fn().mockResolvedValue(2),
+    readAssociatedMentionGroups: vi.fn(),
+    searchMentionGroups: vi.fn(),
+    readMentionGroupCounts: vi.fn(),
+  };
   return {
+    conversation: { name: "общий", direct: false },
+    keys: { sendOnCtrlEnter: false, codeBlockOnCtrlEnter: false },
+    sendContext: {
+      post: {
+        account: directory,
+        channel: { id: "c".repeat(26) },
+        team: null,
+        settings: {
+          maxNotificationsPerChannel: "100",
+          confirmNotifications: true,
+          ldapGroups: false,
+          customGroups: false,
+        },
+        channelPermission: "allowed" as const,
+        groupPermission: "allowed" as const,
+      },
+      route: vi.fn().mockResolvedValue({ kind: "post" }),
+      performOther: vi.fn(),
+    },
     connection,
     language: "ru" as const,
     online: false,
@@ -320,4 +346,161 @@ test("retrying a failed refresh keeps an unresolved draft choice", async () => {
   expect(screen.getByRole("group")).toBeTruthy();
   expect((await field()).value).toBe("локальный вариант");
   expect(connection.saveDraft).not.toHaveBeenCalled();
+});
+
+test.each(["button", "enter"])(
+  "submits the visible draft once using %s and clears it after staging",
+  async (action) => {
+    const { connection, rows } = storage();
+    const props = { ...inputs(connection), online: true };
+    connection.submitDraft.mockImplementation(
+      async (place: DraftLocation & { revision: string }) => {
+        const saved = rows.get("A/root");
+        expect(saved).toEqual({
+          message: "Первая строка\nВторая",
+          revision: place.revision,
+        });
+        const draft = {
+          message: "",
+          revision: "sent",
+          clearedBySubmission: true,
+        };
+        rows.set("A/root", draft);
+        return { kind: "sending", draft, completion: Promise.resolve() };
+      },
+    );
+    render(<DraftComposer {...props} rootId="root" />);
+    const input = await field();
+    fireEvent.change(input, { target: { value: "Первая строка\nВторая" } });
+    if (action === "button")
+      fireEvent.click(
+        screen.getByRole("button", { name: "Отправить сообщение" }),
+      );
+    else fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(input.value).toBe(""));
+    expect(connection.submitDraft).toHaveBeenCalledExactlyOnceWith({
+      channelId: "A",
+      rootId: "root",
+      revision: "1",
+    });
+    expect(
+      props.sendContext.post.account.readChannelMemberCount,
+    ).not.toHaveBeenCalled();
+  },
+);
+
+test("Escape restores focus and text, and a later confirmed mention can send", async () => {
+  const { connection } = storage();
+  const props = { ...inputs(connection), online: true };
+  connection.submitDraft.mockResolvedValue({
+    kind: "sending",
+    draft: { message: "", revision: "sent", clearedBySubmission: true },
+    completion: Promise.resolve(),
+  });
+  render(<DraftComposer {...props} />);
+  const input = await field();
+  fireEvent.change(input, { target: { value: "@here встречаемся" } });
+  const sendButton = screen.getByRole("button", {
+    name: "Отправить сообщение",
+  });
+  fireEvent.click(sendButton);
+  const confirm = await screen.findByRole("button", { name: "Отправить" });
+  expect(document.activeElement).toBe(confirm);
+  fireEvent.keyDown(confirm, { key: "Escape" });
+  expect(document.activeElement).toBe(input);
+  expect(input.value).toBe("@here встречаемся");
+  expect(connection.submitDraft).not.toHaveBeenCalled();
+  fireEvent.click(sendButton);
+  fireEvent.click(await screen.findByRole("button", { name: "Отправить" }));
+  await waitFor(() => expect(input.value).toBe(""));
+  expect(connection.submitDraft).toHaveBeenCalledTimes(1);
+});
+
+test("switching rooms while the audience is loading never submits the other room's draft", async () => {
+  const { connection, rows } = storage();
+  const props = { ...inputs(connection), online: true };
+  let finish!: (count: number) => void;
+  props.sendContext.post.account.readChannelMemberCount.mockImplementationOnce(
+    () =>
+      new Promise<number>((r) => {
+        finish = r;
+      }),
+  );
+  const view = render(<DraftComposer {...props} />);
+  fireEvent.change(await field(), { target: { value: "@all проверьте" } });
+  fireEvent.click(screen.getByRole("button", { name: "Отправить сообщение" }));
+  await waitFor(() =>
+    expect(
+      props.sendContext.post.account.readChannelMemberCount,
+    ).toHaveBeenCalledOnce(),
+  );
+  view.rerender(<DraftComposer {...props} channelId="B" />);
+  expect((await field()).value).toBe("");
+  await act(async () => finish(21));
+  expect(screen.queryByRole("group")).toBeNull();
+  expect(rows.get("A/")?.message).toBe("@all проверьте");
+  expect(connection.submitDraft).not.toHaveBeenCalled();
+});
+
+test("only an explicit send-as-text sends an unknown command, and its released revision still requires mention confirmation", async () => {
+  const { connection, rows } = storage();
+  const props = { ...inputs(connection), online: true };
+  props.sendContext.route.mockResolvedValue({ kind: "command" });
+  props.sendContext.performOther.mockImplementationOnce(async () => {
+    const draft = { message: "/xyz @all", revision: "released" };
+    rows.set("A/", draft);
+    return {
+      kind: "command",
+      answer: {
+        kind: "answered",
+        result: {
+          kind: "unknownCommand",
+          refusal: { status: 404, code: "missing", message: null },
+        },
+        settlement: "saved",
+        draft,
+      },
+    };
+  });
+  connection.submitDraft.mockResolvedValue({
+    kind: "sending",
+    draft: { message: "", revision: "sent" },
+    completion: Promise.resolve(),
+  });
+  render(<DraftComposer {...props} />);
+  const input = await field();
+  fireEvent.change(input, { target: { value: "/xyz @all" } });
+  fireEvent.click(screen.getByRole("button", { name: "Выполнить команду" }));
+  const asText = await screen.findByRole("button", {
+    name: "Отправить текстом",
+  });
+  expect(
+    props.sendContext.post.account.readChannelMemberCount,
+  ).not.toHaveBeenCalled();
+  expect(connection.submitDraft).not.toHaveBeenCalled();
+  fireEvent.click(asText);
+  fireEvent.click(await screen.findByRole("button", { name: "Отправить" }));
+  await waitFor(() => expect(input.value).toBe(""));
+  expect(connection.submitDraft).toHaveBeenCalledExactlyOnceWith({
+    channelId: "A",
+    revision: "released",
+  });
+  expect(props.sendContext.performOther).toHaveBeenCalledOnce();
+});
+test("a saved command with an uncertain result cannot execute again simply by reopening its editor", async () => {
+  const { connection, rows } = storage();
+  rows.set("A/", {
+    message: "/me test",
+    revision: "pending",
+    commandPending: true,
+  });
+  const props = { ...inputs(connection), online: true };
+  render(<DraftComposer {...props} />);
+  await field();
+  expect(screen.getByText(/Сервер мог выполнить команду/)).toBeTruthy();
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Выполнить команду" })
+      .disabled,
+  ).toBe(true);
+  expect(props.sendContext.performOther).not.toHaveBeenCalled();
 });

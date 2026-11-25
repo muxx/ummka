@@ -8,14 +8,22 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
+import type { SidebarPreferences } from "../mattermost/workspace-preferences.ts";
+import { composerEnter } from "./composer-enter.ts";
+import { DraftPostConfirmation } from "./DraftPostConfirmation.tsx";
+import { draftActionFeedback } from "./draft-action-feedback.ts";
 import { draftCopy } from "./draft-copy.ts";
 import { openVisibleDraft, type VisibleDraft } from "./open-visible-draft.ts";
+import { type DraftSendContext, useDraftSend } from "./use-draft-send.ts";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
 import { workspaceFailure } from "./workspace-data.ts";
 import "./draft.css";
 
 type FieldProps = {
   language: EntryLanguage;
+  sendContext: DraftSendContext;
+  conversation: { name: string; direct: boolean };
+  keys: SidebarPreferences["composerKeys"];
   online: boolean;
   label: string;
   fieldRef: RefObject<HTMLTextAreaElement | null>;
@@ -45,6 +53,9 @@ export function DraftComposer(props: Props) {
 
 function DraftPlace({ connection, channelId, rootId, ...field }: Props) {
   const [attempt, setAttempt] = useState(0);
+  const [switchedAt] = useState(() =>
+    rootId === undefined ? performance.now() : undefined,
+  );
   const [loaded, setLoaded] = useState<{
     attempt: number;
     value: VisibleDraft | "failed";
@@ -84,7 +95,14 @@ function DraftPlace({ connection, channelId, rootId, ...field }: Props) {
   }, [connection, channelId, rootId, attempt, sessionIssue]);
   const copy = draftCopy[field.language];
   if (result && result !== "failed")
-    return <DraftField editor={result} afterRetry={attempt > 0} {...field} />;
+    return (
+      <DraftField
+        editor={result}
+        switchedAt={switchedAt}
+        afterRetry={attempt > 0}
+        {...field}
+      />
+    );
   return (
     <div
       className="workspace-notice"
@@ -114,13 +132,64 @@ function DraftField({
   language,
   online,
   sessionIssue,
-}: FieldProps & { editor: VisibleDraft; afterRetry: boolean }) {
+  sendContext,
+  conversation,
+  keys,
+  switchedAt,
+}: FieldProps & {
+  editor: VisibleDraft;
+  afterRetry: boolean;
+  switchedAt: number | undefined;
+}) {
   const state = useSyncExternalStore(editor.subscribe, editor.getSnapshot);
   const [announcement, setAnnouncement] = useState("");
   const [focusRequest, requestFocus] = useState(afterRetry ? 1 : 0);
   const retryButton = useRef<HTMLButtonElement>(null);
   const id = useId();
   const copy = draftCopy[language];
+  const [sendError, setSendError] = useState("");
+  const sending = useDraftSend(
+    editor,
+    sendContext,
+    online,
+    fieldRef,
+    (error) => {
+      if (error === "mention_policy_unavailable") {
+        setSendError(copy.mentionPolicy);
+        return;
+      }
+      const issue = workspaceFailure(error, "network");
+      if (issue === "session" || issue === "unauthorized") sessionIssue(issue);
+      else setSendError(copy.sendFailed);
+    },
+  );
+  const feedback = sending.feedback;
+  const answer = feedback?.kind === "command" ? feedback.answer : null;
+  const unknown =
+    answer?.kind === "answered" &&
+    answer.result.kind === "unknownCommand" &&
+    answer.settlement === "saved"
+      ? answer.draft
+      : null;
+  const textRevision =
+    unknown?.revision &&
+    unknown.revision === state.stored.revision &&
+    state.message === unknown.message &&
+    !state.conflict
+      ? unknown.revision
+      : null;
+  const pending =
+    state.stored.commandPending && state.message === state.stored.message;
+  const resultText = feedback
+    ? draftActionFeedback(feedback, language)
+    : pending
+      ? copy.pendingCommand
+      : "";
+  const labelSend = state.message.startsWith("/") ? copy.command : copy.send;
+  function submit(amended?: string) {
+    setSendError("");
+    void sending.begin(amended);
+  }
   const empty = !state.stored.message;
   const conflictTitle = !empty
     ? copy.changed
@@ -282,19 +351,121 @@ function DraftField({
           </button>
         </div>
       )}
+      {sending.confirmation && (
+        <DraftPostConfirmation
+          language={language}
+          conversation={conversation}
+          confirmation={sending.confirmation}
+          confirm={() => void sending.confirm()}
+          cancel={sending.back}
+        />
+      )}
+      {sending.runningCommand && (
+        <p className="draft-announcement" role="status">
+          {copy.runningCommand}
+        </p>
+      )}
+      {resultText && (
+        <div className="draft-feedback">
+          {answer?.kind === "answered" &&
+            answer.result.kind === "executed" &&
+            answer.result.response.responseType === "ephemeral" && (
+              <small>{copy.onlyYou}</small>
+            )}
+          <p role="status">{resultText}</p>
+          {answer?.kind === "answered" &&
+            answer.settlement === "storageUnavailable" && (
+              <small>{copy.settlementFailed}</small>
+            )}
+          {textRevision !== null && (
+            <button
+              type="button"
+              disabled={!online || sending.busy}
+              onClick={() => void sending.begin(undefined, textRevision)}
+            >
+              {copy.asText}
+            </button>
+          )}
+          {feedback && !pending && (
+            <button
+              type="button"
+              onClick={() => {
+                sending.clearFeedback();
+                fieldRef.current?.focus({ preventScroll: true });
+              }}
+            >
+              {copy.dismiss}
+            </button>
+          )}
+        </div>
+      )}
+      {sendError && (
+        <p role="alert" className="draft-submit-error">
+          {sendError}
+        </p>
+      )}
       <div className="draft-box">
         <textarea
           ref={fieldRef}
           rows={1}
           aria-label={label}
           placeholder={label}
+          readOnly={sending.runningCommand}
           aria-describedby={state.conflict ? id + "-hint" : undefined}
           value={state.message}
-          onChange={(event) => editor.edit(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            const decision = composerEnter(event.nativeEvent, {
+              message: event.currentTarget.value,
+              caret: event.currentTarget.selectionStart,
+              mobile: import.meta.env.UMMKA_MOBILE === true,
+              preferences: keys,
+              millisecondsSinceChannelSwitch:
+                switchedAt === undefined
+                  ? undefined
+                  : performance.now() - switchedAt,
+            });
+            if (decision.kind === "native") return;
+            event.preventDefault();
+            if (decision.kind === "submit" && !pending)
+              submit(decision.message);
+          }}
+          onChange={(event) => {
+            setSendError("");
+            sending.clearFeedback();
+            editor.edit(event.currentTarget.value);
+          }}
           onBlur={() => {
             void editor.flush().catch(() => {});
           }}
         />
+        <button
+          className="draft-send"
+          type="button"
+          aria-label={labelSend}
+          title={labelSend}
+          disabled={
+            !online ||
+            sending.busy ||
+            pending ||
+            state.conflict ||
+            !state.message.trim()
+          }
+          onClick={() => submit()}
+        >
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            width="20"
+            height="20"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          >
+            <path d="M3 4L21 12L3 20L6 12Z M6 12H20" />
+          </svg>
+        </button>
         {!online && <small>{copy.offline}</small>}
       </div>
       <span className="draft-announcement" role="status">
