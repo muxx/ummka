@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   copyFileSync,
   existsSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
@@ -1741,3 +1743,37 @@ for (const base of [
     });
   }
 }
+
+test("restored contract inputs must match their pins before generation", () => {
+  assert.ok(work);
+  const directory = mkdtempSync(join(work, "cache-test-"));
+  const target = join(directory, "schema.yaml");
+  const origin = join(directory, "upstream.yaml");
+  const digest = (content: string) =>
+    createHash("sha256").update(content).digest("hex");
+  const fetchPin = (content: string) =>
+    spawnSync(
+      "sh",
+      [
+        fileURLToPath(new URL("./download-verified.sh", import.meta.url)),
+        target,
+        pathToFileURL(origin).href,
+        digest(content),
+      ],
+      { encoding: "utf8" },
+    );
+  writeFileSync(target, "first pin");
+  assert.equal(fetchPin("first pin").status, 0); // Source is deliberately absent on a cache hit.
+  writeFileSync(origin, "new pin");
+  assert.equal(fetchPin("new pin").status, 0);
+  assert.equal(readFileSync(target, "utf8"), "new pin");
+  writeFileSync(origin, "wrong bytes");
+  const refused = fetchPin("unavailable pin");
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /SHA-256 mismatch/);
+  assert.equal(readFileSync(target, "utf8"), "new pin");
+  assert.deepEqual(readdirSync(directory).sort(), [
+    "schema.yaml",
+    "upstream.yaml",
+  ]);
+});
