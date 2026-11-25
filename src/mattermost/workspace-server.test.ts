@@ -1,22 +1,31 @@
 import { expect, test, vi } from "vitest";
 import { Configuration } from "../../vendor/mattermost/index.js";
+import { workspaceServerPolicy } from "./workspace-preferences.ts";
 import { loadWorkspaceServerPolicy } from "./workspace-server.ts";
 
 const basePath = "https://chat.example.test/teams/north";
-test("projects only display policy from the old config and license endpoints", async () => {
+test("projects display and mention policy from the old config and license endpoints", async () => {
   const fetchApi = vi.fn<typeof fetch>(async (input) => {
     const url = new URL(String(input));
     expect(url.search).toBe("?format=old");
     const data = url.pathname.endsWith("/config/client")
       ? {
           CollapsedThreads: "always_on",
+          EnableConfirmNotificationsToChannel: "false",
+          EnableCustomGroups: "true",
+          MaxNotificationsPerChannel: "6",
           FeatureFlagEnableSharedChannelsDMs: "true",
           ExperimentalGroupUnreadChannels: "default_on",
           TeammateNameDisplay: "full_name",
           LockTeammateNameDisplay: "true",
           Secret: "excluded",
         }
-      : { LockTeammateNameDisplay: "false", Company: "excluded" };
+      : {
+          LockTeammateNameDisplay: "false",
+          IsLicensed: "true",
+          LDAPGroups: "true",
+          Company: "excluded",
+        };
     return Response.json(data);
   });
   const policy = await loadWorkspaceServerPolicy(
@@ -33,6 +42,12 @@ test("projects only display policy from the old config and license endpoints", a
     nameFormat: "full_name",
     lockNameFormat: false,
     sharedChannelDMs: true,
+    mentions: {
+      confirmNotifications: false,
+      maxNotificationsPerChannel: "6",
+      customGroups: true,
+      ldapGroups: true,
+    },
   });
 });
 
@@ -65,4 +80,84 @@ test("invalid fields and cancellation both release the outstanding sibling", asy
     ),
   ).rejects.toBe(reason);
   expect(pending.length).toBe(2);
+});
+
+const mentionConfig = {
+  MaxNotificationsPerChannel: "9223372036854775807",
+  EnableConfirmNotificationsToChannel: "true",
+  EnableCustomGroups: "false",
+};
+
+test.each([
+  ["true", "true", true],
+  ["true", undefined, false],
+  ["true", "false", false],
+  ["false", "true", false],
+] as const)(
+  "LDAP group mentions follow license %s and feature %s",
+  (licensed, ldap, expected) => {
+    expect(
+      workspaceServerPolicy(mentionConfig, {
+        IsLicensed: licensed,
+        LDAPGroups: ldap,
+      }).mentions,
+    ).toEqual({
+      confirmNotifications: true,
+      maxNotificationsPerChannel: "9223372036854775807",
+      customGroups: false,
+      ldapGroups: expected,
+    });
+  },
+);
+
+test("a partial response leaves mention policy unknown and keeps display policy", () => {
+  for (const config of [
+    {},
+    { ...mentionConfig, MaxNotificationsPerChannel: undefined },
+    { ...mentionConfig, EnableConfirmNotificationsToChannel: undefined },
+    { ...mentionConfig, EnableCustomGroups: undefined },
+  ]) {
+    const policy = workspaceServerPolicy(
+      { ...config, CollapsedThreads: "always_on" },
+      { IsLicensed: "false" },
+    );
+    expect(policy.mentions).toBeUndefined();
+    expect(policy.collapsedThreads).toBe("always_on");
+  }
+  expect(workspaceServerPolicy(mentionConfig, {}).mentions).toBeUndefined();
+});
+
+test.each([
+  "0",
+  "-1",
+  "00",
+  "01",
+  "2x",
+  "1.5",
+  "1e5",
+  " 6",
+  "1\n",
+  "9223372036854775808",
+])("rejects invalid wire limit %j", (limit) => {
+  expect(() =>
+    workspaceServerPolicy(
+      { ...mentionConfig, MaxNotificationsPerChannel: limit },
+      { IsLicensed: "false" },
+    ),
+  ).toThrow(TypeError);
+});
+
+test("a malformed flag prevents publication", () => {
+  expect(() =>
+    workspaceServerPolicy(
+      { ...mentionConfig, EnableConfirmNotificationsToChannel: "yes" },
+      { IsLicensed: "true" },
+    ),
+  ).toThrow(TypeError);
+  expect(() =>
+    workspaceServerPolicy(mentionConfig, {
+      IsLicensed: "true",
+      LDAPGroups: "unknown",
+    }),
+  ).toThrow(TypeError);
 });

@@ -16,6 +16,9 @@ export function loadWorkspaceServerPolicy(
     const [settings, license] = await Promise.all([
       request((options) =>
         readStringFields(api.getClientConfigRaw(format, options), [
+          "MaxNotificationsPerChannel",
+          "EnableConfirmNotificationsToChannel",
+          "EnableCustomGroups",
           "CollapsedThreads",
           "FeatureFlagEnableSharedChannelsDMs",
           "ExperimentalGroupUnreadChannels",
@@ -25,6 +28,8 @@ export function loadWorkspaceServerPolicy(
       ),
       request((options) =>
         readStringFields(api.getClientLicenseRaw(format, options), [
+          "IsLicensed",
+          "LDAPGroups",
           "LockTeammateNameDisplay",
         ] as const),
       ),

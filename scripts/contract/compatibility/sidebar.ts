@@ -268,6 +268,16 @@ export async function checkSidebarReads(
   assert.equal(typeof settings.CollapsedThreads, "string");
   const policy = workspacePreferences(userId, saved, settings, license);
   const serverPolicy = await loadWorkspaceServerPolicy(config);
+  assert.deepEqual(serverPolicy.mentions, {
+    confirmNotifications: true,
+    maxNotificationsPerChannel: "1000",
+    customGroups: false,
+    ldapGroups: false,
+  });
+  const anonymousPolicy = await loadWorkspaceServerPolicy(
+    new Configuration({ basePath: base }),
+  );
+  assert.equal(anonymousPolicy.mentions, undefined);
   const received = sidebarPreferences(userId, saved);
   assert.deepEqual(
     effectiveWorkspacePreferences(received, serverPolicy),

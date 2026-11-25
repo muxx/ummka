@@ -52,6 +52,12 @@ async function expectClosed(close: () => Promise<void>) {
 }
 
 async function checkResources() {
+  // WKWebView can execute the entry module before the bundled stylesheet has loaded.
+  if (document.readyState !== "complete") {
+    await new Promise<void>((resolve) =>
+      window.addEventListener("load", () => resolve(), { once: true }),
+    );
+  }
   await checkEntryWindow();
   checkPaletteSurfaces();
   if (checkAppearance()) return;
