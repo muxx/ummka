@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { latestReactionTarget } from "../../../src/channels/latest-reaction-target.ts";
+import { nextPostDestinationStep } from "../../../src/channels/post-destination-step.ts";
 import { channelHistoryPage } from "../../../src/mattermost/channel-history-page.ts";
 import { channelPostChanges } from "../../../src/mattermost/channel-post-records.ts";
 import {
@@ -303,6 +304,19 @@ assert.equal(directTarget.team, null);
 const publicTarget = await readPostDestination(readerPosts, root.id);
 assert.equal(publicTarget.channel.joined, false);
 assert.equal(publicTarget.team?.joined, false);
+assert.deepEqual(nextPostDestinationStep(memberTarget, null), {
+  kind: "readPost",
+  teamId: team.id,
+  channelId,
+  postId: reply.id,
+});
+assert.deepEqual(nextPostDestinationStep(publicTarget, null), {
+  kind: "joinTeam",
+  team: publicTarget.team,
+});
+assert.deepEqual(nextPostDestinationStep(directTarget, null), {
+  kind: "selectTeam",
+});
 
 const closed = await (
   await create(
