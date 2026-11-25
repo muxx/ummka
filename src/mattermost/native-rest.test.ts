@@ -289,6 +289,7 @@ test("opens a native account by installation and user ID", async () => {
     "confirmPostDelivery",
     "dismissPendingPost",
     "fetchApi",
+    "getOutgoingPostState",
     "isPostSending",
     "readAccountDirectory",
     "readChannelWindow",

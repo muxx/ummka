@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Post, PostsApi } from "../../vendor/mattermost/index.js";
 import type { ComposerDraft, DraftLocation, DraftSave } from "./native-rest.ts";
+import { outgoingRowState } from "./outgoing-row-state.ts";
 import type { createPostActivity } from "./post-activity.ts";
 import { deliverAccountPost } from "./send-account-post.ts";
 
@@ -169,6 +170,13 @@ export function accountDelivery(
     ...local,
     isPostSending: activity.isSending,
     subscribeToPostActivity: activity.subscribe,
+    getOutgoingPostState(post: PendingPost) {
+      return outgoingRowState(
+        post,
+        activity.isSending(post),
+        navigator.onLine !== false,
+      );
+    },
     async submitDraft(draft: DraftLocation & { revision: string }) {
       if (navigator.onLine === false)
         return whileOpen(async () => ({ kind: "offline" }) as const);

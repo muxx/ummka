@@ -64,6 +64,12 @@ export async function checkSubmissions(
       throw Error(
         "Only the connection that started HTTP knows its live attempt",
       );
+    const sending = owner.getOutgoingPostState(started.post);
+    const unconfirmed = passive.getOutgoingPostState(started.post);
+    if (sending.kind !== "sending" || unconfirmed.kind !== "unconfirmed")
+      throw Error(
+        "The same saved row must reflect the request observed by its own connection",
+      );
     const updates: boolean[] = [];
     const stop = owner.subscribeToPostActivity({ channelId }, () => {
       updates.push(owner.isPostSending(started.post));
@@ -113,6 +119,21 @@ export async function checkSubmissions(
       refusal.refusal.message !== "Fixture channel is read only"
     )
       throw Error("A definitive refusal must reach the saved reply");
+    const [savedReply] = await neighbor.readPendingPosts({
+      channelId,
+      rootId,
+      after: 0,
+      limit: 1,
+    });
+    const declined = neighbor.getOutgoingPostState(savedReply);
+    if (
+      declined.kind !== "refused" ||
+      declined.refusal.status !== 403 ||
+      !declined.actions.edit
+    )
+      throw Error(
+        "A definitive refusal should offer editing in the other window",
+      );
     const corrected = await neighbor.resendPost(denied.post, {
       kind: "afterRefusal",
       message: "Corrected reply",
@@ -188,4 +209,19 @@ export async function checkSubmissionRestore(
     throw Error(
       "Passive recovery must keep exactly this installation's submission results",
     );
+  if (prefixed) {
+    const confirmed = account.getOutgoingPostState(roots[0]);
+    const uncertain = account.getOutgoingPostState(roots[1]);
+    if (
+      confirmed.kind !== "delivered" ||
+      confirmed.postId !== rootId ||
+      uncertain.kind !== "unconfirmed" ||
+      uncertain.retryRefusal?.status !== 403 ||
+      !uncertain.actions.copy ||
+      uncertain.actions.edit !== undefined
+    )
+      throw Error(
+        "Recovered delivery and retry refusal should retain distinct actions",
+      );
+  }
 }
