@@ -1,5 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
-import { Configuration, PostsApi } from "../../vendor/mattermost/index.js";
+import {
+  Configuration,
+  type Post,
+  PostsApi,
+} from "../../vendor/mattermost/index.js";
 import {
   type ChannelRefreshRequest,
   type ChannelRefreshResult,
@@ -64,6 +68,23 @@ export type SavedProfiles = {
 export type DraftLocation = { channelId: string; rootId?: string };
 export type ComposerDraft = { message: string; revision: string | null };
 export type DraftSave = { kind: "saved" | "conflict"; draft: ComposerDraft };
+
+type PendingPost = {
+  sequence: number;
+  pendingId: string;
+  channelId: string;
+  rootId: string | null;
+  message: string;
+  createdAt: number;
+  previousLogin: boolean;
+  confirmedPostId: string | null;
+};
+type StagePost =
+  | { kind: "created"; post: PendingPost; draft: ComposerDraft }
+  | { kind: "notStaged"; draft: ComposerDraft };
+type DeliverySource =
+  | { kind: "posted" }
+  | { kind: "response"; requestPendingId: string };
 
 export type AccountSignOut =
   | { status: "signed_out" }
@@ -170,6 +191,65 @@ export async function openAccountRestConnection(
           expectedRevision,
           message,
         }),
+      );
+    },
+    stagePost({
+      channelId,
+      rootId,
+      revision,
+    }: DraftLocation & { revision: string }) {
+      return readWhileOpen(() =>
+        invoke<StagePost>("stage_composer_post", {
+          rid,
+          channelId,
+          rootId: rootId ?? null,
+          revision,
+        }),
+      );
+    },
+    readPendingPosts({
+      channelId,
+      rootId,
+      after,
+      limit,
+    }: DraftLocation & { after: number; limit: number }) {
+      return readWhileOpen(() =>
+        invoke<PendingPost[]>("read_pending_posts", {
+          rid,
+          channelId,
+          rootId: rootId ?? null,
+          after,
+          limit,
+        }),
+      );
+    },
+    confirmPostDelivery(source: DeliverySource, post: Post) {
+      return readWhileOpen(async () => {
+        // Deleted or incomplete posts cannot identify an accepted send.
+        if (
+          post.deleteAt !== 0 ||
+          !post.id ||
+          !post.userId ||
+          !post.channelId ||
+          typeof post.rootId !== "string"
+        )
+          return false;
+        return invoke<boolean>("confirm_post_delivery", {
+          rid,
+          source,
+          wirePendingId: post.pendingPostId ?? null,
+          post: {
+            id: post.id,
+            userId: post.userId,
+            channelId: post.channelId,
+            rootId: post.rootId || null,
+          },
+        });
+      });
+    },
+    retireDeliveredPosts(postIds: string[]) {
+      return readWhileOpen(() =>
+        invoke<number>("retire_delivered_posts", { rid, postIds }),
       );
     },
     readWorkspaceSettings() {

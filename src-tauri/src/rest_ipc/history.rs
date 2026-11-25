@@ -12,7 +12,7 @@ use tauri::{Manager, Resource, ResourceId, Runtime, Webview};
 use tokio::sync::{Mutex, OnceCell};
 
 // Mattermost v10.10.1 server/channels/web/params.go bounds one response at 200 posts.
-const MAX_POSTS: u32 = 200;
+pub(super) const MAX_POSTS: u32 = 200;
 
 #[derive(Debug, Deserialize)]
 #[serde(

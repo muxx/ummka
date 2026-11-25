@@ -1,6 +1,6 @@
 use super::*;
 use crate::history::{
-    DraftSave, HistoryDatabase, PageWrite, PostChange, StagePost,
+    DraftSave, HistoryDatabase, PageWrite, PostChange, StagePost, StoredPost,
     schema::{MIGRATIONS, Migration},
 };
 use crate::sessions::Account;
@@ -36,12 +36,20 @@ fn stage(view: &mut AccountHistory, root: Option<&str>) -> String {
     };
     post.pending_id
 }
-fn canonical(id: &str, root: Option<&str>) -> StoredPost {
-    StoredPost {
+fn canonical(id: &str, root: Option<&str>) -> DeliveryPost {
+    DeliveryPost {
         id: id.into(),
         channel_id: ROOM.into(),
         user_id: ME.into(),
         root_id: root.map(str::to_owned),
+    }
+}
+fn saved(post: DeliveryPost) -> PostChange {
+    PostChange::Save(StoredPost {
+        id: post.id,
+        channel_id: post.channel_id,
+        user_id: post.user_id,
+        root_id: post.root_id,
         create_at: 10,
         update_at: 10,
         edit_at: 0,
@@ -50,7 +58,7 @@ fn canonical(id: &str, root: Option<&str>) -> StoredPost {
         message_source: None,
         hashtags: String::new(),
         is_pinned: false,
-    }
+    })
 }
 fn apply(view: &mut AccountHistory, change: PostChange) {
     let load = view.begin_channel_load(ROOM).unwrap();
@@ -59,9 +67,9 @@ fn apply(view: &mut AccountHistory, change: PostChange) {
         PageWrite::Applied
     );
 }
-fn http(id: &str) -> DeliverySource<'_> {
+fn http(id: &str) -> DeliverySource {
     DeliverySource::Response {
-        request_pending_id: id,
+        request_pending_id: id.to_owned(),
     }
 }
 
@@ -96,7 +104,7 @@ fn posted_and_http_can_arrive_in_either_order_and_survive_restart() {
             view.confirm_delivery(DeliverySource::Posted, Some(&pending), &post)
                 .unwrap()
         );
-        apply(&mut view, PostChange::Save(post));
+        apply(&mut view, saved(post));
         assert_eq!(view.retire_delivered_posts(&[post_id, post_id]).unwrap(), 1);
         assert_eq!(view.retire_delivered_posts(&[post_id]).unwrap(), 0);
         assert!(view.pending_posts(ROOM, root, 0, 4).unwrap().is_empty());
@@ -110,7 +118,7 @@ fn ordinary_history_identical_text_or_incorrect_scope_cannot_confirm_a_send() {
     let mut view = open(path.path());
     let pending = stage(&mut view, Some(ROOT));
     let other = stage(&mut view, Some(ROOT));
-    apply(&mut view, PostChange::Save(canonical(REPLY, Some(ROOT))));
+    apply(&mut view, saved(canonical(REPLY, Some(ROOT))));
     assert_eq!(view.retire_delivered_posts(&[REPLY]).unwrap(), 0);
     let mut reply = canonical(REPLY, Some(ROOT));
     assert!(
@@ -194,7 +202,7 @@ fn two_authoritative_post_ids_for_one_pending_id_remain_two_posts() {
         Some(winner)
     );
     for id in [ROOT, OTHER] {
-        apply(&mut view, PostChange::Save(canonical(id, None)));
+        apply(&mut view, saved(canonical(id, None)));
     }
     assert_eq!(view.retire_delivered_posts(&[ROOT, OTHER]).unwrap(), 1);
     assert!(view.read_post(ROOT).unwrap().is_some());

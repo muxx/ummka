@@ -12,7 +12,7 @@ mod drafts;
 pub use drafts::{ComposerDraft, DraftSave};
 mod confirmation;
 mod lifecycle;
-pub use confirmation::DeliverySource;
+pub use confirmation::{DeliveryPost, DeliverySource};
 mod pending;
 pub use pending::{PendingPost, StagePost};
 mod posts;
