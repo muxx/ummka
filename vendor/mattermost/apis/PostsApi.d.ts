@@ -5,6 +5,9 @@ import { type PatchPostRequest } from '../models/PatchPostRequest.js';
 import { type Post } from '../models/Post.js';
 import { type PostInfo } from '../models/PostInfo.js';
 import { type PostList } from '../models/PostList.js';
+import { type PostListWithSearchMatches } from '../models/PostListWithSearchMatches.js';
+import { type SearchPostsInAllTeamsRequest } from '../models/SearchPostsInAllTeamsRequest.js';
+import { type SearchPostsRequest } from '../models/SearchPostsRequest.js';
 import { type SetPostUnreadRequest } from '../models/SetPostUnreadRequest.js';
 import { type StatusOK } from '../models/StatusOK.js';
 export interface CreatePostOperationRequest {
@@ -45,6 +48,13 @@ export interface PatchPostOperationRequest {
     postId: string;
     patchPostRequest: PatchPostRequest;
 }
+export interface SearchPostsOperationRequest {
+    teamId: string;
+    searchPostsRequest: SearchPostsRequest;
+}
+export interface SearchPostsInAllTeamsOperationRequest {
+    searchPostsInAllTeamsRequest: SearchPostsInAllTeamsRequest;
+}
 export interface SetPostUnreadOperationRequest {
     userId: string;
     postId: string;
@@ -69,6 +79,12 @@ export declare class PostsApi extends runtime.BaseAPI {
     patchPostRequestOpts(requestParameters: PatchPostOperationRequest): Promise<runtime.RequestOpts>;
     patchPostRaw(requestParameters: PatchPostOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Post>>;
     patchPost(requestParameters: PatchPostOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Post>;
+    searchPostsRequestOpts(requestParameters: SearchPostsOperationRequest): Promise<runtime.RequestOpts>;
+    searchPostsRaw(requestParameters: SearchPostsOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<PostListWithSearchMatches>>;
+    searchPosts(requestParameters: SearchPostsOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<PostListWithSearchMatches>;
+    searchPostsInAllTeamsRequestOpts(requestParameters: SearchPostsInAllTeamsOperationRequest): Promise<runtime.RequestOpts>;
+    searchPostsInAllTeamsRaw(requestParameters: SearchPostsInAllTeamsOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<PostListWithSearchMatches>>;
+    searchPostsInAllTeams(requestParameters: SearchPostsInAllTeamsOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<PostListWithSearchMatches>;
     setPostUnreadRequestOpts(requestParameters: SetPostUnreadOperationRequest): Promise<runtime.RequestOpts>;
     setPostUnreadRaw(requestParameters: SetPostUnreadOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<ChannelUnreadAt>>;
     setPostUnread(requestParameters: SetPostUnreadOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<ChannelUnreadAt>;

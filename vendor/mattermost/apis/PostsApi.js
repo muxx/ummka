@@ -5,6 +5,9 @@ import { PatchPostRequestToJSON, } from '../models/PatchPostRequest.js';
 import { PostFromJSON, } from '../models/Post.js';
 import { PostInfoFromJSON, } from '../models/PostInfo.js';
 import { PostListFromJSON, } from '../models/PostList.js';
+import { PostListWithSearchMatchesFromJSON, } from '../models/PostListWithSearchMatches.js';
+import { SearchPostsInAllTeamsRequestToJSON, } from '../models/SearchPostsInAllTeamsRequest.js';
+import { SearchPostsRequestToJSON, } from '../models/SearchPostsRequest.js';
 import { SetPostUnreadRequestToJSON, } from '../models/SetPostUnreadRequest.js';
 import { StatusOKFromJSON, } from '../models/StatusOK.js';
 export class PostsApi extends runtime.BaseAPI {
@@ -255,6 +258,74 @@ export class PostsApi extends runtime.BaseAPI {
     }
     async patchPost(requestParameters, initOverrides) {
         const response = await this.patchPostRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async searchPostsRequestOpts(requestParameters) {
+        if (requestParameters['teamId'] == null) {
+            throw new runtime.RequiredError('teamId', 'Required parameter "teamId" was null or undefined when calling searchPosts().');
+        }
+        if (requestParameters['searchPostsRequest'] == null) {
+            throw new runtime.RequiredError('searchPostsRequest', 'Required parameter "searchPostsRequest" was null or undefined when calling searchPosts().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        headerParameters['Content-Type'] = 'application/json';
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/teams/{team_id}/posts/search`;
+        urlPath = urlPath.replace('{team_id}', encodeURIComponent(String(requestParameters['teamId'])));
+        return {
+            path: urlPath,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+            body: SearchPostsRequestToJSON(requestParameters['searchPostsRequest']),
+        };
+    }
+    async searchPostsRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.searchPostsRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => PostListWithSearchMatchesFromJSON(jsonValue));
+    }
+    async searchPosts(requestParameters, initOverrides) {
+        const response = await this.searchPostsRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async searchPostsInAllTeamsRequestOpts(requestParameters) {
+        if (requestParameters['searchPostsInAllTeamsRequest'] == null) {
+            throw new runtime.RequiredError('searchPostsInAllTeamsRequest', 'Required parameter "searchPostsInAllTeamsRequest" was null or undefined when calling searchPostsInAllTeams().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        headerParameters['Content-Type'] = 'application/json';
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/posts/search`;
+        return {
+            path: urlPath,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+            body: SearchPostsInAllTeamsRequestToJSON(requestParameters['searchPostsInAllTeamsRequest']),
+        };
+    }
+    async searchPostsInAllTeamsRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.searchPostsInAllTeamsRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => PostListWithSearchMatchesFromJSON(jsonValue));
+    }
+    async searchPostsInAllTeams(requestParameters, initOverrides) {
+        const response = await this.searchPostsInAllTeamsRaw(requestParameters, initOverrides);
         return await response.value();
     }
     async setPostUnreadRequestOpts(requestParameters) {

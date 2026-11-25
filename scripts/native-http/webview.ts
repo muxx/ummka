@@ -977,6 +977,8 @@ export function webviewServers(
         "save-post-reaction",
         "delete-post-reaction",
         "custom-emoji-by-name",
+        "custom-emoji-by-name",
+        "custom-emoji-by-name",
         "empty-post-reactions",
         "post-reactions",
         "patch-post",

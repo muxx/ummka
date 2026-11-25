@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { resolveComposerSubmission } from "../../../src/channels/composer-submission.ts";
+import { readCustomEmoji } from "../../../src/mattermost/account-custom-emoji.ts";
 import {
   Configuration,
   EmojiApi,
@@ -13,9 +15,11 @@ export async function checkCustomEmojiLookup(
   readerToken: string,
 ) {
   const headers = { Authorization: `Bearer ${adminToken}` };
-  const reader = new EmojiApi(
-    new Configuration({ basePath: base, accessToken: readerToken }),
-  );
+  const session = new Configuration({
+    basePath: base,
+    accessToken: readerToken,
+  });
+  const reader = new EmojiApi(session);
   const name = "fixture_wave";
   const form = new FormData();
   form.append("emoji", JSON.stringify({ name, creator_id: creatorId }));
@@ -40,6 +44,41 @@ export async function checkCustomEmojiLookup(
     EmojiToJSON(await reader.getEmojiByName({ emojiName: name })),
     wire,
   );
+  const requestedNames: string[] = [];
+  const account = {
+    readCustomEmoji(exactName: string, signal?: AbortSignal) {
+      requestedNames.push(exactName);
+      return readCustomEmoji(session, exactName, signal);
+    },
+  };
+  const submit = (message: string) =>
+    resolveComposerSubmission(
+      { message, scheduled: false, hasAttachments: false },
+      account,
+    );
+  assert.deepEqual(await submit("ordinary message"), { kind: "post" });
+  assert.deepEqual(await submit("/help private arguments"), {
+    kind: "command",
+  });
+  assert.deepEqual(await submit("-:+1:"), {
+    kind: "reaction",
+    action: "remove",
+    emoji: "+1",
+  });
+  assert.deepEqual(requestedNames, []);
+  assert.deepEqual(await submit("+:" + name + ":"), {
+    kind: "reaction",
+    action: "add",
+    emoji: name,
+  });
+  assert.deepEqual(await submit("+:Fixture_Wave:"), { kind: "post" });
+  assert.deepEqual(requestedNames, [name, "Fixture_Wave"]);
+  const found = await readCustomEmoji(session, name);
+  assert.equal(found.kind, "found");
+  if (found.kind === "found") assert.deepEqual(EmojiToJSON(found.emoji), wire);
+  assert.deepEqual(await readCustomEmoji(session, "Fixture_Wave"), {
+    kind: "missing",
+  });
   const anonymous = new EmojiApi(new Configuration({ basePath: base }));
   await assert.rejects(
     anonymous.getEmojiByName({ emojiName: name }),
@@ -69,7 +108,12 @@ export async function checkCustomEmojiLookup(
   }
   await enableCustomEmoji(false);
   try {
+    assert.deepEqual(await submit("-:" + name + ":"), { kind: "post" });
+    assert.deepEqual(requestedNames, [name, "Fixture_Wave", name]);
     await checkError(name, 501, "api.emoji.disabled.app_error");
+    assert.deepEqual(await readCustomEmoji(session, name), {
+      kind: "disabled",
+    });
   } finally {
     await enableCustomEmoji(true);
   }

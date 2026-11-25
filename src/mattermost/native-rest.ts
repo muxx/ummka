@@ -4,9 +4,11 @@ import {
   Configuration,
   PostsApi,
 } from "../../vendor/mattermost/index.js";
+import { readCustomEmoji } from "./account-custom-emoji.ts";
 import { accountDelivery } from "./account-delivery.ts";
 import { atDirectoryStep } from "./account-directory-error.ts";
 import { accountPostReactions } from "./account-post-reactions.ts";
+import { accountSearch } from "./account-search.ts";
 import { accountChannelAudience } from "./channel-audience.ts";
 import {
   type ChannelRefreshRequest,
@@ -129,6 +131,7 @@ export async function openAccountRestConnection(
   return {
     ...connection,
     ...accountPostReactions(config, userId, readWhileOpen),
+    ...accountSearch(config, readWhileOpen),
     ...accountChannelAudience(config, readWhileOpen),
     ...accountMentionGroups(config, readWhileOpen),
     readSavedProfiles(query: VisibleProfileQuery) {
@@ -148,6 +151,9 @@ export async function openAccountRestConnection(
     },
     readVisibleProfiles(query: VisibleProfileQuery, signal?: AbortSignal) {
       return readWhileOpen(() => loadVisibleProfiles(config, query, signal));
+    },
+    readCustomEmoji(emojiName: string, signal?: AbortSignal) {
+      return readWhileOpen(() => readCustomEmoji(config, emojiName, signal));
     },
     readAccountDirectory(signal?: AbortSignal) {
       return readWhileOpen(() => loadAccountDirectory(config, userId, signal));
