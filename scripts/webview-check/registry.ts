@@ -117,8 +117,10 @@ export async function resumeRegistryCheck(): Promise<boolean> {
       if (
         base === root
           ? catalog !== null
-          : catalog?.selectedChannel !== "c".repeat(26) ||
+          : teams?.teams[0]?.groupConstrained !== true ||
+            catalog?.selectedChannel !== "c".repeat(26) ||
             catalog.data.channels[0]?.createAt !== 90 ||
+            catalog.data.channels[0]?.groupConstrained !== true ||
             catalog.data.channels[0]?.mentionCountRoot !== 2 ||
             catalog.data.channels[0]?.roles !== "channel_user custom_writer" ||
             catalog.data.categories[0]?.kind !== "managed"
