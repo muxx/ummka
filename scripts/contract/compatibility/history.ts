@@ -747,7 +747,23 @@ const memberApi = new ChannelsApi(
   new Configuration({ basePath: base, accessToken: readerToken }),
 );
 assert.equal(reader.roles, "system_user");
-await checkUserTimezone(base, readerToken);
+await checkUserTimezone(
+  base,
+  readerToken,
+  reader.id,
+  team.id,
+  async (text, createAt) => {
+    const post = await (
+      await create(
+        "posts",
+        { channel_id: channelId, message: text, create_at: createAt },
+        token,
+      )
+    ).json();
+    assert.equal(post.create_at, createAt);
+    return post.id;
+  },
+);
 await checkUserNotifications(base, readerToken);
 await checkChannelNotifications(memberApi, channelId);
 const ownMembership = { channelId: joinable.id, userId: reader.id };

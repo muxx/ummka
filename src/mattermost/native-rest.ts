@@ -50,6 +50,7 @@ import {
 import { createPostActivity } from "./post-activity.ts";
 import { readPostDestination } from "./post-destination.ts";
 import { createRestTransport } from "./rest-transport.ts";
+import { readSearchTimezone } from "./search-timezone.ts";
 import { canonicalServerUrl } from "./server-url.ts";
 import { projectTeamSidebar, type TeamSidebar } from "./team-sidebar.ts";
 import { readThreadPage, type ThreadPageRequest } from "./thread-page.ts";
@@ -154,6 +155,12 @@ export async function openAccountRestConnection(
     ...accountSearch(config, readWhileOpen),
     readThreadPage(query: ThreadPageRequest, signal?: AbortSignal) {
       return readWhileOpen(() => readThreadPage(posts, query, signal), signal);
+    },
+    readSearchTimezone(signal?: AbortSignal) {
+      return readWhileOpen(
+        () => readSearchTimezone(config, userId, signal),
+        signal,
+      );
     },
     readPostAnchor(postId: string, signal?: AbortSignal) {
       return readWhileOpen(() => readPostAnchor(posts, postId, signal), signal);
