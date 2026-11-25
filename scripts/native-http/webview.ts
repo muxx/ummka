@@ -251,7 +251,14 @@ export function webviewServers(
       visits.push(account);
       return;
     }
-    const view = await respondToChannelView(req, res, url, channelId);
+    const view = await respondToChannelView(
+      req,
+      res,
+      url,
+      channelId,
+      teamId,
+      userId,
+    );
     if (view) {
       visits.push(view);
       return;
@@ -573,6 +580,7 @@ export function webviewServers(
         "sidebar-preferences",
         "bulk-channel-view",
         "single-channel-view",
+        "set-post-unread",
         "history-root",
         "history-prefixed",
         "history-focused-after",

@@ -34,6 +34,8 @@ import {
 import {
   correctBulkChannelView,
   correctChannelView,
+  correctSetPostUnread,
+  correctUnreadAt,
 } from "./read-state-corrections.ts";
 import { buildSpecification, readSource } from "./schema.ts";
 import {
@@ -221,6 +223,58 @@ test("checks both upstream channel-view bodies and the bulk operation before cor
   );
 });
 
+test("requires explicit unread support and detects changed upstream schemas on both versions", () => {
+  const path = "/api/v4/users/{user_id}/posts/{post_id}/set_unread";
+  const base = read("posts.yaml");
+  const next = read("posts-12.1.0.yaml");
+  const props = ["components", "schemas", "ChannelUnreadAt", "properties"];
+  assert.deepEqual(
+    at(contract, [
+      "paths",
+      path,
+      "post",
+      "requestBody",
+      "content",
+      "application/json",
+      "schema",
+      "required",
+    ]),
+    ["collapsed_threads_supported"],
+  );
+  for (const key of [
+    "msg_count_root",
+    "mention_count_root",
+    "urgent_mention_count",
+  ])
+    assert.deepEqual(at(contract, [...props, key]), {
+      type: "integer",
+      format: "int64",
+    });
+  assert.deepEqual(at(contract, [...props, "user_id"]), { type: "string" });
+  for (const newer of [false, true]) {
+    const modified = structuredClone(newer ? next : base);
+    object(at(modified, [path, "post"]), "post").requestBody = {};
+    assert.throws(
+      () =>
+        correctSetPostUnread(
+          object(at(newer ? base : modified, [path, "post"]), "post"),
+          newer ? modified : next,
+          path,
+        ),
+      /Review SetPostUnread/,
+    );
+    const raw = read("definitions.yaml"),
+      ref = read("definitions-12.1.0.yaml");
+    object(at(newer ? ref : raw, props), "unread").msg_count_root = {
+      type: "integer",
+    };
+    assert.throws(
+      () => correctUnreadAt(object(at(raw, props.slice(0, -1)), "unread"), ref),
+      /Review ChannelUnreadAt/,
+    );
+  }
+});
+
 test("retains the catalog operations, security and transitive models", () => {
   for (const { file, path, method } of catalog) {
     const key = [path, method.toLowerCase()];
@@ -246,6 +300,8 @@ test("retains the catalog operations, security and transitive models", () => {
       expected = correctChannelView(source, read("channels-12.1.0.yaml"), path);
     if (source.operationId === "MarkChannelsReadForUser")
       expected = correctBulkChannelView(source, read("channels.yaml"), path);
+    if (source.operationId === "SetPostUnread")
+      expected = correctSetPostUnread(source, read("posts-12.1.0.yaml"), path);
     if (path === sidebar) expected = correctSidebarResponse(source);
     if (path === profileImage) expected = correctProfileImage(source);
     assert.deepEqual(actual, expected);
@@ -254,6 +310,11 @@ test("retains the catalog operations, security and transitive models", () => {
     const source = at(definitions, path);
     const name = path[2];
     let expected = source;
+    if (name === "ChannelUnreadAt")
+      expected = correctUnreadAt(
+        object(source, name),
+        read("definitions-12.1.0.yaml"),
+      );
     if (name === "User") expected = correctUserProfile(object(source, name));
     if (["Channel", "ChannelMember", "TeamMember"].includes(name))
       expected = correctSidebarSchema(name, object(source, name));
@@ -272,6 +333,7 @@ test("retains the catalog operations, security and transitive models", () => {
       "Channel",
       "ChannelMember",
       "ChannelNotifyProps",
+      "ChannelUnreadAt",
       "Emoji",
       "FileInfo",
       "OrderedSidebarCategories",

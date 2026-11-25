@@ -26,6 +26,8 @@ import {
 import {
   correctBulkChannelView,
   correctChannelView,
+  correctSetPostUnread,
+  correctUnreadAt,
 } from "./read-state-corrections.ts";
 import {
   correctSidebarResponse,
@@ -97,6 +99,8 @@ export function buildSpecification(
       throw new Error(`Missing component ${kind}/${name}`);
     const source = object(upstream[name], `components/${kind}/${name}`);
     if (kind !== "schemas") group[name] = source;
+    else if (name === "ChannelUnreadAt")
+      group[name] = correctUnreadAt(source, read("definitions-12.1.0.yaml"));
     else if (name === "User") group[name] = correctUserProfile(source);
     else
       group[name] = correctSidebarSchema(
@@ -139,7 +143,15 @@ export function buildSpecification(
     if (!path.startsWith("/api/v4/"))
       throw new Error(`Expected a REST v4 path: ${path}`);
     const sourcePath = object(read(file)[path], path);
-    const operation = object(sourcePath[method], `${method} ${path}`);
+    const originalOperation = object(sourcePath[method], `${method} ${path}`);
+    const operation =
+      id === "SetPostUnread"
+        ? correctSetPostUnread(
+            originalOperation,
+            read("posts-12.1.0.yaml"),
+            path,
+          )
+        : originalOperation;
     if (operation.operationId !== id)
       throw new Error(`Expected operation ${id} at ${method} ${path}`);
     if (id === "GetPostInfo")

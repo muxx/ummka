@@ -70,3 +70,82 @@ export function correctBulkChannelView(
   viewTimes(copy).additionalProperties = { type: "integer", format: "int64" };
   return copy;
 }
+
+// WebApp passes the CRT flag to this action in both server versions.
+// https://github.com/mattermost/mattermost/blob/v10.10.1/server/channels/api4/post.go#L1005-L1030
+// https://github.com/mattermost/mattermost/blob/v12.1.0/server/channels/api4/post.go#L1352-L1378
+export function correctSetPostUnread(
+  operation: Fields,
+  referencePaths: Fields,
+  path: string,
+): Fields {
+  const reference = object(object(referencePaths[path], path).post, path);
+  for (const raw of [operation, reference]) {
+    const result = jsonSchema(
+      object(raw.responses, "SetPostUnread")["200"],
+      "SetPostUnread",
+    );
+    if (
+      raw.operationId !== "SetPostUnread" ||
+      "requestBody" in raw ||
+      result.$ref !== "#/components/schemas/ChannelUnreadAt"
+    )
+      throw Error("Review SetPostUnread against the pinned sources");
+  }
+  return {
+    ...operation,
+    requestBody: {
+      required: true,
+      content: {
+        "application/json": {
+          schema: {
+            type: "object",
+            required: ["collapsed_threads_supported"],
+            properties: { collapsed_threads_supported: { type: "boolean" } },
+          },
+        },
+      },
+    },
+  };
+}
+
+const unreadCounts = [
+  "msg_count_root",
+  "mention_count_root",
+  "urgent_mention_count",
+];
+// https://github.com/mattermost/mattermost/blob/v10.10.1/server/public/model/channel_member.go#L41-L52
+// https://github.com/mattermost/mattermost/blob/v12.1.0/server/public/model/channel_member.go#L42-L53
+export function correctUnreadAt(schema: Fields, referenceDefinitions: Fields) {
+  const structs = object(
+    object(referenceDefinitions.components, "v12 components").schemas,
+    "v12 schemas",
+  );
+  const reference = object(structs.ChannelUnreadAt, "v12 ChannelUnreadAt");
+  for (const raw of [schema, reference]) {
+    const fields = object(raw.properties, "ChannelUnreadAt fields");
+    if (
+      raw.type !== "object" ||
+      object(fields.team_id, "team").type !== "string" ||
+      object(fields.channel_id, "channel").type !== "string" ||
+      ["msg_count", "mention_count", "last_viewed_at"].some(
+        (k) => object(fields[k], k).type !== "integer",
+      ) ||
+      ["user_id", ...unreadCounts].some((k) => k in fields)
+    )
+      throw Error("Review ChannelUnreadAt against the pinned sources");
+  }
+  const fields = {
+    ...object(schema.properties, "ChannelUnreadAt"),
+    user_id: { type: "string" },
+  };
+  return {
+    ...schema,
+    properties: {
+      ...fields,
+      ...Object.fromEntries(
+        unreadCounts.map((k) => [k, { type: "integer", format: "int64" }]),
+      ),
+    },
+  };
+}

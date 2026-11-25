@@ -1,6 +1,7 @@
 import {
   ChannelsApi,
   type Configuration,
+  PostsApi,
   PreferencesApi,
   TeamsApi,
 } from "../../vendor/mattermost/index.js";
@@ -59,6 +60,23 @@ export async function checkTeamReads(
   )
     throw Error("generated channel read timestamps");
   const userId = "Abc01234567890123456789012";
+  const unread = await new PostsApi(prefixed).setPostUnread({
+    userId: "me",
+    postId: "p".repeat(26),
+    setPostUnreadRequest: { collapsedThreadsSupported: true },
+  });
+  if (
+    unread.teamId !== teamId ||
+    unread.userId !== userId ||
+    unread.channelId !== channelId ||
+    unread.msgCount !== 27 ||
+    unread.msgCountRoot !== 24 ||
+    unread.mentionCount !== 7 ||
+    unread.mentionCountRoot !== 3 ||
+    unread.urgentMentionCount !== 2 ||
+    unread.lastViewedAt !== 110
+  )
+    throw Error("generated unread marker");
   const members = await api.getChannelMembersForUser({ userId, teamId });
   if (
     members.length !== 1 ||

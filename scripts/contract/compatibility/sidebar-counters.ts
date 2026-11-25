@@ -4,6 +4,7 @@ import { projectTeamSidebar } from "../../../src/mattermost/team-sidebar.ts";
 import {
   ChannelsApi,
   Configuration,
+  PostsApi,
   ResponseError,
 } from "../../../vendor/mattermost/index.js";
 
@@ -104,6 +105,25 @@ export async function checkSidebarCounters(
     rootMentions: 0,
     urgent: 0,
   });
+  const unread = await new PostsApi(session).setPostUnread({
+    userId: "me",
+    postId: root.id,
+    setPostUnreadRequest: { collapsedThreadsSupported: true },
+  });
+  const marked = await counts();
+  assert.equal(unread.teamId, teamId);
+  assert.equal(unread.userId, userId);
+  assert.equal(unread.channelId, channelId);
+  assert.ok(
+    typeof unread.lastViewedAt === "number" &&
+      unread.lastViewedAt <= root.create_at,
+  );
+  assert.equal(unread.msgCount, marked.seen);
+  assert.equal(unread.msgCountRoot, marked.seenRoots);
+  assert.equal(unread.mentionCount, marked.mentions);
+  assert.equal(unread.mentionCountRoot, marked.rootMentions);
+  assert.equal(unread.urgentMentionCount, marked.urgent);
+  assert.ok(marked.seen < marked.total && marked.rootMentions > 0);
   await prepareBulkRead();
   const batch = { userId: "me", requestBody: [channelId, otherChannelId] };
   const bulk = await api.markChannelsReadForUser(batch);
