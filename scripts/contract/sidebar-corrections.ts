@@ -96,3 +96,32 @@ export function correctSidebarSchema(name: string, source: Fields): Fields {
     next[field] = { type: "integer", format: "int64" };
   return { ...model, properties: next };
 }
+
+// Both tagged Go models always serialize Channel.Shared, including a nil pointer.
+// https://github.com/mattermost/mattermost/blob/v10.10.1/server/public/model/channel.go#L97
+// https://github.com/mattermost/mattermost/blob/v12.1.0/server/public/model/channel.go#L104
+export function correctChannelSharing(
+  source: Fields,
+  newerDefinitions: Fields,
+): Fields {
+  const components = object(newerDefinitions.components, "newer components");
+  const schemas = object(components.schemas, "newer schemas");
+  for (const model of [source, object(schemas.Channel, "newer Channel")]) {
+    const properties = object(model.properties, "Channel properties");
+    if (
+      model.type !== "object" ||
+      object(properties.type, "channel type").type !== "string" ||
+      Object.hasOwn(properties, "shared")
+    )
+      throw Error(
+        "Review the Channel.shared correction against the pinned sources",
+      );
+  }
+  return {
+    ...source,
+    properties: {
+      ...object(source.properties, "Channel properties"),
+      shared: { type: "boolean", nullable: true },
+    },
+  };
+}

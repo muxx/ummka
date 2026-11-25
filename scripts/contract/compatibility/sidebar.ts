@@ -33,6 +33,22 @@ export async function checkSidebarReads(
 ) {
   const config = new Configuration({ basePath: base, accessToken: token });
   const channels = new ChannelsApi(config);
+  const response = await channels.getChannelsForTeamForUserRaw({
+    userId,
+    teamId,
+  });
+  const raw: { id: string; shared: boolean | null }[] = await response.raw
+    .clone()
+    .json();
+  const decoded = await response.value();
+  for (const id of [channelId, directIdToRead]) {
+    const wire = raw.find((channel) => channel.id === id);
+    const typed = decoded.find((channel) => channel.id === id);
+    assert.ok(wire && typed);
+    assert.ok(Object.hasOwn(wire, "shared"));
+    assert.ok(wire.shared === false || wire.shared === null);
+    assert.equal(typed.shared ?? null, wire.shared);
+  }
   const preferences = new PreferencesApi(config);
   const scope = { userId: "me", teamId };
   const initial = await channels.getSidebarCategoriesForTeamForUser(scope);
