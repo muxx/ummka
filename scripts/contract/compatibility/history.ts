@@ -22,7 +22,10 @@ import {
   ResponseError,
   UsersApi,
 } from "../../../vendor/mattermost/index.js";
-import { checkBrowserSignIn } from "./browser-sign-in.ts";
+import {
+  allowFixtureBrowserSignIn,
+  checkBrowserSignIn,
+} from "./browser-sign-in.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
 import {
   checkEmptyTeamDirectory,
@@ -747,6 +750,7 @@ const previous = await fetch(`${base}/api/v4/users/me`, {
 });
 assert.equal(previous.status, 200);
 assert.equal((await previous.json()).id, user.id);
+await allowFixtureBrowserSignIn(base, token);
 const logout = await fetch(`${base}/api/v4/users/logout`, {
   method: "POST",
   headers: authorization,

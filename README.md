@@ -24,3 +24,5 @@ Client-side Mattermost plugins are outside the project scope.
 ## Installation
 
 [Build from source](docs/build-from-source.md)
+
+For browser sign-in on a self-hosted installation, allow the ummka callback scheme in Mattermost. [Server setup](docs/server-setup.md)

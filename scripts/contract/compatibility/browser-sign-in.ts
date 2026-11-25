@@ -3,6 +3,42 @@ import { Configuration, UsersApi } from "../../../vendor/mattermost/index.js";
 
 const callback = "io.github.muxx.ummka.auth://callback";
 
+// This runs only against the disposable Compose server, before the fixture signs out its administrator.
+export async function allowFixtureBrowserSignIn(base: string, admin: string) {
+  const start = new URL(`${base}/oauth/gitlab/mobile_login`);
+  start.searchParams.set("redirect_to", callback);
+  const refused = await fetch(start, { redirect: "manual" });
+  assert.equal(refused.headers.get("location"), null);
+  assert.match(
+    await refused.text(),
+    /Invalid custom url scheme has been provided/u,
+  );
+  const headers = {
+    Authorization: `Bearer ${admin}`,
+    "Content-Type": "application/json",
+  };
+  const current = await fetch(`${base}/api/v4/config`, { headers });
+  assert.equal(current.status, 200);
+  const schemes = (await current.json()).NativeAppSettings.AppCustomURLSchemes;
+  assert.deepEqual(schemes, ["mmauth://", "mmauthbeta://"]);
+  const allowed = [...schemes, "io.github.muxx.ummka.auth://"];
+  const changed = await fetch(`${base}/api/v4/config/patch`, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({
+      NativeAppSettings: { AppCustomURLSchemes: allowed },
+    }),
+  });
+  assert.equal(changed.status, 200);
+  assert.deepEqual(
+    (await changed.json()).NativeAppSettings.AppCustomURLSchemes,
+    allowed,
+  );
+  console.log(
+    "The stock callback list refused ummka. The fixture administrator added ummka and preserved the official schemes.",
+  );
+}
+
 export async function checkBrowserSignIn(
   base: string,
   version: string,
