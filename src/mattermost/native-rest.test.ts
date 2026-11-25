@@ -8,6 +8,7 @@ import {
   openNativeRestConnection,
 } from "./native-rest.ts";
 import * as directory from "./navigation-data.ts";
+import * as profiles from "./visible-profiles.ts";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const ipc = vi.mocked(invoke);
@@ -75,6 +76,35 @@ test.each(["close", "signOut", "signOutOnDevice"] as const)(
     expect(ipc).toHaveBeenCalledTimes(3);
   },
 );
+
+test("does not deliver an already received profile batch to a replaced connection", async () => {
+  ipc.mockResolvedValueOnce(41);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    "u".repeat(26),
+  );
+  let complete!: () => void;
+  const fetch = vi.spyOn(profiles, "loadVisibleProfiles").mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        complete = () => resolve([]);
+      }),
+  );
+  try {
+    const query = { ids: ["p".repeat(26)], usernames: [] };
+    const pending = account.readVisibleProfiles(query);
+    ipc.mockResolvedValueOnce(undefined);
+    await account.close();
+    complete();
+    await expect(pending).rejects.toBe("cancelled");
+    await expect(account.readVisibleProfiles(query)).rejects.toBe(
+      "unknown_connection",
+    );
+    expect(fetch).toHaveBeenCalledOnce();
+  } finally {
+    fetch.mockRestore();
+  }
+});
 
 test("lists and forgets accounts for the exact canonical installation", async () => {
   const server = "https://CHAT.example.test/Team///";
@@ -159,6 +189,7 @@ test("opens a native account by installation and user ID", async () => {
     "readJoinedTeams",
     "readTeamDirectory",
     "readTeamSidebar",
+    "readVisibleProfiles",
     "refreshChannelHistory",
     "refreshJoinedTeams",
     "refreshTeamSidebar",
