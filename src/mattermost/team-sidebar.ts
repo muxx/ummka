@@ -17,6 +17,8 @@ export function projectTeamSidebar({
       if (
         !isMattermostId(c.id) ||
         !c.type ||
+        (c.groupConstrained != null &&
+          typeof c.groupConstrained !== "boolean") ||
         (c.shared != null && typeof c.shared !== "boolean") ||
         c.name === undefined ||
         c.displayName === undefined ||
@@ -33,6 +35,7 @@ export function projectTeamSidebar({
         createAt: amount(c.createAt),
         deleteAt: c.deleteAt,
         shared: c.shared === true,
+        groupConstrained: c.groupConstrained === true,
         lastPostAt: amount(c.lastPostAt),
         lastRootPostAt: amount(c.lastRootPostAt),
         totalMsgCount: amount(c.totalMsgCount),
@@ -71,8 +74,12 @@ export function projectTeamSidebar({
   };
 }
 type FreshSidebar = ReturnType<typeof projectTeamSidebar>;
-type SavedChannel = Omit<FreshSidebar["channels"][number], "shared"> & {
+type SavedChannel = Omit<
+  FreshSidebar["channels"][number],
+  "shared" | "groupConstrained"
+> & {
   shared?: boolean;
+  groupConstrained?: boolean;
 };
 
 export type TeamSidebar = {

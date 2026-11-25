@@ -181,6 +181,7 @@ test("projects each channel counter and category setting independently", async (
         name: a,
         displayName: "Project",
         shared: false,
+        groupConstrained: false,
         header: "Header",
         purpose: "Purpose",
         deleteAt: 0,
@@ -366,6 +367,26 @@ test("the saved channel retains the observed shared flag and rejects invalid val
       expect(() => projectTeamSidebar(directory)).toThrow(TypeError);
     else
       expect(projectTeamSidebar(directory).channels[0]?.shared).toBe(
+        value === true,
+      );
+  }
+});
+
+test("publishes the channel's observed group constraint independently of channel privacy", async () => {
+  for (const value of [true, false, null, undefined, "false"]) {
+    const config = response(
+      [{ ...channel(a), type: "P", group_constrained: value }],
+      [member(a)],
+      {
+        order: [],
+        categories: [],
+      },
+    );
+    const directory = await loadTeamDirectory(config, user, team);
+    if (typeof value === "string")
+      expect(() => projectTeamSidebar(directory)).toThrow(TypeError);
+    else
+      expect(projectTeamSidebar(directory).channels[0]?.groupConstrained).toBe(
         value === true,
       );
   }

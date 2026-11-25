@@ -27,6 +27,7 @@ fn join(db: &mut AccountHistory, ids: &[&str]) {
             display_name: (*id).into(),
             preference_rank: None,
             roles: Some("team_user".into()),
+            group_constrained: None,
         })
         .collect();
     let load = db.begin_team_directory_load().unwrap();
