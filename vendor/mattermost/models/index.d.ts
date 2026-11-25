@@ -21,6 +21,7 @@ export * from './PostMetadataImagesValue.js';
 export * from './PostMetadataPriority.js';
 export * from './Preference.js';
 export * from './Reaction.js';
+export * from './Role.js';
 export * from './SetPostUnreadRequest.js';
 export * from './SidebarCategoryWithChannels.js';
 export * from './StatusOK.js';

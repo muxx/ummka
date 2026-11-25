@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import https from "node:https";
 import type { Socket } from "node:net";
+import { json } from "node:stream/consumers";
 import { respondToAccount } from "./account.ts";
 import { respondToChannelMembers } from "./channel-members.ts";
 import { respondToChannelView } from "./channel-view.ts";
@@ -189,7 +190,12 @@ export function webviewServers(
       {
         name: "directory-channel-members",
         body: [
-          { channel_id: channelId, user_id: userId, mention_count_root: 2 },
+          {
+            channel_id: channelId,
+            user_id: userId,
+            roles: "channel_user custom_writer",
+            mention_count_root: 2,
+          },
         ],
       },
     ],
@@ -241,6 +247,42 @@ export function webviewServers(
       return;
     }
     if (refresh.handle(req, res, url)) return;
+    if (url.pathname === "/team/chat/api/v4/roles/names") {
+      assert.equal(req.method, "POST");
+      assert.equal(url.search, "");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      assert.equal(req.headers["content-type"], "application/json");
+      const names = await json(req);
+      if (Array.isArray(names) && names.length === 1) {
+        assert.deepEqual(names, ["fixture_missing"]);
+        visits.push("absent-roles");
+        res.writeHead(200, { "Content-Type": "application/json" }).end("null");
+        return;
+      }
+      assert.deepEqual(names, ["team_guest", "channel_user"]);
+      visits.push("role-definitions");
+      res.writeHead(200, { "Content-Type": "application/json" }).end(
+        JSON.stringify([
+          {
+            name: "channel_user",
+            display_name: "Channel member",
+            scheme_managed: true,
+            permissions: ["read_channel", "create_post"],
+          },
+          {
+            name: "team_guest",
+            display_name: "Team guest",
+            scheme_managed: true,
+            permissions: [],
+          },
+        ]),
+      );
+      return;
+    }
     if (url.pathname.startsWith("/offline-history/")) {
       offlineHistoryRequests++;
       res.writeHead(503, { "Content-Type": "application/json" }).end(
@@ -633,6 +675,8 @@ export function webviewServers(
         "member-id",
         "members-page",
         "members-batch",
+        "role-definitions",
+        "absent-roles",
         "set-post-unread",
         "history-root",
         "history-prefixed",
