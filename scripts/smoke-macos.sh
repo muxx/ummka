@@ -31,11 +31,40 @@ on containsServerField(node, insideWebArea)
     return false
 end containsServerField
 
-on hasNativeControls(win)
-    local controlSubroles
-    tell application "System Events" to set controlSubroles to get subrole of every button of win
-    return controlSubroles contains "AXCloseButton" and controlSubroles contains "AXMinimizeButton" and (controlSubroles contains "AXFullScreenButton" or controlSubroles contains "AXZoomButton")
-end hasNativeControls
+on nativeControlsAligned(win)
+    local controlSubrole, seen
+    tell application "System Events"
+        set {windowLeft, windowTop} to position of win
+        set seen to {}
+        repeat with btn in buttons of win
+            set controlSubrole to subrole of btn
+            if controlSubrole is in {"AXCloseButton", "AXMinimizeButton", "AXZoomButton", "AXFullScreenButton"} then
+                set {btnLeft, btnTop} to position of btn
+                set {btnWidth, btnHeight} to size of btn
+                set centerY to btnTop + btnHeight / 2 - windowTop
+                if centerY < 22 or centerY > 24 then return false
+                if btnLeft + btnWidth - windowLeft > 80 then return false
+                if controlSubrole is "AXCloseButton" then
+                    set centerX to btnLeft + btnWidth / 2 - windowLeft
+                    if centerX < 23 or centerX > 25 then return false
+                end if
+                set end of seen to controlSubrole
+            end if
+        end repeat
+    end tell
+    return seen contains "AXCloseButton" and seen contains "AXMinimizeButton" and (seen contains "AXZoomButton" or seen contains "AXFullScreenButton")
+end nativeControlsAligned
+
+on checkControlsAtSize(win, targetSize)
+    tell application "System Events"
+        set size of win to targetSize
+        repeat 20 times
+            if (size of win is targetSize) and my nativeControlsAligned(win) then return
+            delay 0.1
+        end repeat
+    end tell
+    error "The native window buttons are not centered on the 46-point header."
+end checkControlsAtSize
 
 on run argv
     set appPid to (item 1 of argv) as integer
@@ -43,7 +72,13 @@ on run argv
         set proc to first application process whose unix id is appPid
         repeat 40 times
             if exists window 1 of proc then
-                if my containsServerField(window 1 of proc, false) and my hasNativeControls(window 1 of proc) then return
+                set win to window 1 of proc
+                if my containsServerField(win, false) and my nativeControlsAligned(win) then
+                    set originalSize to size of win
+                    my checkControlsAtSize(win, {400, item 2 of originalSize})
+                    my checkControlsAtSize(win, originalSize)
+                    return
+                end if
             end if
             delay 0.1
         end repeat

@@ -1,6 +1,8 @@
 import * as runtime from '../runtime.js';
+import { ChannelUnreadAtFromJSON, } from '../models/ChannelUnreadAt.js';
 import { PostInfoFromJSON, } from '../models/PostInfo.js';
 import { PostListFromJSON, } from '../models/PostList.js';
+import { SetPostUnreadRequestToJSON, } from '../models/SetPostUnreadRequest.js';
 export class PostsApi extends runtime.BaseAPI {
     async getPostInfoRequestOpts(requestParameters) {
         if (requestParameters['postId'] == null) {
@@ -147,6 +149,46 @@ export class PostsApi extends runtime.BaseAPI {
     }
     async getPostsForChannel(requestParameters, initOverrides) {
         const response = await this.getPostsForChannelRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async setPostUnreadRequestOpts(requestParameters) {
+        if (requestParameters['userId'] == null) {
+            throw new runtime.RequiredError('userId', 'Required parameter "userId" was null or undefined when calling setPostUnread().');
+        }
+        if (requestParameters['postId'] == null) {
+            throw new runtime.RequiredError('postId', 'Required parameter "postId" was null or undefined when calling setPostUnread().');
+        }
+        if (requestParameters['setPostUnreadRequest'] == null) {
+            throw new runtime.RequiredError('setPostUnreadRequest', 'Required parameter "setPostUnreadRequest" was null or undefined when calling setPostUnread().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        headerParameters['Content-Type'] = 'application/json';
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/users/{user_id}/posts/{post_id}/set_unread`;
+        urlPath = urlPath.replace('{user_id}', encodeURIComponent(String(requestParameters['userId'])));
+        urlPath = urlPath.replace('{post_id}', encodeURIComponent(String(requestParameters['postId'])));
+        return {
+            path: urlPath,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+            body: SetPostUnreadRequestToJSON(requestParameters['setPostUnreadRequest']),
+        };
+    }
+    async setPostUnreadRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.setPostUnreadRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => ChannelUnreadAtFromJSON(jsonValue));
+    }
+    async setPostUnread(requestParameters, initOverrides) {
+        const response = await this.setPostUnreadRaw(requestParameters, initOverrides);
         return await response.value();
     }
 }

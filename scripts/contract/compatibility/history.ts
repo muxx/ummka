@@ -22,7 +22,10 @@ import {
   ResponseError,
   UsersApi,
 } from "../../../vendor/mattermost/index.js";
-import { checkBrowserSignIn } from "./browser-sign-in.ts";
+import {
+  allowFixtureBrowserSignIn,
+  checkBrowserSignIn,
+} from "./browser-sign-in.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
 import {
   checkEmptyTeamDirectory,
@@ -519,12 +522,16 @@ await checkSidebarCounters(
   channelId,
   readerLogin.login_id,
   message,
+  dm.id,
   () =>
-    create(
-      "channels/members/me/view",
-      { channel_id: channelId, collapsed_threads_supported: true },
-      readerToken,
-    ),
+    Promise.all([
+      message("A new root for the bulk read"),
+      create(
+        "posts",
+        { channel_id: dm.id, message: "Another unread direct post" },
+        token,
+      ),
+    ]),
 );
 console.log(
   `Mattermost ${version} verified root and reply counters through a channel view.`,
@@ -536,6 +543,7 @@ await checkSidebarReads(
   user.id,
   team.id,
   channelId,
+  dm.id,
 );
 console.log(
   `Mattermost ${version} verified personal sidebar categories, order, flags, preferences and ownership.`,
@@ -747,6 +755,7 @@ const previous = await fetch(`${base}/api/v4/users/me`, {
 });
 assert.equal(previous.status, 200);
 assert.equal((await previous.json()).id, user.id);
+await allowFixtureBrowserSignIn(base, token);
 const logout = await fetch(`${base}/api/v4/users/logout`, {
   method: "POST",
   headers: authorization,

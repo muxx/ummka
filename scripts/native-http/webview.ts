@@ -5,9 +5,11 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import https from "node:https";
 import type { Socket } from "node:net";
 import { respondToAccount } from "./account.ts";
+import { respondToChannelView } from "./channel-view.ts";
 import { respondToHistory } from "./history.ts";
 import { historyRefreshFixture } from "./history-refresh.ts";
 import { respondToPostContext } from "./post-context.ts";
+import { respondToWorkspace } from "./workspace.ts";
 
 export function webviewServers(
   trusted: https.ServerOptions,
@@ -243,11 +245,28 @@ export function webviewServers(
       );
       return;
     }
+    const workspace = await respondToWorkspace(req, res, url, userId);
+    if (workspace) {
+      visits.push(workspace);
+      return;
+    }
     const account = respondToAccount(req, res, url, userId, (name) =>
       events.emit(name),
     );
     if (account) {
       visits.push(account);
+      return;
+    }
+    const view = await respondToChannelView(
+      req,
+      res,
+      url,
+      channelId,
+      teamId,
+      userId,
+    );
+    if (view) {
+      visits.push(view);
       return;
     }
     const post = respondToPostContext(req, res, url, channelId, teamId);
@@ -565,11 +584,15 @@ export function webviewServers(
         "team-memberships",
         "sidebar-categories",
         "sidebar-preferences",
+        "bulk-channel-view",
+        "single-channel-view",
+        "set-post-unread",
         "history-root",
         "history-prefixed",
         "history-focused-after",
         "history-focused-before",
         "history-anonymous",
+        "saved-room-history",
         "post-info-root",
         "post-info-prefixed",
         "post-thread-archive",
@@ -600,6 +623,19 @@ export function webviewServers(
           "browser-action-confirmed",
           "browser-entry-unconfirmed",
           "browser-entry-unconfirmed",
+          "live-config/client",
+          "live-license/client",
+          "live-channels",
+          "live-members",
+          "live-categories",
+          "live-channels",
+          "live-members",
+          "live-categories",
+          "live-posts-" + "c".repeat(26),
+          "live-posts-" + "d".repeat(26),
+          "live-posts-" + "d".repeat(26),
+          "live-authors",
+          "live-authors",
           "browser-entry-config/client",
           "browser-entry-license/client",
           ...[
