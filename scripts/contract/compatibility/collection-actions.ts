@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { accountCollectionActions } from "../../../src/mattermost/post-collection-actions.ts";
 import {
   ChannelsApi,
   type Configuration,
@@ -57,6 +58,20 @@ export async function checkCollectionActions(
   await assert.rejects(preferences.updatePreferences(foreign), denied);
   await assert.rejects(preferences.deletePreferences(foreign), denied);
   assert.deepEqual(await saved(observerPosts), []);
+  const actions = accountCollectionActions(reader, readerId, (change) =>
+    change(),
+  );
+  await actions.setPostSaved(postId, true);
+  assert.deepEqual(await saved(posts), [postId]);
+  assert.deepEqual(await saved(observerPosts), []);
+  await actions.setPostPinned(postId, false);
+  assert.deepEqual(await pinned(), []);
+  assert.deepEqual(await saved(posts), [postId]);
+  await actions.setPostSaved(postId, false);
+  assert.deepEqual(await saved(posts), []);
+  await actions.setPostPinned(postId, true);
+  assert.deepEqual(await pinned(), [postId]);
+  await assert.rejects(actions.setPostPinned(privatePostId, true), denied);
   console.log(
     `Mattermost ${version} verified channel pins and personal saved preferences change independently.`,
   );

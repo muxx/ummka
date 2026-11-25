@@ -54,7 +54,10 @@ import {
 } from "./memberships.ts";
 import { checkMentionLimit } from "./mention-limit.ts";
 import { checkMentionText } from "./mention-text.ts";
-import { checkPostCollections } from "./post-collections.ts";
+import {
+  checkPostCollections,
+  checkSavedPageBoundary,
+} from "./post-collections.ts";
 import {
   checkPostMutations,
   checkPreviouslyAcceptedPost,
@@ -1210,6 +1213,13 @@ console.log(
 await checkEventStream(base, token, session, team.id, channelId);
 console.log(
   `Mattermost ${version} verified sequenced posts, command replies and replay of a post after reconnect.`,
+);
+
+await checkSavedPageBoundary(
+  base,
+  { id: reader.id, token: readerToken },
+  dm.id,
+  version,
 );
 
 const secondLogin = await create("users/login", {
