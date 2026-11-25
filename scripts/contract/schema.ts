@@ -46,6 +46,7 @@ import {
   correctCreatePost,
   correctPatchPost,
 } from "./post-mutation-corrections.ts";
+import { correctPostSearchResults } from "./post-search-corrections.ts";
 import {
   correctProfileImage,
   correctUserProfile,
@@ -157,6 +158,11 @@ export function buildSpecification(
       group[name] = correctMentionGroup(
         source,
         read("definitions-12.1.0.yaml"),
+      );
+    else if (name === "PostListWithSearchMatches")
+      group[name] = correctPostSearchResults(
+        source,
+        object(upstream.PostList, "PostList"),
       );
     else if (name === "Reaction")
       group[name] = correctReaction(source, read("definitions-12.1.0.yaml"));

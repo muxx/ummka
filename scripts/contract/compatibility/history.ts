@@ -42,6 +42,7 @@ import {
   checkPostMutations,
   checkPreviouslyAcceptedPost,
 } from "./post-mutations.ts";
+import { checkPostSearch } from "./post-search.ts";
 import { checkProfileReads } from "./profile-reads.ts";
 import { checkReactionActions } from "./reaction-actions.ts";
 import { checkPostReactions } from "./reactions.ts";
@@ -566,6 +567,14 @@ const extraTeam = await (
     token,
   )
 ).json();
+await checkPostSearch(
+  session,
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  team.id,
+  channelId,
+  extraTeam.id,
+  version,
+);
 await create(
   `teams/${extraTeam.id}/members`,
   { team_id: extraTeam.id, user_id: reader.id },

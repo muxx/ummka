@@ -891,6 +891,7 @@ test("retains the catalog operations, security and transitive models", () => {
       "PostAcknowledgement",
       "PostInfo",
       "PostList",
+      "PostListWithSearchMatches",
       "PostMetadata",
       "Preference",
       "Reaction",
@@ -1575,6 +1576,9 @@ test("requires the HTTP verb in its wire spelling", () => {
 const {
   Configuration,
   SystemApi,
+  PostsApi,
+  PostListWithSearchMatchesFromJSON,
+  PostListWithSearchMatchesToJSON,
   PostListFromJSON,
   GetGroupsAssociatedToChannelsByTeam200ResponseFromJSON,
   GetGroupsAssociatedToChannelsByTeam200ResponseToJSON,
@@ -1916,4 +1920,71 @@ test("emoji compatibility checks reject changed aliases and duplicate names befo
     assert.notEqual(run().status, 0);
     assert.equal(readFileSync(target, "utf8"), original);
   }
+});
+
+test("post search preserves filters, scope, server ordering, matches and history boundaries", async () => {
+  const postId = "p".repeat(26),
+    teamId = "t".repeat(26),
+    channelId = "c".repeat(26);
+  const params = {
+    terms: "from:fixture in:town-square polar",
+    isOrSearch: false,
+    timeZoneOffset: 10800,
+    includeDeletedChannels: true,
+    page: 1,
+    perPage: 40,
+  };
+  const raw = {
+    order: [postId],
+    posts: {
+      [postId]: { id: postId, channel_id: channelId, message: "polar sample" },
+    },
+    matches: { [postId]: ["polar", "sample"] },
+    next_post_id: "next",
+    prev_post_id: "prev",
+    has_next: false,
+    first_inaccessible_post_time: 42,
+  };
+  const paths: string[] = [];
+  const api = new PostsApi(
+    new Configuration({
+      basePath: "https://example.test/mattermost",
+      fetchApi: async (url: string, init: RequestInit) => {
+        paths.push(new URL(url).pathname);
+        assert.equal(init.method, "POST");
+        assert.deepEqual(JSON.parse(String(init.body)), {
+          terms: params.terms,
+          is_or_search: false,
+          time_zone_offset: 10800,
+          include_deleted_channels: true,
+          page: 1,
+          per_page: 40,
+        });
+        return Response.json(raw);
+      },
+    }),
+  );
+  for (const result of [
+    await api.searchPosts({ teamId, searchPostsRequest: params }),
+    await api.searchPostsInAllTeams({ searchPostsInAllTeamsRequest: params }),
+  ]) {
+    assert.deepEqual(result.order, [postId]);
+    assert.deepEqual(result.matches[postId], ["polar", "sample"]);
+    assert.equal(result.posts[postId].channelId, channelId);
+    assert.equal(result.firstInaccessiblePostTime, 42);
+    assert.equal(result.hasNext, false);
+    assert.equal(result.prevPostId, "prev");
+    assert.equal(result.nextPostId, "next");
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(PostListWithSearchMatchesToJSON(result))),
+      raw,
+    );
+  }
+  assert.deepEqual(paths, [
+    `/mattermost/api/v4/teams/${teamId}/posts/search`,
+    "/mattermost/api/v4/posts/search",
+  ]);
+  const empty = PostListWithSearchMatchesFromJSON({ ...raw, matches: null });
+  assert.equal(empty.matches, null);
+  assert.equal(PostListWithSearchMatchesToJSON(empty).matches, null);
 });
