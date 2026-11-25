@@ -1,6 +1,6 @@
 use super::{exchange::ExchangeError, session};
 use crate::{
-    history::{DeliveryPost, DeliverySource, PendingPost, StagePost},
+    history::{DeliveryPost, DeliverySource, PendingPost, PostRefusal, RetryPost, StagePost},
     rest::is_mattermost_id,
     sessions::AccountSessions,
 };
@@ -67,6 +67,50 @@ pub(crate) async fn retire_delivered_posts<R: Runtime>(
     account
         .with_history(&webview.state::<AccountSessions>(), move |view| {
             view.retire_delivered_posts(&post_ids)
+        })
+        .await
+}
+
+#[tauri::command]
+pub(crate) async fn record_post_refusal<R: Runtime>(
+    webview: Webview<R>,
+    rid: ResourceId,
+    pending_id: String,
+    attempt: u32,
+    refusal: PostRefusal,
+) -> Result<bool, ExchangeError> {
+    session(&webview, rid)?
+        .with_history(&webview.state::<AccountSessions>(), move |view| {
+            view.record_post_refusal(&pending_id, attempt, &refusal)
+        })
+        .await
+}
+
+#[tauri::command]
+pub(crate) async fn retry_pending_post<R: Runtime>(
+    webview: Webview<R>,
+    rid: ResourceId,
+    pending_id: String,
+    attempt: u32,
+    choice: RetryPost,
+) -> Result<Option<PendingPost>, ExchangeError> {
+    session(&webview, rid)?
+        .with_history(&webview.state::<AccountSessions>(), move |view| {
+            view.retry_post(&pending_id, attempt, choice)
+        })
+        .await
+}
+
+#[tauri::command]
+pub(crate) async fn dismiss_pending_post<R: Runtime>(
+    webview: Webview<R>,
+    rid: ResourceId,
+    pending_id: String,
+    attempt: u32,
+) -> Result<bool, ExchangeError> {
+    session(&webview, rid)?
+        .with_history(&webview.state::<AccountSessions>(), move |view| {
+            view.dismiss_pending_post(&pending_id, attempt)
         })
         .await
 }

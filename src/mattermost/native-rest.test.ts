@@ -287,6 +287,7 @@ test("opens a native account by installation and user ID", async () => {
     "basePath",
     "close",
     "confirmPostDelivery",
+    "dismissPendingPost",
     "fetchApi",
     "readAccountDirectory",
     "readChannelWindow",
@@ -298,12 +299,14 @@ test("opens a native account by installation and user ID", async () => {
     "readTeamSidebar",
     "readVisibleProfiles",
     "readWorkspaceSettings",
+    "recordPostRefusal",
     "refreshChannelHistory",
     "refreshJoinedTeams",
     "refreshSavedProfiles",
     "refreshTeamSidebar",
     "refreshWorkspaceServerPolicy",
     "retireDeliveredPosts",
+    "retryPendingPost",
     "rid",
     "saveDraft",
     "selectJoinedTeam",
@@ -424,6 +427,35 @@ test("confirms only the identity of a live server post", async () => {
     rid: 17,
     postIds: [post.id],
   });
+});
+
+test("retry actions use the retained attempt and cannot finish on a closed connection", async () => {
+  ipc.mockResolvedValueOnce(23);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    "u".repeat(26),
+  );
+  const key = { pendingId: "fixture-id", attempt: 2 };
+  const choice = { kind: "afterRefusal", message: "new text" } as const;
+  let done!: () => void;
+  ipc.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        done = resolve;
+      }),
+  );
+  const retry = account.retryPendingPost(key, choice);
+  expect(ipc).toHaveBeenLastCalledWith("retry_pending_post", {
+    rid: 23,
+    ...key,
+    choice,
+  });
+  await account.close();
+  done();
+  await expect(retry).rejects.toBe("cancelled");
+  await expect(account.dismissPendingPost(key)).rejects.toBe(
+    "unknown_connection",
+  );
 });
 
 test("a directory delivered after the account signs out is discarded", async () => {

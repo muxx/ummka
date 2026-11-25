@@ -1,4 +1,5 @@
 import { openAccountRestConnection } from "../../src/mattermost/native-rest.ts";
+import { checkAttemptActions, checkAttemptRestore } from "./attempt-actions.ts";
 import { checkReceipts, checkReceiptsRestore } from "./delivery-receipts.ts";
 import { checkPendingRestore, stagePendingPosts } from "./pending-posts.ts";
 
@@ -58,6 +59,7 @@ export async function checkDraftWrites(
       throw Error("retry changed the draft revision");
     await stagePendingPosts(account, neighbor, userId);
     await checkReceipts(account, other, userId);
+    await checkAttemptActions(account, neighbor, other);
     await checkDraftRestore(other, false);
   } finally {
     await neighbor.close();
@@ -65,6 +67,7 @@ export async function checkDraftWrites(
 }
 
 export async function checkDraftRestore(account: Account, saved: boolean) {
+  await checkAttemptRestore(account, saved);
   await checkPendingRestore(account, saved);
   await checkReceiptsRestore(account, saved);
   const [room, thread] = await Promise.all([
