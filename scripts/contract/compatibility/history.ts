@@ -66,6 +66,7 @@ import { checkRoleReads } from "./role-reads.ts";
 import { checkSearchScopePolicy } from "./search-scope.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
+import { checkThreadSummary } from "./thread-summary.ts";
 import { checkThreadWindow } from "./thread-window.ts";
 import { checkUserNotifications } from "./user-notifications.ts";
 import { checkUserTimezone } from "./user-timezone.ts";
@@ -1143,6 +1144,7 @@ console.log(
 );
 
 await checkPostReactions(base, token, session, user.id, reader.id, channelId);
+await checkThreadSummary(memberPosts, readerPosts, channelId);
 console.log(
   `Mattermost ${version} verified empty and populated reaction lists and post metadata.`,
 );
