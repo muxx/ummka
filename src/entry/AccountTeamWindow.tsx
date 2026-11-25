@@ -85,9 +85,9 @@ function AccountWindow({
     setNotice((previous) => (previous === "storage" ? null : previous));
     return snapshot;
   }, []);
-  const title = useRef<HTMLHeadingElement>(null);
+  const currentTeamButton = useRef<HTMLButtonElement>(null);
   useLayoutEffect(() => {
-    if (picker) title.current?.focus();
+    if (picker) currentTeamButton.current?.focus();
   }, [picker]);
 
   useEffect(() => {
@@ -229,9 +229,7 @@ function AccountWindow({
   }
   return (
     <EntryWindow>
-      <h1 ref={title} tabIndex={-1}>
-        {text.title}
-      </h1>
+      <h1>{text.title}</h1>
       <p className="entry-address" dir="ltr">
         {serverUrl}
       </p>
@@ -242,6 +240,14 @@ function AccountWindow({
               <button
                 type="button"
                 className="entry-team"
+                ref={
+                  team.id === directory?.selectedTeam
+                    ? currentTeamButton
+                    : undefined
+                }
+                aria-current={
+                  team.id === directory?.selectedTeam ? "true" : undefined
+                }
                 aria-labelledby={`team-title-${team.id}`}
                 aria-describedby={`team-slug-${team.id}`}
                 disabled={choosing}

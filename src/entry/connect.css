@@ -91,8 +91,20 @@
 }
 .entry-methods {
   margin: 0;
-  padding-inline-start: 1.35em;
+  list-style: none;
+  padding: 0;
 }
 .entry-methods li {
   margin-block: 8px;
+}
+.entry-secondary {
+  display: inline-block;
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 1px solid var(--field-border);
+  border-radius: 10px;
+  background: var(--canvas);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
 }

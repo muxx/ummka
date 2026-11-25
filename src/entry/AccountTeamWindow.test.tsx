@@ -102,7 +102,7 @@ test("opens the saved team before the network replies and restores focus when re
   });
   expect(workspace.getAttribute("data-user")).toBe(user);
   fireEvent.click(workspace);
-  expect(screen.getByRole("heading", { name: "Выберите команду" })).toBe(
+  expect(screen.getByRole("button", { name: "Альфа", current: true })).toBe(
     document.activeElement,
   );
   const buttons = screen.getAllByRole("button");

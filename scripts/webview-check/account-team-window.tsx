@@ -39,16 +39,16 @@ export async function checkSavedTeamWindow(serverUrl: string, userId: string) {
       { timeout: 5000 },
     );
     flushSync(() => fireEvent.click(workspace));
-    if (
-      document.activeElement !==
-      ui.getByRole("heading", { name: "Выберите команду" })
-    ) {
-      throw Error("team picker lost keyboard focus");
-    }
     const pick = ui.getByRole<HTMLButtonElement>("button", {
       name: "Fixture Team",
       description: "/fixture",
     });
+    if (
+      document.activeElement !== pick ||
+      pick.getAttribute("aria-current") !== "true"
+    ) {
+      throw Error("returning to the picker did not focus the current team");
+    }
     if (
       pick.getBoundingClientRect().height < 44 ||
       pick.getBoundingClientRect().right > innerWidth
