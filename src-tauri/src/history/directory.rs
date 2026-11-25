@@ -136,6 +136,7 @@ impl AccountHistory {
                  (SELECT 1 FROM joined_team WHERE joined_team.team_id = sidebar_team.team_id)",
                 [],
             )?;
+            tx.execute("DELETE FROM team_search WHERE team_id NOT IN (SELECT team_id FROM joined_team)", [])?;
             Ok(true)
         })
     }
