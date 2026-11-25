@@ -13,6 +13,7 @@ pub struct PendingPost {
     pub message: String,
     pub created_at: i64,
     pub previous_login: bool,
+    pub confirmed_post_id: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
@@ -27,10 +28,11 @@ pub enum StagePost {
     },
 }
 
-const LIST: &str = "SELECT sequence,pending_id,channel_id,NULLIF(root_id,''),message,created_at,login_generation<>?5
-    FROM pending_post WHERE channel_id=?1 AND root_id=?2 AND sequence>?3 ORDER BY sequence LIMIT ?4";
+const LIST: &str = "SELECT sequence,pending_id,channel_id,NULLIF(root_id,''),message,created_at,login_generation<>?5,post_id
+    FROM pending_post LEFT JOIN post_confirmation USING(pending_id)
+    WHERE channel_id=?1 AND root_id=?2 AND sequence>?3 ORDER BY sequence LIMIT ?4";
 const INSERT: &str = "INSERT INTO pending_post(pending_id,channel_id,root_id,message,login_generation)
-    VALUES (?1,?2,?3,?4,?5) RETURNING sequence,pending_id,channel_id,NULLIF(root_id,''),message,created_at,0";
+    VALUES (?1,?2,?3,?4,?5) RETURNING sequence,pending_id,channel_id,NULLIF(root_id,''),message,created_at,0,NULL";
 
 fn post(row: &Row<'_>) -> rusqlite::Result<PendingPost> {
     Ok(PendingPost {
@@ -41,6 +43,7 @@ fn post(row: &Row<'_>) -> rusqlite::Result<PendingPost> {
         message: row.get(4)?,
         created_at: row.get(5)?,
         previous_login: row.get(6)?,
+        confirmed_post_id: row.get(7)?,
     })
 }
 

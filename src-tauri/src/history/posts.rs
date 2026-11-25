@@ -260,6 +260,7 @@ fn write_changes(
         windows::forget_posts(tx, channel, &removed)?;
         for id in removals {
             remove.execute(params![channel, id])?;
+            super::confirmation::remove_confirmed(tx, channel, id)?;
         }
         tx.execute(
             "INSERT INTO history_channel_deletion (channel_id, revision) VALUES (?1, 1)
