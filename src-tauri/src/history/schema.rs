@@ -606,7 +606,20 @@ pub(super) const MIGRATIONS: &[Migration] = &[
         statements: &[],
         objects: SEARCH_OBJECTS,
     },
+    Migration {
+        statements: &[THREAD_SUMMARY],
+        objects: &directory_objects!(
+            JOINED_TEAM_V19,
+            SIDEBAR_CHANNEL_V19,
+            COMPOSER_DRAFT_V21,
+            TEAM_SEARCH,
+            TEAM_SEARCH_ORDER,
+            THREAD_SUMMARY
+        ),
+    },
 ];
+
+const THREAD_SUMMARY: &str = include_str!("migrations/0024_thread_summary.sql");
 
 const SEARCH_OBJECTS: &[&str] = &directory_objects!(
     JOINED_TEAM_V19,
