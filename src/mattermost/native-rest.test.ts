@@ -314,6 +314,7 @@ test("opens a native account by installation and user ID", async () => {
     "readAccountDirectory",
     "readAssociatedMentionGroups",
     "readChannelMemberCount",
+    "readChannelNotifications",
     "readChannelTimezoneCount",
     "readChannelWindow",
     "readCustomEmoji",
@@ -360,6 +361,7 @@ test("opens a native account by installation and user ID", async () => {
     "submitDraftCommand",
     "subscribeToPostActivity",
     "transitionDraftCommand",
+    "updateChannelNotifications",
   ]);
 });
 

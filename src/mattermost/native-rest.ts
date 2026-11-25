@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import {
+  type ChannelNotifyProps,
   CommandsApi,
   Configuration,
   FilesApi,
@@ -16,6 +17,10 @@ import {
   type ChannelRefreshResult,
   refreshChannelHistory,
 } from "./channel-history-refresh.ts";
+import {
+  readChannelNotifications,
+  updateChannelNotifications,
+} from "./channel-notifications.ts";
 import {
   fetchTeamRoleSnapshot,
   type TeamRoleSnapshot,
@@ -157,6 +162,22 @@ export async function openAccountRestConnection(
       return readWhileOpen(() => readFileAnchor(files, fileId, signal), signal);
     },
     ...accountChannelAudience(config, readWhileOpen),
+    readChannelNotifications(channelId: string, signal?: AbortSignal) {
+      return readWhileOpen(
+        () => readChannelNotifications(config, userId, channelId, signal),
+        signal,
+      );
+    },
+    updateChannelNotifications(
+      channelId: string,
+      changes: ChannelNotifyProps,
+      signal?: AbortSignal,
+    ) {
+      return readWhileOpen(
+        () => updateChannelNotifications(config, channelId, changes, signal),
+        signal,
+      );
+    },
     ...accountMentionGroups(config, readWhileOpen),
     readSavedProfiles(query: VisibleProfileQuery) {
       return readWhileOpen(() =>
