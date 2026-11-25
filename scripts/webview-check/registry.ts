@@ -74,6 +74,17 @@ export async function resumeRegistryCheck(): Promise<boolean> {
     if (current !== firstId) throw Error("wrong current account offline");
     const recovered = await openAccountRestConnection(base, current);
     try {
+      const saved = await recovered.readSavedProfiles({
+        ids: [firstId],
+        usernames: ["fixture"],
+      });
+      if (
+        base === root
+          ? Object.keys(saved.profiles).length !== 0
+          : saved.usernames.fixture !== firstId ||
+            saved.profiles[firstId]?.username !== "fixture"
+      )
+        throw Error("offline profile directory changed after process restart");
       const teams = await recovered.readJoinedTeams();
       const catalog = await recovered.readTeamSidebar(
         "Team0123456789012345678901",

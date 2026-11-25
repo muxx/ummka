@@ -59,6 +59,11 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
             ("begin_team_directory_load", json!({"rid":0})),
             ("store_team_directory", json!({"rid":0,"load":0,"teams":[]})),
             ("cancel_team_directory_load", json!({"rid":0,"load":0})),
+            (
+                "read_saved_profiles",
+                json!({"rid":0,"query":{"ids":[],"usernames":[]}}),
+            ),
+            ("store_channel_profiles", json!({"rid":0,"profiles":[]})),
             ("read_team_sidebar", json!({"rid":0,"teamId":"x"})),
             (
                 "select_sidebar_channel",

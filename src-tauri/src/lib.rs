@@ -41,6 +41,8 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
             rest_ipc::directory::begin_team_directory_load,
             rest_ipc::directory::store_team_directory,
             rest_ipc::directory::cancel_team_directory_load,
+            rest_ipc::profiles::read_saved_profiles,
+            rest_ipc::profiles::store_channel_profiles,
             rest_ipc::sidebar::read_team_sidebar,
             rest_ipc::sidebar::select_sidebar_channel,
             rest_ipc::sidebar::begin_sidebar_load,

@@ -18,6 +18,8 @@
     "allow-begin-team-directory-load",
     "allow-store-team-directory",
     "allow-cancel-team-directory-load",
+    "allow-read-saved-profiles",
+    "allow-store-channel-profiles",
     "allow-read-team-sidebar",
     "allow-select-sidebar-channel",
     "allow-begin-sidebar-load",
