@@ -1031,6 +1031,7 @@ export function webviewServers(
         "follow-thread",
         "unfollow-thread",
         "patch-post",
+        "post-edit-history",
         "delete-post",
         "bulk-channel-view",
         "single-channel-view",

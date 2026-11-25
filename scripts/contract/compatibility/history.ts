@@ -58,6 +58,7 @@ import {
   checkPostCollections,
   checkSavedPageBoundary,
 } from "./post-collections.ts";
+import { checkPostEditHistory } from "./post-edit-history.ts";
 import {
   checkPostMutations,
   checkPreviouslyAcceptedPost,
@@ -1259,6 +1260,22 @@ const previous = await fetch(`${base}/api/v4/users/me`, {
 });
 assert.equal(previous.status, 200);
 assert.equal((await previous.json()).id, user.id);
+// The earlier membership, saved-post, and mention-count checks rely on their original readers.
+await create(
+  `teams/${team.id}/members`,
+  { team_id: team.id, user_id: otherSaver.id },
+  token,
+);
+await checkPostEditHistory(
+  readerPosts,
+  new PostsApi(
+    new Configuration({ basePath: base, accessToken: otherSaverToken }),
+  ),
+  anonymous,
+  reader.id,
+  channelId,
+  version,
+);
 await allowFixtureBrowserSignIn(base, token);
 const logout = await fetch(`${base}/api/v4/users/logout`, {
   method: "POST",
