@@ -7,7 +7,7 @@ use std::{fmt, fmt::Write, fs, path::Path};
 pub(crate) mod checks;
 
 mod attempts;
-pub use attempts::{PostRefusal, RetryPost};
+pub use attempts::{PostRefusal, RefusalScope, RetryPost};
 mod directory;
 pub use directory::{DirectoryTeam, TeamDirectory, TeamDirectoryLoad};
 mod drafts;

@@ -82,6 +82,9 @@ const ADD_TEAM_ROLES: &str = "ALTER TABLE joined_team ADD COLUMN roles TEXT";
 const ADD_CHANNEL_ROLES: &str = "ALTER TABLE sidebar_channel ADD COLUMN roles TEXT";
 const JOINED_TEAMS_V13: &str = include_str!("migrations/0013_joined_team_schema.sql");
 const SIDEBAR_CHANNEL_V13: &str = include_str!("migrations/0013_sidebar_channel_schema.sql");
+const POST_ATTEMPT_V14: &str = include_str!("migrations/0014_post_attempt.sql");
+const COPY_POST_ATTEMPTS: &str = "INSERT INTO post_attempt(pending_id,attempt,prior_uncertain,refusal_status,refusal_code,refusal_message)
+    SELECT pending_id,attempt,prior_uncertain,refusal_status,refusal_code,refusal_message FROM old_post_attempt";
 
 /// Each entry advances user_version by one. Keep published entries in order.
 pub(super) struct Migration {
@@ -431,6 +434,48 @@ pub(super) const MIGRATIONS: &[Migration] = &[
             PENDING_BY_CONVERSATION,
             POST_CONFIRMATION,
             POST_ATTEMPT,
+        ],
+    },
+    Migration {
+        statements: &[
+            "ALTER TABLE post_attempt RENAME TO old_post_attempt",
+            POST_ATTEMPT_V14,
+            COPY_POST_ATTEMPTS,
+            "DROP TABLE old_post_attempt",
+            // Keep a freshly created or previously purged database free of spare pages.
+            // A populated history can reuse space from the copy until the next sign-out.
+            "PRAGMA incremental_vacuum(1)",
+        ],
+        objects: &[
+            CREATE_OWNER,
+            CREATE_POSTS,
+            INDEX_REPLIES,
+            CREATE_DELETIONS,
+            WINDOWS,
+            WINDOW_POSTS,
+            NEIGHBORS,
+            RECENT,
+            ORDER,
+            TIES,
+            NEIGHBOR_ID,
+            NEWER_HINT,
+            OLDER_HINT,
+            TEAM_DIRECTORY,
+            JOINED_TEAMS_V13,
+            SELECTED_TEAM,
+            SIDEBAR_TEAM,
+            SIDEBAR_CHANNEL_V13,
+            SIDEBAR_CATEGORY,
+            SIDEBAR_ITEM,
+            SIDEBAR_ITEM_BY_CHANNEL,
+            CHANNEL_PROFILE,
+            PROFILE_BY_USERNAME,
+            WORKSPACE_SETTINGS,
+            COMPOSER_DRAFT_V12,
+            PENDING_POST,
+            PENDING_BY_CONVERSATION,
+            POST_CONFIRMATION,
+            POST_ATTEMPT_V14,
         ],
     },
 ];

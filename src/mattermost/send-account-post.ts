@@ -5,13 +5,17 @@ import {
   type PostsApi,
   ResponseError,
 } from "../../vendor/mattermost/index.js";
-import type { PendingPost, PostRefusal } from "./account-delivery.ts";
+import type {
+  PendingPost,
+  PostRefusal,
+  RefusalScope,
+} from "./account-delivery.ts";
 import { isMattermostId } from "./model-fields.ts";
 
 type DeliveryResult =
   | { kind: "accepted"; post: Post; matched: boolean }
   | { kind: "refused"; refusal: PostRefusal }
-  | { kind: "unconfirmed" }
+  | { kind: "unconfirmed"; retryRefusal?: PostRefusal }
   | { kind: "unauthorized" };
 
 type Receipts = {
@@ -19,7 +23,10 @@ type Receipts = {
     source: { kind: "response"; requestPendingId: string },
     post: Post,
   ): Promise<boolean>;
-  recordPostRefusal(post: PendingPost, refusal: PostRefusal): Promise<boolean>;
+  recordPostRefusal(
+    post: PendingPost,
+    refusal: PostRefusal,
+  ): Promise<RefusalScope | null>;
 };
 
 async function refusedRequest(
@@ -55,9 +62,10 @@ async function refusedRequest(
     code: error.id,
     message: typeof error.message === "string" ? error.message : null,
   };
-  return (await receipts.recordPostRefusal(pending, refusal))
-    ? { kind: "refused", refusal }
-    : { kind: "unconfirmed" };
+  const scope = await receipts.recordPostRefusal(pending, refusal);
+  if (scope === "delivery") return { kind: "refused", refusal };
+  if (scope === "retry") return { kind: "unconfirmed", retryRefusal: refusal };
+  return { kind: "unconfirmed" };
 }
 
 /** Called only after this connection wins the local draft or retry transaction. */

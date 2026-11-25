@@ -87,30 +87,56 @@ fn an_ambiguous_attempt_stays_uncertain_after_a_later_refusal() {
         ),
         (id, TEXT, original.sequence, original.created_at)
     );
-    assert!(!view.record_post_refusal(id, 1, &refusal()).unwrap());
-    assert!(!view.record_post_refusal(id, 2, &refusal()).unwrap());
+    assert_eq!(view.record_post_refusal(id, 1, &refusal()).unwrap(), None);
+    assert_eq!(
+        view.record_post_refusal(id, 2, &refusal()).unwrap(),
+        Some(RefusalScope::Retry)
+    );
     assert!(!view.dismiss_pending_post(id, 1).unwrap());
     drop(view);
     let mut view = open(dir.path());
-    assert_eq!(view.pending_posts(ROOM, None, 0, 10).unwrap(), [next]);
+    assert_eq!(
+        view.pending_posts(ROOM, None, 0, 10).unwrap(),
+        [PendingPost {
+            retry_refusal: Some(Box::new(refusal())),
+            ..next
+        }]
+    );
     assert!(
         view.retry_post(id, 2, edit_refused("cannot replace the first text"))
             .unwrap()
             .is_none()
     );
+    let again = view
+        .retry_post(id, 2, RetryPost::DespiteUnknownDelivery)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (again.attempt, again.message.as_str(), again.retry_refusal),
+        (3, TEXT, None)
+    );
+    assert_eq!(view.record_post_refusal(id, 2, &refusal()).unwrap(), None);
+    assert_eq!(
+        view.record_post_refusal(id, 3, &refusal()).unwrap(),
+        Some(RefusalScope::Retry)
+    );
+    assert_eq!(
+        view.record_post_refusal(id, 3, &refusal()).unwrap(),
+        Some(RefusalScope::Retry)
+    );
+    let mut different = refusal();
+    different.code = "another".into();
+    assert_eq!(view.record_post_refusal(id, 3, &different).unwrap(), None);
     assert!(confirm(&mut view, id));
     assert!(
-        view.retry_post(id, 2, RetryPost::DespiteUnknownDelivery)
+        view.retry_post(id, 3, RetryPost::DespiteUnknownDelivery)
             .unwrap()
             .is_none()
     );
-    assert!(!view.dismiss_pending_post(id, 2).unwrap());
-    assert_eq!(
-        view.pending_posts(ROOM, None, 0, 10).unwrap()[0]
-            .confirmed_post_id
-            .as_deref(),
-        Some(POST)
-    );
+    assert!(!view.dismiss_pending_post(id, 3).unwrap());
+    let confirmed = view.pending_posts(ROOM, None, 0, 10).unwrap().remove(0);
+    assert_eq!(confirmed.confirmed_post_id.as_deref(), Some(POST));
+    assert_eq!((confirmed.refusal, confirmed.retry_refusal), (None, None));
 }
 
 #[test]
@@ -126,7 +152,10 @@ fn correcting_a_definitive_refusal_preserves_the_independent_editor_and_allows_a
     else {
         panic!("expected saved editor")
     };
-    assert!(view.record_post_refusal(id, 1, &refusal()).unwrap());
+    assert_eq!(
+        view.record_post_refusal(id, 1, &refusal()).unwrap(),
+        Some(RefusalScope::Delivery)
+    );
     assert!(
         view.retry_post(id, 1, RetryPost::DespiteUnknownDelivery)
             .unwrap()
@@ -146,7 +175,7 @@ fn correcting_a_definitive_refusal_preserves_the_independent_editor_and_allows_a
     let kept = view.pending_posts(ROOM, None, 0, 1).unwrap().remove(0);
     assert_eq!(
         (kept.message.as_str(), kept.attempt, kept.refusal),
-        (TEXT, 1, Some(refusal()))
+        (TEXT, 1, Some(Box::new(refusal())))
     );
     let fixed = "  new **text**\n";
     let next = view
@@ -162,8 +191,11 @@ fn correcting_a_definitive_refusal_preserves_the_independent_editor_and_allows_a
         ),
         (2, fixed, id.as_str(), None)
     );
-    assert!(!view.record_post_refusal(id, 1, &refusal()).unwrap());
-    assert!(view.record_post_refusal(id, 2, &refusal()).unwrap());
+    assert_eq!(view.record_post_refusal(id, 1, &refusal()).unwrap(), None);
+    assert_eq!(
+        view.record_post_refusal(id, 2, &refusal()).unwrap(),
+        Some(RefusalScope::Delivery)
+    );
     assert!(
         view.retry_post(id, 2, edit_refused("third"))
             .unwrap()
@@ -251,21 +283,27 @@ fn a_refusal_survives_restart_but_cannot_hide_a_confirmed_post() {
     let first = stage(&mut view);
     assert_eq!((first.attempt, first.refusal.as_ref()), (1, None));
     let id = &first.pending_id;
-    assert!(!view.record_post_refusal(id, 2, &refusal()).unwrap());
-    assert!(view.record_post_refusal(id, 1, &refusal()).unwrap());
+    assert_eq!(view.record_post_refusal(id, 2, &refusal()).unwrap(), None);
+    assert_eq!(
+        view.record_post_refusal(id, 1, &refusal()).unwrap(),
+        Some(RefusalScope::Delivery)
+    );
     drop(view);
     let mut view = open(dir.path());
     let kept = view.pending_posts(ROOM, None, 0, 1).unwrap().remove(0);
     assert_eq!(
         (kept.refusal, kept.message.as_str(), kept.attempt),
-        (Some(refusal()), TEXT, 1)
+        (Some(Box::new(refusal())), TEXT, 1)
     );
-    assert!(view.record_post_refusal(id, 1, &refusal()).unwrap());
+    assert_eq!(
+        view.record_post_refusal(id, 1, &refusal()).unwrap(),
+        Some(RefusalScope::Delivery)
+    );
     let mut different = refusal();
     different.code = "another.error".into();
-    assert!(!view.record_post_refusal(id, 1, &different).unwrap());
+    assert_eq!(view.record_post_refusal(id, 1, &different).unwrap(), None);
     assert!(confirm(&mut view, id));
-    assert!(!view.record_post_refusal(id, 1, &refusal()).unwrap());
+    assert_eq!(view.record_post_refusal(id, 1, &refusal()).unwrap(), None);
     let kept = view.pending_posts(ROOM, None, 0, 1).unwrap().remove(0);
     assert_eq!(
         (kept.confirmed_post_id.as_deref(), kept.refusal),
@@ -309,7 +347,10 @@ fn invalid_diagnostics_expired_handles_and_replaced_logins_cannot_record_a_refus
         Err(HistoryError::StaleOwner)
     );
     let mut current = open(dir.path());
-    assert!(!current.record_post_refusal(&id, 1, &refusal()).unwrap());
+    assert_eq!(
+        current.record_post_refusal(&id, 1, &refusal()).unwrap(),
+        None
+    );
     let kept = current.pending_posts(ROOM, None, 0, 1).unwrap().remove(0);
     assert!(kept.previous_login && kept.refusal.is_none());
 }
@@ -366,10 +407,11 @@ fn populated_v10_upgrades_and_a_failed_migration_preserves_both_kinds_of_posts()
             .all(|p| p.message == TEXT && p.attempt == 1 && p.refusal.is_none())
     );
     assert_eq!(posts[1].confirmed_post_id.as_deref(), Some(POST));
-    assert!(
+    assert_eq!(
         current
             .record_post_refusal("unconfirmed", 1, &refusal())
-            .unwrap()
+            .unwrap(),
+        Some(RefusalScope::Delivery)
     );
     drop(current);
     assert!(matches!(
@@ -378,8 +420,93 @@ fn populated_v10_upgrades_and_a_failed_migration_preserves_both_kinds_of_posts()
     ));
     assert_eq!(
         open(dir.path()).pending_posts(ROOM, None, 0, 2).unwrap()[0].refusal,
-        Some(refusal())
+        Some(Box::new(refusal()))
     );
+}
+
+#[test]
+fn rebuilding_attempts_retains_uncertain_and_refused_rows_and_rolls_back_on_failure() {
+    for version in [11, 13] {
+        let dir = tempdir().unwrap();
+        let mut old =
+            HistoryDatabase::open_with(dir.path(), SERVER, &MIGRATIONS[..version]).unwrap();
+        let owner = old.restore(&account()).unwrap();
+        old.write(&owner, |tx| {
+            tx.execute("INSERT INTO pending_post(pending_id,channel_id,root_id,message,login_generation)
+                        VALUES('known',?1,'',?2,?3),('uncertain',?1,'',?2,?3)", params![ROOM, TEXT, owner.generation])?;
+            tx.execute("INSERT INTO post_attempt(pending_id,attempt,refusal_status,refusal_code,refusal_message)
+                        VALUES('known',2,403,'denied','Old reason')", [])?;
+            tx.execute("INSERT INTO post_attempt(pending_id,attempt,prior_uncertain) VALUES('uncertain',3,1)", [])?;
+            Ok(())
+        }).unwrap();
+        drop(old);
+        if version == 13 {
+            let mut interrupted: Vec<_> = MIGRATIONS[..13]
+                .iter()
+                .map(|m| Migration {
+                    statements: m.statements,
+                    objects: m.objects,
+                })
+                .collect();
+            const FAIL_AFTER_COPY: &[&str] = &[
+                MIGRATIONS[13].statements[0],
+                MIGRATIONS[13].statements[1],
+                MIGRATIONS[13].statements[2],
+                "DROP TABLE missing_fixture_table",
+            ];
+            interrupted.push(Migration {
+                statements: FAIL_AFTER_COPY,
+                objects: MIGRATIONS[13].objects,
+            });
+            assert!(matches!(
+                HistoryDatabase::open_with(dir.path(), SERVER, &interrupted),
+                Err(HistoryError::Storage)
+            ));
+            let mut previous =
+                HistoryDatabase::open_with(dir.path(), SERVER, &MIGRATIONS[..13]).unwrap();
+            assert_eq!(
+                previous
+                    .read(&owner, |tx| tx.query_row(
+                        "SELECT count(*) FROM post_attempt",
+                        [],
+                        |r| r.get::<_, u32>(0)
+                    ))
+                    .unwrap(),
+                2
+            );
+        }
+        let mut next = open(dir.path());
+        let rows = next.pending_posts(ROOM, None, 0, 10).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].attempt, 2);
+        assert_eq!(
+            rows[0].refusal.as_ref().unwrap().message.as_deref(),
+            Some("Old reason")
+        );
+        assert_eq!(rows[0].retry_refusal, None);
+        assert_eq!(rows[1].attempt, 3);
+        assert_eq!((&rows[1].refusal, &rows[1].retry_refusal), (&None, &None));
+        assert_eq!(
+            next.record_post_refusal("uncertain", 3, &refusal())
+                .unwrap(),
+            Some(RefusalScope::Retry)
+        );
+        drop(next);
+        assert!(matches!(
+            HistoryDatabase::open_with(dir.path(), SERVER, &MIGRATIONS[..version]),
+            Err(HistoryError::UnsupportedSchema)
+        ));
+        let read = open(dir.path()).pending_posts(ROOM, None, 0, 10).unwrap();
+        assert_eq!(read[0], rows[0]);
+        assert_eq!(
+            (
+                read[1].message.as_str(),
+                read[1].refusal.as_deref(),
+                read[1].retry_refusal.as_deref()
+            ),
+            (TEXT, None, Some(&refusal()))
+        );
+    }
 }
 
 #[test]
@@ -411,5 +538,8 @@ fn refusal_retry_and_dismissal_use_id_indexes_with_five_thousand_pending_posts()
         plan(DISMISS, &[&"id-43",&1])?;
         Ok(())
     }).unwrap();
-    assert!(view.record_post_refusal("id-43", 1, &refusal()).unwrap());
+    assert_eq!(
+        view.record_post_refusal("id-43", 1, &refusal()).unwrap(),
+        Some(RefusalScope::Delivery)
+    );
 }

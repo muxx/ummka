@@ -8,6 +8,7 @@ export type PostRefusal = {
   code: string;
   message: string | null;
 };
+export type RefusalScope = "delivery" | "retry";
 type AttemptKey = { pendingId: string; attempt: number };
 type RetryChoice =
   | { kind: "despiteUnknownDelivery" }
@@ -24,6 +25,7 @@ export type PendingPost = {
   confirmedPostId: string | null;
   attempt: number;
   refusal: PostRefusal | null;
+  retryRefusal?: PostRefusal;
 };
 type StagePost =
   | { kind: "created"; post: PendingPost; draft: ComposerDraft }
@@ -131,7 +133,7 @@ export function accountDelivery(
       refusal: PostRefusal,
     ) {
       return whileOpen(() =>
-        invoke<boolean>("record_post_refusal", {
+        invoke<RefusalScope | null>("record_post_refusal", {
           rid,
           pendingId,
           attempt,
