@@ -119,6 +119,7 @@ export function useChannelTimeline(
   }
   return {
     page,
+    latest: position?.scope !== scope || page?.newer.kind === "end",
     status: state.status,
     notice: restricted?.notice ?? null,
     loadEdge,

@@ -1098,6 +1098,8 @@ export function webviewServers(
           "live-channels",
           "live-members",
           "live-categories",
+          "live-window-send",
+          "live-window-command-repeat",
           "live-posts-" + "c".repeat(26),
           "live-posts-" + "d".repeat(26),
           "live-posts-" + "d".repeat(26),

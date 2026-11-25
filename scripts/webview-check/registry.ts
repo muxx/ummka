@@ -152,7 +152,12 @@ export async function resumeRegistryCheck(): Promise<boolean> {
       await recovered.close();
     }
   }
-  await checkSavedTeamWindow(`${root}/team/chat`, firstId);
+  // Read the saved outgoing row on the first restart, then remove it on the second.
+  await checkSavedTeamWindow(
+    `${root}/team/chat`,
+    firstId,
+    urls.length === 1 && urls[0] === second,
+  );
   if ((await getCurrentAccountId(`${root}/team/chat/secondary`)) !== null)
     throw Error("signed-out installation has a current account offline");
   const forgotten = await openAccountRestConnection(

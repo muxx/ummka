@@ -51,9 +51,9 @@ export async function respondToWorkspace(
   prefixedUser: string,
   restoredPosting: boolean,
 ): Promise<string | undefined> {
-  function json(value: unknown, name: string) {
+  function json(value: unknown, name: string, status = 200) {
     res
-      .writeHead(200, { "Content-Type": "application/json" })
+      .writeHead(status, { "Content-Type": "application/json" })
       .end(JSON.stringify(value));
     return name;
   }
@@ -133,7 +133,11 @@ export async function respondToWorkspace(
   const policy =
     (path === "config/client" || path === "license/client") &&
     req.headers.authorization !== undefined;
-  const post = path === "users/ids" || path === "roles/names";
+  const post =
+    path === "users/ids" ||
+    path === "roles/names" ||
+    path === "posts" ||
+    path === "commands/execute";
   if (!routes.has(path) && !channelId && !policy && !post) return;
   assert.equal(req.headers.authorization, "Bearer fixture-browser-action");
   assert.equal(req.headers.cookie, undefined);
@@ -163,6 +167,51 @@ export async function respondToWorkspace(
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk);
     const body = JSON.parse(Buffer.concat(chunks).toString());
+    if (path === "commands/execute") {
+      assert.deepEqual(body, {
+        channel_id: town,
+        team_id: team,
+        command: "/me repeat from the window",
+      });
+      return json(
+        {
+          response_type: "ephemeral",
+          text: "The fixture received the confirmed repeat.",
+          username: "",
+          channel_id: town,
+          icon_url: "",
+          type: "",
+          props: null,
+          goto_location: "",
+          trigger_id: "",
+          skip_slack_parsing: false,
+          attachments: null,
+          extra_responses: null,
+        },
+        "live-window-command-repeat",
+      );
+    }
+    if (path === "posts") {
+      const pending = body.pending_post_id;
+      assert.equal(typeof pending, "string");
+      assert.ok(pending.startsWith(member + ":"));
+      assert.deepEqual(body, {
+        channel_id: town,
+        message: "Posted from the channel window",
+        pending_post_id: pending,
+      });
+      return json(
+        {
+          id: "windowpost".padEnd(26, "0"),
+          user_id: member,
+          ...body,
+          root_id: "",
+          delete_at: 0,
+        },
+        "live-window-send",
+        201,
+      );
+    }
     if (path === "roles/names") {
       const names = [
         "channel_user",

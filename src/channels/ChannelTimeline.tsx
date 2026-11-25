@@ -1,5 +1,7 @@
 import { Component, createRef, type ReactNode, useMemo } from "react";
+import type { PendingPost } from "../mattermost/account-delivery.ts";
 import type { LocalChannelWindow } from "../mattermost/local-history.ts";
+import type { TimelineMessage } from "./conversation-rows.ts";
 import "./timeline.css";
 
 const copy = {
@@ -40,7 +42,7 @@ const copy = {
 } as const;
 type Direction = "older" | "newer";
 type Author = { name: string; avatar?: ReactNode };
-type TimelineProps = {
+export type TimelineProps = {
   channelId: string;
   page: LocalChannelWindow | null;
   locale: keyof typeof copy;
@@ -49,6 +51,11 @@ type TimelineProps = {
   inaccessibleBefore?: number;
   author: (userId: string) => Author | undefined;
   onReadEdge?: (direction: Direction, postId: string) => void;
+  messages?: readonly TimelineMessage[];
+  renderOutgoing?: (post: PendingPost) => ReactNode;
+  ownName?: string;
+  localNotice?: ReactNode;
+  waitingMessage?: string;
 };
 
 type ScrollProps = { channelId: string; label: string; children: ReactNode };
@@ -96,7 +103,7 @@ class TimelineScroller extends Component<ScrollProps> {
     const top = pane.getBoundingClientRect().top;
     for (const anchor of place.anchors) {
       const row = pane.querySelector<HTMLElement>(
-        `[data-post-id="${CSS.escape(anchor.id)}"]`,
+        `[data-post-id="${CSS.escape(anchor.id)}"],[data-local-id="${CSS.escape(anchor.id)}"]`,
       );
       if (row) {
         pane.scrollTop += row.getBoundingClientRect().top - top - anchor.offset;
@@ -137,6 +144,11 @@ export function ChannelTimeline({
   inaccessibleBefore,
   author,
   onReadEdge,
+  messages,
+  renderOutgoing,
+  ownName,
+  localNotice,
+  waitingMessage,
 }: TimelineProps) {
   const text = copy[locale];
   const dates = useMemo(
@@ -174,29 +186,38 @@ export function ChannelTimeline({
   }
   let previousDay = "";
   const rows: ReactNode[] = [];
-  // SQLite returns newest first, including the server's tie order. Walk it backwards for display.
-  for (let i = (page?.posts.length ?? 0) - 1; page && i >= 0; i--) {
-    const post = page.posts[i];
+  const ordered: readonly TimelineMessage[] =
+    messages ?? [...(page?.posts ?? [])].reverse();
+  for (const post of ordered) {
     const when = new Date(post.createAt);
     const dated = Number.isFinite(when.getTime());
     const day = dated ? dates.day.format(when) : text.unknownDate;
     if (day !== previousDay) {
       rows.push(
-        <div key={`day-${day}`} className="timeline-day">
+        <div key={`day-${post.id}`} className="timeline-day">
           <span>{day}</span>
         </div>,
       );
       previousDay = day;
     }
     const person = author(post.userId);
+    const name = person?.name || (post.outgoing && ownName) || text.unknown;
+    const delivery = post.outgoing && renderOutgoing?.(post.outgoing);
     rows.push(
-      <article key={post.id} className="timeline-post" data-post-id={post.id}>
+      <article
+        key={post.localId ?? post.id}
+        className="timeline-post"
+        data-post-id={post.id}
+        data-local-id={post.localId}
+        tabIndex={post.outgoing ? -1 : undefined}
+      >
         <div className="timeline-avatar" aria-hidden="true">
-          {person?.avatar ?? (person?.name ? initials(person.name) : "•")}
+          {person?.avatar ??
+            (person?.name || (post.outgoing && ownName) ? initials(name) : "•")}
         </div>
         <div className="timeline-post-body">
           <header>
-            <strong>{person?.name || text.unknown}</strong>
+            <strong>{name}</strong>
             {dated && (
               <time dateTime={when.toISOString()}>
                 {dates.time.format(when)}
@@ -212,6 +233,7 @@ export function ChannelTimeline({
               <small className="timeline-edited"> ({text.edited})</small>
             )}
           </p>
+          {delivery}
         </div>
       </article>,
     );
@@ -228,10 +250,12 @@ export function ChannelTimeline({
       <TimelineScroller channelId={channelId} label={text.history}>
         {limited && <div className="timeline-limit">{text.limited}</div>}
         {boundary("older")}
+        {localNotice}
         {rows}
         {!rows.length && (page || !limited) && (
           <p className="timeline-empty">
-            {!page ? text.cold : empty ? text.empty : text.partial}
+            {waitingMessage ??
+              (!page ? text.cold : empty ? text.empty : text.partial)}
           </p>
         )}
         {boundary("newer")}
