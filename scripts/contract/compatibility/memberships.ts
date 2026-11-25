@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { channelComposerAccess } from "../../../src/channels/composer-access.ts";
 import {
   fetchTeamRoleSnapshot,
   loadChannelPermissions,
@@ -79,6 +80,16 @@ export async function checkNavigationMemberships(
       );
       const check = savedChannelPermissions(snapshot, team.roles);
       for (const channel of projection.channels) {
+        const permission = check(channel, "create_post");
+        const access = channelComposerAccess({
+          channel,
+          permission,
+          userId,
+          profiles: new Map(),
+          sharedChannelDMs: false,
+        });
+        if (channel.id === channelId || channel.id === directId)
+          assert.equal(access, "writable");
         for (const permission of [
           "create_post",
           "create_direct_channel",

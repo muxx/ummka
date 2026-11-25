@@ -89,7 +89,7 @@ export async function resumeRegistryCheck(): Promise<boolean> {
       )
         throw Error("offline profile directory changed after process restart");
       await checkDraftRestore(recovered, base !== root);
-      await checkRestoredTeamRoles(recovered, base !== root);
+      await checkRestoredTeamRoles(recovered, base !== root, firstId);
       await checkSubmissionRestore(recovered, base !== root);
       const settings = await recovered.readWorkspaceSettings();
       if (

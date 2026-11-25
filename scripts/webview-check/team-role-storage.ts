@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { channelComposerAccess } from "../../src/channels/composer-access.ts";
 import { savedChannelPermissions } from "../../src/mattermost/channel-permissions.ts";
 import { openAccountRestConnection } from "../../src/mattermost/native-rest.ts";
 import { expectCode } from "./local-history.ts";
@@ -76,14 +77,18 @@ export async function checkRoleStorage(
       throw Error(
         "The active account did not publish refreshed role definitions",
       );
-    await checkRestoredTeamRoles(account, true);
-    await checkRestoredTeamRoles(other, false);
+    await checkRestoredTeamRoles(account, true, userId);
+    await checkRestoredTeamRoles(other, false, userId);
   } finally {
     await neighbor.close();
   }
 }
 
-export async function checkRestoredTeamRoles(account: Account, saved: boolean) {
+export async function checkRestoredTeamRoles(
+  account: Account,
+  saved: boolean,
+  userId: string,
+) {
   const snapshot = await account.readSavedTeamRoles(teamId);
   if (!saved) {
     if (snapshot !== null)
@@ -111,8 +116,17 @@ export async function checkRestoredTeamRoles(account: Account, saved: boolean) {
   const team = catalog?.teams.find((row) => row.id === teamId);
   const channel = sidebar?.data.channels[0];
   const check = savedChannelPermissions(snapshot, team?.roles);
+  const policy = await account.readWorkspaceSettings();
+  const access = channelComposerAccess({
+    channel,
+    permission: check(channel, "create_post"),
+    userId,
+    profiles: new Map(),
+    sharedChannelDMs: policy.server?.sharedChannelDMs,
+  });
   if (
     channel?.shared !== true ||
+    access !== "writable" ||
     check(channel, "create_post") !== "allowed" ||
     check(channel, "manage_system") !== "denied"
   )
