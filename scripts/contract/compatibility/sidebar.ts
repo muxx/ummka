@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { indexChannelProfiles } from "../../../src/mattermost/channel-profiles.ts";
 import { loadTeamDirectory } from "../../../src/mattermost/navigation-data.ts";
+import { visibleSidebar } from "../../../src/mattermost/sidebar-rows.ts";
 import { projectTeamSidebar } from "../../../src/mattermost/team-sidebar.ts";
 import {
   visibleConversationLimit,
@@ -181,6 +183,23 @@ export async function checkSidebarReads(
       value: "false",
     },
   );
+  const sections = visibleSidebar(
+    { data: projectTeamSidebar(directory), selectedChannel: channelId },
+    {
+      preferences: policy,
+      userId,
+      profiles: indexChannelProfiles([]),
+      locale: "en",
+      compact: false,
+    },
+  );
+  const ownSection = sections.find((s) => s.id === custom.id);
+  assert.equal(ownSection?.muted, true);
+  assert.equal(ownSection?.collapsed, true);
+  const active = sections.flatMap((s) => s.rows).filter((r) => r.current);
+  assert.equal(active.length, 1);
+  assert.equal(active[0].id, channelId);
+  assert.equal(active[0].title, row.channel.displayName);
   const denied = (e: unknown) =>
     e instanceof ResponseError && e.response.status === 403;
   await assert.rejects(
