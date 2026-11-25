@@ -7,6 +7,7 @@ import {
 } from "../../vendor/mattermost/index.js";
 import { isMattermostId, isMattermostTime } from "./model-fields.ts";
 import type { loadTeamDirectory } from "./navigation-data.ts";
+import type { TeamSidebar } from "./team-sidebar.ts";
 
 export type TeamRoleSnapshot = {
   systemRoles: string;
@@ -27,6 +28,64 @@ function roleNames(roles: string | undefined) {
   if (typeof roles !== "string")
     throw new TypeError("Missing Mattermost role assignments.");
   return roles.split(" ").filter(Boolean);
+}
+
+type PermissionChannel = Pick<
+  TeamSidebar["data"]["channels"][number],
+  "kind" | "roles"
+>;
+export type ChannelPermission = "allowed" | "denied" | "unknown";
+type Assignments = readonly string[] | undefined;
+
+function isTeamChannel(kind: string | undefined) {
+  return kind === "O" || kind === "P";
+}
+
+function assignedPermission(
+  definitions: ReadonlyMap<string, ReadonlySet<string>>,
+  scopes: readonly Assignments[],
+  permission: string,
+): ChannelPermission {
+  let incomplete = false;
+  for (const assignments of scopes) {
+    if (assignments === undefined) {
+      incomplete = true;
+      continue;
+    }
+    for (const role of assignments) {
+      const grants = definitions.get(role);
+      if (grants?.has(permission)) return "allowed";
+      if (!grants) incomplete = true;
+    }
+  }
+  return incomplete ? "unknown" : "denied";
+}
+
+export function savedChannelPermissions(
+  snapshot: TeamRoleSnapshot | null,
+  teamRoles: string | undefined,
+): (
+  channel: PermissionChannel | undefined,
+  permission: string,
+) => ChannelPermission {
+  if (!snapshot) return () => "unknown";
+  const definitions = new Map(
+    snapshot.definitions.map(({ name, permissions }) => [
+      name,
+      new Set(permissions),
+    ]),
+  );
+  const system = roleNames(snapshot.systemRoles);
+  const team = teamRoles === undefined ? undefined : roleNames(teamRoles);
+  return (channel, permission) => {
+    if (!channel) return "unknown";
+    const local =
+      channel.roles === undefined ? undefined : roleNames(channel.roles);
+    const scopes = isTeamChannel(channel.kind)
+      ? [system, team, local]
+      : [system, local];
+    return assignedPermission(definitions, scopes, permission);
+  };
 }
 
 export async function loadChannelPermissions(
@@ -54,9 +113,7 @@ export async function loadChannelPermissions(
   const teamAndSystem = [...systemRoles, ...teamRoles];
   let hasTeamChannels = false;
   for (const { channel, membership: member } of channels) {
-    const inTeam =
-      (channel.type === "O" || channel.type === "P") &&
-      channel.teamId === teamId;
+    const inTeam = isTeamChannel(channel.type) && channel.teamId === teamId;
     const direct =
       (channel.type === "D" || channel.type === "G") && channel.teamId === "";
     if (
@@ -84,8 +141,13 @@ export async function loadChannelPermissions(
   return (channelId: string, permission: string): boolean => {
     const assigned = byChannel.get(channelId);
     if (!assigned) return false;
-    const grants = (name: string) => permissions.get(name)?.has(permission);
-    return assigned.inherited.some(grants) || assigned.local.some(grants);
+    return (
+      assignedPermission(
+        permissions,
+        [assigned.inherited, assigned.local],
+        permission,
+      ) === "allowed"
+    );
   };
 }
 
