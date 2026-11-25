@@ -127,7 +127,10 @@ impl AccountHistory {
         let generation = self.owner.generation;
         self.write(|tx| {
             let draft = drafts::draft(tx, channel, root)?;
-            if draft.revision.as_deref() != Some(revision) || !has_text(&draft.message) {
+            if draft.command_pending
+                || draft.revision.as_deref() != Some(revision)
+                || !has_text(&draft.message)
+            {
                 return Ok(StagePost::NotStaged { draft });
             }
             let pending_id = format!("{user_id}:{}", Uuid::new_v4());
@@ -136,7 +139,7 @@ impl AccountHistory {
                 params![pending_id, channel, root, draft.message, generation],
                 post,
             )?;
-            let draft = drafts::write_draft(tx, channel, root, "", Some(true))?;
+            let draft = drafts::write_draft(tx, channel, root, "", Some(true), false)?;
             Ok(StagePost::Created { post, draft })
         })
     }

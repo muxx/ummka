@@ -341,7 +341,9 @@ test("opens a native account by installation and user ID", async () => {
     "signOutOnDevice",
     "stagePost",
     "submitDraft",
+    "submitDraftCommand",
     "subscribeToPostActivity",
+    "transitionDraftCommand",
   ]);
 });
 
