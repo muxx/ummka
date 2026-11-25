@@ -224,6 +224,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn command_picker_routes_are_scoped_to_the_installation_and_team() {
+        let base = "https://chat.example.test/workspace";
+        let connection = RestConnection::new(base).unwrap();
+        let team = "t".repeat(26);
+        let commands = format!("/api/v4/teams/{team}/commands");
+        for (path, allowed) in [
+            (format!("{commands}/autocomplete"), true),
+            (
+                format!("{commands}/autocomplete_suggestions?user_input=%2Fhe&channel_id={team}"),
+                true,
+            ),
+            ("/api/v4/commands".to_owned(), false),
+            (format!("/api/v4/commands/{team}"), false),
+            (format!("{commands}/autocomplete/extra"), false),
+        ] {
+            let url = format!("{base}{path}").parse().unwrap();
+            assert_eq!(
+                connection
+                    .check_request(&Request::new(reqwest::Method::GET, url))
+                    .is_ok(),
+                allowed
+            );
+        }
+    }
+
+    #[test]
     fn accepts_only_the_declared_json_media_type() {
         let connection = RestConnection::new("https://chat.example.test").unwrap();
         let url = "https://chat.example.test/api/v4/users/ids"

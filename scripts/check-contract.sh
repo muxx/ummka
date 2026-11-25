@@ -46,6 +46,8 @@ download users.yaml "$upstream/users.yaml" 20d0c9cf9631682f3461c7b13a521321dbd2a
 download teams.yaml "$upstream/teams.yaml" dc0723e5164d19b5d147ee9133db170fb83eedb3b884e320cd58ee36435cd3b3
 download roles.yaml "$upstream/roles.yaml" 6869450fda52c0b2e06dd228cef1e08c309e35493e15fbdda604e35db9593258
 download roles-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/roles.yaml" 6869450fda52c0b2e06dd228cef1e08c309e35493e15fbdda604e35db9593258
+download commands.yaml "$upstream/commands.yaml" 91517ad53a1d46cf2cbeaa5143865d12cdce9e20997f1bc84e74c98908578f25
+download commands-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/commands.yaml" 2ed01e423ff689cc230d0d049b2c9c92bb791b879bfcc7ca93a3bd3cc6d5b8d7
 download channels.yaml "$upstream/channels.yaml" 34282bb7db184ae792493b97b384f9b47c0789d9f8dce7527cb2f3df9c09f9b3
 download channels-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/channels.yaml" 57be9442965e8a747d88d579df013fdff377a5315cc91a8dc55f58eefeef2a6d
 download preferences-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/preferences.yaml" 3bf3c9734d69bfdf20e1dd4e71158a65a81fca9dd64ee1703269b460111625a2
@@ -130,6 +132,31 @@ assigned?.[0]?.schemeManaged satisfies boolean | undefined;
 assigned satisfies Role[];
 // @ts-expect-error The endpoint requires an array of role names.
 roles.getRolesByNames({ requestBody: "channel_user" });
+import type { CommandsApi, CommandResponse } from "./compiled/index.js";
+declare const commands: CommandsApi;
+const command = await commands.executeCommand({ executeCommandRequest: { channelId: "dm", teamId: "workspace", rootId: "root", command: "/help" } });
+command.responseType satisfies string;
+command.skipSlackParsing satisfies boolean;
+command.extraResponses satisfies (CommandResponse | null)[] | null;
+const child = command.extraResponses?.[0];
+if (child) child.responseType satisfies string;
+// @ts-expect-error A successful response can contain a null nested item.
+command.extraResponses satisfies CommandResponse[] | null;
+const attachment = command.attachments?.[0];
+// @ts-expect-error A nested attachment may also be null.
+const validAttachment: object | undefined = attachment;
+// @ts-expect-error Command execution requires a channel.
+commands.executeCommand({ executeCommandRequest: { command: "/help" } });
+// @ts-expect-error The server determines the caller from the session.
+commands.executeCommand({ executeCommandRequest: { channelId: "dm", command: "/help", userId: "other" } });
+const commandChoices = await commands.listAutocompleteCommands({ teamId: "workspace" });
+commandChoices[0]?.autocompleteIconData satisfies string | undefined;
+// @ts-expect-error The command picker exposes only fields needed by its user.
+commandChoices[0]?.token;
+const suggestions = await commands.listCommandAutocompleteSuggestions({ teamId: "workspace", userInput: "/he", channelId: "dm", rootId: "root" });
+suggestions[0]?.suggestion satisfies string | undefined;
+// @ts-expect-error The user input must be present in a suggestion request.
+commands.listCommandAutocompleteSuggestions({ teamId: "workspace" });
 declare const preferences: PreferencesApi;
 const sidebar = await channels.getSidebarCategoriesForTeamForUser({ userId: "me", teamId: "team" });
 sidebar.order satisfies string[] | undefined;
