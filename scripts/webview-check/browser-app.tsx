@@ -109,6 +109,43 @@ export async function checkBrowserApp(server: string) {
         target: { value: "Draft from the channel window" },
       }),
     );
+    const searchTrigger = ui.getByRole("button", { name: "Search" });
+    searchTrigger.focus();
+    flushSync(() => fireEvent.click(searchTrigger));
+    const dialog = within(await ui.findByRole("dialog"));
+    const terms = dialog.getByRole<HTMLInputElement>("searchbox");
+    if (document.activeElement !== terms)
+      throw Error("The online search dialog did not focus the query");
+    flushSync(() =>
+      fireEvent.input(terms, { target: { value: "window fixture" } }),
+    );
+    flushSync(() =>
+      fireEvent.click(dialog.getByRole("button", { name: "Search" })),
+    );
+    const results = within(
+      await ui.findByRole(
+        "complementary",
+        { name: "Search results" },
+        { timeout: 10_000 },
+      ),
+    );
+    await results.findByText("Search found this fixture post");
+    flushSync(() =>
+      fireEvent.click(results.getByRole("button", { name: "Files" })),
+    );
+    await results.findByText("window-fixture.pdf");
+    flushSync(() =>
+      fireEvent.click(results.getByRole("button", { name: /Messages/ })),
+    );
+    await results.findByText("Search found this fixture post");
+    flushSync(() =>
+      fireEvent.click(results.getByRole("button", { name: "Close search" })),
+    );
+    if (
+      document.activeElement !== searchTrigger ||
+      townDraft.value !== "Draft from the channel window"
+    )
+      throw Error("Leaving native search lost the header or draft");
     openChannelNavigation(host, "Channels");
     const design = ui.getByRole("button", { name: "Design" });
     flushSync(() => fireEvent.click(design));

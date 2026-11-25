@@ -28,6 +28,8 @@ type FrameProps = {
   onAccount: () => void;
   navigation: ReactNode;
   children: ReactNode;
+  searchTrigger?: ReactNode;
+  searchPanel?: ReactNode;
   composer?: ReactNode;
   draftRef?: RefObject<HTMLElement | null>;
   thread?: {
@@ -70,6 +72,8 @@ export function ChannelsFrame({
   onAccount,
   navigation,
   children,
+  searchTrigger,
+  searchPanel,
   composer,
   draftRef,
   thread,
@@ -165,6 +169,7 @@ export function ChannelsFrame({
         >
           <img src={smallLockup} alt="ummka" width="83" height="25" />
         </div>
+        {searchTrigger}
         <button
           ref={accountRef}
           aria-haspopup={accountRef ? "dialog" : undefined}
@@ -179,7 +184,10 @@ export function ChannelsFrame({
           </span>
         </button>
       </header>
-      <div className="channels-panes" data-page={openThread ? "thread" : page}>
+      <div
+        className="channels-panes"
+        data-page={searchPanel ? "search" : openThread ? "thread" : page}
+      >
         <nav
           ref={sidebar}
           className="channels-sidebar"
@@ -230,7 +238,8 @@ export function ChannelsFrame({
           <div className="channels-conversation-body">{children}</div>
           {composer}
         </main>
-        {thread && (
+        {searchPanel}
+        {!searchPanel && thread && (
           <aside className="channels-thread" aria-labelledby={threadId}>
             <header className="channels-pane-head">
               <h2 id={threadId} ref={threadHeading} tabIndex={-1}>

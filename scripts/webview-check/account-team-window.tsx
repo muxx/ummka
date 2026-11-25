@@ -68,6 +68,38 @@ export async function checkSavedTeamWindow(
       !ui.getByText("Черновик · без сети")
     )
       throw Error("offline startup lost the exact channel draft");
+    const searchTrigger = ui.getByRole("button", { name: "Поиск" });
+    searchTrigger.focus();
+    flushSync(() => fireEvent.click(searchTrigger));
+    const search = within(await ui.findByRole("dialog"));
+    const terms = search.getByRole<HTMLInputElement>("searchbox");
+    if (document.activeElement !== terms || search.queryByText("Файлы"))
+      throw Error(
+        "Restored search lost focus or ignored the saved file policy",
+      );
+    const recent = await search.findByRole("button", {
+      name: "from:fixture Привет",
+    });
+    flushSync(() => fireEvent.click(recent));
+    if (
+      terms.value !== "from:fixture Привет" ||
+      document.activeElement !== terms
+    )
+      throw Error("The saved team search did not return to the input");
+    flushSync(() =>
+      fireEvent.click(search.getByRole("button", { name: "Найти" })),
+    );
+    await search.findByText("Нет соединения.");
+    flushSync(() =>
+      fireEvent.click(search.getByRole("button", { name: "Закрыть поиск" })),
+    );
+    if (
+      document.activeElement !== searchTrigger ||
+      field.value !== "  Черновик канала\n🐻‍❄️ "
+    )
+      throw Error(
+        "Closing offline search lost the header focus or channel draft",
+      );
     if (
       !ui.getByRole<HTMLButtonElement>("button", {
         name: "Отправить сообщение",
