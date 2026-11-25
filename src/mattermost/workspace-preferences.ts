@@ -40,12 +40,18 @@ export function sidebarPreferences(
   let threadMode: string | undefined;
   let unreads: string | undefined;
   let oldUnreads: string | undefined;
+  let sendOnCtrlEnter = false;
+  let codeBlockOnCtrlEnter = true;
   for (const row of rows) {
     assertAccountPreference(row, userId);
     const { category, name, value } = row;
     if (category === "display_settings") {
       if (name === "name_format") nameFormat = value;
       if (name === "collapsed_reply_threads") threadMode = value;
+    } else if (category === "advanced_settings") {
+      if (name === "send_on_ctrl_enter") sendOnCtrlEnter = value !== "false";
+      if (name === "code_block_ctrl_enter")
+        codeBlockOnCtrlEnter = value !== "false";
     } else if (category === "sidebar_settings") {
       if (name === "limit_visible_dms_gms") limit = count(value);
       if (name === "show_unread_section") unreads = value;
@@ -70,6 +76,7 @@ export function sidebarPreferences(
     }
   }
   return {
+    composerKeys: { sendOnCtrlEnter, codeBlockOnCtrlEnter },
     nameFormat:
       nameFormat === undefined ? null : normalizedNameFormat(nameFormat),
     collapsedThreads: threadMode === undefined ? null : threadMode === "on",
@@ -84,7 +91,10 @@ export function sidebarPreferences(
     viewTimes,
   };
 }
-export type SidebarPreferences = ReturnType<typeof sidebarPreferences>;
+type FreshPreferences = ReturnType<typeof sidebarPreferences>;
+export type SidebarPreferences = Omit<FreshPreferences, "composerKeys"> & {
+  composerKeys?: FreshPreferences["composerKeys"];
+};
 
 export type ServerPolicy = {
   collapsedThreads: "disabled" | "always_on" | "default_on" | "default_off";

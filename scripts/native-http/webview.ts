@@ -164,6 +164,18 @@ export function webviewServers(
             name: "name_format",
             value: "nickname_full_name",
           },
+          {
+            user_id: userId,
+            category: "advanced_settings",
+            name: "send_on_ctrl_enter",
+            value: "true",
+          },
+          {
+            user_id: userId,
+            category: "advanced_settings",
+            name: "code_block_ctrl_enter",
+            value: "false",
+          },
         ],
       },
     ],

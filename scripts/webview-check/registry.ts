@@ -96,6 +96,8 @@ export async function resumeRegistryCheck(): Promise<boolean> {
         base === root
           ? settings.preferences !== null || settings.server !== null
           : settings.preferences?.limit !== 18 ||
+            settings.preferences.composerKeys?.sendOnCtrlEnter !== true ||
+            settings.preferences.composerKeys.codeBlockOnCtrlEnter !== false ||
             settings.server?.collapsedThreads !== "always_on" ||
             settings.server.sharedChannelDMs !== true ||
             !settings.server.lockNameFormat
