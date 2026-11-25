@@ -17,6 +17,7 @@ import {
   resumeChannelsLink,
   routeChannelsLink,
 } from "../../src/mattermost/route-channels-link.ts";
+import { checkSavedTeamWindow } from "./account-team-window.tsx";
 import { checkRefreshedAfterRestart } from "./channel-refresh.ts";
 import { verifyHistoryLoadsAfterRestart } from "./history-loads.ts";
 import { signInLinkServer } from "./link-examples.ts";
@@ -86,6 +87,7 @@ export async function resumeRegistryCheck(): Promise<boolean> {
       await recovered.close();
     }
   }
+  await checkSavedTeamWindow(`${root}/team/chat`, firstId);
   if ((await getCurrentAccountId(`${root}/team/chat/secondary`)) !== null)
     throw Error("signed-out installation has a current account offline");
   const forgotten = await openAccountRestConnection(
