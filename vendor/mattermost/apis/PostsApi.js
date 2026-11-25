@@ -77,6 +77,40 @@ export class PostsApi extends runtime.BaseAPI {
         const response = await this.deletePostRaw(requestParameters, initOverrides);
         return await response.value();
     }
+    async getPostRequestOpts(requestParameters) {
+        if (requestParameters['postId'] == null) {
+            throw new runtime.RequiredError('postId', 'Required parameter "postId" was null or undefined when calling getPost().');
+        }
+        const queryParameters = {};
+        if (requestParameters['includeDeleted'] != null) {
+            queryParameters['include_deleted'] = requestParameters['includeDeleted'];
+        }
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/posts/{post_id}`;
+        urlPath = urlPath.replace('{post_id}', encodeURIComponent(String(requestParameters['postId'])));
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async getPostRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.getPostRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => PostFromJSON(jsonValue));
+    }
+    async getPost(requestParameters, initOverrides) {
+        const response = await this.getPostRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
     async getPostInfoRequestOpts(requestParameters) {
         if (requestParameters['postId'] == null) {
             throw new runtime.RequiredError('postId', 'Required parameter "postId" was null or undefined when calling getPostInfo().');

@@ -1,8 +1,40 @@
 import * as runtime from '../runtime.js';
+import { FileInfoFromJSON, } from '../models/FileInfo.js';
 import { FileInfoListFromJSON, } from '../models/FileInfoList.js';
 import { SearchFilesInAllTeamsRequestToJSON, } from '../models/SearchFilesInAllTeamsRequest.js';
 import { SearchFilesRequestToJSON, } from '../models/SearchFilesRequest.js';
 export class FilesApi extends runtime.BaseAPI {
+    async getFileInfoRequestOpts(requestParameters) {
+        if (requestParameters['fileId'] == null) {
+            throw new runtime.RequiredError('fileId', 'Required parameter "fileId" was null or undefined when calling getFileInfo().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/files/{file_id}/info`;
+        urlPath = urlPath.replace('{file_id}', encodeURIComponent(String(requestParameters['fileId'])));
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async getFileInfoRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.getFileInfoRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => FileInfoFromJSON(jsonValue));
+    }
+    async getFileInfo(requestParameters, initOverrides) {
+        const response = await this.getFileInfoRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
     async searchFilesRequestOpts(requestParameters) {
         if (requestParameters['teamId'] == null) {
             throw new runtime.RequiredError('teamId', 'Required parameter "teamId" was null or undefined when calling searchFiles().');
