@@ -56,6 +56,7 @@ import {
 import { correctPostSearchResults } from "./post-search-corrections.ts";
 import {
   correctProfileImage,
+  correctProfileTimezone,
   correctUserProfile,
 } from "./profile-corrections.ts";
 import {
@@ -154,6 +155,11 @@ export function buildSpecification(
       throw new Error(`Missing component ${kind}/${name}`);
     const source = object(upstream[name], `components/${kind}/${name}`);
     if (kind !== "schemas") group[name] = source;
+    else if (name === "Timezone")
+      group[name] = correctProfileTimezone(
+        source,
+        read("definitions-12.1.0.yaml"),
+      );
     else if (name === "ChannelNotifyProps" || name === "UserNotifyProps")
       group[name] = correctNotificationProps(
         name,
