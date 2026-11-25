@@ -29,12 +29,14 @@
     "test": "vitest run --environment jsdom src && npm run test:rest",
     "test:rest": "node --test scripts/contract/transport.test.ts scripts/contract/installation-profile.test.ts scripts/contract/team-reads.test.ts scripts/contract/user-batch.test.ts scripts/contract/commands.test.ts",
     "test:native-http": "node scripts/native-http/check.ts",
+    "contract:emoji": "node scripts/contract/standard-emoji.ts",
     "contract:build": "node scripts/contract/schema.ts",
     "contract:test": "node --test scripts/contract/contract.test.ts",
     "tauri": "tauri"
   },
   "dependencies": {
     "@tauri-apps/api": "2.12.5",
+    "marked": "18.3.0",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },

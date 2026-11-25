@@ -28,6 +28,7 @@ fn teams(db: &mut AccountHistory, ids: &[&str]) {
             display_name: (*id).into(),
             preference_rank: None,
             roles: Some("team_user".into()),
+            group_constrained: None,
         })
         .collect::<Vec<_>>();
     assert!(db.store_team_directory(load, &rows, None).unwrap());
@@ -56,6 +57,7 @@ fn sidebar(count: usize) -> SidebarData {
             muted: n % 3 == 0,
             roles: Some("channel_user custom_writer".into()),
             shared: Some(n % 3 == 1),
+            group_constrained: None,
         })
         .collect();
     let categories = if channels.is_empty() {
@@ -431,4 +433,68 @@ fn upgrades_v15_preserving_unknown_sharing_old_policy_and_drafts() {
     assert!(empty.read_sidebar(TEAM).unwrap().is_none());
     assert!(empty.read_workspace_settings().unwrap().server.is_none());
     assert!(empty.read_draft(OTHER, None).unwrap().message.is_empty());
+}
+
+#[test]
+fn upgrades_v18_group_constraints_without_replacing_the_team_channel_or_draft() {
+    let root = tempdir().unwrap();
+    let mut old = HistoryDatabase::open_with(root.path(), URL, &MIGRATIONS[..18]).unwrap();
+    let owner = old.restore(&account()).unwrap();
+    old.write(&owner, |tx| {
+        tx.execute("INSERT INTO team_directory(owner,published) VALUES(1,1)", [])?;
+        tx.execute("INSERT INTO joined_team(position,team_id,name,display_name,selected) VALUES(0,?1,'north','North',1)", [TEAM])?;
+        tx.execute("INSERT INTO sidebar_team(team_id,published,selected_channel) VALUES(?1,1,?2)", [TEAM,OTHER])?;
+        tx.execute("INSERT INTO sidebar_channel(team_id,position,channel_id,kind,name,display_name,header,purpose,delete_at,muted) VALUES(?1,0,?2,'P','private','Private','','',0,0)", [TEAM,OTHER])?;
+        tx.execute("INSERT INTO composer_draft(channel_id,root_id,message,revision) VALUES(?1,'','keep draft',lower(hex(randomblob(16))))", [OTHER])?;
+        tx.execute("INSERT INTO history_post(id,channel_id,user_id,create_at,update_at,edit_at,type,message,hashtags,is_pinned) VALUES(?1,?2,?3,10,10,0,'','keep post','',0)", [USER,OTHER,USER])?;
+        Ok(())
+    }).unwrap();
+    drop(old);
+
+    const BROKEN: &[&str] = &[
+        MIGRATIONS[18].statements[0],
+        "ALTER TABLE missing ADD COLUMN group_constrained INTEGER",
+    ];
+    let mut broken: Vec<_> = MIGRATIONS[..18]
+        .iter()
+        .map(|m| Migration {
+            statements: m.statements,
+            objects: m.objects,
+        })
+        .collect();
+    broken.push(Migration {
+        statements: BROKEN,
+        objects: MIGRATIONS[18].objects,
+    });
+    assert!(HistoryDatabase::open_with(root.path(), URL, &broken).is_err());
+    drop(HistoryDatabase::open_with(root.path(), URL, &MIGRATIONS[..18]).unwrap());
+
+    let mut current = open(root.path());
+    let team = current.read_team_directory().unwrap().unwrap();
+    let channel = current.read_sidebar(TEAM).unwrap().unwrap();
+    assert_eq!(team.selected_team.as_deref(), Some(TEAM));
+    assert_eq!(channel.selected_channel.as_deref(), Some(OTHER));
+    assert_eq!(team.teams[0].group_constrained, None);
+    assert_eq!(channel.data.channels[0].group_constrained, None);
+    let mut rows = team.teams;
+    let mut data = channel.data;
+    for (team_flag, channel_flag) in [(true, false), (false, true)] {
+        rows[0].group_constrained = Some(team_flag);
+        data.channels[0].group_constrained = Some(channel_flag);
+        let ticket = current.begin_team_directory_load().unwrap();
+        assert!(current.store_team_directory(ticket, &rows, None).unwrap());
+        save(&mut current, TEAM, &data);
+        drop(current);
+        current = open(root.path());
+        assert_eq!(current.read_team_directory().unwrap().unwrap().teams, rows);
+        assert_eq!(current.read_sidebar(TEAM).unwrap().unwrap().data, data);
+    }
+    assert_eq!(
+        current.read_draft(OTHER, None).unwrap().message,
+        "keep draft"
+    );
+    assert_eq!(
+        current.read_post(USER).unwrap().unwrap().message,
+        "keep post"
+    );
 }
