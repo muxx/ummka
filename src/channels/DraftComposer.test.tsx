@@ -8,12 +8,16 @@ import {
 } from "@testing-library/react";
 import { createRef } from "react";
 import { afterEach, expect, test, vi } from "vitest";
+import type { TeamWorkspace } from "../entry/AccountTeamWindow.tsx";
 import type {
   ComposerDraft,
   DraftLocation,
   DraftSave,
 } from "../mattermost/native-rest.ts";
+import { projectTeamSidebar } from "../mattermost/team-sidebar.ts";
+import { channelDraftActions } from "./channel-draft-actions.ts";
 import { DraftComposer } from "./DraftComposer.tsx";
+import { openThreadReplyWindow } from "./thread-reply-window.ts";
 
 afterEach(cleanup);
 function storage(rid = 1) {
@@ -88,6 +92,134 @@ const field = () =>
   screen.findByRole<HTMLTextAreaElement>("textbox", {
     name: "Написать сообщение…",
   });
+
+test("Enter on a quick emoji in a thread reacts to its latest reply and clears only that editor", async () => {
+  const { rows, connection: drafts } = storage();
+  const channelId = "c".repeat(26);
+  const userId = "u".repeat(26);
+  const teamId = "t".repeat(26);
+  const root = {
+    channelId,
+    userId,
+    id: "r".repeat(26),
+    rootId: "",
+    deleteAt: 0,
+    createAt: 10,
+    updateAt: 10,
+    editAt: 0,
+    type: "",
+    message: "Thread",
+    hashtags: "",
+    isPinned: false,
+  };
+  const reply = {
+    ...root,
+    id: "p".repeat(26),
+    rootId: root.id,
+    createAt: 20,
+    updateAt: 20,
+    message: "Latest reply",
+  };
+  let accept!: () => void;
+  const accepted = new Promise<void>((resolve) => {
+    accept = resolve;
+  });
+  const connection = {
+    ...drafts,
+    readThreadPage: vi
+      .fn()
+      .mockResolvedValue({ kind: "page", root, replies: [reply], next: null }),
+    readChannelWindow: vi.fn(),
+    readPostReactions: vi.fn().mockResolvedValue([]),
+    addOwnReaction: vi.fn(() => accepted),
+  };
+  const reader = openThreadReplyWindow(connection, {
+    channelId,
+    rootId: root.id,
+    collapsedThreads: true,
+  });
+  await reader.open();
+  try {
+    const channel = projectTeamSidebar({
+      teamId,
+      channels: [
+        {
+          channel: {
+            id: channelId,
+            name: "winter",
+            displayName: "Winter",
+            type: "O",
+            deleteAt: 0,
+          },
+          membership: { channelId, userId },
+        },
+      ],
+      categories: [],
+    }).channels[0];
+    const workspace = {
+      connection,
+      team: { id: teamId },
+      userId,
+      policy: { server: { value: { uniqueReactionLimit: "50" } } },
+    } as unknown as TeamWorkspace;
+    const sendContext = channelDraftActions(
+      workspace,
+      channel,
+      () => "allowed",
+      true,
+      reader,
+    );
+    const message = "+:eyes:";
+    const channelKey = `${channelId}/`;
+    const neighborKey = channelKey + "x".repeat(26);
+    const unchanged = { message, revision: "1" };
+    rows.set(channelKey, { ...unchanged });
+    rows.set(neighborKey, { ...unchanged });
+    render(
+      <DraftComposer
+        {...inputs(connection)}
+        language="en"
+        online
+        label="Reply in thread…"
+        channelId={channelId}
+        rootId={root.id}
+        sendContext={sendContext}
+      />,
+    );
+    const input = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+      name: "Reply in thread…",
+    });
+    input.focus();
+    fireEvent.change(input, { target: { value: message } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() =>
+      expect(connection.addOwnReaction).toHaveBeenCalledExactlyOnceWith(
+        reply.id,
+        "eyes",
+        expect.any(AbortSignal),
+      ),
+    );
+    expect(input.value).toBe(message);
+    expect(rows.get(channelKey + root.id)).toEqual(unchanged);
+    await act(async () => accept());
+    await screen.findByText("Added :eyes:.");
+    await waitFor(() => expect(input.value).toBe(""));
+    expect(connection.readPostReactions).toHaveBeenCalledExactlyOnceWith(
+      reply.id,
+      expect.any(AbortSignal),
+    );
+    expect(connection.readChannelWindow).not.toHaveBeenCalled();
+    expect(connection.submitDraft).not.toHaveBeenCalled();
+    expect(connection.saveDraft.mock.calls).toEqual([
+      [{ channelId, rootId: root.id, expectedRevision: null, message }],
+      [{ channelId, rootId: root.id, expectedRevision: "1", message: "" }],
+    ]);
+    expect(rows.get(channelKey)).toEqual(unchanged);
+    expect(rows.get(neighborKey)).toEqual(unchanged);
+  } finally {
+    reader.close();
+  }
+});
 
 test("a late read cannot expose a previous room and an empty draft is editable only after reading", async () => {
   const { rows, connection } = storage();
