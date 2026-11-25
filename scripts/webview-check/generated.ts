@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { resolveComposerSubmission } from "../../src/channels/composer-submission.ts";
 import { inspectInstallation } from "../../src/mattermost/inspect-installation.ts";
 import {
   openAccountRestConnection,
@@ -230,6 +231,16 @@ export async function checkGeneratedRequests(ports: string[]) {
     await checkAccountResponses(accountPrefix, userId, observed);
     await checkChannelRefresh(accountPrefix, observed);
     await checkTeamReads(rootSession, signed);
+    const prepared = await resolveComposerSubmission(
+      { message: "-:fixture+wave:", hasAttachments: false, scheduled: false },
+      accountPrefix,
+    );
+    check(
+      prepared.kind === "reaction" &&
+        prepared.emoji === "fixture+wave" &&
+        prepared.action === "remove",
+      "resolve custom emoji for the signed account",
+    );
     const customEmoji = await accountPrefix.readCustomEmoji("fixture+wave");
     check(
       customEmoji.kind === "found" &&
