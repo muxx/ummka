@@ -62,6 +62,10 @@ const SIDEBAR_ITEM: &str = include_str!("migrations/0005_sidebar_item.sql");
 const SIDEBAR_ITEM_BY_CHANNEL: &str =
     "CREATE INDEX sidebar_item_by_channel ON sidebar_item(team_id, channel_id)";
 
+const CHANNEL_PROFILE: &str = include_str!("migrations/0006_channel_profile.sql");
+const PROFILE_BY_USERNAME: &str =
+    "CREATE INDEX channel_profile_by_username ON channel_profile(username)";
+
 /// Each entry advances user_version by one. Keep published entries in order.
 pub(super) struct Migration {
     pub(super) statements: &'static [&'static str],
@@ -156,6 +160,34 @@ pub(super) const MIGRATIONS: &[Migration] = &[
             SIDEBAR_CATEGORY,
             SIDEBAR_ITEM,
             SIDEBAR_ITEM_BY_CHANNEL,
+        ],
+    },
+    Migration {
+        statements: &[CHANNEL_PROFILE, PROFILE_BY_USERNAME],
+        objects: &[
+            CREATE_OWNER,
+            CREATE_POSTS,
+            INDEX_REPLIES,
+            CREATE_DELETIONS,
+            WINDOWS,
+            WINDOW_POSTS,
+            NEIGHBORS,
+            RECENT,
+            ORDER,
+            TIES,
+            NEIGHBOR_ID,
+            NEWER_HINT,
+            OLDER_HINT,
+            TEAM_DIRECTORY,
+            JOINED_TEAMS,
+            SELECTED_TEAM,
+            SIDEBAR_TEAM,
+            SIDEBAR_CHANNEL,
+            SIDEBAR_CATEGORY,
+            SIDEBAR_ITEM,
+            SIDEBAR_ITEM_BY_CHANNEL,
+            CHANNEL_PROFILE,
+            PROFILE_BY_USERNAME,
         ],
     },
 ];
