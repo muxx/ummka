@@ -32,6 +32,7 @@ import { checkPostReactions } from "./post-reactions.ts";
 import { checkSubmissions } from "./submission.ts";
 import { checkTeamReads } from "./team-reads.ts";
 import { checkRoleStorage } from "./team-role-storage.ts";
+import { checkThreadList } from "./thread-list.ts";
 import { checkWorkspaceSettings } from "./workspace-settings.ts";
 
 function check(value: unknown, message: string): asserts value {
@@ -555,6 +556,7 @@ export async function checkGeneratedRequests(ports: string[]) {
       (await threads.stopFollowingThread(follow)).status === "OK",
       "signed thread unfollow",
     );
+    await checkThreadList(threads, teamId, channelId, userId);
     const guestThreads = new ThreadsApi(new Configuration(prefixed));
     for (const request of [
       () => guestThreads.startFollowingThread(follow),
@@ -567,6 +569,19 @@ export async function checkGeneratedRequests(ports: string[]) {
           denied.cause instanceof TypeError &&
           denied.cause.cause === "operation_denied",
         "thread-follow-denied-before-dispatch",
+      );
+    }
+    for (const request of [
+      () => guestThreads.getUserThreads({ userId: "me", teamId }),
+      () => threads.getUserThreads({ userId: "b".repeat(26), teamId }),
+      () => threads.getUserThreads({ userId: "me", teamId: "short" }),
+    ]) {
+      const denied = await rejected(request());
+      check(
+        denied instanceof FetchError &&
+          denied.cause instanceof TypeError &&
+          denied.cause.cause === "operation_denied",
+        "thread-list-denied-before-dispatch",
       );
     }
     await checkPostMutations(rootSession, signed, channelId);
