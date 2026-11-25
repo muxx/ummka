@@ -121,3 +121,140 @@ test("retains the text after an error and retries on the same account and thread
     "unknown_connection",
   );
 });
+
+test("refresh adopts an external edit or empty revision in a clean editor without writing", async () => {
+  const store = storage({ message: "old", revision: "1" });
+  const editor = await openDraftEditor(store, channel);
+  const changed = { message: "updated", revision: "2" };
+  store.readDraft.mockResolvedValueOnce(changed);
+  await editor.refresh();
+  expect(editor.getSnapshot()).toMatchObject({
+    message: "updated",
+    stored: changed,
+    conflict: false,
+  });
+  const sent = { message: "", revision: "3", clearedBySubmission: true };
+  store.readDraft.mockResolvedValueOnce(sent);
+  await editor.refresh();
+  expect(editor.getSnapshot()).toMatchObject({
+    message: "",
+    stored: sent,
+    conflict: false,
+  });
+  expect(store.saveDraft).not.toHaveBeenCalled();
+});
+
+test("typing during a refresh retains the input, coalesces reads and pauses autosave", async () => {
+  vi.useFakeTimers();
+  const store = storage();
+  const editor = await openDraftEditor(store, channel);
+  let received!: (draft: ComposerDraft) => void;
+  store.readDraft.mockReturnValueOnce(
+    new Promise<ComposerDraft>((resolve) => {
+      received = resolve;
+    }),
+  );
+  const active = editor.refresh();
+  const repeated = editor.refresh();
+  editor.edit("local");
+  const flush = editor.flush();
+  received({ message: "device", revision: "another" });
+  await Promise.all([active, repeated, flush]);
+  expect(store.readDraft).toHaveBeenCalledTimes(2);
+  expect(editor.getSnapshot()).toMatchObject({
+    message: "local",
+    stored: { message: "device" },
+    conflict: true,
+  });
+  editor.takeStored("unseen");
+  expect(editor.getSnapshot().message).toBe("local");
+  editor.takeStored("another");
+  expect(editor.getSnapshot()).toMatchObject({
+    message: "device",
+    conflict: false,
+  });
+  await vi.runAllTimersAsync();
+  expect(store.saveDraft).not.toHaveBeenCalled();
+});
+
+test("completes a pending autosave even if refreshing the stored revision fails", async () => {
+  vi.useFakeTimers();
+  const store = storage();
+  const editor = await openDraftEditor(store, channel);
+  let fail!: (error: string) => void;
+  store.readDraft.mockReturnValueOnce(
+    new Promise<ComposerDraft>((_, reject) => {
+      fail = reject;
+    }),
+  );
+  const refresh = expect(editor.refresh()).rejects.toBe("storage");
+  editor.edit("must survive");
+  await vi.advanceTimersByTimeAsync(600);
+  expect(store.saveDraft).not.toHaveBeenCalled();
+  fail("storage");
+  await refresh;
+  await vi.runAllTimersAsync();
+  expect(store.saveDraft).toHaveBeenCalledExactlyOnceWith({
+    ...channel,
+    expectedRevision: null,
+    message: "must survive",
+  });
+  expect(editor.getSnapshot()).toMatchObject({
+    stored: { message: "must survive" },
+    conflict: false,
+    error: null,
+  });
+});
+
+test("keeping local checks the version shown and preserves a third window's newer edit", async () => {
+  vi.useFakeTimers();
+  const store = storage();
+  const editor = await openDraftEditor(store, channel);
+  editor.edit("ours");
+  store.readDraft.mockResolvedValueOnce({ message: "second", revision: "2" });
+  await editor.refresh();
+  store.readDraft.mockResolvedValueOnce({ message: "third", revision: "3" });
+  const reloading = editor.refresh();
+  const staleChoice = editor.keepLocal("2");
+  await Promise.all([reloading, staleChoice]);
+  expect(store.saveDraft).not.toHaveBeenCalled();
+  const next = { message: "fourth", revision: "4" };
+  store.saveDraft.mockResolvedValueOnce({ kind: "conflict", draft: next });
+  await editor.keepLocal("3");
+  expect(store.saveDraft).toHaveBeenCalledWith({
+    ...channel,
+    message: "ours",
+    expectedRevision: "3",
+  });
+  expect(editor.getSnapshot()).toMatchObject({
+    message: "ours",
+    stored: next,
+    conflict: true,
+  });
+  store.saveDraft.mockRejectedValueOnce("storage");
+  await expect(editor.keepLocal("4")).rejects.toBe("storage");
+  expect(editor.getSnapshot().conflict).toBe(true);
+  await editor.keepLocal("4");
+  expect(editor.getSnapshot()).toMatchObject({
+    message: "ours",
+    stored: { message: "ours" },
+    conflict: false,
+    error: null,
+  });
+});
+
+test("recognizes the same edit in two windows without an extra write", async () => {
+  vi.useFakeTimers();
+  const store = storage();
+  const editor = await openDraftEditor(store, channel);
+  editor.edit("same");
+  store.readDraft.mockResolvedValueOnce({ message: "same", revision: "2" });
+  await editor.refresh();
+  await vi.runAllTimersAsync();
+  expect(store.saveDraft).not.toHaveBeenCalled();
+  expect(editor.getSnapshot()).toMatchObject({
+    message: "same",
+    stored: { revision: "2" },
+    conflict: false,
+  });
+});

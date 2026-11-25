@@ -26,6 +26,32 @@ export async function checkDraftEditors(account: Account, neighbor: Account) {
     throw Error(
       "The local editor lost either a conflict or its independent reply",
     );
+  first.edit("Changed again before the choice");
+  await first.flush();
+  await second.keepLocal(state.stored.revision);
+  const updated = second.getSnapshot();
+  if (
+    !updated.conflict ||
+    updated.stored.message !== first.getSnapshot().message
+  )
+    throw Error("An old conflict choice replaced an unseen device revision");
+  second.takeStored(updated.stored.revision);
+  if (second.getSnapshot().message !== updated.stored.message)
+    throw Error("The editor did not adopt the displayed device text");
+  second.edit("Kept in this window");
+  first.edit("Other edit");
+  await first.flush();
+  await second.refresh();
+  const choice = second.getSnapshot();
+  if (!choice.conflict || choice.stored.message !== "Other edit")
+    throw Error("Refreshing a dirty editor lost the competing edit");
+  await second.keepLocal(choice.stored.revision);
+  await first.refresh();
+  if (
+    first.getSnapshot().message !== "Kept in this window" ||
+    second.getSnapshot().conflict
+  )
+    throw Error("A clean neighbor did not adopt the resolved draft");
 }
 
 export async function checkDraftEditorsRestored(
@@ -37,7 +63,7 @@ export async function checkDraftEditorsRestored(
     openDraftEditor(account, thread),
   ]);
   if (
-    room.getSnapshot().message !== (saved ? "  This channel 🐻‍❄️\n" : "") ||
+    room.getSnapshot().message !== (saved ? "Kept in this window" : "") ||
     reply.getSnapshot().message !== (saved ? "In the thread" : "")
   )
     throw Error(
