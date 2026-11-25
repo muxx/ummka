@@ -18,6 +18,7 @@ import {
 } from "./channel-permissions.ts";
 import type { ChannelProfile } from "./channel-profiles.ts";
 import { executeAccountCommand } from "./execute-account-command.ts";
+import { executeSavedCommand } from "./execute-saved-command.ts";
 import { type JoinedTeams, projectJoinedTeams } from "./joined-teams.ts";
 import type {
   ChannelWindowQuery,
@@ -119,6 +120,8 @@ export async function openAccountRestConnection(
     if (retired) throw "cancelled";
     return result;
   }
+  const delivery = accountDelivery(rid, readWhileOpen, posts, userId, activity);
+  const commands = new CommandsApi(config);
   return {
     ...connection,
     ...accountChannelAudience(config, readWhileOpen),
@@ -184,13 +187,26 @@ export async function openAccountRestConnection(
         ),
       );
     },
-    ...accountDelivery(rid, readWhileOpen, posts, userId, activity),
+    ...delivery,
+    submitDraftCommand(
+      location: DraftLocation & { teamId: string },
+      revision: string,
+    ) {
+      return readWhileOpen(() =>
+        executeSavedCommand(
+          commands,
+          delivery.transitionDraftCommand,
+          location,
+          revision,
+        ),
+      );
+    },
     executeServerCommand(
       location: DraftLocation & { teamId: string },
       text: string,
     ) {
       return readWhileOpen(() =>
-        executeAccountCommand(new CommandsApi(config), location, text),
+        executeAccountCommand(commands, location, text),
       );
     },
     readWorkspaceSettings() {
