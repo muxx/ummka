@@ -18,26 +18,10 @@ generator=openapi-generator-cli-7.27.0.jar
 cache=".check-tools/mattermost-contract/$version"
 mkdir -p "$cache" artifacts
 work=$(mktemp -d artifacts/.contract.XXXXXXXX)
-partial=''
-trap 'rm -rf "$work"; if [ -n "$partial" ]; then rm -f "$partial"; fi' EXIT
-
+trap 'rm -rf "$work"' EXIT
+trap 'exit 1' HUP INT TERM
 download() {
-    target="$cache/$1"
-    candidate="$target"
-    if [ ! -f "$target" ]; then
-        partial=$(mktemp "$cache/.download.XXXXXXXX")
-        candidate="$partial"
-        printf 'Downloading %s\n' "$1"
-        curl -fsSL --retry 3 --max-time 300 "$2" -o "$candidate"
-    fi
-    if ! printf '%s  %s\n' "$3" "$candidate" | shasum -a 256 --check --status; then
-        echo "SHA-256 mismatch for $1" >&2
-        exit 1
-    fi
-    if [ -n "$partial" ]; then
-        mv "$partial" "$target"
-        partial=''
-    fi
+    sh scripts/contract/download-verified.sh "$cache/$1" "$2" "$3"
 }
 
 download introduction.yaml "$upstream/introduction.yaml" 4b3786cc86ec1097c29f5b1bea8e9a32d09c4ddb6244140ec094425b6fdc5e09
