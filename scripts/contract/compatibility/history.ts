@@ -69,6 +69,7 @@ import { checkSidebarCounters } from "./sidebar-counters.ts";
 import { checkThreadSummary } from "./thread-summary.ts";
 import { checkThreadWindow } from "./thread-window.ts";
 import { checkUserNotifications } from "./user-notifications.ts";
+import { checkUserTimezone } from "./user-timezone.ts";
 
 const base = "http://mattermost:8065";
 const version = process.argv[2];
@@ -744,6 +745,7 @@ const memberApi = new ChannelsApi(
   new Configuration({ basePath: base, accessToken: readerToken }),
 );
 assert.equal(reader.roles, "system_user");
+await checkUserTimezone(base, readerToken);
 await checkUserNotifications(base, readerToken);
 await checkChannelNotifications(memberApi, channelId);
 const ownMembership = { channelId: joinable.id, userId: reader.id };

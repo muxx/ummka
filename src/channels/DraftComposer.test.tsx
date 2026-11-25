@@ -354,13 +354,19 @@ test.each(["button", "enter"])(
   async (action) => {
     const { connection, rows } = storage();
     const props = { ...inputs(connection), online: true };
+    let finishStaging!: () => void;
+    const staged = new Promise<void>((resolve) => {
+      finishStaging = resolve;
+    });
+    const message = "Первая строка\nВторая";
     connection.submitDraft.mockImplementation(
       async (place: DraftLocation & { revision: string }) => {
         const saved = rows.get("A/root");
         expect(saved).toEqual({
-          message: "Первая строка\nВторая",
+          message,
           revision: place.revision,
         });
+        await staged;
         const draft = {
           message: "",
           revision: "sent",
@@ -376,18 +382,24 @@ test.each(["button", "enter"])(
     );
     render(<DraftComposer {...props} rootId="root" />);
     const input = await field();
-    fireEvent.change(input, { target: { value: "Первая строка\nВторая" } });
+    fireEvent.change(input, { target: { value: message } });
+    expect(input.value).toBe(message);
     if (action === "button")
       fireEvent.click(
         screen.getByRole("button", { name: "Отправить сообщение" }),
       );
     else fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() =>
+      expect(connection.submitDraft).toHaveBeenCalledExactlyOnceWith({
+        channelId: "A",
+        rootId: "root",
+        revision: "1",
+      }),
+    );
+    expect(input.value).toBe(message);
+    await act(async () => finishStaging());
     await waitFor(() => expect(input.value).toBe(""));
-    expect(connection.submitDraft).toHaveBeenCalledExactlyOnceWith({
-      channelId: "A",
-      rootId: "root",
-      revision: "1",
-    });
+    expect(connection.submitDraft).toHaveBeenCalledTimes(1);
     expect(
       props.sendContext.post.account.readChannelMemberCount,
     ).not.toHaveBeenCalled();
@@ -436,6 +448,13 @@ test.each([false, true])(
 test("Escape restores focus and text, and a later confirmed mention can send", async () => {
   const { connection } = storage();
   const props = { ...inputs(connection), online: true };
+  let releaseAudience!: (count: number) => void;
+  const audience = new Promise<number>((resolve) => {
+    releaseAudience = resolve;
+  });
+  props.sendContext.post.account.readChannelTimezoneCount.mockReturnValueOnce(
+    audience,
+  );
   connection.submitDraft.mockResolvedValue({
     kind: "sending",
     draft: { message: "", revision: "sent", clearedBySubmission: true },
@@ -447,15 +466,24 @@ test("Escape restores focus and text, and a later confirmed mention can send", a
   const sendButton = screen.getByRole("button", {
     name: "Отправить сообщение",
   });
-  fireEvent.click(sendButton);
-  const confirm = await screen.findByRole("button", { name: "Отправить" });
+  await act(async () => {
+    fireEvent.click(sendButton);
+  });
+  expect(
+    props.sendContext.post.account.readChannelTimezoneCount,
+  ).toHaveBeenCalledOnce();
+  expect(screen.queryByRole("button", { name: "Отправить" })).toBeNull();
+  await act(async () => releaseAudience(2));
+  const confirm = screen.getByRole("button", { name: "Отправить" });
   expect(document.activeElement).toBe(confirm);
   fireEvent.keyDown(confirm, { key: "Escape" });
   expect(document.activeElement).toBe(input);
   expect(input.value).toBe("@here встречаемся");
   expect(connection.submitDraft).not.toHaveBeenCalled();
-  fireEvent.click(sendButton);
-  fireEvent.click(await screen.findByRole("button", { name: "Отправить" }));
+  await act(async () => {
+    fireEvent.click(sendButton);
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Отправить" }));
   await waitFor(() => expect(input.value).toBe(""));
   expect(connection.submitDraft).toHaveBeenCalledTimes(1);
 });
