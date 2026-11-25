@@ -17,6 +17,51 @@ const exec = promisify(execFile);
 const app = "io.github.muxx.ummka.dev";
 const deviceProfile = "pixel_6";
 
+export async function waitForAndroidBoot(
+  adb: (...args: string[]) => Promise<string>,
+  emulator: { exitCode: number | null },
+) {
+  // Register for the one-time policy signal before installing the fixture or waiting on overlays.
+  const policyReady = "Finished calculating hasIncompatibleAccountsTask";
+  const readiness = await adb(
+    "wait-for-device",
+    "logcat",
+    "-b",
+    "system",
+    "-m",
+    "1",
+    "-e",
+    policyReady,
+    "-s",
+    "DevicePolicyManager:I",
+  );
+  assert.ok(
+    readiness.includes(policyReady),
+    "Android device policy did not report account readiness",
+  );
+
+  const deadline = Date.now() + 90_000;
+  while ((await adb("shell", "getprop", "sys.boot_completed")).trim() !== "1") {
+    assert(
+      Date.now() < deadline && emulator.exitCode === null,
+      "emulator did not complete boot",
+    );
+    await delay(500);
+  }
+  const overlay = `com.android.internal.emulation.${deviceProfile}`;
+  for (;;) {
+    const state = (
+      await adb("shell", "cmd", "overlay", "list", "--user", "0", overlay)
+    ).trim();
+    if (state === `[x] ${overlay}`) return;
+    assert(
+      Date.now() < deadline && emulator.exitCode === null,
+      `Android hardware profile did not activate ${overlay}: ${state || "(no overlay reported)"}`,
+    );
+    await delay(500);
+  }
+}
+
 export async function checkAndroid(
   dir: string,
   ports: number[],
@@ -174,45 +219,19 @@ export async function checkAndroid(
         await exec(
           join(sdk, "platform-tools/adb"),
           ["-s", `emulator-${reported}`, ...args],
-          { timeout: 90_000, maxBuffer: 2 << 20 },
+          {
+            timeout: args[0] === "wait-for-device" ? 180_000 : 90_000,
+            maxBuffer: 2 << 20,
+          },
         )
       ).stdout;
-    const deadline = Date.now() + 180_000;
-    while (
-      (
-        await adb("wait-for-device", "shell", "getprop", "sys.boot_completed")
-      ).trim() !== "1"
-    ) {
-      assert(
-        Date.now() < deadline && emulator.exitCode === null,
-        "emulator did not boot",
-      );
-      await delay(1000);
-    }
+    await waitForAndroidBoot(adb, emulator);
     assert.equal((await adb("emu", "avd", "name")).split(/\r?\n/)[0], name);
     await adb("shell", "wm", "dismiss-keyguard");
     for (const port of [...ports, ...webviewPorts])
       await adb("reverse", `tcp:${port}`, `tcp:${port}`);
     assert.match(await adb("install", "-t", apk), /Success/);
     const component = `${app}.httpcheck/${app}.`;
-    // After BOOT_COMPLETED, API 36 checks device owner eligibility and applies the
-    // hardware profile overlay. Applying it recreates an already running activity.
-    const overlay = `com.android.internal.emulation.${deviceProfile}`;
-    const bootDeadline = Date.now() + 90_000;
-    while (
-      !(await adb("logcat", "-d", "-s", "DevicePolicyManager:I")).includes(
-        "Finished calculating hasIncompatibleAccountsTask",
-      ) ||
-      (
-        await adb("shell", "cmd", "overlay", "list", "--user", "0", overlay)
-      ).trim() !== `[x] ${overlay}`
-    ) {
-      assert(
-        Date.now() < bootDeadline,
-        "Android did not finish device policy and hardware profile initialization",
-      );
-      await delay(500);
-    }
     assert.match(
       await adb(
         "shell",
