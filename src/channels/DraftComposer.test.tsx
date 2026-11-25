@@ -692,6 +692,7 @@ test.each(["saved", "storageUnavailable"] as const)(
     };
     const place = "A/";
     const message = "/me same text";
+    rows.set(place, { message, revision: "draft-before-first-attempt" });
     props.sendContext.route.mockResolvedValue({ kind: "command" });
     props.sendContext.performOther.mockImplementationOnce(async () => {
       const stored: ComposerDraft =
@@ -718,8 +719,8 @@ test.each(["saved", "storageUnavailable"] as const)(
     });
     render(<DraftComposer {...props} />);
     const input = await field();
-    fireEvent.change(input, { target: { value: message } });
-    fireEvent.click(screen.getByRole("button", { name: "Run command" }));
+    expect(input.value).toBe(message);
+    fireEvent.click(await screen.findByRole("button", { name: "Run command" }));
     await screen.findByText("Response from the first attempt");
     rows.set(place, {
       message,
