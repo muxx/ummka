@@ -4,6 +4,7 @@ import {
   loadAccountDirectory,
   loadTeamDirectory,
 } from "../../../src/mattermost/navigation-data.ts";
+import { projectTeamSidebar } from "../../../src/mattermost/team-sidebar.ts";
 import {
   ChannelsApi,
   Configuration,
@@ -44,6 +45,25 @@ export async function checkNavigationMemberships(
   }
   for (const teamId of [keepTeamId, leaveTeamId]) {
     const directory = await loadTeamDirectory(session, userId, teamId);
+    const projection = projectTeamSidebar(directory);
+    assert.deepEqual(
+      projection.categories.map((c) => [c.id, c.channelIds]),
+      directory.categories.map((c) => [c.id, c.channelIds]),
+    );
+    assert.ok(
+      projection.channels.some((c) => c.id === directId && c.kind === "D"),
+    );
+    const known = projection.channels.find((c) => c.id === channelId);
+    if (teamId === keepTeamId) {
+      assert.ok(
+        known && known.totalMsgCount !== null && known.msgCount !== null,
+      );
+      assert.equal(
+        known.muted,
+        directory.channels.find((row) => row.channel.id === channelId)
+          ?.membership.notifyProps?.markUnread === "mention",
+      );
+    }
     const dm = directory.channels.find((row) => row.channel.id === directId);
     assert.ok(
       dm &&

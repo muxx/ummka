@@ -158,10 +158,13 @@ test("opens a native account by installation and user ID", async () => {
     "readChannelWindow",
     "readJoinedTeams",
     "readTeamDirectory",
+    "readTeamSidebar",
     "refreshChannelHistory",
     "refreshJoinedTeams",
+    "refreshTeamSidebar",
     "rid",
     "selectJoinedTeam",
+    "selectSidebarChannel",
     "signOut",
     "signOutOnDevice",
   ]);
@@ -267,4 +270,47 @@ test("an aborted directory refresh releases its ticket without publishing teams"
   } finally {
     read.mockRestore();
   }
+});
+
+test("aborting an active channel directory releases the native ticket and skips publication", async () => {
+  ipc.mockResolvedValueOnce(7);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    "u".repeat(26),
+  );
+  const teamId = "t".repeat(26);
+  const controller = new AbortController();
+  const reason = new Error("left team");
+  const read = vi
+    .spyOn(directory, "loadTeamDirectory")
+    .mockImplementation(async () => {
+      controller.abort(reason);
+      return { teamId, channels: [], categories: [] };
+    });
+  try {
+    ipc.mockResolvedValueOnce(23).mockResolvedValueOnce(undefined);
+    await expect(
+      account.refreshTeamSidebar(teamId, controller.signal),
+    ).rejects.toBe(reason);
+    expect(ipc.mock.calls.slice(1)).toEqual([
+      ["begin_sidebar_load", { rid: 7, teamId }],
+      ["cancel_sidebar_load", { rid: 7, load: 23 }],
+    ]);
+    expect(read).toHaveBeenCalledOnce();
+  } finally {
+    read.mockRestore();
+  }
+});
+
+test("a team no longer on the device does not start a sidebar network fetch", async () => {
+  ipc.mockResolvedValueOnce(9);
+  const connection = await openAccountRestConnection(
+    "https://chat.example.test",
+    "u".repeat(26),
+  );
+  ipc.mockResolvedValueOnce(null);
+  expect(await connection.refreshTeamSidebar("t".repeat(26))).toBe(false);
+  expect(ipc.mock.calls.slice(1)).toEqual([
+    ["begin_sidebar_load", { rid: 9, teamId: "t".repeat(26) }],
+  ]);
 });

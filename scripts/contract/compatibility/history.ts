@@ -513,6 +513,7 @@ console.log(
 );
 await checkSidebarCounters(
   new Configuration({ basePath: base, accessToken: readerToken }),
+  reader.id,
   team.id,
   channelId,
   readerLogin.login_id,

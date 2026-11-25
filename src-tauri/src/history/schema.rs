@@ -55,6 +55,13 @@ const JOINED_TEAMS: &str = include_str!("migrations/0004_joined_teams.sql");
 const SELECTED_TEAM: &str =
     "CREATE UNIQUE INDEX joined_team_selected ON joined_team(selected) WHERE selected = 1";
 
+const SIDEBAR_TEAM: &str = include_str!("migrations/0005_sidebar_team.sql");
+const SIDEBAR_CHANNEL: &str = include_str!("migrations/0005_sidebar_channel.sql");
+const SIDEBAR_CATEGORY: &str = include_str!("migrations/0005_sidebar_category.sql");
+const SIDEBAR_ITEM: &str = include_str!("migrations/0005_sidebar_item.sql");
+const SIDEBAR_ITEM_BY_CHANNEL: &str =
+    "CREATE INDEX sidebar_item_by_channel ON sidebar_item(team_id, channel_id)";
+
 /// Each entry advances user_version by one. Keep published entries in order.
 pub(super) struct Migration {
     pub(super) statements: &'static [&'static str],
@@ -117,6 +124,38 @@ pub(super) const MIGRATIONS: &[Migration] = &[
             TEAM_DIRECTORY,
             JOINED_TEAMS,
             SELECTED_TEAM,
+        ],
+    },
+    Migration {
+        statements: &[
+            SIDEBAR_TEAM,
+            SIDEBAR_CHANNEL,
+            SIDEBAR_CATEGORY,
+            SIDEBAR_ITEM,
+            SIDEBAR_ITEM_BY_CHANNEL,
+        ],
+        objects: &[
+            CREATE_OWNER,
+            CREATE_POSTS,
+            INDEX_REPLIES,
+            CREATE_DELETIONS,
+            WINDOWS,
+            WINDOW_POSTS,
+            NEIGHBORS,
+            RECENT,
+            ORDER,
+            TIES,
+            NEIGHBOR_ID,
+            NEWER_HINT,
+            OLDER_HINT,
+            TEAM_DIRECTORY,
+            JOINED_TEAMS,
+            SELECTED_TEAM,
+            SIDEBAR_TEAM,
+            SIDEBAR_CHANNEL,
+            SIDEBAR_CATEGORY,
+            SIDEBAR_ITEM,
+            SIDEBAR_ITEM_BY_CHANNEL,
         ],
     },
 ];

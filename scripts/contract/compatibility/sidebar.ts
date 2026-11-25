@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { loadTeamDirectory } from "../../../src/mattermost/navigation-data.ts";
+import { projectTeamSidebar } from "../../../src/mattermost/team-sidebar.ts";
 import {
   ChannelsApi,
   Configuration,
@@ -80,6 +81,18 @@ export async function checkSidebarReads(
     order,
   );
   assert.deepEqual(directory.categories[1]?.channelIds, [channelId]);
+  assert.deepEqual(
+    projectTeamSidebar(directory).categories.find((c) => c.id === custom.id),
+    {
+      id: custom.id,
+      kind: "custom",
+      displayName: "Project rooms",
+      sorting: "alpha",
+      collapsed: true,
+      muted: true,
+      channelIds: [channelId],
+    },
+  );
   const row = directory.channels.find((row) => row.channel.id === channelId);
   assert.ok(
     row &&

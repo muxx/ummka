@@ -235,6 +235,83 @@ export async function checkGeneratedRequests(ports: string[]) {
         teamDirectory.categories[0]?.channelIds?.[0] === row.channel.id,
       "team-navigation-directory",
     );
+    const teamId = "Team0123456789012345678901";
+    const channelId = "c".repeat(26);
+    check(
+      (await accountPrefix.readTeamSidebar(teamId)) === null,
+      "cold-channel-catalog",
+    );
+    check(
+      !(await accountRoot.refreshTeamSidebar(teamId)),
+      "unknown-team-requested-sidebar",
+    );
+    const cancelled = await invoke<number>("begin_sidebar_load", {
+      rid: accountPrefix.rid,
+      teamId,
+    });
+    const ticket = { rid: accountPrefix.rid, load: cancelled };
+    const cancel = () => invoke("cancel_sidebar_load", ticket);
+    await cancel();
+    check(
+      (await rejected(
+        invoke("store_team_sidebar", {
+          ...ticket,
+          data: { channels: [], categories: [] },
+        }),
+      )) === "unknown_directory_load",
+      "cancelled-sidebar-publication",
+    );
+    check(
+      (await rejected(cancel())) === "unknown_directory_load",
+      "repeated-sidebar-cancellation",
+    );
+    const stale = await invoke<number>("begin_sidebar_load", {
+      rid: accountPrefix.rid,
+      teamId,
+    });
+    const fresh = await invoke<number>("begin_sidebar_load", {
+      rid: accountPrefix.rid,
+      teamId,
+    });
+    const publish = (rid: number, load: number, data: unknown) =>
+      invoke<boolean>("store_team_sidebar", { rid, load, data });
+    check(
+      !(await publish(accountPrefix.rid, stale, {
+        channels: [],
+        categories: [],
+      })),
+      "stale-channel-catalog",
+    );
+    check(
+      (await rejected(publish(accountRoot.rid, fresh, {}))) ===
+        "unknown_directory_load",
+      "foreign-channel-catalog",
+    );
+    check(
+      (await rejected(publish(accountPrefix.rid, fresh, {}))) ===
+        "invalid_directory",
+      "invalid-channel-catalog",
+    );
+    check(
+      (await rejected(publish(accountPrefix.rid, fresh, {}))) ===
+        "unknown_directory_load",
+      "reused-channel-catalog",
+    );
+    check(
+      await accountPrefix.refreshTeamSidebar(teamId),
+      "publish-channel-catalog",
+    );
+    check(
+      await accountPrefix.selectSidebarChannel(teamId, channelId),
+      "select-saved-room",
+    );
+    const catalog = await accountPrefix.readTeamSidebar(teamId);
+    check(
+      catalog?.selectedChannel === channelId &&
+        catalog.data.channels[0]?.lastRootPostAt === 300 &&
+        catalog.data.categories[0]?.channelIds[0] === channelId,
+      "read-channel-catalog",
+    );
     await checkChannelHistory(rootSession, signed, new Configuration(root));
     await checkPostContext(rootSession, signed);
     await checkConnectServer(origin);
