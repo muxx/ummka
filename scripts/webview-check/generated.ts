@@ -24,6 +24,7 @@ import { prepareHistoryLoads } from "./history-loads.ts";
 import { checkUnavailableHistoryServer } from "./local-history.ts";
 import { checkPostContext } from "./post-context.ts";
 import { checkPostMutations } from "./post-mutations.ts";
+import { checkPostReactions } from "./post-reactions.ts";
 import { checkSubmissions } from "./submission.ts";
 import { checkTeamReads } from "./team-reads.ts";
 import { checkRoleStorage } from "./team-role-storage.ts";
@@ -231,6 +232,7 @@ export async function checkGeneratedRequests(ports: string[]) {
     const rootSession = new Configuration(accountRoot);
     await checkAccountResponses(accountPrefix, userId, observed);
     await checkChannelRefresh(accountPrefix, observed);
+    await checkPostReactions(accountRoot, accountPrefix);
     await checkTeamReads(rootSession, signed);
     await checkTeamLoadOwnership(accountPrefix.rid, accountRoot.rid);
     check(

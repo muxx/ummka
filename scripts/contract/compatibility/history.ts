@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
+import { latestReactionTarget } from "../../../src/channels/latest-reaction-target.ts";
 import { channelHistoryPage } from "../../../src/mattermost/channel-history-page.ts";
 import { channelPostChanges } from "../../../src/mattermost/channel-post-records.ts";
 import {
@@ -28,6 +29,7 @@ import {
 } from "./browser-sign-in.ts";
 import { checkChannelAudience } from "./channel-audience.ts";
 import { checkCommands } from "./commands.ts";
+import { checkCustomEmojiLookup } from "./custom-emoji.ts";
 import { checkEventStream } from "./event-stream.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
 import {
@@ -42,7 +44,9 @@ import {
   checkPreviouslyAcceptedPost,
 } from "./post-mutations.ts";
 import { checkProfileReads } from "./profile-reads.ts";
+import { checkReactionActions } from "./reaction-actions.ts";
 import { checkReactionLimit } from "./reaction-limit.ts";
+import { checkPostReactions } from "./reactions.ts";
 import { checkRoleReads } from "./role-reads.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
@@ -135,6 +139,23 @@ assert.ok(
   ordinary.order?.includes(root.id) && ordinary.order.includes(reply.id),
 );
 assert.equal(ordinary.posts?.[reply.id]?.rootId, root.id);
+const savedById = new Map(
+  channelPostChanges(channelId, ordinary)
+    .filter((row) => row.kind === "save")
+    .map((row) => [row.id, row]),
+);
+const savedInOrder = (ordinary.order ?? []).flatMap((id) => {
+  const record = savedById.get(id);
+  return record ? [record] : [];
+});
+const lastVisible = savedInOrder.find((row) => !row.type.startsWith("system_"));
+assert.ok(
+  lastVisible && [root.id, reply.id, image.id].includes(lastVisible.id),
+);
+assert.equal(latestReactionTarget(channelId, savedInOrder), lastVisible.id);
+assert.equal(latestReactionTarget(channelId, savedInOrder, root.id), reply.id);
+assert.equal(latestReactionTarget(channelId, savedInOrder, image.id), image.id);
+
 assert.equal(ordinary.firstInaccessiblePostTime, 0);
 const size = ordinary.posts?.[image.id]?.metadata?.images?.[imageUrl];
 assert.deepEqual(size, { height: 3, width: 4, format: "png", frameCount: 0 });
@@ -281,6 +302,15 @@ const closedMember = await new ChannelsApi(session).getChannelMember({
   channelId: closed.id,
   userId: "me",
 });
+await checkReactionActions(
+  base,
+  { id: user.id, token },
+  { id: reader.id, token: readerToken },
+  dm.id,
+);
+console.log(
+  `Mattermost ${version} verified two users joining and leaving one reaction at the distinct emoji limit.`,
+);
 assert.equal(closedMember.userId, user.id);
 assert.equal(closedMember.channelId, closed.id);
 const closedReader = new ChannelsApi(
@@ -852,6 +882,16 @@ await checkMentionLimit(
 );
 console.log(
   `Mattermost ${version} verified the channel notification limit against real member counts.`,
+);
+
+await checkCustomEmojiLookup(base, token, user.id, readerToken);
+console.log(
+  `Mattermost ${version} verified exact custom emoji lookup, case sensitivity and disabled configuration.`,
+);
+
+await checkPostReactions(base, token, session, user.id, reader.id, channelId);
+console.log(
+  `Mattermost ${version} verified empty and populated reaction lists and post metadata.`,
 );
 
 await checkEventStream(base, token, session, team.id, channelId);

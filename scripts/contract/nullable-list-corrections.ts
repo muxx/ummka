@@ -8,7 +8,14 @@ import { type Fields, object } from "./objects.ts";
 // https://github.com/mattermost/mattermost/blob/v12.1.0/server/channels/store/sqlstore/preference_store.go#L151-L160
 // https://github.com/mattermost/mattermost/blob/v10.10.1/server/channels/api4/channel.go#L1516-L1536
 // https://github.com/mattermost/mattermost/blob/v12.1.0/server/channels/api4/channel.go#L2066-L2086
+// https://github.com/mattermost/mattermost/blob/v10.10.1/server/channels/api4/reaction.go#L54-L80
+// https://github.com/mattermost/mattermost/blob/v12.1.0/server/channels/api4/reaction.go#L56-L82
 const lists = {
+  GetReactions: {
+    path: "/api/v4/posts/{post_id}/reactions",
+    method: "get",
+    items: { $ref: "#/components/schemas/Reaction" },
+  },
   GetRolesByNames: {
     path: "/api/v4/roles/names",
     method: "post",
