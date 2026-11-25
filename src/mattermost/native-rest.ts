@@ -63,7 +63,12 @@ export type SavedProfiles = {
 };
 
 export type DraftLocation = { channelId: string; rootId?: string };
-export type ComposerDraft = { message: string; revision: string | null };
+export type ComposerDraft = {
+  message: string;
+  revision: string | null;
+  /** Present only when the cause of this empty revision is known. */
+  clearedBySubmission?: boolean;
+};
 export type DraftSave = { kind: "saved" | "conflict"; draft: ComposerDraft };
 
 export type AccountSignOut =

@@ -76,6 +76,8 @@ const PENDING_BY_CONVERSATION: &str =
     "CREATE INDEX pending_post_by_conversation ON pending_post(channel_id, root_id)";
 const POST_CONFIRMATION: &str = include_str!("migrations/0010_post_confirmation.sql");
 const POST_ATTEMPT: &str = include_str!("migrations/0011_post_attempt.sql");
+const ADD_DRAFT_ORIGIN: &str = "ALTER TABLE composer_draft ADD COLUMN cleared_by_submission INTEGER CHECK (cleared_by_submission IS NULL OR (cleared_by_submission IN (0,1) AND message = ''));";
+const COMPOSER_DRAFT_V12: &str = include_str!("migrations/0012_composer_draft_schema.sql");
 
 /// Each entry advances user_version by one. Keep published entries in order.
 pub(super) struct Migration {
@@ -353,6 +355,40 @@ pub(super) const MIGRATIONS: &[Migration] = &[
             PROFILE_BY_USERNAME,
             WORKSPACE_SETTINGS,
             COMPOSER_DRAFT,
+            PENDING_POST,
+            PENDING_BY_CONVERSATION,
+            POST_CONFIRMATION,
+            POST_ATTEMPT,
+        ],
+    },
+    Migration {
+        statements: &[ADD_DRAFT_ORIGIN],
+        objects: &[
+            CREATE_OWNER,
+            CREATE_POSTS,
+            INDEX_REPLIES,
+            CREATE_DELETIONS,
+            WINDOWS,
+            WINDOW_POSTS,
+            NEIGHBORS,
+            RECENT,
+            ORDER,
+            TIES,
+            NEIGHBOR_ID,
+            NEWER_HINT,
+            OLDER_HINT,
+            TEAM_DIRECTORY,
+            JOINED_TEAMS,
+            SELECTED_TEAM,
+            SIDEBAR_TEAM,
+            SIDEBAR_CHANNEL_V7,
+            SIDEBAR_CATEGORY,
+            SIDEBAR_ITEM,
+            SIDEBAR_ITEM_BY_CHANNEL,
+            CHANNEL_PROFILE,
+            PROFILE_BY_USERNAME,
+            WORKSPACE_SETTINGS,
+            COMPOSER_DRAFT_V12,
             PENDING_POST,
             PENDING_BY_CONVERSATION,
             POST_CONFIRMATION,
