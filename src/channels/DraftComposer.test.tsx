@@ -611,26 +611,35 @@ test("Escape restores focus and text, and a later confirmed mention can send", a
 test("switching rooms while the audience is loading never submits the other room's draft", async () => {
   const { connection, rows } = storage();
   const props = { ...inputs(connection), online: true };
+  const first = { message: "@all проверьте", revision: "first" };
+  const second = { message: "Другой черновик", revision: "second" };
+  rows.set("A/", first);
+  rows.set("B/", second);
   let finish!: (count: number) => void;
-  props.sendContext.post.account.readChannelMemberCount.mockImplementationOnce(
-    () =>
-      new Promise<number>((r) => {
-        finish = r;
-      }),
-  );
+  const audience = new Promise<number>((resolve) => {
+    finish = resolve;
+  });
+  const { readChannelMemberCount } = props.sendContext.post.account;
+  readChannelMemberCount.mockReturnValueOnce(audience);
   const view = render(<DraftComposer {...props} />);
-  fireEvent.change(await field(), { target: { value: "@all проверьте" } });
-  fireEvent.click(screen.getByRole("button", { name: "Отправить сообщение" }));
-  await waitFor(() =>
-    expect(
-      props.sendContext.post.account.readChannelMemberCount,
-    ).toHaveBeenCalledOnce(),
+  expect((await field()).value).toBe(first.message);
+  const send = screen.getByRole("button", { name: "Отправить сообщение" });
+  await act(async () => {
+    fireEvent.click(send);
+  });
+  expect(readChannelMemberCount).toHaveBeenCalledExactlyOnceWith(
+    props.sendContext.post.channel.id,
+    expect.any(AbortSignal),
   );
+  const signal = readChannelMemberCount.mock.calls[0][1] as AbortSignal;
+  expect(signal.aborted).toBe(false);
   view.rerender(<DraftComposer {...props} channelId="B" />);
-  expect((await field()).value).toBe("");
+  expect((await field()).value).toBe(second.message);
+  expect(signal.aborted).toBe(true);
   await act(async () => finish(21));
   expect(screen.queryByRole("group")).toBeNull();
-  expect(rows.get("A/")?.message).toBe("@all проверьте");
+  expect(rows.get("A/")).toEqual(first);
+  expect(rows.get("B/")).toEqual(second);
   expect(connection.submitDraft).not.toHaveBeenCalled();
 });
 
