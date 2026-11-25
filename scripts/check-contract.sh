@@ -70,11 +70,13 @@ npm run contract:build -- "$cache" "$work/openapi.json" "$work/native-auth.json"
     --type-mappings 'string+password=models::SecretInput'
 rustfmt --edition 2024 "$work/native/src/models/login_request.rs"
 mkdir "$work/templates"
-for template in apis.mustache apisReturnType.mustache; do
+for template in apis.mustache apisReturnType.mustache modelGeneric.mustache; do
     unzip -p "$cache/$generator" "typescript-fetch/$template" > "$work/templates/$template"
 done
 # Pinned typescript-fetch otherwise drops nullable on a top-level array response.
 patch -s -F 0 -p1 -d "$work/templates" < contracts/mattermost/nullable-array.patch
+# Convert the models inside array-valued response dictionaries in both directions.
+patch -s -F 0 -p1 -d "$work/templates" < contracts/mattermost/model-array-map.patch
 "$JAVA_HOME/bin/java" -jar "$cache/$generator" generate -g typescript-fetch \
     -i "$work/openapi.json" -o "$work/client" -t "$work/templates" --additional-properties=importFileExtension=.js
 strict_tsc() {

@@ -8,6 +8,7 @@ import { json } from "node:stream/consumers";
 import { respondToAccount } from "./account.ts";
 import { respondToChannelMembers } from "./channel-members.ts";
 import { respondToChannelView } from "./channel-view.ts";
+import { respondToGroupAssociations } from "./group-associations.ts";
 import { respondToGroupAudience } from "./group-audience.ts";
 import { respondToHistory } from "./history.ts";
 import { historyRefreshFixture } from "./history-refresh.ts";
@@ -420,6 +421,17 @@ export function webviewServers(
         .end(JSON.stringify(result));
       return;
     }
+    const associations = respondToGroupAssociations(
+      req,
+      res,
+      url,
+      teamId,
+      channelId,
+    );
+    if (associations) {
+      visits.push(associations);
+      return;
+    }
     const groupAudience = respondToGroupAudience(req, res, url, channelId);
     if (groupAudience) {
       visits.push(groupAudience);
@@ -809,6 +821,10 @@ export function webviewServers(
         "single-channel-view",
         "channel-stats",
         "channel-timezones",
+        "team-group-associations-all",
+        "team-group-associations-empty",
+        "channel-group-associations-all",
+        "channel-group-associations-empty",
         "group-directory-page",
         "group-directory-empty",
         "group-audience-empty",

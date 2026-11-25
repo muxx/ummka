@@ -31,6 +31,10 @@ import {
   correctExecuteCommand,
 } from "./command-corrections.ts";
 import {
+  correctAssociatedGroup,
+  correctGroupAssociations,
+} from "./group-association-corrections.ts";
+import {
   correctGroupAudienceModel,
   correctGroupAudienceResponse,
 } from "./group-audience-correction.ts";
@@ -400,6 +404,113 @@ test("channel stats corrections detect upstream fields on either pin", () => {
   }
 });
 
+test("group association corrections reject newly documented response shapes in either version", () => {
+  for (const [id, path] of [
+    ["GetGroupsByTeam", "/api/v4/teams/{team_id}/groups"],
+    [
+      "GetGroupsAssociatedToChannelsByTeam",
+      "/api/v4/teams/{team_id}/groups_by_channels",
+    ],
+  ] as const) {
+    for (const version of ["10", "12"]) {
+      const source = structuredClone(
+        object(at(read("groups.yaml"), [path, "get"]), id),
+      );
+      const newer = structuredClone(read("groups-12.1.0.yaml"));
+      const op =
+        version === "10" ? source : object(at(newer, [path, "get"]), id);
+      const body = object(
+        at(op, ["responses", "200", "content", "application/json"]),
+        id,
+      );
+      body.schema = {
+        type: "object",
+        properties: { new_result: { type: "object" } },
+      };
+      assert.throws(
+        () => correctGroupAssociations(id, path, source, newer),
+        /Review .* response/,
+      );
+    }
+  }
+});
+
+test("the channel group map keeps its array item type in each pinned source", () => {
+  const operations = catalog.filter(
+    (op) => op.id === "GetGroupsAssociatedToChannelsByTeam",
+  );
+  assert.equal(operations.length, 1);
+  for (const changed of [
+    ["definitions.yaml"],
+    ["definitions-12.1.0.yaml"],
+    ["definitions.yaml", "definitions-12.1.0.yaml"],
+  ]) {
+    const build = () =>
+      buildSpecification((file) => {
+        const doc = read(file);
+        if (changed.includes(file)) {
+          object(
+            at(doc, [
+              "components",
+              "schemas",
+              "GroupsAssociatedToChannels",
+              "additionalProperties",
+            ]),
+            "map value",
+          ).items = { type: "string" };
+        }
+        return doc;
+      }, operations);
+    assert.throws(
+      build,
+      /Review GroupsAssociatedToChannels against the pinned sources/,
+    );
+  }
+});
+
+test("group associations reject changes to the location, requiredness, type or default of a parameter", () => {
+  const baseline = read("groups.yaml");
+  const reference = read("groups-12.1.0.yaml");
+  for (const path of [
+    "/api/v4/teams/{team_id}/groups",
+    "/api/v4/teams/{team_id}/groups_by_channels",
+  ]) {
+    for (const version of ["baseline", "newer", "both"]) {
+      for (const [name, change] of [
+        ["team_id", { in: "query" }],
+        ["team_id", { required: false }],
+        ["page", { schema: { type: "string", default: 0 } }],
+        ["per_page", { schema: { type: "integer", default: 30 } }],
+      ] as const) {
+        const source = structuredClone(
+          object(at(baseline, [path, "get"]), path),
+        );
+        const newer = { [path]: structuredClone(reference[path]) };
+        const next = object(at(newer, [path, "get"]), path);
+        const id = source.operationId;
+        assert.ok(
+          id === "GetGroupsByTeam" ||
+            id === "GetGroupsAssociatedToChannelsByTeam",
+        );
+        for (const op of version === "both"
+          ? [source, next]
+          : [version === "baseline" ? source : next]) {
+          assert.ok(Array.isArray(op.parameters));
+          const parameter = op.parameters.find(
+            (item: Fields) => item.name === name,
+          );
+          assert.ok(parameter);
+          Object.assign(parameter, change);
+        }
+        assert.throws(
+          () => correctGroupAssociations(id, path, source, newer),
+          /Review .* parameters/,
+        );
+      }
+    }
+  }
+});
+
 test("group search keeps the same public parameters and result model in both releases", () => {
   const opPath = ["/api/v4/groups", "get"];
   const baseline = object(at(read("groups.yaml"), opPath), "GetGroups");
@@ -679,6 +790,16 @@ test("retains the catalog operations, security and transitive models", () => {
     if (source.operationId === "SetPostUnread")
       expected = correctSetPostUnread(source, read("posts-12.1.0.yaml"), path);
     if (path === sidebar) expected = correctSidebarResponse(source);
+    if (
+      source.operationId === "GetGroupsByTeam" ||
+      source.operationId === "GetGroupsAssociatedToChannelsByTeam"
+    )
+      expected = correctGroupAssociations(
+        source.operationId,
+        path,
+        source,
+        read("groups-12.1.0.yaml"),
+      );
     if (path === profileImage) expected = correctProfileImage(source);
     assert.deepEqual(actual, expected);
   }
@@ -693,6 +814,11 @@ test("retains the catalog operations, security and transitive models", () => {
       );
     if (name === "ChannelMemberCountByGroup")
       expected = correctGroupAudienceModel(
+        object(source, name),
+        read("definitions-12.1.0.yaml"),
+      );
+    if (name === "GroupWithSchemeAdmin")
+      expected = correctAssociatedGroup(
         object(source, name),
         read("definitions-12.1.0.yaml"),
       );
@@ -743,6 +869,8 @@ test("retains the catalog operations, security and transitive models", () => {
       "Emoji",
       "FileInfo",
       "Group",
+      "GroupWithSchemeAdmin",
+      "GroupsAssociatedToChannels",
       "OrderedSidebarCategories",
       "Post",
       "PostAcknowledgement",
@@ -1341,6 +1469,8 @@ const {
   Configuration,
   SystemApi,
   PostListFromJSON,
+  GetGroupsAssociatedToChannelsByTeam200ResponseFromJSON,
+  GetGroupsAssociatedToChannelsByTeam200ResponseToJSON,
   ChannelFromJSON,
   ChannelToJSON,
   ChannelMemberFromJSON,
@@ -1348,6 +1478,37 @@ const {
   TeamMemberFromJSON,
   TeamMemberToJSON,
 } = await import(pathToFileURL(resolve(work, "compiled/index.js")).href);
+test("channel group maps convert every group in both directions", () => {
+  const one = {
+    id: "g".repeat(26),
+    name: "release",
+    display_name: "Release",
+    remote_id: null,
+    allow_reference: true,
+  };
+  const wire = {
+    groups: {
+      first: [{ ...one, scheme_admin: false }],
+      second: [{ ...one, scheme_admin: true }, one],
+      empty: [],
+    },
+  };
+  const result = GetGroupsAssociatedToChannelsByTeam200ResponseFromJSON(wire);
+  assert.equal(result.groups.first[0].allowReference, true);
+  assert.equal(result.groups.first[0].schemeAdmin, false);
+  assert.equal(result.groups.second[0].schemeAdmin, true);
+  assert.equal(result.groups.second[1].schemeAdmin, undefined);
+  assert.equal(result.groups.second[1].remoteId, null);
+  assert.deepEqual(result.groups.empty, []);
+  assert.deepEqual(
+    JSON.parse(
+      JSON.stringify(
+        GetGroupsAssociatedToChannelsByTeam200ResponseToJSON(result),
+      ),
+    ),
+    wire,
+  );
+});
 const channelRoleFields = {
   scheme_guest: { type: "boolean" },
   scheme_user: { type: "boolean" },

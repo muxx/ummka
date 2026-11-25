@@ -8,6 +8,7 @@ import {
 
 export async function checkChannelAudience(
   base: string,
+  teamId: string,
   dm: { id: string; postId: string },
   closedId: string,
   owner: { id: string; token: string },
@@ -45,17 +46,38 @@ export async function checkChannelAudience(
       "api.license_error",
     ],
   ] as const) {
-    const failure = await new GroupsApi(credentials)
-      .getGroups({ q: "qa", page: 0, perPage: 60, filterAllowReference: true })
-      .then(
-        () => assert.fail("group search unexpectedly succeeded"),
+    const groups = new GroupsApi(credentials);
+    for (const request of [
+      () =>
+        groups.getGroups({
+          q: "qa",
+          page: 0,
+          perPage: 60,
+          filterAllowReference: true,
+        }),
+      () =>
+        groups.getGroupsByTeam({
+          teamId,
+          paginate: false,
+          filterAllowReference: true,
+        }),
+      () =>
+        groups.getGroupsAssociatedToChannelsByTeam({
+          teamId,
+          paginate: false,
+          filterAllowReference: true,
+        }),
+    ]) {
+      const failure = await request().then(
+        () => assert.fail("unlicensed group directory unexpectedly succeeded"),
         (error: unknown) => {
           assert.ok(error instanceof ResponseError);
           return error.response;
         },
       );
-    assert.equal(failure.status, status);
-    assert.equal((await failure.json()).id, code);
+      assert.equal(failure.status, status);
+      assert.equal((await failure.json()).id, code);
+    }
   }
   const baseline = {
     channelId: dm.id,

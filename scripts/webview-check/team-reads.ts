@@ -8,6 +8,7 @@ import {
   RolesApi,
   TeamsApi,
 } from "../../vendor/mattermost/index.js";
+import { checkGroupAssociations } from "./group-associations.ts";
 
 export async function checkTeamReads(
   root: Configuration,
@@ -103,6 +104,7 @@ export async function checkTeamReads(
       .length !== 0
   )
     throw Error("empty channel group counts");
+  await checkGroupAssociations(root, prefixed, teamId, channelId);
   const matches = await new GroupsApi(prefixed).getGroups({
     q: "release qa",
     page: 0,

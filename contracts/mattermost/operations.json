@@ -206,5 +206,17 @@
     "method": "GET",
     "path": "/api/v4/groups",
     "id": "GetGroups"
+  },
+  {
+    "file": "groups.yaml",
+    "method": "GET",
+    "path": "/api/v4/teams/{team_id}/groups",
+    "id": "GetGroupsByTeam"
+  },
+  {
+    "file": "groups.yaml",
+    "method": "GET",
+    "path": "/api/v4/teams/{team_id}/groups_by_channels",
+    "id": "GetGroupsAssociatedToChannelsByTeam"
   }
 ]

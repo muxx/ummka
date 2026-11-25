@@ -22,6 +22,11 @@ import {
   correctExecuteCommand,
 } from "./command-corrections.ts";
 import {
+  checkChannelGroupMap,
+  correctAssociatedGroup,
+  correctGroupAssociations,
+} from "./group-association-corrections.ts";
+import {
   correctGroupAudienceModel,
   correctGroupAudienceResponse,
 } from "./group-audience-correction.ts";
@@ -134,6 +139,16 @@ export function buildSpecification(
         source,
         read("definitions-12.1.0.yaml"),
       );
+    else if (name === "GroupsAssociatedToChannels")
+      group[name] = checkChannelGroupMap(
+        source,
+        read("definitions-12.1.0.yaml"),
+      );
+    else if (name === "GroupWithSchemeAdmin")
+      group[name] = correctAssociatedGroup(
+        source,
+        read("definitions-12.1.0.yaml"),
+      );
     else if (name === "Group")
       group[name] = correctMentionGroup(
         source,
@@ -236,6 +251,16 @@ export function buildSpecification(
       paths[path][method] = correctPatchPost(
         operation,
         read("posts-12.1.0.yaml"),
+      );
+    else if (
+      id === "GetGroupsByTeam" ||
+      id === "GetGroupsAssociatedToChannelsByTeam"
+    )
+      paths[path][method] = correctGroupAssociations(
+        id,
+        path,
+        operation,
+        read("groups-12.1.0.yaml"),
       );
     else if (id === "GetChannelMemberCountsByGroup")
       paths[path][method] = correctGroupAudienceResponse(

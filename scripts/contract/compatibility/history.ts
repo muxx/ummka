@@ -284,6 +284,7 @@ const closedReader = new ChannelsApi(
 );
 await checkChannelAudience(
   base,
+  team.id,
   { id: dm.id, postId: dmPost.id },
   closed.id,
   { id: user.id, token },
