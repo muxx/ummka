@@ -1,5 +1,8 @@
 use super::*;
-use crate::history::{DirectoryTeam, HistoryDatabase, schema::MIGRATIONS};
+use crate::history::{
+    DirectoryTeam, HistoryDatabase,
+    schema::{MIGRATIONS, Migration},
+};
 use crate::sessions::Account;
 use std::{path::Path, time::Instant};
 use tempfile::tempdir;
@@ -24,6 +27,7 @@ fn teams(db: &mut AccountHistory, ids: &[&str]) {
             name: (*id).into(),
             display_name: (*id).into(),
             preference_rank: None,
+            roles: Some("team_user".into()),
         })
         .collect::<Vec<_>>();
     assert!(db.store_team_directory(load, &rows, None).unwrap());
@@ -50,6 +54,7 @@ fn sidebar(count: usize) -> SidebarData {
             mention_count_root: Some(1),
             urgent_mention_count: None,
             muted: n % 3 == 0,
+            roles: Some("channel_user custom_writer".into()),
         })
         .collect();
     let categories = if channels.is_empty() {
@@ -237,6 +242,71 @@ fn version_five_opens_populated_prior_formats_and_older_readers_preserve_the_new
         if version >= 2 {
             assert_eq!(reopened.read_post(USER).unwrap().unwrap().message, "kept");
         }
+    }
+}
+
+#[test]
+fn upgrades_populated_directories_with_unknown_roles_and_restores_the_next_assignments() {
+    for version in [5, 7, 12] {
+        let root = tempdir().unwrap();
+        let mut old = HistoryDatabase::open_with(root.path(), URL, &MIGRATIONS[..version]).unwrap();
+        let owner = old.restore(&account()).unwrap();
+        old.write(&owner, |tx| {
+            tx.execute("INSERT INTO team_directory(owner,published) VALUES(1,1)", [])?;
+            tx.execute("INSERT INTO joined_team(position,team_id,name,display_name,selected)
+                        VALUES(0,?1,'old-team','Old team',1)", [TEAM])?;
+            tx.execute("INSERT INTO sidebar_team(team_id,published,selected_channel) VALUES(?1,1,?2)", [TEAM, OTHER])?;
+            tx.execute("INSERT INTO sidebar_channel(team_id,position,channel_id,kind,name,display_name,header,purpose,delete_at,muted)
+                        VALUES(?1,0,?2,'O','old-room','Old room','','',0,0)", [TEAM, OTHER])?;
+            Ok(())
+        }).unwrap();
+        drop(old);
+        if version == 12 {
+            let mut broken: Vec<_> = MIGRATIONS[..12]
+                .iter()
+                .map(|m| Migration {
+                    statements: m.statements,
+                    objects: m.objects,
+                })
+                .collect();
+            const INTERRUPTED: &[&str] = &[
+                MIGRATIONS[12].statements[0],
+                "ALTER TABLE missing ADD COLUMN roles TEXT",
+            ];
+            broken.push(Migration {
+                statements: INTERRUPTED,
+                objects: MIGRATIONS[12].objects,
+            });
+            assert!(matches!(
+                HistoryDatabase::open_with(root.path(), URL, &broken),
+                Err(HistoryError::Storage)
+            ));
+            // Validating the old fingerprint checks that the first ALTER rolled back.
+            let prior = HistoryDatabase::open_with(root.path(), URL, &MIGRATIONS[..12]).unwrap();
+            assert_eq!(prior.version, 12);
+        }
+        let mut next = open(root.path());
+        let mut team = next.read_team_directory().unwrap().unwrap();
+        let mut channels = next.read_sidebar(TEAM).unwrap().unwrap();
+        assert_eq!(team.selected_team.as_deref(), Some(TEAM));
+        assert_eq!(channels.selected_channel.as_deref(), Some(OTHER));
+        assert_eq!(team.teams[0].name, "old-team");
+        assert_eq!(channels.data.channels[0].name, "old-room");
+        assert_eq!(team.teams[0].roles, None);
+        assert_eq!(channels.data.channels[0].roles, None);
+        let load = next.begin_team_directory_load().unwrap();
+        team.teams[0].roles = Some(String::new());
+        assert!(next.store_team_directory(load, &team.teams, None).unwrap());
+        channels.data.channels[0].roles = Some("custom_writer channel_user".into());
+        save(&mut next, TEAM, &channels.data);
+        drop(next);
+        assert!(matches!(
+            HistoryDatabase::open_with(root.path(), URL, &MIGRATIONS[..version]),
+            Err(HistoryError::UnsupportedSchema)
+        ));
+        let mut reopened = open(root.path());
+        assert_eq!(reopened.read_team_directory().unwrap().unwrap(), team);
+        assert_eq!(reopened.read_sidebar(TEAM).unwrap().unwrap(), channels);
     }
 }
 

@@ -72,8 +72,8 @@ test("keeps only joined rows and preserves category and channel order and archiv
         channel(loose),
       ],
       [
-        member(d),
-        member(a),
+        { ...member(d), roles: "" },
+        { ...member(a), roles: "channel_user custom_writer" },
         member(archived),
         member(loose),
         member("x".repeat(26)),
@@ -100,6 +100,9 @@ test("keeps only joined rows and preserves category and channel order and archiv
   expect(result.channels[2]?.channel.deleteAt).toBe(20);
   expect(result.channels[1]?.channel.displayName).toBe("");
   const projection = projectTeamSidebar(result);
+  expect(projection.channels[0]?.roles).toBe("channel_user custom_writer");
+  expect(projection.channels[1]?.roles).toBe("");
+  expect(projection.channels[2]).not.toHaveProperty("roles");
   expect(projection.channels.find((c) => c.id === archived)?.deleteAt).toBe(20);
   expect(projection.channels.find((c) => c.id === d)).toMatchObject({
     kind: "D",

@@ -17,7 +17,11 @@ test("keeps first known preference ranks and uses Mattermost's numeric display-n
       [e, "fifth", "Команда 1"],
     ].map(([id, name, displayName]) => ({
       team: { id, name, displayName },
-      membership: { teamId: id },
+      membership: {
+        teamId: id,
+        ...(id === a ? { roles: "team_guest custom_reader" } : {}),
+        ...(id === b ? { roles: "" } : {}),
+      },
     })),
     preferences: [
       { category: "teams_order", name: "irrelevant", value: a },
@@ -39,5 +43,8 @@ test("keeps first known preference ranks and uses Mattermost's numeric display-n
     a,
   ]);
   expect(rows.map((row) => row.id)).toEqual([a, b, c, d, e]);
+  expect(rows[0]?.roles).toBe("team_guest custom_reader");
+  expect(rows[1]?.roles).toBe("");
+  expect(rows[2]).not.toHaveProperty("roles");
   expect(projectJoinedTeams({ teams: [], preferences: [] })).toEqual([]);
 });

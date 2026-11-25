@@ -44,6 +44,9 @@ export async function checkNavigationMemberships(
   for (const id of [keepTeamId, leaveTeamId]) {
     const row = teamRows.find((team) => team.id === id);
     assert.ok(row?.name && row.displayName);
+    const assigned = active.find((m) => m.teamId === id);
+    assert.ok(assigned?.roles);
+    assert.equal(row.roles, assigned.roles);
   }
   for (const teamId of [keepTeamId, leaveTeamId]) {
     const directory = await loadTeamDirectory(session, userId, teamId);
@@ -61,6 +64,13 @@ export async function checkNavigationMemberships(
       assert.ok(!allows("x".repeat(26), "create_direct_channel"));
     }
     const projection = projectTeamSidebar(directory);
+    assert.deepEqual(
+      projection.channels.map((row) => [row.id, row.roles]),
+      directory.channels.map(({ channel, membership }) => {
+        assert.ok(membership.roles);
+        return [channel.id, membership.roles];
+      }),
+    );
     assert.deepEqual(
       projection.categories.map((c) => [c.id, c.channelIds]),
       directory.categories.map((c) => [c.id, c.channelIds]),
