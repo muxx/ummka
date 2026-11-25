@@ -172,6 +172,30 @@ impl RestConnection {
         sessions.forget_current(session).await
     }
 
+    /// Run one native event connection for the signed account. Dropping the caller's
+    /// future or retiring this login closes the socket, including during the handshake.
+    pub async fn with_event_stream<T>(
+        &self,
+        settings: crate::realtime::EventSettings<'_>,
+        applied: Option<&crate::realtime::EventCursor>,
+        consume: impl AsyncFnOnce(
+            &mut crate::realtime::EventReader,
+        ) -> Result<T, crate::realtime::EventConnectionError>,
+    ) -> Result<T, crate::realtime::EventConnectionError> {
+        use crate::realtime::EventConnectionError;
+        let account = self
+            .account
+            .as_ref()
+            .ok_or(EventConnectionError::SessionUnavailable)?;
+        let request = settings.request(&self.base, applied)?;
+        account
+            .dispatch(|token| async move {
+                Ok(crate::realtime::EventReader::run(&self.http, request, &token, consume).await)
+            })
+            .await
+            .map_err(|_| EventConnectionError::SessionUnavailable)?
+    }
+
     pub(crate) fn lifetime(&self) -> CancellationToken {
         self.account
             .as_ref()
