@@ -1,6 +1,8 @@
 import * as runtime from '../runtime.js';
+import { type ChannelUnreadAt } from '../models/ChannelUnreadAt.js';
 import { type PostInfo } from '../models/PostInfo.js';
 import { type PostList } from '../models/PostList.js';
+import { type SetPostUnreadRequest } from '../models/SetPostUnreadRequest.js';
 export interface GetPostInfoRequest {
     postId: string;
 }
@@ -28,6 +30,11 @@ export interface GetPostsForChannelRequest {
     collapsedThreads?: boolean;
     collapsedThreadsExtended?: boolean;
 }
+export interface SetPostUnreadOperationRequest {
+    userId: string;
+    postId: string;
+    setPostUnreadRequest: SetPostUnreadRequest;
+}
 export declare class PostsApi extends runtime.BaseAPI {
     getPostInfoRequestOpts(requestParameters: GetPostInfoRequest): Promise<runtime.RequestOpts>;
     getPostInfoRaw(requestParameters: GetPostInfoRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<PostInfo>>;
@@ -38,4 +45,7 @@ export declare class PostsApi extends runtime.BaseAPI {
     getPostsForChannelRequestOpts(requestParameters: GetPostsForChannelRequest): Promise<runtime.RequestOpts>;
     getPostsForChannelRaw(requestParameters: GetPostsForChannelRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<PostList>>;
     getPostsForChannel(requestParameters: GetPostsForChannelRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<PostList>;
+    setPostUnreadRequestOpts(requestParameters: SetPostUnreadOperationRequest): Promise<runtime.RequestOpts>;
+    setPostUnreadRaw(requestParameters: SetPostUnreadOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<ChannelUnreadAt>>;
+    setPostUnread(requestParameters: SetPostUnreadOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<ChannelUnreadAt>;
 }

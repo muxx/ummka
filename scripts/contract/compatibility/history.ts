@@ -522,12 +522,16 @@ await checkSidebarCounters(
   channelId,
   readerLogin.login_id,
   message,
+  dm.id,
   () =>
-    create(
-      "channels/members/me/view",
-      { channel_id: channelId, collapsed_threads_supported: true },
-      readerToken,
-    ),
+    Promise.all([
+      message("A new root for the bulk read"),
+      create(
+        "posts",
+        { channel_id: dm.id, message: "Another unread direct post" },
+        token,
+      ),
+    ]),
 );
 console.log(
   `Mattermost ${version} verified root and reply counters through a channel view.`,

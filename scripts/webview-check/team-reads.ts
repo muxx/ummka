@@ -1,6 +1,7 @@
 import {
   ChannelsApi,
   type Configuration,
+  PostsApi,
   PreferencesApi,
   TeamsApi,
 } from "../../vendor/mattermost/index.js";
@@ -41,7 +42,41 @@ export async function checkTeamReads(
     channels[0].teamId !== teamId
   )
     throw Error("generated channel list");
+  const single = await new ChannelsApi(root).viewChannel({
+    userId: "me",
+    viewChannelRequest: { channelId, collapsedThreadsSupported: true },
+  });
+  const other = "v".repeat(26);
+  const bulk = await api.markChannelsReadForUser({
+    userId: "me",
+    requestBody: [channelId, other],
+  });
+  if (
+    single.status !== "OK" ||
+    single.lastViewedAtTimes?.[channelId] !== 121 ||
+    bulk.status !== "OK" ||
+    bulk.lastViewedAtTimes?.[channelId] !== 123 ||
+    bulk.lastViewedAtTimes[other] !== 126
+  )
+    throw Error("generated channel read timestamps");
   const userId = "Abc01234567890123456789012";
+  const unread = await new PostsApi(prefixed).setPostUnread({
+    userId: "me",
+    postId: "p".repeat(26),
+    setPostUnreadRequest: { collapsedThreadsSupported: true },
+  });
+  if (
+    unread.teamId !== teamId ||
+    unread.userId !== userId ||
+    unread.channelId !== channelId ||
+    unread.msgCount !== 27 ||
+    unread.msgCountRoot !== 24 ||
+    unread.mentionCount !== 7 ||
+    unread.mentionCountRoot !== 3 ||
+    unread.urgentMentionCount !== 2 ||
+    unread.lastViewedAt !== 110
+  )
+    throw Error("generated unread marker");
   const members = await api.getChannelMembersForUser({ userId, teamId });
   if (
     members.length !== 1 ||
