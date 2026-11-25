@@ -345,7 +345,34 @@ export async function startFixture(dir: string) {
             '["Abc01234567890123456789012","def01234567890123456789012"]',
           ),
         };
-        assert.deepEqual(scopedRequests, [ping, ping, ...reads, batch]);
+        const prefix = "/Teams/Blue%20Sky//A%2FB/api/v4/";
+        const pins = ["pin", "unpin"].map((action) => ({
+          method: "POST",
+          path: `${prefix}posts/Post0123456789012345678901/${action}`,
+          header: undefined,
+          contentType: undefined,
+          body: Buffer.alloc(0),
+        }));
+        const settings = [
+          ["PUT", "preferences"],
+          ["POST", "preferences/delete"],
+        ].map(([method, path]) => ({
+          method,
+          path: `${prefix}users/me/${path}`,
+          header: undefined,
+          contentType: "application/json",
+          body: Buffer.from(
+            '[{"user_id":"Abc01234567890123456789012","category":"flagged_post","name":"Post0123456789012345678901","value":"true"}]',
+          ),
+        }));
+        assert.deepEqual(scopedRequests, [
+          ping,
+          ping,
+          ...reads,
+          batch,
+          ...pins,
+          ...settings,
+        ]);
         assert.equal(
           scopedSockets[0],
           scopedSockets[1],

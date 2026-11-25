@@ -329,5 +329,31 @@
     "method": "GET",
     "path": "/api/v4/emoji/name/{emoji_name}",
     "id": "GetEmojiByName"
+  },
+  {
+    "file": "posts.yaml",
+    "method": "POST",
+    "path": "/api/v4/posts/{post_id}/pin",
+    "id": "PinPost"
+  },
+  {
+    "file": "posts.yaml",
+    "method": "POST",
+    "path": "/api/v4/posts/{post_id}/unpin",
+    "id": "UnpinPost"
+  },
+  {
+    "file": "preferences.yaml",
+    "method": "PUT",
+    "path": "/api/v4/users/{user_id}/preferences",
+    "id": "UpdatePreferences",
+    "body": "json"
+  },
+  {
+    "file": "preferences.yaml",
+    "method": "POST",
+    "path": "/api/v4/users/{user_id}/preferences/delete",
+    "id": "DeletePreferences",
+    "body": "json"
   }
 ]

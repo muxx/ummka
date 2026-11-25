@@ -32,6 +32,7 @@ import {
 } from "./browser-sign-in.ts";
 import { checkChannelAudience } from "./channel-audience.ts";
 import { checkChannelNotifications } from "./channel-notifications.ts";
+import { checkCollectionActions } from "./collection-actions.ts";
 import { checkCommands } from "./commands.ts";
 import { checkCustomEmojiLookup } from "./custom-emoji.ts";
 import { checkEventStream } from "./event-stream.ts";
@@ -724,6 +725,16 @@ await checkPostCollections(
     otherTeam: extraTeam.id,
   },
   { older: plainPost.id, newer: taggedPost.id, direct: dmPost.id },
+  version,
+);
+await checkCollectionActions(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  session,
+  reader.id,
+  user.id,
+  dm.id,
+  dmPost.id,
+  closedPost.id,
   version,
 );
 await checkFileSearch(

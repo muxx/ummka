@@ -28,6 +28,48 @@ async fn expect_ok(client: &NativeHttp, base: &str, path: &str) -> CheckResult<V
     Ok(version)
 }
 
+async fn check_collection_writes(connection: &RestConnection, selected: &str) -> CheckResult {
+    let preference = r#"[{"user_id":"Abc01234567890123456789012","category":"flagged_post","name":"Post0123456789012345678901","value":"true"}]"#;
+    for (method, path, json) in [
+        (
+            Method::POST,
+            "api/v4/posts/Post0123456789012345678901/pin",
+            None,
+        ),
+        (
+            Method::POST,
+            "api/v4/posts/Post0123456789012345678901/unpin",
+            None,
+        ),
+        (Method::PUT, "api/v4/users/me/preferences", Some(preference)),
+        (
+            Method::POST,
+            "api/v4/users/me/preferences/delete",
+            Some(preference),
+        ),
+    ] {
+        let mut request = get(selected, path);
+        *request.method_mut() = method;
+        let mut wrong_body = request.try_clone().unwrap();
+        if let Some(json) = json {
+            request
+                .headers_mut()
+                .insert("content-type", "application/json".parse()?);
+            *request.body_mut() = Some(json.into());
+        } else {
+            *wrong_body.body_mut() = Some("{}".into());
+        }
+        assert_eq!(
+            connection.send(wrong_body).await.unwrap_err(),
+            TransportError::OperationDenied
+        );
+        let response = connection.send(request).await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.text().await?, "OK");
+    }
+    Ok(())
+}
+
 async fn check_scope(
     connection: &RestConnection,
     selected: &str,
@@ -219,7 +261,7 @@ async fn check_scope(
     let response = connection.send(user_batch(selected)).await?;
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.text().await?, "OK");
-    Ok(())
+    check_collection_writes(connection, selected).await
 }
 
 async fn check_wire(

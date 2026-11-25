@@ -59,6 +59,9 @@ export interface PatchPostOperationRequest {
     postId: string;
     patchPostRequest: PatchPostRequest;
 }
+export interface PinPostRequest {
+    postId: string;
+}
 export interface SearchPostsOperationRequest {
     teamId: string;
     searchPostsRequest: SearchPostsRequest;
@@ -70,6 +73,9 @@ export interface SetPostUnreadOperationRequest {
     userId: string;
     postId: string;
     setPostUnreadRequest: SetPostUnreadRequest;
+}
+export interface UnpinPostRequest {
+    postId: string;
 }
 export declare class PostsApi extends runtime.BaseAPI {
     createPostRequestOpts(requestParameters: CreatePostOperationRequest): Promise<runtime.RequestOpts>;
@@ -96,6 +102,9 @@ export declare class PostsApi extends runtime.BaseAPI {
     patchPostRequestOpts(requestParameters: PatchPostOperationRequest): Promise<runtime.RequestOpts>;
     patchPostRaw(requestParameters: PatchPostOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Post>>;
     patchPost(requestParameters: PatchPostOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Post>;
+    pinPostRequestOpts(requestParameters: PinPostRequest): Promise<runtime.RequestOpts>;
+    pinPostRaw(requestParameters: PinPostRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<StatusOK>>;
+    pinPost(requestParameters: PinPostRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<StatusOK>;
     searchPostsRequestOpts(requestParameters: SearchPostsOperationRequest): Promise<runtime.RequestOpts>;
     searchPostsRaw(requestParameters: SearchPostsOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<PostListWithSearchMatches>>;
     searchPosts(requestParameters: SearchPostsOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<PostListWithSearchMatches>;
@@ -105,4 +114,7 @@ export declare class PostsApi extends runtime.BaseAPI {
     setPostUnreadRequestOpts(requestParameters: SetPostUnreadOperationRequest): Promise<runtime.RequestOpts>;
     setPostUnreadRaw(requestParameters: SetPostUnreadOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<ChannelUnreadAt>>;
     setPostUnread(requestParameters: SetPostUnreadOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<ChannelUnreadAt>;
+    unpinPostRequestOpts(requestParameters: UnpinPostRequest): Promise<runtime.RequestOpts>;
+    unpinPostRaw(requestParameters: UnpinPostRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<StatusOK>>;
+    unpinPost(requestParameters: UnpinPostRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<StatusOK>;
 }
