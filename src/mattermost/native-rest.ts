@@ -15,6 +15,7 @@ import type {
 import { nativeFetch } from "./native-fetch.ts";
 import { loadAccountDirectory, loadTeamDirectory } from "./navigation-data.ts";
 import { refreshNavigation } from "./navigation-refresh.ts";
+import { createPostActivity } from "./post-activity.ts";
 import { createRestTransport } from "./rest-transport.ts";
 import { canonicalServerUrl } from "./server-url.ts";
 import { projectTeamSidebar, type TeamSidebar } from "./team-sidebar.ts";
@@ -88,7 +89,16 @@ export async function openAccountRestConnection(
   const { rid } = connection;
   const config = new Configuration(connection);
   const posts = new PostsApi(config);
-  let retired: "unknown_connection" | "cancelled" | undefined;
+  const activity = createPostActivity();
+  let retired:
+    | "unknown_connection"
+    | "cancelled"
+    | "session_unavailable"
+    | undefined;
+  function retire(reason: NonNullable<typeof retired>) {
+    retired = reason;
+    activity.close();
+  }
   async function readWhileOpen<T>(read: () => Promise<T>) {
     if (retired) throw retired;
     const result = await read();
@@ -150,7 +160,7 @@ export async function openAccountRestConnection(
         ),
       );
     },
-    ...accountDelivery(rid, readWhileOpen, posts, userId),
+    ...accountDelivery(rid, readWhileOpen, posts, userId, activity),
     readWorkspaceSettings() {
       return readWhileOpen(() =>
         invoke<SavedWorkspaceSettings>("read_workspace_settings", { rid }),
@@ -226,7 +236,7 @@ export async function openAccountRestConnection(
       );
     },
     close() {
-      retired = "unknown_connection";
+      retire("unknown_connection");
       return connection.close();
     },
     readChannelWindow(query: ChannelWindowQuery) {
@@ -239,8 +249,12 @@ export async function openAccountRestConnection(
     },
     async signOut() {
       const result = await invoke<AccountSignOut>("sign_out_account", { rid });
-      if (result.status === "signed_out" || result.status === "superseded")
-        retired ??= "cancelled";
+      if (result.status === "server_confirmed_local_removal_failed") {
+        // The server ended this session. Keep the native handle for retrying device cleanup.
+        retire(retired ?? "session_unavailable");
+      } else if (result.status !== "unconfirmed") {
+        retire(retired === "unknown_connection" ? retired : "cancelled");
+      }
       return result;
     },
     async signOutOnDevice() {
@@ -248,7 +262,7 @@ export async function openAccountRestConnection(
         "sign_out_on_device",
         { rid },
       );
-      retired ??= "cancelled";
+      retire(retired === "unknown_connection" ? retired : "cancelled");
       return result;
     },
   };
