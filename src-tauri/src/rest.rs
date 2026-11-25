@@ -33,7 +33,9 @@ impl Operation<'_> {
             };
             let matched = match expected {
                 "{user_id}" => actual == "me" || is_mattermost_id(actual),
-                "{team_id}" | "{channel_id}" | "{post_id}" => is_mattermost_id(actual),
+                "{team_id}" | "{channel_id}" | "{post_id}" | "{file_id}" => {
+                    is_mattermost_id(actual)
+                }
                 "{emoji_name}" => valid_emoji_name(actual),
                 literal => actual == literal,
             };
@@ -235,6 +237,42 @@ impl RestConnection {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn file_metadata_requires_a_concrete_file_id_and_exact_route() {
+        let base = "https://chat.example.test/team/chat";
+        let connection = RestConnection::new(base).unwrap();
+        let id = "f".repeat(26);
+        for (method, route, allowed) in [
+            (
+                reqwest::Method::GET,
+                format!("/api/v4/files/{id}/info"),
+                true,
+            ),
+            (
+                reqwest::Method::POST,
+                format!("/api/v4/files/{id}/info"),
+                false,
+            ),
+            (
+                reqwest::Method::GET,
+                format!("/api/v4/files/{id}/info/more"),
+                false,
+            ),
+            (
+                reqwest::Method::GET,
+                "/api/v4/files/me/info".to_owned(),
+                false,
+            ),
+        ] {
+            let request = Request::new(method, Url::parse(&format!("{base}{route}")).unwrap());
+            assert_eq!(
+                connection.check_request(&request).is_ok(),
+                allowed,
+                "{route}"
+            );
+        }
+    }
 
     #[test]
     fn reaction_deletion_requires_one_valid_decoded_name() {
