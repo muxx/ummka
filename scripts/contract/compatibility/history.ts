@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { latestReactionTarget } from "../../../src/channels/latest-reaction-target.ts";
+import { nextPostDestinationStep } from "../../../src/channels/post-destination-step.ts";
 import { channelHistoryPage } from "../../../src/mattermost/channel-history-page.ts";
 import { channelPostChanges } from "../../../src/mattermost/channel-post-records.ts";
 import {
@@ -13,6 +14,7 @@ import {
   readFocusedNeighbors,
 } from "../../../src/mattermost/focused-history.ts";
 import { readPostAnchor } from "../../../src/mattermost/message-anchors.ts";
+import { readPostDestination } from "../../../src/mattermost/post-destination.ts";
 import { loadVisibleProfiles } from "../../../src/mattermost/visible-profiles.ts";
 import {
   ChannelsApi,
@@ -227,6 +229,23 @@ for (const post of [root, reply])
     expectedContext,
   );
 
+const memberTarget = await readPostDestination(memberPosts, reply.id);
+assert.deepEqual(memberTarget, {
+  postId: reply.id,
+  channel: {
+    id: channelId,
+    kind: channel.type,
+    displayName: channel.displayName,
+    joined: true,
+  },
+  team: {
+    id: team.id,
+    kind: "O",
+    displayName: team.display_name,
+    joined: true,
+  },
+});
+
 const readerLogin = {
   login_id: "context-reader",
   password: `${randomBytes(24).toString("hex")}aA7!`,
@@ -280,6 +299,27 @@ assert.deepEqual(direct, {
   teamType: "",
   teamDisplayName: "",
   hasJoinedTeam: false,
+});
+
+const directTarget = await readPostDestination(readerPosts, dmPost.id);
+assert.equal(directTarget.channel.id, dm.id);
+assert.equal(directTarget.channel.joined, true);
+assert.equal(directTarget.team, null);
+const publicTarget = await readPostDestination(readerPosts, root.id);
+assert.equal(publicTarget.channel.joined, false);
+assert.equal(publicTarget.team?.joined, false);
+assert.deepEqual(nextPostDestinationStep(memberTarget, null), {
+  kind: "readPost",
+  teamId: team.id,
+  channelId,
+  postId: reply.id,
+});
+assert.deepEqual(nextPostDestinationStep(publicTarget, null), {
+  kind: "joinTeam",
+  team: publicTarget.team,
+});
+assert.deepEqual(nextPostDestinationStep(directTarget, null), {
+  kind: "selectTeam",
 });
 
 const closed = await (
@@ -343,7 +383,7 @@ await assert.rejects(
   (e: unknown) => e instanceof ResponseError && e.response.status === 401,
 );
 await assert.rejects(
-  readerPosts.getPostInfo({ postId: closedPost.id }),
+  readPostDestination(readerPosts, closedPost.id),
   (e: unknown) => e instanceof ResponseError && e.response.status === 404,
 );
 await assert.rejects(

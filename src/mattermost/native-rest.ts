@@ -38,6 +38,7 @@ import { nativeFetch } from "./native-fetch.ts";
 import { loadAccountDirectory, loadTeamDirectory } from "./navigation-data.ts";
 import { refreshNavigation } from "./navigation-refresh.ts";
 import { createPostActivity } from "./post-activity.ts";
+import { readPostDestination } from "./post-destination.ts";
 import { createRestTransport } from "./rest-transport.ts";
 import { canonicalServerUrl } from "./server-url.ts";
 import { projectTeamSidebar, type TeamSidebar } from "./team-sidebar.ts";
@@ -168,6 +169,9 @@ export async function openAccountRestConnection(
     },
     readCustomEmoji(emojiName: string, signal?: AbortSignal) {
       return readWhileOpen(() => readCustomEmoji(config, emojiName, signal));
+    },
+    readPostDestination(postId: string, signal?: AbortSignal) {
+      return readWhileOpen(() => readPostDestination(posts, postId, signal));
     },
     readAccountDirectory(signal?: AbortSignal) {
       return readWhileOpen(() => loadAccountDirectory(config, userId, signal));
