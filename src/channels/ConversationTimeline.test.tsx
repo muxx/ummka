@@ -13,6 +13,7 @@ import { outgoingRowState } from "../mattermost/outgoing-row-state.ts";
 import { ConversationTimeline } from "./ConversationTimeline.tsx";
 import { conversationRows } from "./conversation-rows.ts";
 import { outgoingDescription } from "./outgoing-copy.ts";
+import type { WorkspaceConnection } from "./use-workspace-read.ts";
 import { channelPageSize } from "./workspace-data.ts";
 
 afterEach(() => {
@@ -59,7 +60,7 @@ const end = { kind: "end" } as const;
 function page(...posts: LocalChannelWindow["posts"]): LocalChannelWindow {
   return { posts, older: end, newer: end, firstInaccessiblePostTime: 0 };
 }
-function account(rows: PendingPost[]) {
+function account(rows: PendingPost[], online = false) {
   let listener = () => {};
   const saved = [...rows];
   const connection = {
@@ -85,6 +86,9 @@ function account(rows: PendingPost[]) {
           )
           .slice(0, limit),
     ),
+    resendPost: vi
+      .fn<WorkspaceConnection["resendPost"]>()
+      .mockResolvedValue({ kind: "unavailable" }),
     dismissPendingPost: vi.fn(
       async (key: { pendingId: string; attempt: number }) => {
         const index = saved.findIndex(
@@ -117,7 +121,7 @@ function account(rows: PendingPost[]) {
       },
     ),
     getOutgoingPostState: (post: PendingPost) =>
-      outgoingRowState(post, false, false),
+      outgoingRowState(post, false, online),
   };
   return { connection, changed: () => listener(), saved };
 }
@@ -400,4 +404,98 @@ test("a late removal reply cannot announce or focus in a different conversation"
   await act(async () => finish(true));
   expect(store.connection.dismissPendingPost).toHaveBeenCalledTimes(1);
   expect(screen.queryByText("Message removed from this device.")).toBeNull();
+});
+
+test("only an explicit second click retries the displayed attempt; cancellation restores focus", async () => {
+  const store = account([pending(11)], true);
+  render(
+    <ConversationTimeline
+      {...view}
+      offline={false}
+      connection={store.connection}
+    />,
+  );
+  const repeat = () => screen.getByRole("button", { name: "Send again" });
+  fireEvent.click(await screen.findByRole("button", { name: "Send again" }));
+  const confirm = () => screen.getByRole("button", { name: "Send anyway" });
+  expect(document.activeElement).toBe(confirm());
+  expect(
+    document.getElementById(confirm().getAttribute("aria-describedby") ?? "")
+      ?.textContent,
+  ).toMatch(/duplicate/);
+  expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+  fireEvent.keyDown(confirm(), { key: "Escape" });
+  expect(document.activeElement).toBe(repeat());
+  fireEvent.click(repeat());
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(document.activeElement).toBe(repeat());
+  expect(store.connection.resendPost).not.toHaveBeenCalled();
+  fireEvent.click(repeat());
+  const button = confirm();
+  fireEvent.click(button);
+  fireEvent.click(button);
+  await screen.findByText("The outgoing message has changed.");
+  expect(store.connection.resendPost).toHaveBeenCalledExactlyOnceWith(
+    { pendingId: "pending-11", attempt: 1 },
+    { kind: "despiteUnknownDelivery" },
+  );
+  expect(document.activeElement).toBe(repeat().closest("article"));
+});
+
+test("going offline during confirmation prevents dispatch; a replaced attempt needs fresh confirmation", async () => {
+  const store = account([pending(12)], true);
+  let online = true;
+  store.connection.getOutgoingPostState = (post) =>
+    outgoingRowState(post, false, online);
+  render(<ConversationTimeline {...view} connection={store.connection} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Send again" }));
+  online = false;
+  act(() => store.changed());
+  await waitFor(() =>
+    expect(
+      screen
+        .getByRole("button", { name: "Send anyway" })
+        .getAttribute("aria-disabled"),
+    ).toBe("true"),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Send anyway" }));
+  online = true;
+  store.saved[0] = { ...store.saved[0], attempt: 2 };
+  act(() => store.changed());
+  await screen.findByRole("button", { name: "Send again" });
+  expect(screen.queryByRole("button", { name: "Send anyway" })).toBeNull();
+  expect(store.connection.resendPost).not.toHaveBeenCalled();
+});
+
+test("a late retry completion leaves the new conversation alone", async () => {
+  const store = account([pending(13)], true);
+  let finish!: () => void;
+  store.connection.resendPost.mockResolvedValueOnce({
+    kind: "sending",
+    post: pending(13, { attempt: 2 }),
+    completion: new Promise((resolve) => {
+      finish = () => resolve({ kind: "unauthorized" });
+    }),
+  });
+  const sessionIssue = vi.fn();
+  const current = render(
+    <ConversationTimeline
+      {...view}
+      connection={store.connection}
+      sessionIssue={sessionIssue}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "Send again" }));
+  fireEvent.click(screen.getByRole("button", { name: "Send anyway" }));
+  current.rerender(
+    <ConversationTimeline
+      {...view}
+      channelId="moved"
+      connection={store.connection}
+      sessionIssue={sessionIssue}
+    />,
+  );
+  await act(async () => finish());
+  expect(sessionIssue).not.toHaveBeenCalled();
+  expect(screen.queryByText("The outgoing message has changed.")).toBeNull();
 });

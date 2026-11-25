@@ -19,6 +19,12 @@ const text = {
     you: "You",
     copyText: "Copy text",
     remove: "Remove",
+    sendAgain: "Send again",
+    duplicateRisk:
+      "If the first message arrived, the channel may show a duplicate.",
+    sendAnyway: "Send anyway",
+    cancel: "Cancel",
+    resendFailed: "Couldn’t retry this message. Check its delivery status.",
     copied: "Text copied.",
     copyFailed: "Couldn’t copy the text.",
     removeFailed: "Couldn’t remove this message from the device.",
@@ -40,6 +46,13 @@ const text = {
     you: "Вы",
     copyText: "Скопировать текст",
     remove: "Удалить",
+    sendAgain: "Отправить ещё раз",
+    duplicateRisk:
+      "Если первое сообщение дошло, в канале может появиться копия.",
+    sendAnyway: "Всё равно отправить",
+    cancel: "Отмена",
+    resendFailed:
+      "Не удалось повторить отправку. Проверьте состояние сообщения.",
     copied: "Текст скопирован.",
     copyFailed: "Не удалось скопировать текст.",
     removeFailed: "Не удалось удалить сообщение с устройства.",

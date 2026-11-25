@@ -51,6 +51,15 @@ export async function checkSavedTeamWindow(
       throw Error(
         "Offline startup lost the saved outgoing row or suggested an active send",
       );
+    const repeat = within(outgoing).getByRole("button", {
+      name: "Отправить ещё раз",
+    });
+    fireEvent.click(repeat);
+    if (
+      repeat.getAttribute("aria-disabled") !== "true" ||
+      within(outgoing).queryByText("Всё равно отправить")
+    )
+      throw Error("Offline outgoing retry opened its confirmation");
     const field = await ui.findByRole<HTMLTextAreaElement>("textbox", {
       name: "Написать в #Town Square…",
     });

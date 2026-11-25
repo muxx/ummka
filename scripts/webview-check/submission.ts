@@ -1,5 +1,6 @@
 import { openDraftEditor } from "../../src/channels/draft-editor.ts";
 import { openAccountRestConnection } from "../../src/mattermost/native-rest.ts";
+import { retryFromTimeline } from "./outgoing-retry.tsx";
 
 type Account = Awaited<ReturnType<typeof openAccountRestConnection>>;
 const channelId = "submitroom".padEnd(26, "0");
@@ -153,16 +154,7 @@ export async function checkSubmissions(
     const unknown = await start(prefixed, "Response lost");
     if ((await unknown.completion).kind !== "unconfirmed")
       throw Error("A 503 cannot prove refusal");
-    const again = await neighbor.resendPost(unknown.post, {
-      kind: "despiteUnknownDelivery",
-    });
-    if (again.kind !== "sending")
-      throw Error("The permitted retry was not sent");
-    const retried = await again.completion;
-    if (retried.kind !== "unconfirmed" || retried.retryRefusal?.status !== 403)
-      throw Error(
-        "The second refusal cannot disprove the missing response to the first request",
-      );
+    await retryFromTimeline(neighbor, userId, unknown.post);
     const wrong = await start(prefixed, "Wrong author");
     if ((await wrong.completion).kind !== "unconfirmed")
       throw Error("Another author's post cannot confirm a submission");

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { PendingPost } from "../mattermost/account-delivery.ts";
 import { ChannelTimeline, type TimelineProps } from "./ChannelTimeline.tsx";
 import { conversationRows } from "./conversation-rows.ts";
-import { OutgoingLocalActions } from "./OutgoingLocalActions.tsx";
+import { OutgoingRowActions } from "./OutgoingRowActions.tsx";
 import { outgoingCopy, outgoingDescription } from "./outgoing-copy.ts";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
 import { channelPageSize, workspaceFailure } from "./workspace-data.ts";
@@ -15,6 +15,7 @@ type Account = Pick<
   | "retireDeliveredPosts"
   | "getOutgoingPostState"
   | "dismissPendingPost"
+  | "resendPost"
 >;
 type Props = TimelineProps & {
   connection: Account;
@@ -187,12 +188,16 @@ function Conversation({
             {description && (
               <small className="timeline-delivery">{description}</small>
             )}
-            <OutgoingLocalActions
-              key={post.attempt}
+            <OutgoingRowActions
+              key={JSON.stringify([
+                post.attempt,
+                state.actions.retry !== undefined,
+              ])}
               post={post}
               state={state}
               locale={locale}
               dismiss={connection.dismissPendingPost}
+              resend={connection.resendPost}
               refresh={() => retry.current?.()}
               notify={notify}
               sessionIssue={sessionIssue}

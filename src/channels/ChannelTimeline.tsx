@@ -209,6 +209,7 @@ export function ChannelTimeline({
         className="timeline-post"
         data-post-id={post.id}
         data-local-id={post.localId}
+        tabIndex={post.outgoing ? -1 : undefined}
       >
         <div className="timeline-avatar" aria-hidden="true">
           {person?.avatar ??
