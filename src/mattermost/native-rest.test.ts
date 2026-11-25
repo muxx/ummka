@@ -18,6 +18,7 @@ import {
 } from "./native-rest.ts";
 import * as directory from "./navigation-data.ts";
 import * as membership from "./own-membership.ts";
+import * as searchClock from "./search-timezone.ts";
 import * as profiles from "./visible-profiles.ts";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -332,6 +333,7 @@ test("opens a native account by installation and user ID", async () => {
     "readSavedPost",
     "readSavedProfiles",
     "readSavedTeamRoles",
+    "readSearchTimezone",
     "readTeamDirectory",
     "readTeamSidebar",
     "readThreadPage",
@@ -924,5 +926,35 @@ test("a post destination from a retired account cannot open in the replacement w
     expect(call).toHaveBeenCalledOnce();
   } finally {
     call.mockRestore();
+  }
+});
+
+test("retiring an account hides its in-flight timezone", async () => {
+  ipc.mockResolvedValueOnce(51);
+  const userId = "u".repeat(26);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    userId,
+  );
+  let resolve!: (zone: string) => void;
+  const read = vi
+    .spyOn(searchClock, "readSearchTimezone")
+    .mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+  try {
+    const pending = account.readSearchTimezone();
+    await account.close();
+    resolve("Asia/Kathmandu");
+    await expect(pending).rejects.toBe("cancelled");
+    await expect(account.readSearchTimezone()).rejects.toBe(
+      "unknown_connection",
+    );
+    expect(read).toHaveBeenCalledOnce();
+  } finally {
+    read.mockRestore();
   }
 });
