@@ -2,6 +2,7 @@ import { fireEvent, within } from "@testing-library/dom";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { App } from "../../src/App.tsx";
+import { getCurrentAccountId } from "../../src/mattermost/native-rest.ts";
 
 export async function checkBrowserApp(server: string) {
   const host = document.createElement("div");
@@ -45,6 +46,27 @@ export async function checkBrowserApp(server: string) {
     const heading = await ui.findByRole("heading", { name: "Browser team" });
     if (document.activeElement !== heading)
       throw Error("the selected workspace lost keyboard focus");
+    if ((await getCurrentAccountId(server)) !== "f".repeat(26))
+      throw Error("entry did not retain the signed-in account");
+    ui.getByRole("button", { name: "Sign out" }).click();
+    const stay = await ui.findByRole(
+      "button",
+      { name: "Stay signed in" },
+      { timeout: 10_000 },
+    );
+    if ((await getCurrentAccountId(server)) !== "f".repeat(26))
+      throw Error("unconfirmed sign-out removed the account");
+    flushSync(() => fireEvent.click(stay));
+    if (document.activeElement !== ui.getByRole("button", { name: "Sign out" }))
+      throw Error("cancelled sign-out lost focus");
+    ui.getByRole("button", { name: "Sign out" }).click();
+    const local = await ui.findByRole(
+      "button",
+      { name: "Sign out only on this device" },
+      { timeout: 10_000 },
+    );
+    local.click();
+    await ui.findByRole("button", { name: "GitLab" }, { timeout: 15_000 });
   } finally {
     root.unmount();
     host.remove();

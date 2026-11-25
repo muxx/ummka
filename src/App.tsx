@@ -1,19 +1,10 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
-import {
-  AccountTeamWindow,
-  type TeamWorkspace,
-} from "./entry/AccountTeamWindow";
+import { useCallback, useEffect, useState } from "react";
+import { AccountSessionWindow } from "./entry/AccountSessionWindow";
+import { AccountTeamWindow } from "./entry/AccountTeamWindow";
 import { EntryWindow } from "./entry/EntryWindow";
 import type { EntryLanguage } from "./entry/language";
 import { ServerSignIn } from "./entry/ServerSignIn";
 import { sessionText } from "./entry/session-text";
-import { teamText } from "./entry/team-text";
 import { getDeviceLaunchContext } from "./mattermost/device-launch";
 
 type Launch = Awaited<ReturnType<typeof getDeviceLaunchContext>>;
@@ -71,10 +62,11 @@ function EntryRoute({
         onSessionEnded={reopen}
       >
         {(workspace) => (
-          <AccountTeamSummary
-            key={workspace.team.id}
+          <AccountSessionWindow
+            key={workspace.connection.rid}
             workspace={workspace}
             language={language}
+            onEnded={reopen}
           />
         )}
       </AccountTeamWindow>
@@ -87,36 +79,5 @@ function EntryRoute({
       }
       onAccountChanged={reopen}
     />
-  );
-}
-
-function AccountTeamSummary({
-  workspace,
-  language,
-}: {
-  workspace: TeamWorkspace;
-  language: EntryLanguage;
-}) {
-  const heading = useRef<HTMLHeadingElement>(null);
-  useLayoutEffect(() => heading.current?.focus(), []);
-  return (
-    <EntryWindow>
-      <h1 tabIndex={-1} ref={heading}>
-        {workspace.team.displayName || workspace.team.name}
-      </h1>
-      <p className="entry-address" dir="ltr">
-        {workspace.serverUrl}
-      </p>
-      {workspace.directoryNotice && (
-        <p role="status">{teamText[language][workspace.directoryNotice]}</p>
-      )}
-      <button
-        className="entry-secondary"
-        type="button"
-        onClick={workspace.chooseAnotherTeam}
-      >
-        {sessionText[language].chooseTeam}
-      </button>
-    </EntryWindow>
   );
 }

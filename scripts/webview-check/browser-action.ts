@@ -64,8 +64,7 @@ export async function checkBrowserAction(port: string) {
   await forgetLocalAccount(server, user);
   await forgetInstallation(server);
   await checkBrowserApp(server);
-  if ((await getCurrentAccountId(server)) !== user)
-    throw Error("entry window did not keep the verified account");
-  await forgetLocalAccount(server, user);
+  if ((await getCurrentAccountId(server)) !== null)
+    throw Error("explicit device sign-out retained the account");
   await forgetInstallation(server);
 }

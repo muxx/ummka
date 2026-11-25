@@ -20,6 +20,16 @@ export function respondToAccount(
     response.end(JSON.stringify({ id: "f".repeat(26) }));
     return "browser-action-confirmed";
   }
+  if (url.pathname === "/browser-action-check/api/v4/users/logout") {
+    assert.equal(request.method, "POST");
+    assert.equal(
+      request.headers.authorization,
+      "Bearer fixture-browser-action",
+    );
+    response.writeHead(503, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ id: "fixture.logout.unavailable" }));
+    return "browser-entry-unconfirmed";
+  }
   const prefix = "/browser-action-check/api/v4/";
   if (url.pathname.startsWith(prefix)) {
     const path = url.pathname.slice(prefix.length);

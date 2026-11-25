@@ -108,3 +108,13 @@
   font: inherit;
   cursor: pointer;
 }
+
+.entry-session-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+.entry-session-actions .entry-primary {
+  width: auto;
+}

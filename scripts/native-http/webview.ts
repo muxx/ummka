@@ -516,6 +516,10 @@ export function webviewServers(
         expected.push(
           "browser-action-confirmed",
           "browser-action-confirmed",
+          "browser-entry-unconfirmed",
+          "browser-entry-unconfirmed",
+          "browser-entry-config/client",
+          "browser-entry-license/client",
           ...[
             "config/client",
             "license/client",
