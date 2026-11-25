@@ -12,8 +12,10 @@ import type {
 } from "./local-history.ts";
 import { nativeFetch } from "./native-fetch.ts";
 import { loadAccountDirectory, loadTeamDirectory } from "./navigation-data.ts";
+import { refreshNavigation } from "./navigation-refresh.ts";
 import { createRestTransport } from "./rest-transport.ts";
 import { canonicalServerUrl } from "./server-url.ts";
+import { projectTeamSidebar, type TeamSidebar } from "./team-sidebar.ts";
 
 export async function getCurrentAccountId(
   serverUrl: string,
@@ -83,28 +85,44 @@ export async function openAccountRestConnection(
       );
     },
     refreshJoinedTeams(signal?: AbortSignal) {
-      return readWhileOpen(async () => {
-        signal?.throwIfAborted();
-        const load = await invoke<number>("begin_team_directory_load", { rid });
-        let teams: ReturnType<typeof projectJoinedTeams>;
-        try {
-          const directory = await loadAccountDirectory(config, userId, signal);
-          signal?.throwIfAborted();
-          teams = projectJoinedTeams(directory);
-        } catch (error) {
-          try {
-            await invoke<void>("cancel_team_directory_load", { rid, load });
-          } catch (closeError) {
-            if (
-              closeError !== "unknown_connection" &&
-              closeError !== "cancelled"
-            )
-              throw closeError;
-          }
-          throw error;
-        }
-        return invoke<boolean>("store_team_directory", { rid, load, teams });
-      });
+      return readWhileOpen(() =>
+        refreshNavigation(
+          signal,
+          () => invoke<number>("begin_team_directory_load", { rid }),
+          async () =>
+            projectJoinedTeams(
+              await loadAccountDirectory(config, userId, signal),
+            ),
+          (load, teams) =>
+            invoke<boolean>("store_team_directory", { rid, load, teams }),
+          (load) => invoke<void>("cancel_team_directory_load", { rid, load }),
+        ),
+      );
+    },
+    readTeamSidebar(teamId: string) {
+      return readWhileOpen(() =>
+        invoke<TeamSidebar | null>("read_team_sidebar", { rid, teamId }),
+      );
+    },
+    selectSidebarChannel(teamId: string, channelId: string) {
+      return readWhileOpen(() =>
+        invoke<boolean>("select_sidebar_channel", { rid, teamId, channelId }),
+      );
+    },
+    refreshTeamSidebar(teamId: string, signal?: AbortSignal) {
+      return readWhileOpen(() =>
+        refreshNavigation(
+          signal,
+          () => invoke<number | null>("begin_sidebar_load", { rid, teamId }),
+          async () =>
+            projectTeamSidebar(
+              await loadTeamDirectory(config, userId, teamId, signal),
+            ),
+          (load, data) =>
+            invoke<boolean>("store_team_sidebar", { rid, load, data }),
+          (load) => invoke<void>("cancel_sidebar_load", { rid, load }),
+        ),
+      );
     },
     readTeamDirectory(teamId: string, signal?: AbortSignal) {
       return readWhileOpen(() =>

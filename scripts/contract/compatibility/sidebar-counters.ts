@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import {
-  ChannelsApi,
-  type Configuration,
-} from "../../../vendor/mattermost/index.js";
+import { loadTeamDirectory } from "../../../src/mattermost/navigation-data.ts";
+import { projectTeamSidebar } from "../../../src/mattermost/team-sidebar.ts";
+import type { Configuration } from "../../../vendor/mattermost/index.js";
 
 export async function checkSidebarCounters(
   session: Configuration,
+  userId: string,
   teamId: string,
   channelId: string,
   username: string,
@@ -15,41 +15,34 @@ export async function checkSidebarCounters(
   ) => Promise<{ id: string; create_at: number }>,
   viewChannel: () => Promise<Response>,
 ) {
-  const api = new ChannelsApi(session);
-  const scope = { userId: "me", teamId };
   async function counts() {
-    const [channels, members] = await Promise.all([
-      api.getChannelsForTeamForUser(scope),
-      api.getChannelMembersForUser(scope),
-    ]);
-    const channel = channels.find((c) => c.id === channelId);
-    const member = members.find((m) => m.channelId === channelId);
-    assert.ok(channel && member);
+    const directory = await loadTeamDirectory(session, userId, teamId);
+    const row = projectTeamSidebar(directory).channels.find(
+      (item) => item.id === channelId,
+    );
+    assert.ok(row);
     const {
       totalMsgCount: total,
       totalMsgCountRoot: roots,
       lastPostAt: last,
       lastRootPostAt: lastRoot,
-    } = channel;
+    } = row;
     const {
       msgCount: seen,
       msgCountRoot: seenRoots,
       mentionCount: mentions,
       mentionCountRoot: rootMentions,
       urgentMentionCount: urgent,
-    } = member;
+    } = row;
     assert.ok(
-      total !== undefined &&
-        roots !== undefined &&
-        last !== undefined &&
-        lastRoot !== undefined,
+      total !== null && roots !== null && last !== null && lastRoot !== null,
     );
     assert.ok(
-      seen !== undefined &&
-        seenRoots !== undefined &&
-        mentions !== undefined &&
-        rootMentions !== undefined &&
-        urgent !== undefined,
+      seen !== null &&
+        seenRoots !== null &&
+        mentions !== null &&
+        rootMentions !== null &&
+        urgent !== null,
     );
     return {
       total,

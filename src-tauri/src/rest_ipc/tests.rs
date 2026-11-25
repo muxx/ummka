@@ -59,6 +59,14 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
             ("begin_team_directory_load", json!({"rid":0})),
             ("store_team_directory", json!({"rid":0,"load":0,"teams":[]})),
             ("cancel_team_directory_load", json!({"rid":0,"load":0})),
+            ("read_team_sidebar", json!({"rid":0,"teamId":"x"})),
+            (
+                "select_sidebar_channel",
+                json!({"rid":0,"teamId":"x","channelId":"y"}),
+            ),
+            ("begin_sidebar_load", json!({"rid":0,"teamId":"x"})),
+            ("store_team_sidebar", json!({"rid":0,"load":1,"data":{}})),
+            ("cancel_sidebar_load", json!({"rid":0,"load":1})),
             (
                 "read_channel_window",
                 json!({"rid":0,"query":{"kind":"latest","channelId":"c".repeat(26),"collapsedThreads":false,"limit":1}}),
