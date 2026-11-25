@@ -1,6 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, expect, expectTypeOf, test, vi } from "vitest";
-import { type Reaction, ReactionsApi } from "../../vendor/mattermost/index.js";
+import {
+  type PostInfo,
+  PostsApi,
+  type Reaction,
+  ReactionsApi,
+} from "../../vendor/mattermost/index.js";
 import * as emoji from "./account-custom-emoji.ts";
 import * as roles from "./channel-permissions.ts";
 import { channelProfile } from "./channel-profiles.ts";
@@ -309,6 +314,7 @@ test("opens a native account by installation and user ID", async () => {
     "readJoinedTeams",
     "readMentionGroupCounts",
     "readPendingPosts",
+    "readPostDestination",
     "readPostReactions",
     "readSavedProfiles",
     "readSavedTeamRoles",
@@ -777,5 +783,41 @@ test("closing an account discards its pending reaction confirmation", async () =
     expect(save).toHaveBeenCalledOnce();
   } finally {
     save.mockRestore();
+  }
+});
+
+test("a post destination from a retired account cannot open in the replacement window", async () => {
+  ipc.mockResolvedValueOnce(42);
+  const account = await openAccountRestConnection(
+    "https://fixture.test",
+    "u".repeat(26),
+  );
+  let resolve!: (info: PostInfo) => void;
+  const response = new Promise<PostInfo>((done) => {
+    resolve = done;
+  });
+  const call = vi
+    .spyOn(PostsApi.prototype, "getPostInfo")
+    .mockReturnValueOnce(response);
+  try {
+    const pending = account.readPostDestination("p".repeat(26));
+    await account.close();
+    resolve({
+      channelId: "c".repeat(26),
+      channelType: "G",
+      channelDisplayName: "",
+      hasJoinedChannel: true,
+      teamId: "",
+      teamType: "",
+      teamDisplayName: "",
+      hasJoinedTeam: false,
+    });
+    await expect(pending).rejects.toBe("cancelled");
+    await expect(account.readPostDestination("p".repeat(26))).rejects.toBe(
+      "unknown_connection",
+    );
+    expect(call).toHaveBeenCalledOnce();
+  } finally {
+    call.mockRestore();
   }
 });
