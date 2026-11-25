@@ -190,7 +190,12 @@ export function webviewServers(
       {
         name: "directory-channel-members",
         body: [
-          { channel_id: channelId, user_id: userId, mention_count_root: 2 },
+          {
+            channel_id: channelId,
+            user_id: userId,
+            roles: "channel_user custom_writer",
+            mention_count_root: 2,
+          },
         ],
       },
     ],

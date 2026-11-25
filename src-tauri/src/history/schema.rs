@@ -78,6 +78,10 @@ const POST_CONFIRMATION: &str = include_str!("migrations/0010_post_confirmation.
 const POST_ATTEMPT: &str = include_str!("migrations/0011_post_attempt.sql");
 const ADD_DRAFT_ORIGIN: &str = "ALTER TABLE composer_draft ADD COLUMN cleared_by_submission INTEGER CHECK (cleared_by_submission IS NULL OR (cleared_by_submission IN (0,1) AND message = ''));";
 const COMPOSER_DRAFT_V12: &str = include_str!("migrations/0012_composer_draft_schema.sql");
+const ADD_TEAM_ROLES: &str = "ALTER TABLE joined_team ADD COLUMN roles TEXT";
+const ADD_CHANNEL_ROLES: &str = "ALTER TABLE sidebar_channel ADD COLUMN roles TEXT";
+const JOINED_TEAMS_V13: &str = include_str!("migrations/0013_joined_team_schema.sql");
+const SIDEBAR_CHANNEL_V13: &str = include_str!("migrations/0013_sidebar_channel_schema.sql");
 
 /// Each entry advances user_version by one. Keep published entries in order.
 pub(super) struct Migration {
@@ -382,6 +386,40 @@ pub(super) const MIGRATIONS: &[Migration] = &[
             SELECTED_TEAM,
             SIDEBAR_TEAM,
             SIDEBAR_CHANNEL_V7,
+            SIDEBAR_CATEGORY,
+            SIDEBAR_ITEM,
+            SIDEBAR_ITEM_BY_CHANNEL,
+            CHANNEL_PROFILE,
+            PROFILE_BY_USERNAME,
+            WORKSPACE_SETTINGS,
+            COMPOSER_DRAFT_V12,
+            PENDING_POST,
+            PENDING_BY_CONVERSATION,
+            POST_CONFIRMATION,
+            POST_ATTEMPT,
+        ],
+    },
+    Migration {
+        statements: &[ADD_TEAM_ROLES, ADD_CHANNEL_ROLES],
+        objects: &[
+            CREATE_OWNER,
+            CREATE_POSTS,
+            INDEX_REPLIES,
+            CREATE_DELETIONS,
+            WINDOWS,
+            WINDOW_POSTS,
+            NEIGHBORS,
+            RECENT,
+            ORDER,
+            TIES,
+            NEIGHBOR_ID,
+            NEWER_HINT,
+            OLDER_HINT,
+            TEAM_DIRECTORY,
+            JOINED_TEAMS_V13,
+            SELECTED_TEAM,
+            SIDEBAR_TEAM,
+            SIDEBAR_CHANNEL_V13,
             SIDEBAR_CATEGORY,
             SIDEBAR_ITEM,
             SIDEBAR_ITEM_BY_CHANNEL,

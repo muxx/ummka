@@ -42,6 +42,7 @@ export function projectTeamSidebar({
         mentionCountRoot: amount(m.mentionCountRoot),
         urgentMentionCount: amount(m.urgentMentionCount),
         muted: m.notifyProps?.markUnread === "mention",
+        ...(m.roles === undefined ? {} : { roles: m.roles }),
       };
     }),
     categories: categories.map((c) => {

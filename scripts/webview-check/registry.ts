@@ -110,6 +110,7 @@ export async function resumeRegistryCheck(): Promise<boolean> {
           : catalog?.selectedChannel !== "c".repeat(26) ||
             catalog.data.channels[0]?.createAt !== 90 ||
             catalog.data.channels[0]?.mentionCountRoot !== 2 ||
+            catalog.data.channels[0]?.roles !== "channel_user custom_writer" ||
             catalog.data.categories[0]?.kind !== "managed"
       ) {
         throw Error(
@@ -120,7 +121,8 @@ export async function resumeRegistryCheck(): Promise<boolean> {
         base === root
           ? teams !== null
           : teams?.selectedTeam !== "Team0123456789012345678901" ||
-            teams.teams[0]?.name !== "fixture"
+            teams.teams[0]?.name !== "fixture" ||
+            teams.teams[0]?.roles !== "team_guest"
       ) {
         throw Error("wrong offline teams for restored installation");
       }
