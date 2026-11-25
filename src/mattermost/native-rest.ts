@@ -83,6 +83,8 @@ export type ComposerDraft = {
   revision: string | null;
   /** Present only when the cause of this empty revision is known. */
   clearedBySubmission?: boolean;
+  /** The server may already have received the command from this revision. */
+  commandPending?: true;
 };
 export type DraftSave = { kind: "saved" | "conflict"; draft: ComposerDraft };
 

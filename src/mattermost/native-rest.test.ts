@@ -337,6 +337,7 @@ test("opens a native account by installation and user ID", async () => {
     "stagePost",
     "submitDraft",
     "subscribeToPostActivity",
+    "transitionDraftCommand",
   ]);
 });
 
