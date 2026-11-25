@@ -1027,6 +1027,7 @@ export function webviewServers(
         "group-audience-empty",
         "group-audience-timezones",
         "group-audience-timezones",
+        "member-notifications",
         "own-team-join",
         "own-team-leave",
         "member-add",

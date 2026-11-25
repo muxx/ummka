@@ -9,6 +9,26 @@ export async function respondToChannelMembers(
   userId: string,
 ) {
   const route = `/api/v4/channels/${channelId}/members`;
+  if (url.pathname === `/team/chat${route}/me/notify_props`) {
+    assert.equal(request.method, "PUT");
+    assert.equal(url.search, "");
+    assert.equal(request.headers.cookie, undefined);
+    assert.equal(
+      request.headers.authorization,
+      "Bearer fixture-prefixed-session",
+    );
+    assert.equal(request.headers["content-type"], "application/json");
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(chunk);
+    assert.deepEqual(JSON.parse(Buffer.concat(chunks).toString("utf8")), {
+      desktop_notification_sound: "Crackle",
+      channel_auto_follow_threads: "on",
+    });
+    response
+      .writeHead(200, { "Content-Type": "application/json" })
+      .end(JSON.stringify({ status: "OK" }));
+    return "member-notifications";
+  }
   const self = url.pathname === `${route}/me`;
   const single = url.pathname === `/team/chat${route}/${userId}`;
   const page = url.pathname === route;

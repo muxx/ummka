@@ -51,6 +51,7 @@ import {
   correctHistorySchema,
 } from "./history-corrections.ts";
 import { correctMentionGroup } from "./mention-group-correction.ts";
+import { correctNotificationProps } from "./notification-props.ts";
 import { correctNullableList } from "./nullable-list-corrections.ts";
 import { type Fields, object } from "./objects.ts";
 import {
@@ -381,6 +382,29 @@ for (const [id, file, path, method] of [
         () => correctNullableList(id, first, other),
         /Review the nullable/,
       );
+    }
+  });
+}
+
+for (const name of ["ChannelNotifyProps", "UserNotifyProps"] as const) {
+  test(`rechecks ${name} when either pinned model changes`, () => {
+    const path = ["components", "schemas", name];
+    for (const reference of [false, true]) {
+      for (const change of ["added", "required", "type"]) {
+        const source = object(at(read("definitions.yaml"), path), "baseline");
+        const next = read("definitions-12.1.0.yaml");
+        const target = reference
+          ? object(at(next, path), "comparison")
+          : source;
+        const props = object(target.properties, "properties");
+        if (change === "added")
+          props.desktop_notification_sound = { type: "string" };
+        if (change === "required") target.required = ["push"];
+        if (change === "type") props.email = { type: "boolean" };
+        assert.throws(() => correctNotificationProps(name, source, next), {
+          message: `Review ${name} against the pinned sources`,
+        });
+      }
     }
   });
 }
@@ -844,6 +868,12 @@ test("retains the catalog operations, security and transitive models", () => {
       );
     if (name === "ChannelUnreadAt")
       expected = correctUnreadAt(
+        object(source, name),
+        read("definitions-12.1.0.yaml"),
+      );
+    if (name === "ChannelNotifyProps" || name === "UserNotifyProps")
+      expected = correctNotificationProps(
+        name,
         object(source, name),
         read("definitions-12.1.0.yaml"),
       );
