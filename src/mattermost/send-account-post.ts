@@ -1,16 +1,11 @@
-import {
-  AppErrorFromJSON,
-  FetchError,
-  type Post,
-  type PostsApi,
-  ResponseError,
-} from "../../vendor/mattermost/index.js";
+import type { Post, PostsApi } from "../../vendor/mattermost/index.js";
 import type {
   PendingPost,
   PostRefusal,
   RefusalScope,
 } from "./account-delivery.ts";
 import { isMattermostId } from "./model-fields.ts";
+import { mutationFailure } from "./mutation-error.ts";
 
 type DeliveryResult =
   | { kind: "accepted"; post: Post; matched: boolean }
@@ -28,45 +23,6 @@ type Receipts = {
     refusal: PostRefusal,
   ): Promise<RefusalScope | null>;
 };
-
-async function refusedRequest(
-  response: Response,
-  pending: PendingPost,
-  receipts: Receipts,
-): Promise<DeliveryResult> {
-  if (
-    response.status === 401 ||
-    response.status < 400 ||
-    response.status >= 500
-  ) {
-    // The authoritative status does not require consuming its diagnostic body.
-    void response.body?.cancel().catch(() => {});
-    return { kind: response.status === 401 ? "unauthorized" : "unconfirmed" };
-  }
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch {
-    return { kind: "unconfirmed" };
-  }
-  const error = AppErrorFromJSON(body);
-  if (
-    error?.statusCode !== response.status ||
-    typeof error.id !== "string" ||
-    !error.id.trim()
-  ) {
-    return { kind: "unconfirmed" };
-  }
-  const refusal = {
-    status: response.status,
-    code: error.id,
-    message: typeof error.message === "string" ? error.message : null,
-  };
-  const scope = await receipts.recordPostRefusal(pending, refusal);
-  if (scope === "delivery") return { kind: "refused", refusal };
-  if (scope === "retry") return { kind: "unconfirmed", retryRefusal: refusal };
-  return { kind: "unconfirmed" };
-}
 
 /** Called only after this connection wins the local draft or retry transaction. */
 export async function deliverAccountPost(
@@ -86,24 +42,13 @@ export async function deliverAccountPost(
       },
     });
   } catch (error) {
-    if (error instanceof ResponseError)
-      return refusedRequest(error.response, pending, receipts);
-    if (error instanceof FetchError && error.cause instanceof Error) {
-      const reason = error.cause.cause;
-      if (
-        reason === "cancelled" ||
-        reason === "unknown_connection" ||
-        reason === "session_unavailable"
-      )
-        throw reason;
-    }
-    if (
-      error instanceof FetchError ||
-      error instanceof SyntaxError ||
-      error instanceof TypeError
-    )
-      return { kind: "unconfirmed" };
-    throw error;
+    const result = await mutationFailure(error);
+    if (result.kind !== "refused") return result;
+    const scope = await receipts.recordPostRefusal(pending, result.refusal);
+    if (scope === "delivery") return result;
+    if (scope === "retry")
+      return { kind: "unconfirmed", retryRefusal: result.refusal };
+    return { kind: "unconfirmed" };
   }
   if (
     !post ||

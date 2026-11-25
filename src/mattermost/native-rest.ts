@@ -1,5 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
-import { Configuration, PostsApi } from "../../vendor/mattermost/index.js";
+import {
+  CommandsApi,
+  Configuration,
+  PostsApi,
+} from "../../vendor/mattermost/index.js";
 import { accountDelivery } from "./account-delivery.ts";
 import { atDirectoryStep } from "./account-directory-error.ts";
 import { accountChannelAudience } from "./channel-audience.ts";
@@ -13,6 +17,7 @@ import {
   type TeamRoleSnapshot,
 } from "./channel-permissions.ts";
 import type { ChannelProfile } from "./channel-profiles.ts";
+import { executeAccountCommand } from "./execute-account-command.ts";
 import { type JoinedTeams, projectJoinedTeams } from "./joined-teams.ts";
 import type {
   ChannelWindowQuery,
@@ -178,6 +183,14 @@ export async function openAccountRestConnection(
       );
     },
     ...accountDelivery(rid, readWhileOpen, posts, userId, activity),
+    executeServerCommand(
+      location: DraftLocation & { teamId: string },
+      text: string,
+    ) {
+      return readWhileOpen(() =>
+        executeAccountCommand(new CommandsApi(config), location, text),
+      );
+    },
     readWorkspaceSettings() {
       return readWhileOpen(() =>
         invoke<SavedWorkspaceSettings>("read_workspace_settings", { rid }),
