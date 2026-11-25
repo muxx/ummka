@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   CommandsApi,
   Configuration,
+  FilesApi,
   PostsApi,
 } from "../../vendor/mattermost/index.js";
 import { readCustomEmoji } from "./account-custom-emoji.ts";
@@ -29,8 +30,10 @@ import { type JoinedTeams, projectJoinedTeams } from "./joined-teams.ts";
 import type {
   ChannelWindowQuery,
   LocalChannelWindow,
+  LocalPost,
 } from "./local-history.ts";
 import { accountMentionGroups } from "./mention-group-reads.ts";
+import { readFileAnchor, readPostAnchor } from "./message-anchors.ts";
 import { nativeFetch } from "./native-fetch.ts";
 import { loadAccountDirectory, loadTeamDirectory } from "./navigation-data.ts";
 import { refreshNavigation } from "./navigation-refresh.ts";
@@ -110,6 +113,7 @@ export async function openAccountRestConnection(
   const { rid } = connection;
   const config = new Configuration(connection);
   const posts = new PostsApi(config);
+  const files = new FilesApi(config);
   const activity = createPostActivity();
   let retired:
     | "unknown_connection"
@@ -120,10 +124,14 @@ export async function openAccountRestConnection(
     retired = reason;
     activity.close();
   }
-  async function readWhileOpen<T>(read: () => Promise<T>) {
+  async function readWhileOpen<T>(
+    read: () => Promise<T>,
+    signal?: AbortSignal,
+  ) {
     if (retired) throw retired;
     const result = await read();
     if (retired) throw "cancelled";
+    signal?.throwIfAborted();
     return result;
   }
   const delivery = accountDelivery(rid, readWhileOpen, posts, userId, activity);
@@ -132,6 +140,12 @@ export async function openAccountRestConnection(
     ...connection,
     ...accountPostReactions(config, userId, readWhileOpen),
     ...accountSearch(config, readWhileOpen),
+    readPostAnchor(postId: string, signal?: AbortSignal) {
+      return readWhileOpen(() => readPostAnchor(posts, postId, signal), signal);
+    },
+    readFileAnchor(fileId: string, signal?: AbortSignal) {
+      return readWhileOpen(() => readFileAnchor(files, fileId, signal), signal);
+    },
     ...accountChannelAudience(config, readWhileOpen),
     ...accountMentionGroups(config, readWhileOpen),
     readSavedProfiles(query: VisibleProfileQuery) {
@@ -321,6 +335,11 @@ export async function openAccountRestConnection(
     close() {
       retire("unknown_connection");
       return connection.close();
+    },
+    readSavedPost(channelId: string, postId: string) {
+      return readWhileOpen(() =>
+        invoke<LocalPost | null>("read_saved_post", { rid, channelId, postId }),
+      );
     },
     readChannelWindow(query: ChannelWindowQuery) {
       return readWhileOpen(() =>

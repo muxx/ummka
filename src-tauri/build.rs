@@ -39,6 +39,7 @@ fn main() {
         "begin_team_role_load",
         "store_team_roles",
         "cancel_team_role_load",
+        "read_saved_post",
         "read_channel_window",
         "begin_channel_history_load",
         "store_channel_history_page",

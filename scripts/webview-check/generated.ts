@@ -477,6 +477,19 @@ export async function checkGeneratedRequests(ports: string[]) {
     );
     await checkChannelHistory(rootSession, signed, new Configuration(root));
     await checkPostContext(rootSession, signed);
+    const postId = "p".repeat(26),
+      fileId = "f".repeat(26);
+    const postAnchor = await accountPrefix.readPostAnchor(postId);
+    const fileAnchor = await accountPrefix.readFileAnchor(fileId);
+    check(
+      postAnchor.postId === postId &&
+        postAnchor.channelId === channelId &&
+        postAnchor.rootId === "r".repeat(26) &&
+        fileAnchor.fileId === fileId &&
+        fileAnchor.channelId === channelId &&
+        fileAnchor.postId === postId,
+      "account-message-anchors",
+    );
     await checkPostMutations(rootSession, signed, channelId);
     await checkConnectServer(origin);
     const profile = await inspectInstallation(

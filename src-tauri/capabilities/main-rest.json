@@ -43,6 +43,7 @@
     "allow-begin-team-role-load",
     "allow-store-team-roles",
     "allow-cancel-team-role-load",
+    "allow-read-saved-post",
     "allow-read-channel-window",
     "allow-begin-channel-history-load",
     "allow-store-channel-history-page",
