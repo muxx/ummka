@@ -1,4 +1,4 @@
-type ChannelMention = "@channel" | "@all" | "@here";
+export type ChannelMention = "@channel" | "@all" | "@here";
 type Audience = { members: number; timezones: number };
 type GroupMention = Audience & { handle: string };
 type Confirmation = Audience & {
@@ -11,7 +11,7 @@ type Mentions = {
   channel: readonly ChannelMention[];
   groups: readonly GroupMention[];
 };
-type Policy = {
+export type MentionPolicy = {
   confirmNotifications: boolean;
   maxNotificationsPerChannel: bigint;
   canMentionChannel: boolean;
@@ -24,7 +24,7 @@ const confirmationThreshold = 5;
 export function mentionConfirmation(
   mentions: Mentions,
   audience: Audience,
-  policy: Policy,
+  policy: MentionPolicy,
 ) {
   let channelSuppression: "permission" | "limit" | null = null;
   let confirmation: Confirmation | null = null;
