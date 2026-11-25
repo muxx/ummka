@@ -41,6 +41,7 @@ fn team() -> DirectoryTeam {
         name: "north".into(),
         display_name: "North".into(),
         preference_rank: None,
+        roles: Some("team_user".into()),
     }
 }
 
