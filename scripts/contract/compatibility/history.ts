@@ -43,6 +43,7 @@ import {
 } from "./post-mutations.ts";
 import { checkProfileReads } from "./profile-reads.ts";
 import { checkReactionLimit } from "./reaction-limit.ts";
+import { checkPostReactions } from "./reactions.ts";
 import { checkRoleReads } from "./role-reads.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
@@ -852,6 +853,11 @@ await checkMentionLimit(
 );
 console.log(
   `Mattermost ${version} verified the channel notification limit against real member counts.`,
+);
+
+await checkPostReactions(base, token, session, user.id, reader.id, channelId);
+console.log(
+  `Mattermost ${version} verified empty and populated reaction lists and post metadata.`,
 );
 
 await checkEventStream(base, token, session, team.id, channelId);

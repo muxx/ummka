@@ -51,6 +51,10 @@ import {
   correctUserProfile,
 } from "./profile-corrections.ts";
 import {
+  correctReaction,
+  correctSaveReaction,
+} from "./reaction-corrections.ts";
+import {
   correctBulkChannelView,
   correctChannelView,
   correctSetPostUnread,
@@ -154,6 +158,8 @@ export function buildSpecification(
         source,
         read("definitions-12.1.0.yaml"),
       );
+    else if (name === "Reaction")
+      group[name] = correctReaction(source, read("definitions-12.1.0.yaml"));
     else if (name === "ChannelStats")
       group[name] = correctChannelStats(
         source,
@@ -230,6 +236,19 @@ export function buildSpecification(
         : originalOperation;
     if (operation.operationId !== id)
       throw new Error(`Expected operation ${id} at ${method} ${path}`);
+    if (id === "GetReactions" || id === "DeleteReaction") {
+      const newerPath = object(read("reactions-12.1.0.yaml")[path], path);
+      const components = object(
+        read("definitions-12.1.0.yaml").components,
+        "components",
+      );
+      checkPathParameters(
+        path,
+        newerPath,
+        object(newerPath[method], id),
+        components,
+      );
+    }
     if (id === "GetPostInfo")
       checkPostInfoOperation(read("posts.yaml"), path, operation);
     checkPathParameters(path, sourcePath, operation, original);
@@ -242,6 +261,11 @@ export function buildSpecification(
         operation,
         read("posts-12.1.0.yaml"),
         path,
+      );
+    else if (id === "SaveReaction")
+      paths[path][method] = correctSaveReaction(
+        operation,
+        read("reactions-12.1.0.yaml"),
       );
     else if (id === "CreatePost")
       paths[path][method] = correctCreatePost(
@@ -300,6 +324,7 @@ export function buildSpecification(
         read("commands-12.1.0.yaml"),
       );
     else if (
+      id === "GetReactions" ||
       id === "GetRolesByNames" ||
       id === "GetPreferences" ||
       id === "GetChannelMembersTimezones"

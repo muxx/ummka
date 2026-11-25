@@ -44,6 +44,8 @@ download channels-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/matt
 download preferences-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/preferences.yaml" 3bf3c9734d69bfdf20e1dd4e71158a65a81fca9dd64ee1703269b460111625a2
 download preferences.yaml "$upstream/preferences.yaml" 3bf3c9734d69bfdf20e1dd4e71158a65a81fca9dd64ee1703269b460111625a2
 download posts.yaml "$upstream/posts.yaml" 83400ef682b755f3f3830dd4b622373b659bcc5b4d2d159756a735752b3b19ff
+download reactions.yaml "$upstream/reactions.yaml" 2eba6a5191114022b553e8f606cd3114bdb025875aea264438b5052d7a3b6d9d
+download reactions-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/reactions.yaml" c8bf65a86d4abe0149df0b6da4cfd9c7b5d04bd0a9c6ce2d56d0b1284a440ae2
 download posts-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/posts.yaml" d133032e5ffa60c816a4fd084e46b761a04eba0a070b11175f6dee3ac0c71020
 download users-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/users.yaml" ef8e987ef018da1d5a106c517f171449b69aac1bf75faa33b0350c8ff0cee370
 download definitions-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/definitions.yaml" 77a45d4af02436a67a1a84983742db82c73d44d3e881370bc896d61cd9d5fd48
@@ -212,6 +214,14 @@ teams.getTeamMembersForUser({});
 members[0]?.msgCountRoot satisfies number | undefined;
 members[0]?.mentionCountRoot satisfies number | undefined;
 members[0]?.urgentMentionCount satisfies number | undefined;
+import type { ReactionsApi, Reaction } from "./compiled/index.js";
+declare const reactionsApi: ReactionsApi;
+const reactionList = await reactionsApi.getReactions({ postId: "post" });
+reactionList satisfies Reaction[] | null;
+// @ts-expect-error An empty reaction list is encoded as null.
+reactionList satisfies Reaction[];
+const origin: string | null = reactionList?.[0]?.remoteId ?? null;
+reactionList?.[0]?.channelId satisfies string | undefined;
 declare const post: Post;
 post.messageSource satisfies string | undefined;
 page.firstInaccessiblePostTime satisfies number | undefined;

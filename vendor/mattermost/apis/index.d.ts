@@ -3,6 +3,7 @@ export * from './CommandsApi.js';
 export * from './GroupsApi.js';
 export * from './PostsApi.js';
 export * from './PreferencesApi.js';
+export * from './ReactionsApi.js';
 export * from './RolesApi.js';
 export * from './SystemApi.js';
 export * from './TeamsApi.js';
