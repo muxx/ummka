@@ -37,7 +37,7 @@ const LIST: &str = "SELECT sequence,pending_id,channel_id,NULLIF(root_id,''),mes
 const INSERT: &str = "INSERT INTO pending_post(pending_id,channel_id,root_id,message,login_generation)
     VALUES (?1,?2,?3,?4,?5) RETURNING sequence,pending_id,channel_id,NULLIF(root_id,''),message,created_at,0,NULL,1,NULL,NULL,NULL";
 
-fn post(row: &Row<'_>) -> rusqlite::Result<PendingPost> {
+pub(super) fn post(row: &Row<'_>) -> rusqlite::Result<PendingPost> {
     let refusal = match row.get(9)? {
         Some(status) => Some(PostRefusal {
             status,
@@ -60,6 +60,13 @@ fn post(row: &Row<'_>) -> rusqlite::Result<PendingPost> {
     })
 }
 
+/// Text-only posts use the official editor's JavaScript String.trim() semantics.
+pub(super) fn has_text(message: &str) -> bool {
+    message
+        .chars()
+        .any(|c| c != '\u{feff}' && (!c.is_whitespace() || c == '\u{0085}'))
+}
+
 impl AccountHistory {
     /// Only the caller that obtains Created can start the request. Reading the list is passive.
     pub fn stage_post(
@@ -74,12 +81,7 @@ impl AccountHistory {
         let generation = self.owner.generation;
         self.write(|tx| {
             let draft = drafts::draft(tx, channel, root)?;
-            // Match the official editor's JavaScript String.trim() for text-only posts.
-            let blank = draft
-                .message
-                .chars()
-                .all(|c| c == '\u{feff}' || (c.is_whitespace() && c != '\u{0085}'));
-            if draft.revision.as_deref() != Some(revision) || blank {
+            if draft.revision.as_deref() != Some(revision) || !has_text(&draft.message) {
                 return Ok(StagePost::NotStaged { draft });
             }
             let pending_id = format!("{user_id}:{}", Uuid::new_v4());
