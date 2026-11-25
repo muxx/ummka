@@ -10,6 +10,15 @@ export function isMattermostId(value: unknown): value is string {
   );
 }
 
+export function isMattermostEmojiName(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 64 &&
+    !/[^A-Za-z0-9_+-]/u.test(value)
+  );
+}
+
 export function isMattermostTime(
   value: unknown,
   minimum: number,

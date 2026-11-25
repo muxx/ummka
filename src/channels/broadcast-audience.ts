@@ -30,7 +30,7 @@ export async function readBroadcastDecision(
         signal,
       );
     signal?.throwIfAborted();
-    return result;
+    return { ...result, memberCount: members };
   } catch (error) {
     signal?.throwIfAborted();
     throw error;
