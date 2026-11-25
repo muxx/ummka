@@ -4,6 +4,7 @@ import { get } from "node:https";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { waitForAndroidBoot } from "./android.ts";
 import { launchWebview } from "./android-webview.ts";
 import { startFixture } from "./fixture.ts";
 
@@ -170,4 +171,63 @@ test("a wrong terminal marker fails immediately", async () => {
   const run = fixture(["UMMKA_WEBVIEW_CHECK FAIL"]);
   await assert.rejects(run.launch(), /FAIL/);
   assert.equal(run.reads(), 1);
+});
+
+test("a cold boot consumes the policy signal once before the hardware overlay is ready", async () => {
+  const marker = "Finished calculating hasIncompatibleAccountsTask";
+  const overlay = "com.android.internal.emulation.pixel_6";
+  const commands: string[][] = [];
+  let overlayReads = 0;
+  await waitForAndroidBoot(
+    async (...args) => {
+      commands.push(args);
+      if (args[0] === "wait-for-device")
+        return commands.length === 1 ? marker : "";
+      if (args[1] === "getprop") return "1";
+      return ++overlayReads === 1 ? `[ ] ${overlay}` : `[x] ${overlay}`;
+    },
+    { exitCode: null },
+  );
+  assert.deepEqual(commands, [
+    [
+      "wait-for-device",
+      "logcat",
+      "-b",
+      "system",
+      "-m",
+      "1",
+      "-e",
+      marker,
+      "-s",
+      "DevicePolicyManager:I",
+    ],
+    ["shell", "getprop", "sys.boot_completed"],
+    ...Array.from({ length: 2 }, () => [
+      "shell",
+      "cmd",
+      "overlay",
+      "list",
+      "--user",
+      "0",
+      overlay,
+    ]),
+  ]);
+});
+
+test("boot does not accept a missing policy signal or another device profile", async () => {
+  await assert.rejects(
+    waitForAndroidBoot(async () => "", { exitCode: null }),
+    /device policy/,
+  );
+  await assert.rejects(
+    waitForAndroidBoot(
+      async (...args) => {
+        if (args[0] === "wait-for-device")
+          return "Finished calculating hasIncompatibleAccountsTask";
+        return args[1] === "getprop" ? "1" : "[x] other.profile";
+      },
+      { exitCode: 1 },
+    ),
+    /hardware profile.*other.profile/,
+  );
 });
