@@ -5,6 +5,8 @@ import {
 } from "../../vendor/mattermost/index.js";
 import { isMattermostId, isMattermostTime } from "./model-fields.ts";
 
+import { orderedItems } from "./ordered-items.ts";
+
 type SearchPageRequest = {
   teamId: string | null;
   terms: string;
@@ -33,30 +35,6 @@ function parameters(request: SearchPageRequest) {
     page: request.page,
     perPage: 20,
   };
-}
-
-function orderedItems<T extends { id?: string; channelId?: string }>(
-  order: string[],
-  items: Record<string, T>,
-) {
-  if (
-    !Array.isArray(order) ||
-    !items ||
-    typeof items !== "object" ||
-    Array.isArray(items)
-  )
-    throw new TypeError("Invalid Mattermost search result list.");
-  return order.map((id) => {
-    const item = items[id];
-    if (
-      !isMattermostId(id) ||
-      !Object.hasOwn(items, id) ||
-      item?.id !== id ||
-      !isMattermostId(item.channelId)
-    )
-      throw new TypeError("Invalid Mattermost search result identity.");
-    return { ...item, id, channelId: item.channelId };
-  });
 }
 
 function retentionBoundary(time: number) {

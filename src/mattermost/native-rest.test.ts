@@ -87,6 +87,49 @@ test.each(["close", "signOut", "signOutOnDevice"] as const)(
   },
 );
 
+test.each(["close", "abort"])(
+  "discards collection responses after %s",
+  async (action) => {
+    ipc.mockResolvedValueOnce(41);
+    const account = await openAccountRestConnection(
+      "https://chat.example.test",
+      "u".repeat(26),
+    );
+    const controller = new AbortController();
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const fetch = vi
+      .spyOn(PostsApi.prototype, "getFlaggedPostsForUser")
+      .mockImplementation(async () => {
+        await gate;
+        return { order: [], posts: {}, firstInaccessiblePostTime: 0 };
+      });
+    try {
+      const pending = account.readSavedPosts(
+        { kind: "all" },
+        0,
+        controller.signal,
+      );
+      if (action === "close") await account.close();
+      else controller.abort();
+      finish();
+      if (action === "close") {
+        await expect(pending).rejects.toBe("cancelled");
+        await expect(
+          account.readPinnedChannelPosts("c".repeat(26)),
+        ).rejects.toBe("unknown_connection");
+      } else {
+        await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+      }
+      expect(fetch).toHaveBeenCalledOnce();
+    } finally {
+      fetch.mockRestore();
+    }
+  },
+);
+
 test("does not deliver an already received profile batch to a replaced connection", async () => {
   ipc.mockResolvedValueOnce(41);
   const account = await openAccountRestConnection(
@@ -324,12 +367,14 @@ test("opens a native account by installation and user ID", async () => {
     "readJoinedTeams",
     "readMentionGroupCounts",
     "readPendingPosts",
+    "readPinnedChannelPosts",
     "readPostAnchor",
     "readPostDestination",
     "readPostReactions",
     "readPostSearchPage",
     "readRecentTeamSearches",
     "readSavedPost",
+    "readSavedPosts",
     "readSavedProfiles",
     "readSavedTeamRoles",
     "readTeamDirectory",
