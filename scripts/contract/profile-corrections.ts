@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { type Fields, object } from "./objects.ts";
 
 // https://github.com/mattermost/mattermost/blob/v10.10.1/server/public/model/user.go#L83-L109
@@ -43,4 +44,38 @@ export function correctProfileImage(source: Fields): Fields {
       },
     },
   };
+}
+
+// The server's User.Timezone is a string map in both releases.
+// https://github.com/mattermost/mattermost/blob/v10.10.1/server/public/shared/timezones/timezones.go#L22-L30
+// https://github.com/mattermost/mattermost/blob/v12.1.0/api/v4/source/definitions.yaml#L3182-L3195
+export function correctProfileTimezone(source: Fields, newer: Fields): Fields {
+  const fields = object(source.properties, "Timezone properties");
+  const mode = object(
+    fields.useAutomaticTimezone,
+    "Timezone.useAutomaticTimezone",
+  );
+  const schemas = object(
+    object(newer.components, "components").schemas,
+    "schemas",
+  );
+  const corrected = {
+    ...source,
+    properties: {
+      ...fields,
+      useAutomaticTimezone: { ...mode, type: "string" },
+    },
+  };
+  if (
+    source.type !== "object" ||
+    mode.type !== "boolean" ||
+    object(fields.manualTimezone, "Timezone.manualTimezone").type !==
+      "string" ||
+    object(fields.automaticTimezone, "Timezone.automaticTimezone").type !==
+      "string" ||
+    !isDeepStrictEqual(corrected, schemas.Timezone)
+  ) {
+    throw Error("Review the Timezone correction against both pinned sources");
+  }
+  return corrected;
 }

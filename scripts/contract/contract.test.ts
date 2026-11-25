@@ -64,6 +64,7 @@ import {
 } from "./post-mutation-corrections.ts";
 import {
   correctProfileImage,
+  correctProfileTimezone,
   correctUserProfile,
 } from "./profile-corrections.ts";
 import {
@@ -385,6 +386,22 @@ for (const [id, file, path, method] of [
     }
   });
 }
+
+test("rechecks the timezone field type against both pinned releases", () => {
+  const path = ["components", "schemas", "Timezone"];
+  for (const version of ["baseline", "newer"]) {
+    const source = object(at(read("definitions.yaml"), path), "Timezone");
+    const newer = read("definitions-12.1.0.yaml");
+    const timezone =
+      version === "baseline" ? source : object(at(newer, path), "Timezone");
+    object(at(timezone, ["properties", "useAutomaticTimezone"]), "mode").type =
+      version === "baseline" ? "string" : "boolean";
+    assert.throws(
+      () => correctProfileTimezone(source, newer),
+      /Review the Timezone correction/,
+    );
+  }
+});
 
 for (const name of ["ChannelNotifyProps", "UserNotifyProps"] as const) {
   test(`rechecks ${name} when either pinned model changes`, () => {
@@ -868,6 +885,11 @@ test("retains the catalog operations, security and transitive models", () => {
       );
     if (name === "ChannelUnreadAt")
       expected = correctUnreadAt(
+        object(source, name),
+        read("definitions-12.1.0.yaml"),
+      );
+    if (name === "Timezone")
+      expected = correctProfileTimezone(
         object(source, name),
         read("definitions-12.1.0.yaml"),
       );
