@@ -24,6 +24,7 @@ import {
   correctChannelStats,
   correctChannelStatsQuery,
 } from "./channel-audience-corrections.ts";
+import { singleChannelMember } from "./channel-member-correction.ts";
 import {
   autocompleteCommand,
   correctAutocomplete,
@@ -82,6 +83,7 @@ import {
   correctSidebarSchema,
 } from "./sidebar-corrections.ts";
 import { correctSinglePost } from "./single-post-correction.ts";
+import { correctTeamMemberRequest } from "./team-member-correction.ts";
 
 const sources = process.env.UMMKA_CONTRACT_SOURCES;
 const work = process.env.UMMKA_CONTRACT_WORK;
@@ -771,6 +773,10 @@ test("retains the catalog operations, security and transitive models", () => {
       );
     if (source.operationId === "SearchFiles")
       expected = correctFileSearch(path, source, read("files-12.1.0.yaml"));
+    if (source.operationId === "AddTeamMember")
+      expected = correctTeamMemberRequest(source, read("teams-12.1.0.yaml"));
+    if (source.operationId === "AddChannelMember")
+      expected = singleChannelMember(source, read("channels-12.1.0.yaml"));
     if (source.operationId === "SaveReaction")
       expected = correctSaveReaction(source, read("reactions-12.1.0.yaml"));
     if (path === "/api/v4/posts" && method === "POST")
@@ -1303,6 +1309,7 @@ function copySources() {
     "definitions.yaml",
     "definitions-12.1.0.yaml",
     "roles-12.1.0.yaml",
+    "teams-12.1.0.yaml",
     "files-12.1.0.yaml",
     "groups-12.1.0.yaml",
     "preferences-12.1.0.yaml",
@@ -2169,6 +2176,37 @@ test("documents retention on a forbidden post and rejects drift in either pinned
     assert.throws(
       () => correctSinglePost(source, newer, defs),
       /Review the single-post/,
+    );
+  }
+});
+
+test("requires the team and user IDs and detects drift in either AddTeamMember input", () => {
+  const path = "/api/v4/teams/{team_id}/members";
+  const source = object(at(read("teams.yaml"), [path, "post"]), path);
+  const newer = read("teams-12.1.0.yaml");
+  const required = [
+    "requestBody",
+    "content",
+    "application/json",
+    "schema",
+    "required",
+  ];
+  assert.deepEqual(at(correctTeamMemberRequest(source, newer), required), [
+    "team_id",
+    "user_id",
+  ]);
+  for (const target of ["baseline", "reference"]) {
+    const baseline = structuredClone(source);
+    const reference = structuredClone(newer);
+    const op =
+      target === "baseline"
+        ? baseline
+        : object(at(reference, [path, "post"]), path);
+    const schema = object(at(op, required.slice(0, -1)), path);
+    schema.required = ["user_id"];
+    assert.throws(
+      () => correctTeamMemberRequest(baseline, reference),
+      /Review the pinned AddTeamMember/,
     );
   }
 });

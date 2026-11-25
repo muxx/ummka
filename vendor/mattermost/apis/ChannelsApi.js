@@ -1,13 +1,51 @@
 import * as runtime from '../runtime.js';
+import { AddChannelMemberRequestToJSON, } from '../models/AddChannelMemberRequest.js';
 import { ChannelFromJSON, } from '../models/Channel.js';
 import { ChannelMemberFromJSON, } from '../models/ChannelMember.js';
 import { ChannelMemberCountByGroupFromJSON, } from '../models/ChannelMemberCountByGroup.js';
 import { ChannelStatsFromJSON, } from '../models/ChannelStats.js';
 import { MarkChannelsReadForUser200ResponseFromJSON, } from '../models/MarkChannelsReadForUser200Response.js';
 import { OrderedSidebarCategoriesFromJSON, } from '../models/OrderedSidebarCategories.js';
+import { StatusOKFromJSON, } from '../models/StatusOK.js';
 import { ViewChannel200ResponseFromJSON, } from '../models/ViewChannel200Response.js';
 import { ViewChannelRequestToJSON, } from '../models/ViewChannelRequest.js';
 export class ChannelsApi extends runtime.BaseAPI {
+    async addChannelMemberRequestOpts(requestParameters) {
+        if (requestParameters['channelId'] == null) {
+            throw new runtime.RequiredError('channelId', 'Required parameter "channelId" was null or undefined when calling addChannelMember().');
+        }
+        if (requestParameters['addChannelMemberRequest'] == null) {
+            throw new runtime.RequiredError('addChannelMemberRequest', 'Required parameter "addChannelMemberRequest" was null or undefined when calling addChannelMember().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        headerParameters['Content-Type'] = 'application/json';
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/channels/{channel_id}/members`;
+        urlPath = urlPath.replace('{channel_id}', encodeURIComponent(String(requestParameters['channelId'])));
+        return {
+            path: urlPath,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+            body: AddChannelMemberRequestToJSON(requestParameters['addChannelMemberRequest']),
+        };
+    }
+    async addChannelMemberRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.addChannelMemberRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => ChannelMemberFromJSON(jsonValue));
+    }
+    async addChannelMember(requestParameters, initOverrides) {
+        const response = await this.addChannelMemberRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
     async getChannelMemberRequestOpts(requestParameters) {
         if (requestParameters['channelId'] == null) {
             throw new runtime.RequiredError('channelId', 'Required parameter "channelId" was null or undefined when calling getChannelMember().');
@@ -360,6 +398,41 @@ export class ChannelsApi extends runtime.BaseAPI {
     }
     async markChannelsReadForUser(requestParameters, initOverrides) {
         const response = await this.markChannelsReadForUserRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async removeUserFromChannelRequestOpts(requestParameters) {
+        if (requestParameters['channelId'] == null) {
+            throw new runtime.RequiredError('channelId', 'Required parameter "channelId" was null or undefined when calling removeUserFromChannel().');
+        }
+        if (requestParameters['userId'] == null) {
+            throw new runtime.RequiredError('userId', 'Required parameter "userId" was null or undefined when calling removeUserFromChannel().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/channels/{channel_id}/members/{user_id}`;
+        urlPath = urlPath.replace('{channel_id}', encodeURIComponent(String(requestParameters['channelId'])));
+        urlPath = urlPath.replace('{user_id}', encodeURIComponent(String(requestParameters['userId'])));
+        return {
+            path: urlPath,
+            method: 'DELETE',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async removeUserFromChannelRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.removeUserFromChannelRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => StatusOKFromJSON(jsonValue));
+    }
+    async removeUserFromChannel(requestParameters, initOverrides) {
+        const response = await this.removeUserFromChannelRaw(requestParameters, initOverrides);
         return await response.value();
     }
     async viewChannelRequestOpts(requestParameters) {
