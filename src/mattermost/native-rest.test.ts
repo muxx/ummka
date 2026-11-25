@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, expect, expectTypeOf, test, vi } from "vitest";
+import { type Reaction, ReactionsApi } from "../../vendor/mattermost/index.js";
 import * as emoji from "./account-custom-emoji.ts";
 import * as roles from "./channel-permissions.ts";
 import { channelProfile } from "./channel-profiles.ts";
@@ -258,6 +259,9 @@ test("passes the canonical installation and closes the exact native handle", asy
   expect("signOut" in connection).toBe(false);
   expect("readChannelWindow" in connection).toBe(false);
   expect("stagePost" in connection).toBe(false);
+  expect("readPostReactions" in connection).toBe(false);
+  expect("addOwnReaction" in connection).toBe(false);
+  expect("removeOwnReaction" in connection).toBe(false);
   expect("readPendingPosts" in connection).toBe(false);
   expect("confirmPostDelivery" in connection).toBe(false);
   expect("retireDeliveredPosts" in connection).toBe(false);
@@ -286,6 +290,7 @@ test("opens a native account by installation and user ID", async () => {
     userId,
   });
   expect(Object.keys(connection).sort()).toEqual([
+    "addOwnReaction",
     "basePath",
     "close",
     "confirmPostDelivery",
@@ -304,6 +309,7 @@ test("opens a native account by installation and user ID", async () => {
     "readJoinedTeams",
     "readMentionGroupCounts",
     "readPendingPosts",
+    "readPostReactions",
     "readSavedProfiles",
     "readSavedTeamRoles",
     "readTeamDirectory",
@@ -317,6 +323,7 @@ test("opens a native account by installation and user ID", async () => {
     "refreshTeamRoles",
     "refreshTeamSidebar",
     "refreshWorkspaceServerPolicy",
+    "removeOwnReaction",
     "resendPost",
     "retireDeliveredPosts",
     "retryPendingPost",
@@ -732,5 +739,43 @@ test("an exact emoji read cannot publish after its account connection closes", a
     expect(read).toHaveBeenCalledTimes(1);
   } finally {
     read.mockRestore();
+  }
+});
+
+test("closing an account discards its pending reaction confirmation", async () => {
+  ipc.mockResolvedValueOnce(41);
+  const userId = "a".repeat(26);
+  const postId = "p".repeat(26);
+  const account = await openAccountRestConnection(
+    "https://fixture.test",
+    userId,
+  );
+  let confirm!: (value: Reaction) => void;
+  const answer = new Promise<Reaction>((resolve) => {
+    confirm = resolve;
+  });
+  const save = vi
+    .spyOn(ReactionsApi.prototype, "saveReaction")
+    .mockReturnValue(answer);
+  try {
+    const pending = account.addOwnReaction(postId, "wave");
+    await account.close();
+    confirm({
+      userId,
+      postId,
+      emojiName: "wave",
+      channelId: "c".repeat(26),
+      createAt: 1,
+      updateAt: 1,
+      deleteAt: 0,
+      remoteId: "",
+    });
+    await expect(pending).rejects.toBe("cancelled");
+    await expect(account.addOwnReaction(postId, "wave")).rejects.toBe(
+      "unknown_connection",
+    );
+    expect(save).toHaveBeenCalledOnce();
+  } finally {
+    save.mockRestore();
   }
 });
