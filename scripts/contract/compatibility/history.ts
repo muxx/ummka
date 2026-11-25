@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { latestReactionTarget } from "../../../src/channels/latest-reaction-target.ts";
+import { nextPostDestinationStep } from "../../../src/channels/post-destination-step.ts";
 import { channelHistoryPage } from "../../../src/mattermost/channel-history-page.ts";
 import { channelPostChanges } from "../../../src/mattermost/channel-post-records.ts";
 import {
@@ -13,6 +14,7 @@ import {
   readFocusedNeighbors,
 } from "../../../src/mattermost/focused-history.ts";
 import { readPostAnchor } from "../../../src/mattermost/message-anchors.ts";
+import { readPostDestination } from "../../../src/mattermost/post-destination.ts";
 import { loadVisibleProfiles } from "../../../src/mattermost/visible-profiles.ts";
 import {
   ChannelsApi,
@@ -38,6 +40,7 @@ import {
   checkChannelRoster,
   checkEmptyTeamDirectory,
   checkNavigationMemberships,
+  checkOwnMembershipChanges,
 } from "./memberships.ts";
 import { checkMentionLimit } from "./mention-limit.ts";
 import { checkMentionText } from "./mention-text.ts";
@@ -227,6 +230,23 @@ for (const post of [root, reply])
     expectedContext,
   );
 
+const memberTarget = await readPostDestination(memberPosts, reply.id);
+assert.deepEqual(memberTarget, {
+  postId: reply.id,
+  channel: {
+    id: channelId,
+    kind: channel.type,
+    displayName: channel.displayName,
+    joined: true,
+  },
+  team: {
+    id: team.id,
+    kind: "O",
+    displayName: team.display_name,
+    joined: true,
+  },
+});
+
 const readerLogin = {
   login_id: "context-reader",
   password: `${randomBytes(24).toString("hex")}aA7!`,
@@ -280,6 +300,27 @@ assert.deepEqual(direct, {
   teamType: "",
   teamDisplayName: "",
   hasJoinedTeam: false,
+});
+
+const directTarget = await readPostDestination(readerPosts, dmPost.id);
+assert.equal(directTarget.channel.id, dm.id);
+assert.equal(directTarget.channel.joined, true);
+assert.equal(directTarget.team, null);
+const publicTarget = await readPostDestination(readerPosts, root.id);
+assert.equal(publicTarget.channel.joined, false);
+assert.equal(publicTarget.team?.joined, false);
+assert.deepEqual(nextPostDestinationStep(memberTarget, null), {
+  kind: "readPost",
+  teamId: team.id,
+  channelId,
+  postId: reply.id,
+});
+assert.deepEqual(nextPostDestinationStep(publicTarget, null), {
+  kind: "joinTeam",
+  team: publicTarget.team,
+});
+assert.deepEqual(nextPostDestinationStep(directTarget, null), {
+  kind: "selectTeam",
 });
 
 const closed = await (
@@ -343,7 +384,7 @@ await assert.rejects(
   (e: unknown) => e instanceof ResponseError && e.response.status === 401,
 );
 await assert.rejects(
-  readerPosts.getPostInfo({ postId: closedPost.id }),
+  readPostDestination(readerPosts, closedPost.id),
   (e: unknown) => e instanceof ResponseError && e.response.status === 404,
 );
 await assert.rejects(
@@ -581,6 +622,55 @@ await create(
   { team_id: team.id, user_id: reader.id },
   token,
 );
+const joinable = await (
+  await create(
+    "channels",
+    {
+      team_id: team.id,
+      name: "membership-roundtrip",
+      display_name: "Membership round trip",
+      type: "O",
+    },
+    token,
+  )
+).json();
+const memberApi = new ChannelsApi(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+);
+const ownMembership = { channelId: joinable.id, userId: reader.id };
+const beforeJoin = await memberApi.getChannelMembersForUser({
+  teamId: team.id,
+  userId: "me",
+});
+assert.ok(!beforeJoin.some((row) => row.channelId === joinable.id));
+const addition = await memberApi.addChannelMemberRaw({
+  channelId: joinable.id,
+  addChannelMemberRequest: { userId: reader.id },
+});
+assert.equal(addition.raw.status, 201);
+const addedMember = await addition.value();
+assert.equal(addedMember.userId, reader.id);
+assert.equal(addedMember.channelId, joinable.id);
+assert.equal(
+  (await memberApi.getChannelMember(ownMembership)).userId,
+  reader.id,
+);
+const removal = await memberApi.removeUserFromChannelRaw(ownMembership);
+assert.equal(removal.raw.status, 200);
+assert.equal((await removal.value()).status, "OK");
+const afterLeave = await memberApi.getChannelMembersForUser({
+  teamId: team.id,
+  userId: "me",
+});
+assert.ok(!afterLeave.some((row) => row.channelId === joinable.id));
+await assert.rejects(
+  memberApi.addChannelMember({
+    channelId: dm.id,
+    addChannelMemberRequest: { userId: reader.id },
+  }),
+  (e: unknown) => e instanceof ResponseError && e.response.status === 400,
+);
+
 const extraTeam = await (
   await create(
     "teams",
@@ -610,11 +700,6 @@ await checkFileSearch(
   extraTeam.id,
   version,
 );
-await create(
-  `teams/${extraTeam.id}/members`,
-  { team_id: extraTeam.id, user_id: reader.id },
-  token,
-);
 await checkNavigationMemberships(
   new Configuration({ basePath: base, accessToken: readerToken }),
   reader.id,
@@ -623,11 +708,13 @@ await checkNavigationMemberships(
   extraTeam.id,
   channelId,
   dm.id,
-  () =>
-    fetch(`${base}/api/v4/teams/${extraTeam.id}/members/${reader.id}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${readerToken}` },
-    }),
+);
+await checkOwnMembershipChanges(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  reader.id,
+  team.id,
+  extraTeam.id,
+  joinable.id,
 );
 console.log(
   `Mattermost ${version} verified channel and team roles, active and removed membership and anonymous HTTP 401.`,

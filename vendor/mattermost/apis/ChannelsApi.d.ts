@@ -1,12 +1,18 @@
 import * as runtime from '../runtime.js';
+import { type AddChannelMemberRequest } from '../models/AddChannelMemberRequest.js';
 import { type Channel } from '../models/Channel.js';
 import { type ChannelMember } from '../models/ChannelMember.js';
 import { type ChannelMemberCountByGroup } from '../models/ChannelMemberCountByGroup.js';
 import { type ChannelStats } from '../models/ChannelStats.js';
 import { type MarkChannelsReadForUser200Response } from '../models/MarkChannelsReadForUser200Response.js';
 import { type OrderedSidebarCategories } from '../models/OrderedSidebarCategories.js';
+import { type StatusOK } from '../models/StatusOK.js';
 import { type ViewChannel200Response } from '../models/ViewChannel200Response.js';
 import { type ViewChannelRequest } from '../models/ViewChannelRequest.js';
+export interface AddChannelMemberOperationRequest {
+    channelId: string;
+    addChannelMemberRequest: AddChannelMemberRequest;
+}
 export interface GetChannelMemberRequest {
     channelId: string;
     userId: string;
@@ -49,11 +55,18 @@ export interface MarkChannelsReadForUserRequest {
     userId: string;
     requestBody: Array<string>;
 }
+export interface RemoveUserFromChannelRequest {
+    channelId: string;
+    userId: string;
+}
 export interface ViewChannelOperationRequest {
     userId: string;
     viewChannelRequest: ViewChannelRequest;
 }
 export declare class ChannelsApi extends runtime.BaseAPI {
+    addChannelMemberRequestOpts(requestParameters: AddChannelMemberOperationRequest): Promise<runtime.RequestOpts>;
+    addChannelMemberRaw(requestParameters: AddChannelMemberOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<ChannelMember>>;
+    addChannelMember(requestParameters: AddChannelMemberOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<ChannelMember>;
     getChannelMemberRequestOpts(requestParameters: GetChannelMemberRequest): Promise<runtime.RequestOpts>;
     getChannelMemberRaw(requestParameters: GetChannelMemberRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<ChannelMember>>;
     getChannelMember(requestParameters: GetChannelMemberRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<ChannelMember>;
@@ -84,6 +97,9 @@ export declare class ChannelsApi extends runtime.BaseAPI {
     markChannelsReadForUserRequestOpts(requestParameters: MarkChannelsReadForUserRequest): Promise<runtime.RequestOpts>;
     markChannelsReadForUserRaw(requestParameters: MarkChannelsReadForUserRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<MarkChannelsReadForUser200Response>>;
     markChannelsReadForUser(requestParameters: MarkChannelsReadForUserRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<MarkChannelsReadForUser200Response>;
+    removeUserFromChannelRequestOpts(requestParameters: RemoveUserFromChannelRequest): Promise<runtime.RequestOpts>;
+    removeUserFromChannelRaw(requestParameters: RemoveUserFromChannelRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<StatusOK>>;
+    removeUserFromChannel(requestParameters: RemoveUserFromChannelRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<StatusOK>;
     viewChannelRequestOpts(requestParameters: ViewChannelOperationRequest): Promise<runtime.RequestOpts>;
     viewChannelRaw(requestParameters: ViewChannelOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<ViewChannel200Response>>;
     viewChannel(requestParameters: ViewChannelOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<ViewChannel200Response>;

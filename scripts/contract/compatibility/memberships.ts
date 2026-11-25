@@ -10,6 +10,7 @@ import {
   loadAccountDirectory,
   loadTeamDirectory,
 } from "../../../src/mattermost/navigation-data.ts";
+import { changeOwnMembership } from "../../../src/mattermost/own-membership.ts";
 import { projectTeamSidebar } from "../../../src/mattermost/team-sidebar.ts";
 import {
   ChannelsApi,
@@ -27,10 +28,29 @@ export async function checkNavigationMemberships(
   leaveTeamId: string,
   channelId: string,
   directId: string,
-  leaveTeam: () => Promise<Response>,
 ) {
   const teams = new TeamsApi(session);
   const own = { userId: "me" };
+  const target = { teamId: leaveTeamId, userId };
+  await assert.rejects(
+    teams.addTeamMember({
+      teamId: leaveTeamId,
+      addTeamMemberRequest: { teamId: keepTeamId, userId },
+    }),
+    (error: unknown) =>
+      error instanceof ResponseError && error.response.status === 400,
+  );
+  assert.ok(
+    !(await teams.getTeamsForUser(own)).some((team) => team.id === leaveTeamId),
+  );
+  const added = await teams.addTeamMemberRaw({
+    teamId: leaveTeamId,
+    addTeamMemberRequest: target,
+  });
+  assert.equal(added.raw.status, 201);
+  const membership = await added.value();
+  assert.equal(membership.teamId, leaveTeamId);
+  assert.equal(membership.userId, userId);
   const list = await teams.getTeamsForUserRaw(own);
   const rawTeams: { id: string; group_constrained: boolean | null }[] =
     await list.raw.clone().json();
@@ -189,8 +209,9 @@ export async function checkNavigationMemberships(
     [userId, "channel_user", "", false, true, false],
   );
 
-  const leave = await leaveTeam();
-  assert.ok(leave.ok, `Leave fixture team: HTTP ${leave.status}`);
+  const leave = await teams.removeTeamMemberRaw(target);
+  assert.equal(leave.raw.status, 200);
+  assert.equal((await leave.value()).status, "OK");
   const after = await teams.getTeamMembersForUser({ userId });
   const removed = after.find((m) => m.teamId === leaveTeamId);
   assert.ok(removed?.deleteAt && removed.deleteAt > 0);
@@ -283,4 +304,42 @@ export async function checkChannelRoster(
     }),
     denied,
   );
+}
+
+export async function checkOwnMembershipChanges(
+  config: Configuration,
+  userId: string,
+  workspace: string,
+  team: string,
+  channel: string,
+) {
+  const teams = new TeamsApi(config);
+  const channels = new ChannelsApi(config);
+  const hasTeam = async () =>
+    (await teams.getTeamsForUser({ userId: "me" })).some(
+      (row) => row.id === team,
+    );
+  const hasChannel = async () =>
+    (
+      await channels.getChannelMembersForUser({
+        userId: "me",
+        teamId: workspace,
+      })
+    ).some((row) => row.channelId === channel);
+  for (const [target, read] of [
+    [{ kind: "team", id: team }, hasTeam],
+    [{ kind: "channel", id: channel }, hasChannel],
+  ] as const) {
+    assert.equal(await read(), false);
+    assert.deepEqual(
+      await changeOwnMembership(config, userId, target, "join"),
+      { kind: "applied" },
+    );
+    assert.equal(await read(), true);
+    assert.deepEqual(
+      await changeOwnMembership(config, userId, target, "leave"),
+      { kind: "applied" },
+    );
+    assert.equal(await read(), false);
+  }
 }
