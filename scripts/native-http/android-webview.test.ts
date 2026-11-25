@@ -46,3 +46,23 @@ test("waits through an ordinary Chromium error and accepts the actual marker", a
   assert.equal(await check.launch(), "125");
   assert.equal(check.reads(), 2);
 });
+
+test("the emulator enters keyboard navigation before launching the first WebView activity", async () => {
+  const events: string[] = [];
+  async function adb(...args: string[]) {
+    if (args[1] === "input") {
+      assert.deepEqual(args, ["shell", "input", "keyevent", "KEYCODE_TAB"]);
+      events.push("keyboard");
+      return "";
+    }
+    if (args[1] === "am") {
+      events.push("launch");
+      return "Status: ok";
+    }
+    if (args[1] === "pidof") return "125";
+    assert.equal(args[0], "logcat");
+    return "UMMKA_WEBVIEW_CHECK browser-checked";
+  }
+  await launchWebview(adb, "app", "app/.MainActivity", "browser-checked");
+  assert.deepEqual(events, ["keyboard", "launch"]);
+});

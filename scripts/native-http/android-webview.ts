@@ -10,13 +10,13 @@ export async function launchWebview(
   activity: string,
   expected: string,
 ) {
+  // Keyboard navigation survives an Activity switch. Set it before the WebView receives input.
+  if (expected === "browser-checked")
+    await adb("shell", "input", "keyevent", "KEYCODE_TAB");
   assert.match(
     await adb("shell", "am", "start", "-W", "-n", activity),
     /Status: ok/,
   );
-  // Enter hardware keyboard mode so Chromium delivers real DOM focus events.
-  if (expected === "browser-checked")
-    await adb("shell", "input", "keyevent", "KEYCODE_TAB");
   const pid = (await adb("shell", "pidof", "-s", app)).trim();
   assert.match(pid, /^\d+$/);
   const deadline = Date.now() + 65_000;
