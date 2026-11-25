@@ -8,7 +8,6 @@ import catalog from "../../contracts/mattermost/operations.json" with {
   type: "json",
 };
 import { correctAuthentication } from "./authentication-corrections.ts";
-
 import {
   correctHistoryQuery,
   correctHistorySchema,
@@ -33,6 +32,7 @@ import {
   correctSetPostUnread,
   correctUnreadAt,
 } from "./read-state-corrections.ts";
+import { correctRoleList } from "./role-correction.ts";
 import {
   correctSidebarResponse,
   correctSidebarSchema,
@@ -192,6 +192,11 @@ export function buildSpecification(
         operation,
         read("channels.yaml"),
         path,
+      );
+    else if (id === "GetRolesByNames")
+      paths[path][method] = correctRoleList(
+        operation,
+        read("roles-12.1.0.yaml"),
       );
     else if (id === "GetSidebarCategoriesForTeamForUser")
       paths[path][method] = correctSidebarResponse(operation);

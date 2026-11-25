@@ -1,0 +1,12 @@
+--- a/apis.mustache
++++ b/apis.mustache
+@@ -485 +485 @@
+-        return new runtime.JSONApiResponse(response{{^withoutRuntimeChecks}}, (jsonValue) => {{#uniqueItems}}new Set({{/uniqueItems}}jsonValue.map({{returnBaseType}}FromJSON){{/withoutRuntimeChecks}}){{#uniqueItems}}){{/uniqueItems}};
++        return new runtime.JSONApiResponse(response{{^withoutRuntimeChecks}}, (jsonValue) => {{#responses}}{{#is2xx}}{{#returnProperty.isNullable}}jsonValue === null ? null : {{/returnProperty.isNullable}}{{/is2xx}}{{/responses}}{{#uniqueItems}}new Set({{/uniqueItems}}jsonValue.map({{returnBaseType}}FromJSON){{/withoutRuntimeChecks}}){{#uniqueItems}}){{/uniqueItems}};
+--- a/apisReturnType.mustache
++++ b/apisReturnType.mustache
+@@ -1 +1 @@
+-{{! The declared type of an operation's response. A file response is handed back by BlobApiResponse as a HttpFile, which the type mapping alone (file -> Blob, shared with request bodies) cannot express. Inline partial: no newline. }}{{#isResponseFile}}runtime.HttpFile{{/isResponseFile}}{{^isResponseFile}}{{{returnType}}}{{/isResponseFile}}
+\ No newline at end of file
++{{! The declared type of an operation's response. A file response is handed back by BlobApiResponse as a HttpFile, which the type mapping alone (file -> Blob, shared with request bodies) cannot express. Inline partial: no newline. }}{{#isResponseFile}}runtime.HttpFile{{/isResponseFile}}{{^isResponseFile}}{{{returnType}}}{{#isArray}}{{#responses}}{{#is2xx}}{{#returnProperty.isNullable}} | null{{/returnProperty.isNullable}}{{/is2xx}}{{/responses}}{{/isArray}}{{/isResponseFile}}
+\ No newline at end of file

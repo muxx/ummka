@@ -3,6 +3,7 @@ import {
   type Configuration,
   PostsApi,
   PreferencesApi,
+  RolesApi,
   TeamsApi,
 } from "../../vendor/mattermost/index.js";
 
@@ -10,6 +11,28 @@ export async function checkTeamReads(
   root: Configuration,
   prefixed: Configuration,
 ) {
+  const names = ["team_guest", "channel_user"];
+  const roleApi = new RolesApi(prefixed);
+  const roles = await roleApi.getRolesByNames({
+    requestBody: names,
+  });
+  if (
+    !roles ||
+    (await roleApi.getRolesByNames({ requestBody: ["fixture_missing"] })) !==
+      null
+  )
+    throw Error("generated nullable role list");
+  const writer = roles.find((role) => role.name === "channel_user");
+  const guest = roles.find((role) => role.name === "team_guest");
+  if (
+    names.join(",") !== "team_guest,channel_user" ||
+    roles.length !== 2 ||
+    writer?.displayName !== "Channel member" ||
+    !writer.schemeManaged ||
+    writer.permissions?.join(",") !== "read_channel,create_post" ||
+    guest?.permissions?.length !== 0
+  )
+    throw Error("generated role definitions");
   const teams = await new TeamsApi(root).getTeamsForUser({ userId: "me" });
   const teamId = teams[0]?.id;
   if (teams.length !== 1 || !teamId || teams[0].displayName !== "Fixture Team")
