@@ -21,6 +21,7 @@ import {
   correctCommandResponse,
   correctExecuteCommand,
 } from "./command-corrections.ts";
+import { correctCustomEmoji } from "./custom-emoji-correction.ts";
 import {
   checkChannelGroupMap,
   correctAssociatedGroup,
@@ -158,6 +159,8 @@ export function buildSpecification(
         source,
         read("definitions-12.1.0.yaml"),
       );
+    else if (name === "Emoji")
+      group[name] = correctCustomEmoji(source, read("definitions-12.1.0.yaml"));
     else if (name === "Reaction")
       group[name] = correctReaction(source, read("definitions-12.1.0.yaml"));
     else if (name === "ChannelStats")
