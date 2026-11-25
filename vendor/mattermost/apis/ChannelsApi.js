@@ -1,6 +1,8 @@
 import * as runtime from '../runtime.js';
 import { ChannelFromJSON, } from '../models/Channel.js';
 import { ChannelMemberFromJSON, } from '../models/ChannelMember.js';
+import { ChannelMemberCountByGroupFromJSON, } from '../models/ChannelMemberCountByGroup.js';
+import { ChannelStatsFromJSON, } from '../models/ChannelStats.js';
 import { MarkChannelsReadForUser200ResponseFromJSON, } from '../models/MarkChannelsReadForUser200Response.js';
 import { OrderedSidebarCategoriesFromJSON, } from '../models/OrderedSidebarCategories.js';
 import { ViewChannel200ResponseFromJSON, } from '../models/ViewChannel200Response.js';
@@ -39,6 +41,40 @@ export class ChannelsApi extends runtime.BaseAPI {
     }
     async getChannelMember(requestParameters, initOverrides) {
         const response = await this.getChannelMemberRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async getChannelMemberCountsByGroupRequestOpts(requestParameters) {
+        if (requestParameters['channelId'] == null) {
+            throw new runtime.RequiredError('channelId', 'Required parameter "channelId" was null or undefined when calling getChannelMemberCountsByGroup().');
+        }
+        const queryParameters = {};
+        if (requestParameters['includeTimezones'] != null) {
+            queryParameters['include_timezones'] = requestParameters['includeTimezones'];
+        }
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/channels/{channel_id}/member_counts_by_group`;
+        urlPath = urlPath.replace('{channel_id}', encodeURIComponent(String(requestParameters['channelId'])));
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async getChannelMemberCountsByGroupRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.getChannelMemberCountsByGroupRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => jsonValue.map(ChannelMemberCountByGroupFromJSON));
+    }
+    async getChannelMemberCountsByGroup(requestParameters, initOverrides) {
+        const response = await this.getChannelMemberCountsByGroupRaw(requestParameters, initOverrides);
         return await response.value();
     }
     async getChannelMembersRequestOpts(requestParameters) {
@@ -147,6 +183,71 @@ export class ChannelsApi extends runtime.BaseAPI {
     }
     async getChannelMembersForUser(requestParameters, initOverrides) {
         const response = await this.getChannelMembersForUserRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async getChannelMembersTimezonesRequestOpts(requestParameters) {
+        if (requestParameters['channelId'] == null) {
+            throw new runtime.RequiredError('channelId', 'Required parameter "channelId" was null or undefined when calling getChannelMembersTimezones().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/channels/{channel_id}/timezones`;
+        urlPath = urlPath.replace('{channel_id}', encodeURIComponent(String(requestParameters['channelId'])));
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async getChannelMembersTimezonesRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.getChannelMembersTimezonesRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response);
+    }
+    async getChannelMembersTimezones(requestParameters, initOverrides) {
+        const response = await this.getChannelMembersTimezonesRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async getChannelStatsRequestOpts(requestParameters) {
+        if (requestParameters['channelId'] == null) {
+            throw new runtime.RequiredError('channelId', 'Required parameter "channelId" was null or undefined when calling getChannelStats().');
+        }
+        const queryParameters = {};
+        if (requestParameters['excludeFilesCount'] != null) {
+            queryParameters['exclude_files_count'] = requestParameters['excludeFilesCount'];
+        }
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/channels/{channel_id}/stats`;
+        urlPath = urlPath.replace('{channel_id}', encodeURIComponent(String(requestParameters['channelId'])));
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async getChannelStatsRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.getChannelStatsRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => ChannelStatsFromJSON(jsonValue));
+    }
+    async getChannelStats(requestParameters, initOverrides) {
+        const response = await this.getChannelStatsRaw(requestParameters, initOverrides);
         return await response.value();
     }
     async getChannelsForTeamForUserRequestOpts(requestParameters) {

@@ -9,6 +9,10 @@ import catalog from "../../contracts/mattermost/operations.json" with {
 };
 import { correctAuthentication } from "./authentication-corrections.ts";
 import {
+  correctChannelStats,
+  correctChannelStatsQuery,
+} from "./channel-audience-corrections.ts";
+import {
   autocompleteCommand,
   checkAutocompleteSuggestion,
   correctAutocomplete,
@@ -17,6 +21,10 @@ import {
   correctCommandResponse,
   correctExecuteCommand,
 } from "./command-corrections.ts";
+import {
+  correctGroupAudienceModel,
+  correctGroupAudienceResponse,
+} from "./group-audience-correction.ts";
 import {
   correctHistoryQuery,
   correctHistorySchema,
@@ -120,6 +128,16 @@ export function buildSpecification(
       throw new Error(`Missing component ${kind}/${name}`);
     const source = object(upstream[name], `components/${kind}/${name}`);
     if (kind !== "schemas") group[name] = source;
+    else if (name === "ChannelMemberCountByGroup")
+      group[name] = correctGroupAudienceModel(
+        source,
+        read("definitions-12.1.0.yaml"),
+      );
+    else if (name === "ChannelStats")
+      group[name] = correctChannelStats(
+        source,
+        read("definitions-12.1.0.yaml"),
+      );
     else if (name === "ChannelUnreadAt")
       group[name] = correctUnreadAt(source, read("definitions-12.1.0.yaml"));
     else if (name === "Channel")
@@ -213,6 +231,16 @@ export function buildSpecification(
         operation,
         read("posts-12.1.0.yaml"),
       );
+    else if (id === "GetChannelMemberCountsByGroup")
+      paths[path][method] = correctGroupAudienceResponse(
+        operation,
+        read("channels-12.1.0.yaml"),
+      );
+    else if (id === "GetChannelStats")
+      paths[path][method] = correctChannelStatsQuery(
+        operation,
+        read("channels-12.1.0.yaml"),
+      );
     else if (id === "ViewChannel")
       paths[path][method] = correctChannelView(
         operation,
@@ -239,15 +267,15 @@ export function buildSpecification(
         operation,
         read("commands-12.1.0.yaml"),
       );
-    else if (id === "GetRolesByNames" || id === "GetPreferences")
+    else if (
+      id === "GetRolesByNames" ||
+      id === "GetPreferences" ||
+      id === "GetChannelMembersTimezones"
+    )
       paths[path][method] = correctNullableList(
         id,
         operation,
-        read(
-          id === "GetPreferences"
-            ? "preferences-12.1.0.yaml"
-            : "roles-12.1.0.yaml",
-        ),
+        read(file.replace(".yaml", "-12.1.0.yaml")),
       );
     else if (id === "GetSidebarCategoriesForTeamForUser")
       paths[path][method] = correctSidebarResponse(operation);

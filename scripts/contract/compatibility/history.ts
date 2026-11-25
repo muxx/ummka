@@ -26,6 +26,7 @@ import {
   allowFixtureBrowserSignIn,
   checkBrowserSignIn,
 } from "./browser-sign-in.ts";
+import { checkChannelAudience } from "./channel-audience.ts";
 import { checkCommands } from "./commands.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
 import {
@@ -280,6 +281,16 @@ assert.equal(closedMember.userId, user.id);
 assert.equal(closedMember.channelId, closed.id);
 const closedReader = new ChannelsApi(
   new Configuration({ basePath: base, accessToken: readerToken }),
+);
+await checkChannelAudience(
+  base,
+  { id: dm.id, postId: dmPost.id },
+  closed.id,
+  { id: user.id, token },
+  { id: reader.id, token: readerToken },
+);
+console.log(
+  `Mattermost ${version} verified channel audience counts, timezones and private channel access.`,
 );
 await checkChannelRoster(closedReader, closed.id, dm.id, [user.id, reader.id]);
 await assert.rejects(

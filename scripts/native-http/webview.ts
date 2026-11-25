@@ -8,6 +8,7 @@ import { json } from "node:stream/consumers";
 import { respondToAccount } from "./account.ts";
 import { respondToChannelMembers } from "./channel-members.ts";
 import { respondToChannelView } from "./channel-view.ts";
+import { respondToGroupAudience } from "./group-audience.ts";
 import { respondToHistory } from "./history.ts";
 import { historyRefreshFixture } from "./history-refresh.ts";
 import { respondToPostContext } from "./post-context.ts";
@@ -366,6 +367,39 @@ export function webviewServers(
       visits.push(account);
       return;
     }
+    const groupAudience = respondToGroupAudience(req, res, url, channelId);
+    if (groupAudience) {
+      visits.push(groupAudience);
+      return;
+    }
+    const stats =
+      url.pathname === `/team/chat/api/v4/channels/${channelId}/stats`;
+    if (stats || url.pathname === `/api/v4/channels/${channelId}/timezones`) {
+      assert.equal(req.method, "GET");
+      assert.equal(req.headers.cookie, undefined);
+      assert.equal(
+        req.headers.authorization,
+        stats
+          ? "Bearer fixture-prefixed-session"
+          : "Bearer fixture-root-session",
+      );
+      assert.equal(url.search, stats ? "?exclude_files_count=true" : "");
+      res.writeHead(200, { "Content-Type": "application/json" }).end(
+        JSON.stringify(
+          stats
+            ? {
+                channel_id: channelId,
+                member_count: 30,
+                guest_count: 3,
+                pinnedpost_count: 5,
+                files_count: -1,
+              }
+            : null,
+        ),
+      );
+      visits.push(stats ? "channel-stats" : "channel-timezones");
+      return;
+    }
     const member = await respondToChannelMembers(
       req,
       res,
@@ -720,6 +754,10 @@ export function webviewServers(
         "delete-post",
         "bulk-channel-view",
         "single-channel-view",
+        "channel-stats",
+        "channel-timezones",
+        "group-audience-empty",
+        "group-audience-timezones",
         "member-self",
         "member-id",
         "members-page",
