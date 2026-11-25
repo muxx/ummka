@@ -28,6 +28,7 @@ import {
 } from "./browser-sign-in.ts";
 import { checkChannelAudience } from "./channel-audience.ts";
 import { checkCommands } from "./commands.ts";
+import { checkEventStream } from "./event-stream.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
 import {
   checkChannelRoster,
@@ -845,6 +846,11 @@ await checkMentionLimit(
 );
 console.log(
   `Mattermost ${version} verified the channel notification limit against real member counts.`,
+);
+
+await checkEventStream(base, token, session, team.id, channelId);
+console.log(
+  `Mattermost ${version} verified sequenced posts, command replies and replay of a post after reconnect.`,
 );
 
 const secondLogin = await create("users/login", {
