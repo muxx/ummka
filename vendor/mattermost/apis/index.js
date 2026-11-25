@@ -1,4 +1,5 @@
 export * from './ChannelsApi.js';
+export * from './CommandsApi.js';
 export * from './PostsApi.js';
 export * from './PreferencesApi.js';
 export * from './RolesApi.js';

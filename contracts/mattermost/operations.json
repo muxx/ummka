@@ -163,5 +163,12 @@
     "method": "DELETE",
     "path": "/api/v4/posts/{post_id}",
     "id": "DeletePost"
+  },
+  {
+    "file": "commands.yaml",
+    "method": "POST",
+    "path": "/api/v4/commands/execute",
+    "id": "ExecuteCommand",
+    "body": "json"
   }
 ]

@@ -19,6 +19,10 @@ import catalog from "../../contracts/mattermost/operations.json" with {
 };
 import { correctAuthentication } from "./authentication-corrections.ts";
 import {
+  correctCommandResponse,
+  correctExecuteCommand,
+} from "./command-corrections.ts";
+import {
   correctHistoryQuery,
   correctHistorySchema,
 } from "./history-corrections.ts";
@@ -149,6 +153,7 @@ const definitionPaths = [
   ["components", "schemas", "Team"],
   ["components", "schemas", "TeamMember"],
   ["components", "schemas", "Role"],
+  ["components", "schemas", "CommandResponse"],
   ["components", "schemas", "Channel"],
   ["components", "schemas", "ChannelMember"],
   ["components", "schemas", "ChannelNotifyProps"],
@@ -164,6 +169,46 @@ const definitionPaths = [
   ["components", "responses", "Unauthorized"],
   ["components", "responses", "NotFound"],
 ];
+
+test("rechecks both tagged command contracts when the request or response definition changes", () => {
+  const route = "/api/v4/commands/execute";
+  const schemaPath = ["components", "schemas", "CommandResponse"];
+  for (const tag of ["base", "newer"]) {
+    const base = object(at(read("commands.yaml"), [route, "post"]), route);
+    const newer = read("commands-12.1.0.yaml");
+    const operation =
+      tag === "base" ? base : object(at(newer, [route, "post"]), route);
+    const fields = object(
+      at(operation, [
+        "requestBody",
+        "content",
+        "application/json",
+        "schema",
+        "properties",
+      ]),
+      "command inputs",
+    );
+    fields.root_id = { type: "string" };
+    assert.throws(
+      () => correctExecuteCommand(base, newer),
+      /Review ExecuteCommand/,
+    );
+    const definitions = read("definitions.yaml");
+    const next = read("definitions-12.1.0.yaml");
+    const baseline = object(at(definitions, schemaPath), "CommandResponse");
+    const target =
+      tag === "base"
+        ? baseline
+        : object(at(next, schemaPath), "v12 CommandResponse");
+    object(target.properties, "command response").trigger_id = {
+      type: "string",
+    };
+    assert.throws(
+      () => correctCommandResponse(baseline, next),
+      /Review CommandResponse/,
+    );
+  }
+});
 
 test("makes only the successful role list nullable and detects changes in either tagged schema", () => {
   const path = "/api/v4/roles/names";
@@ -383,6 +428,8 @@ test("retains the catalog operations, security and transitive models", () => {
       expected = correctCreatePost(source, read("posts-12.1.0.yaml"));
     if (path === "/api/v4/posts/{post_id}/patch")
       expected = correctPatchPost(source, read("posts-12.1.0.yaml"));
+    if (source.operationId === "ExecuteCommand")
+      expected = correctExecuteCommand(source, read("commands-12.1.0.yaml"));
     if (source.operationId === "GetRolesByNames")
       expected = correctRoleList(source, read("roles-12.1.0.yaml"));
     if (source.operationId === "ViewChannel")
@@ -401,6 +448,11 @@ test("retains the catalog operations, security and transitive models", () => {
     let expected = source;
     if (name === "ChannelUnreadAt")
       expected = correctUnreadAt(
+        object(source, name),
+        read("definitions-12.1.0.yaml"),
+      );
+    if (name === "CommandResponse")
+      expected = correctCommandResponse(
         object(source, name),
         read("definitions-12.1.0.yaml"),
       );
@@ -428,6 +480,7 @@ test("retains the catalog operations, security and transitive models", () => {
       "ChannelMember",
       "ChannelNotifyProps",
       "ChannelUnreadAt",
+      "CommandResponse",
       "Emoji",
       "FileInfo",
       "OrderedSidebarCategories",
@@ -729,6 +782,7 @@ function copySources() {
     "definitions.yaml",
     "definitions-12.1.0.yaml",
     "roles-12.1.0.yaml",
+    "commands-12.1.0.yaml",
     "posts-12.1.0.yaml",
     ...catalog.map(({ file }) => file),
   ])) {

@@ -26,6 +26,7 @@ import {
   allowFixtureBrowserSignIn,
   checkBrowserSignIn,
 } from "./browser-sign-in.ts";
+import { checkCommands } from "./commands.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
 import {
   checkChannelRoster,
@@ -759,6 +760,7 @@ await checkProfileReads(
 );
 
 await checkPostMutations(base, posts, channelId, user.id, version);
+await checkCommands(session, team.id, channelId, version);
 const receiptRoom = await (
   await create(
     "channels",

@@ -9,6 +9,10 @@ import catalog from "../../contracts/mattermost/operations.json" with {
 };
 import { correctAuthentication } from "./authentication-corrections.ts";
 import {
+  correctCommandResponse,
+  correctExecuteCommand,
+} from "./command-corrections.ts";
+import {
   correctHistoryQuery,
   correctHistorySchema,
 } from "./history-corrections.ts";
@@ -111,6 +115,11 @@ export function buildSpecification(
         correctSidebarSchema(name, correctHistorySchema(name, source)),
         read("definitions-12.1.0.yaml"),
       );
+    else if (name === "CommandResponse")
+      group[name] = correctCommandResponse(
+        source,
+        read("definitions-12.1.0.yaml"),
+      );
     else if (name === "User") group[name] = correctUserProfile(source);
     else
       group[name] = correctSidebarSchema(
@@ -198,6 +207,11 @@ export function buildSpecification(
         operation,
         read("channels.yaml"),
         path,
+      );
+    else if (id === "ExecuteCommand")
+      paths[path][method] = correctExecuteCommand(
+        operation,
+        read("commands-12.1.0.yaml"),
       );
     else if (id === "GetRolesByNames")
       paths[path][method] = correctRoleList(

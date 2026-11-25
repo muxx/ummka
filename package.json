@@ -27,7 +27,7 @@
     "lint": "biome ci --error-on-warnings .",
     "unused": "knip",
     "test": "vitest run --environment jsdom src && npm run test:rest",
-    "test:rest": "node --test scripts/contract/transport.test.ts scripts/contract/installation-profile.test.ts scripts/contract/team-reads.test.ts scripts/contract/user-batch.test.ts",
+    "test:rest": "node --test scripts/contract/transport.test.ts scripts/contract/installation-profile.test.ts scripts/contract/team-reads.test.ts scripts/contract/user-batch.test.ts scripts/contract/commands.test.ts",
     "test:native-http": "node scripts/native-http/check.ts",
     "contract:build": "node scripts/contract/schema.ts",
     "contract:test": "node --test scripts/contract/contract.test.ts",
