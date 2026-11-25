@@ -90,6 +90,20 @@ export function webviewServers(
       },
     ],
     [
+      "/team/chat/api/v4/emoji/name/fixture%2Bwave",
+      {
+        name: "custom-emoji-by-name",
+        body: {
+          id: "e".repeat(26),
+          creator_id: userId,
+          name: "fixture+wave",
+          create_at: 42,
+          update_at: 43,
+          delete_at: 0,
+        },
+      },
+    ],
+    [
       "/api/v4/users/me/teams",
       {
         name: "my-teams",
@@ -899,6 +913,7 @@ export function webviewServers(
         "create-post-reply",
         "save-post-reaction",
         "delete-post-reaction",
+        "custom-emoji-by-name",
         "empty-post-reactions",
         "post-reactions",
         "patch-post",

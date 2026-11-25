@@ -28,6 +28,7 @@ import {
 } from "./browser-sign-in.ts";
 import { checkChannelAudience } from "./channel-audience.ts";
 import { checkCommands } from "./commands.ts";
+import { checkCustomEmojiLookup } from "./custom-emoji.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
 import {
   checkChannelRoster,
@@ -818,6 +819,11 @@ await checkMentionLimit(
 );
 console.log(
   `Mattermost ${version} verified the channel notification limit against real member counts.`,
+);
+
+await checkCustomEmojiLookup(base, token, user.id, readerToken);
+console.log(
+  `Mattermost ${version} verified exact custom emoji lookup, case sensitivity and disabled configuration.`,
 );
 
 await checkPostReactions(base, token, session, user.id, reader.id, channelId);

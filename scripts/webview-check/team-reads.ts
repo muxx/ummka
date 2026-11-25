@@ -1,6 +1,7 @@
 import {
   ChannelsApi,
   type Configuration,
+  EmojiApi,
   GroupFromJSON,
   GroupsApi,
   PostsApi,
@@ -15,6 +16,18 @@ export async function checkTeamReads(
   root: Configuration,
   prefixed: Configuration,
 ) {
+  const entry = await new EmojiApi(prefixed).getEmojiByName({
+    emojiName: "fixture+wave",
+  });
+  if (
+    entry.name !== "fixture+wave" ||
+    entry.id !== "e".repeat(26) ||
+    entry.creatorId !== "Abc01234567890123456789012" ||
+    entry.createAt !== 42 ||
+    entry.updateAt !== 43 ||
+    entry.deleteAt !== 0
+  )
+    throw Error("signed exact custom emoji lookup");
   const postId = "p".repeat(26);
   if ((await new ReactionsApi(root).getReactions({ postId })) !== null)
     throw Error("empty signed post reaction list");

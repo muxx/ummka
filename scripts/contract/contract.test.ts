@@ -30,6 +30,7 @@ import {
   correctCommandResponse,
   correctExecuteCommand,
 } from "./command-corrections.ts";
+import { correctCustomEmoji } from "./custom-emoji-correction.ts";
 import {
   correctAssociatedGroup,
   correctGroupAssociations,
@@ -831,6 +832,11 @@ test("retains the catalog operations, security and transitive models", () => {
       );
     if (name === "Group")
       expected = correctMentionGroup(
+        object(source, name),
+        read("definitions-12.1.0.yaml"),
+      );
+    if (name === "Emoji")
+      expected = correctCustomEmoji(
         object(source, name),
         read("definitions-12.1.0.yaml"),
       );
@@ -1845,3 +1851,49 @@ for (const base of [
     });
   }
 }
+
+test("pins exact custom emoji lookup and all six serialized fields on both versions", () => {
+  const path = "/api/v4/emoji/name/{emoji_name}";
+  const baseline = read("emoji.yaml");
+  assert.deepEqual(baseline[path], read("emoji-12.1.0.yaml")[path]);
+  const operation = object(at(contract, ["paths", path, "get"]), path);
+  assert.deepEqual(Object.keys(object(operation.responses, path)).sort(), [
+    "200",
+    "400",
+    "401",
+    "404",
+    "501",
+  ]);
+  assert.deepEqual(
+    at(operation, [
+      "responses",
+      "200",
+      "content",
+      "application/json",
+      "schema",
+    ]),
+    { $ref: "#/components/schemas/Emoji" },
+  );
+  const model = ["components", "schemas", "Emoji"];
+  assert.deepEqual(at(contract, [...model, "required"]), [
+    "id",
+    "creator_id",
+    "name",
+    "create_at",
+    "update_at",
+    "delete_at",
+  ]);
+  for (const newer of [false, true]) {
+    const old = read("definitions.yaml");
+    const next = read("definitions-12.1.0.yaml");
+    const props = object(
+      at(newer ? next : old, [...model, "properties"]),
+      "Emoji",
+    );
+    delete props.creator_id;
+    assert.throws(
+      () => correctCustomEmoji(object(at(old, model), "Emoji"), next),
+      /Review Emoji/,
+    );
+  }
+});
