@@ -3,6 +3,11 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { App } from "../../src/App.tsx";
 
+import {
+  forgetInstallation,
+  readInstallationSelection,
+} from "../../src/mattermost/installation-registry.ts";
+
 export async function checkConnectServer(origin: string) {
   const host = document.createElement("div");
   document.body.append(host);
@@ -11,7 +16,7 @@ export async function checkConnectServer(origin: string) {
     flushSync(() => root.render(<App language="ru" />));
     const ui = within(host);
     const address = `${new URL(origin).host}/entry/team/`;
-    const input = ui.getByRole<HTMLInputElement>("textbox", {
+    const input = await ui.findByRole<HTMLInputElement>("textbox", {
       name: "Адрес сервера",
     });
     flushSync(() => fireEvent.input(input, { target: { value: address } }));
@@ -30,6 +35,8 @@ export async function checkConnectServer(origin: string) {
       !ui.queryByText(`${origin}/entry/team`)
     )
       throw Error("entry-profile-result");
+    if ((await readInstallationSelection()).selected !== `${origin}/entry/team`)
+      throw Error("entry-profile-not-selected");
     flushSync(() =>
       ui.getByRole("button", { name: "Изменить адрес сервера" }).click(),
     );
@@ -41,5 +48,6 @@ export async function checkConnectServer(origin: string) {
   } finally {
     root.unmount();
     host.remove();
+    await forgetInstallation(`${origin}/entry/team`);
   }
 }

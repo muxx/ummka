@@ -67,6 +67,19 @@
     "body": "json"
   },
   {
+    "file": "users.yaml",
+    "method": "POST",
+    "path": "/api/v4/users/usernames",
+    "id": "GetUsersByUsernames",
+    "body": "json"
+  },
+  {
+    "file": "users.yaml",
+    "method": "GET",
+    "path": "/api/v4/users/{user_id}/image",
+    "id": "GetProfileImage"
+  },
+  {
     "file": "posts.yaml",
     "method": "GET",
     "path": "/api/v4/channels/{channel_id}/posts",

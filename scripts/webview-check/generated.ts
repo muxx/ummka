@@ -146,6 +146,22 @@ export async function checkGeneratedRequests(ports: string[]) {
     );
     const signed = new Configuration(accountPrefix);
     const users = new UsersApi(signed);
+    const named = await users.getUsersByUsernames({
+      requestBody: ["unknown", "fixture"],
+    });
+    check(
+      named.length === 1 && named[0].id === userId,
+      "generated-profile-by-name",
+    );
+    const image = await users.getProfileImage({ userId });
+    const bytes = new DataView(await image.arrayBuffer());
+    check(
+      image.type === "image/png" &&
+        bytes.getUint32(0) === 0x89504e47 &&
+        bytes.getUint32(16) === 48 &&
+        bytes.getUint32(20) === 48,
+      "generated-profile-image",
+    );
     const batch = { requestBody: [userId, "b".repeat(26)], since: 123 };
     const profiles = await (await users.getUsersByIdsRaw(batch)).value();
     check(

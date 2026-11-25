@@ -27,6 +27,10 @@ import {
   checkPostInfoOperation,
   postInfoSchema,
 } from "./post-info-correction.ts";
+import {
+  correctProfileImage,
+  correctUserProfile,
+} from "./profile-corrections.ts";
 import { buildSpecification, readSource } from "./schema.ts";
 import {
   correctSidebarCategory,
@@ -47,6 +51,7 @@ const nativeContract = JSON.parse(
 const definitions = read("definitions.yaml");
 const ping = "/api/v4/system/ping";
 const system = read("system.yaml");
+const profileImage = "/api/v4/users/{user_id}/image";
 const userRoute = "/api/v4/users/{user_id}";
 const users = read("users.yaml");
 const history = "/api/v4/channels/{channel_id}/posts";
@@ -167,18 +172,18 @@ test("retains the catalog operations, security and transitive models", () => {
       );
     }
     const source = object(at(read(file), key), path);
-    assert.deepEqual(
-      actual,
-      path === sidebar ? correctSidebarResponse(source) : source,
-    );
+    let expected = source;
+    if (path === sidebar) expected = correctSidebarResponse(source);
+    if (path === profileImage) expected = correctProfileImage(source);
+    assert.deepEqual(actual, expected);
   }
   for (const path of definitionPaths) {
     const source = at(definitions, path);
     const name = path[2];
-    const expected =
-      name === "Channel" || name === "ChannelMember" || name === "TeamMember"
-        ? correctSidebarSchema(name, object(source, name))
-        : source;
+    let expected = source;
+    if (name === "User") expected = correctUserProfile(object(source, name));
+    if (["Channel", "ChannelMember", "TeamMember"].includes(name))
+      expected = correctSidebarSchema(name, object(source, name));
     assert.deepEqual(at(contract, path), expected);
   }
   assert.deepEqual(
@@ -213,6 +218,63 @@ test("retains the catalog operations, security and transitive models", () => {
       "UserNotifyProps",
     ],
   );
+});
+
+test("both image operations carry an undocumented PNG body and preserve error responses", () => {
+  for (const spec of [users, read("users-12.1.0.yaml")]) {
+    const operation = object(at(spec, [profileImage, "get"]), profileImage);
+    const original = structuredClone(operation);
+    const corrected = correctProfileImage(operation);
+    const responses = object(original.responses, "responses");
+    assert.deepEqual(corrected, {
+      ...original,
+      responses: {
+        ...responses,
+        "200": {
+          ...object(responses["200"], "success"),
+          content: {
+            "image/png": { schema: { type: "string", format: "binary" } },
+          },
+        },
+      },
+    });
+    assert.deepEqual(operation, original);
+    assert.throws(
+      () => correctProfileImage(corrected),
+      /Review the profile image/,
+    );
+  }
+});
+
+test("both pinned User definitions omit the same three fields returned by the server", () => {
+  const missing = {
+    position: { type: "string" },
+    is_bot: { type: "boolean" },
+    remote_id: { type: "string" },
+  };
+  for (const version of [definitions, read("definitions-12.1.0.yaml")]) {
+    const model = object(
+      at(version, ["components", "schemas", "User"]),
+      "User",
+    );
+    const original = structuredClone(model);
+    const properties = object(model.properties, "User.properties");
+    assert.deepEqual(correctUserProfile(model), {
+      ...model,
+      properties: { ...properties, ...missing },
+    });
+    assert.deepEqual(model, original);
+    for (const [name, field] of Object.entries(missing)) {
+      assert.throws(
+        () =>
+          correctUserProfile({
+            ...model,
+            properties: { ...properties, [name]: field },
+          }),
+        /Review the User profile/,
+      );
+    }
+  }
 });
 
 test("corrects the sidebar envelope and category fields without changing the upstream objects", () => {

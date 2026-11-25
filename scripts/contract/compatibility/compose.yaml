@@ -40,6 +40,7 @@ services:
     environment:
       MM_SQLSETTINGS_DRIVERNAME: postgres
       MM_SQLSETTINGS_DATASOURCE: postgres://ummka:${UMMKA_FIXTURE_DB_PASSWORD:?}@database:5432/mattermost?sslmode=disable
+      MM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION: "true"
       MM_TEAMSETTINGS_ENABLEOPENSERVER: "true"
       MM_SERVICESETTINGS_SITEURL: "http://mattermost:8065"
       MM_EMAILSETTINGS_REQUIREEMAILVERIFICATION: "false"
