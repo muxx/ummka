@@ -72,6 +72,7 @@ import {
   correctSidebarResponse,
   correctSidebarSchema,
 } from "./sidebar-corrections.ts";
+import { correctSinglePost } from "./single-post-correction.ts";
 import { correctTeamMemberRequest } from "./team-member-correction.ts";
 
 const methods = new Set([
@@ -287,6 +288,12 @@ export function buildSpecification(
         operation,
         read("posts-12.1.0.yaml"),
         path,
+      );
+    else if (id === "GetPost")
+      paths[path][method] = correctSinglePost(
+        operation,
+        read("posts-12.1.0.yaml"),
+        definitions,
       );
     else if (id === "AddTeamMember")
       paths[path][method] = correctTeamMemberRequest(

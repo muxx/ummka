@@ -59,10 +59,11 @@ async function checkResources() {
       window.addEventListener("load", () => resolve(), { once: true }),
     );
   }
+  // A fresh offline process resumes the saved registry before the first-run UI probes.
+  if (await resumeRegistryCheck()) return;
   await checkEntryWindow();
   checkPaletteSurfaces();
   if (checkAppearance()) return;
-  if (await resumeRegistryCheck()) return;
   if (await finishExchangesAfterReload()) {
     if (findStandardEmoji("thumbsup")?.glyph !== "👍")
       throw Error("standard-emoji-directory");

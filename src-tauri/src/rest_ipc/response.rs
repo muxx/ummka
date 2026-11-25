@@ -33,7 +33,14 @@ pub(super) fn split(
         {
             continue;
         }
+        let retention_marker = status == StatusCode::FORBIDDEN
+            && matches!(
+                name,
+                "first-inaccessible-post-time" | "first-inaccessible-file-time"
+            )
+            && value.as_bytes() == b"1";
         if account_error
+            && !retention_marker
             && !matches!(
                 name,
                 "www-authenticate"
@@ -101,6 +108,42 @@ impl ResponseBody {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn forwards_only_the_exact_retention_marker_on_a_signed_forbidden_response() {
+        let sessions = crate::sessions::AccountSessions::default();
+        let base = "https://chat.example.test";
+        let user = "u".repeat(26);
+        sessions
+            .activate(base, &user, "synthetic-account")
+            .await
+            .unwrap();
+        let account = sessions.restore(base, &user).await.unwrap();
+        let token = SessionToken::new("synthetic-account").unwrap();
+        for name in [
+            "first-inaccessible-post-time",
+            "first-inaccessible-file-time",
+        ] {
+            for (status, value, visible) in [
+                (403, "1", true),
+                (401, "1", false),
+                (403, "0", false),
+                (403, "synthetic-account", false),
+            ] {
+                let response = tauri::http::Response::builder()
+                    .status(status)
+                    .header(name, value)
+                    .body(Vec::<u8>::new())
+                    .unwrap();
+                let (head, _) = split(Response::from(response), Some((&account, &token)));
+                let marker = head.headers.iter().find(|(key, _)| key == name);
+                assert_eq!(
+                    marker.map(|(_, value)| value.as_str()),
+                    visible.then_some("1")
+                );
+            }
+        }
+    }
 
     #[test]
     fn ipc_response_hides_all_values_of_session_headers() {
