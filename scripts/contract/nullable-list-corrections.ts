@@ -6,16 +6,23 @@ import { type Fields, object } from "./objects.ts";
 // https://github.com/mattermost/mattermost/blob/v12.1.0/server/channels/store/localcachelayer/role_layer.go#L69-L104
 // https://github.com/mattermost/mattermost/blob/v10.10.1/server/channels/store/sqlstore/preference_store.go#L166-L175
 // https://github.com/mattermost/mattermost/blob/v12.1.0/server/channels/store/sqlstore/preference_store.go#L151-L160
+// https://github.com/mattermost/mattermost/blob/v10.10.1/server/channels/api4/channel.go#L1516-L1536
+// https://github.com/mattermost/mattermost/blob/v12.1.0/server/channels/api4/channel.go#L2066-L2086
 const lists = {
   GetRolesByNames: {
     path: "/api/v4/roles/names",
     method: "post",
-    model: "Role",
+    items: { $ref: "#/components/schemas/Role" },
   },
   GetPreferences: {
     path: "/api/v4/users/{user_id}/preferences",
     method: "get",
-    model: "Preference",
+    items: { $ref: "#/components/schemas/Preference" },
+  },
+  GetChannelMembersTimezones: {
+    path: "/api/v4/channels/{channel_id}/timezones",
+    method: "get",
+    items: { type: "string" },
   },
 } as const;
 
@@ -24,10 +31,10 @@ export function correctNullableList(
   operation: Fields,
   reference: Fields,
 ): Fields {
-  const { path, method, model } = lists[id];
+  const { path, method, items } = lists[id];
   const expected = {
     type: "array",
-    items: { $ref: `#/components/schemas/${model}` },
+    items,
   };
   function schema(version: Fields) {
     const success = object(object(version.responses, id)["200"], id);
@@ -36,9 +43,7 @@ export function correctNullableList(
       version.operationId !== id ||
       !isDeepStrictEqual(media.schema, expected)
     )
-      throw Error(
-        `Review the nullable ${model} list against the pinned source`,
-      );
+      throw Error(`Review the nullable ${id} list against the pinned source`);
     return object(media.schema, id);
   }
   schema(object(object(reference[path], path)[method], id));

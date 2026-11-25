@@ -19,6 +19,10 @@ import catalog from "../../contracts/mattermost/operations.json" with {
 };
 import { correctAuthentication } from "./authentication-corrections.ts";
 import {
+  correctChannelStats,
+  correctChannelStatsQuery,
+} from "./channel-audience-corrections.ts";
+import {
   autocompleteCommand,
   correctAutocomplete,
 } from "./command-autocomplete.ts";
@@ -162,6 +166,7 @@ const definitionPaths = [
   ["components", "schemas", "Channel"],
   ["components", "schemas", "ChannelMember"],
   ["components", "schemas", "ChannelNotifyProps"],
+  ["components", "schemas", "ChannelStats"],
   ...["Emoji", "FileInfo", "PostAcknowledgement", "Reaction"].map((name) => [
     "components",
     "schemas",
@@ -316,6 +321,12 @@ test("guards both tagged sources of command suggestions and exposes the picker f
 });
 
 for (const [id, file, path, method] of [
+  [
+    "GetChannelMembersTimezones",
+    "channels",
+    "/api/v4/channels/{channel_id}/timezones",
+    "get",
+  ],
   ["GetRolesByNames", "roles", "/api/v4/roles/names", "post"],
   [
     "GetPreferences",
@@ -349,6 +360,39 @@ for (const [id, file, path, method] of [
     }
   });
 }
+
+test("channel stats corrections detect upstream fields on either pin", () => {
+  const path = "/api/v4/channels/{channel_id}/stats";
+  const modelPath = ["components", "schemas", "ChannelStats"];
+  for (const reference of [false, true]) {
+    const baseline = object(at(read("channels.yaml"), [path, "get"]), path);
+    const newer = read("channels-12.1.0.yaml");
+    const changed = reference
+      ? object(at(newer, [path, "get"]), path)
+      : baseline;
+    assert.ok(Array.isArray(changed.parameters));
+    changed.parameters.push({ name: "exclude_files_count", in: "query" });
+    assert.throws(
+      () => correctChannelStatsQuery(baseline, newer),
+      /Review GetChannelStats/,
+    );
+    for (const name of ["guest_count", "pinnedpost_count", "files_count"]) {
+      const source = object(
+        at(read("definitions.yaml"), modelPath),
+        "ChannelStats",
+      );
+      const next = read("definitions-12.1.0.yaml");
+      const changedModel = reference
+        ? object(at(next, modelPath), "ChannelStats")
+        : source;
+      object(changedModel.properties, "properties")[name] = { type: "integer" };
+      assert.throws(
+        () => correctChannelStats(source, next),
+        /Review ChannelStats/,
+      );
+    }
+  }
+});
 
 test("create-post correction detects changes in either tagged source", () => {
   const route = "/api/v4/posts";
@@ -555,13 +599,16 @@ test("retains the catalog operations, security and transitive models", () => {
       expected = correctExecuteCommand(source, read("commands-12.1.0.yaml"));
     if (
       source.operationId === "GetRolesByNames" ||
-      source.operationId === "GetPreferences"
+      source.operationId === "GetPreferences" ||
+      source.operationId === "GetChannelMembersTimezones"
     )
       expected = correctNullableList(
         source.operationId,
         source,
         read(file.replace(".yaml", "-12.1.0.yaml")),
       );
+    if (source.operationId === "GetChannelStats")
+      expected = correctChannelStatsQuery(source, read("channels-12.1.0.yaml"));
     if (source.operationId === "ViewChannel")
       expected = correctChannelView(source, read("channels-12.1.0.yaml"), path);
     if (source.operationId === "MarkChannelsReadForUser")
@@ -578,6 +625,11 @@ test("retains the catalog operations, security and transitive models", () => {
     let expected = source;
     if (name === "ChannelUnreadAt")
       expected = correctUnreadAt(
+        object(source, name),
+        read("definitions-12.1.0.yaml"),
+      );
+    if (name === "ChannelStats")
+      expected = correctChannelStats(
         object(source, name),
         read("definitions-12.1.0.yaml"),
       );
@@ -611,6 +663,7 @@ test("retains the catalog operations, security and transitive models", () => {
       "Channel",
       "ChannelMember",
       "ChannelNotifyProps",
+      "ChannelStats",
       "ChannelUnreadAt",
       "CommandResponse",
       "Emoji",

@@ -122,6 +122,16 @@ const badCursor: GetPostThreadRequest = { postId: "a-post-id", fromCreateAt: "12
 declare const page: PostList;
 import type { ChannelsApi, Preference, PreferencesApi } from "./compiled/index.js";
 declare const channels: ChannelsApi;
+const stats = await channels.getChannelStats({ channelId: "room", excludeFilesCount: true });
+stats.channelId satisfies string;
+stats.memberCount satisfies number;
+stats.guestCount satisfies number;
+stats.pinnedpostCount satisfies number;
+stats.filesCount satisfies number;
+const zones = await channels.getChannelMembersTimezones({ channelId: "room" });
+zones satisfies string[] | null;
+// @ts-expect-error Fresh accounts with no known timezones return JSON null.
+zones satisfies string[];
 import type { Role, RolesApi } from "./compiled/index.js";
 declare const roles: RolesApi;
 const assigned = await roles.getRolesByNames({ requestBody: ["channel_user", "team_guest"] });

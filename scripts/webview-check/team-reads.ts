@@ -65,6 +65,23 @@ export async function checkTeamReads(
     channels[0].teamId !== teamId
   )
     throw Error("generated channel list");
+  const stats = await api.getChannelStats({
+    channelId,
+    excludeFilesCount: true,
+  });
+  if (
+    stats.channelId !== channelId ||
+    stats.memberCount !== 30 ||
+    stats.guestCount !== 3 ||
+    stats.pinnedpostCount !== 5 ||
+    stats.filesCount !== -1
+  )
+    throw Error("generated channel stats");
+  if (
+    (await new ChannelsApi(root).getChannelMembersTimezones({ channelId })) !==
+    null
+  )
+    throw Error("generated nullable channel timezones");
   const single = await new ChannelsApi(root).viewChannel({
     userId: "me",
     viewChannelRequest: { channelId, collapsedThreadsSupported: true },

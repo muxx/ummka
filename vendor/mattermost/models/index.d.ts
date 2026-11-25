@@ -4,6 +4,7 @@ export * from './AutocompleteSuggestion.js';
 export * from './Channel.js';
 export * from './ChannelMember.js';
 export * from './ChannelNotifyProps.js';
+export * from './ChannelStats.js';
 export * from './ChannelUnreadAt.js';
 export * from './CommandResponse.js';
 export * from './CreatePostRequest.js';
