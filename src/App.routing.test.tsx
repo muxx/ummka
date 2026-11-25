@@ -6,6 +6,7 @@ import {
   screen,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import "./channels/workspace-dom.test-utils.ts";
 import { App } from "./App";
 import { getDeviceLaunchContext } from "./mattermost/device-launch";
 import { inspectInstallation } from "./mattermost/inspect-installation";
@@ -86,7 +87,7 @@ test("allows switching away from a slow saved server and ignores its delayed pro
   expect(screen.getByRole<HTMLInputElement>("textbox").value).toBe(origin);
   expect(screen.queryByRole("heading", { name: "Winter" })).toBeNull();
 });
-test("restores the actual chosen team before contacting the server", async () => {
+test("restores the selected team, channel, messages and account actions without a network request", async () => {
   vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
   launch.mockResolvedValue({
     status: "ready",
@@ -99,7 +100,93 @@ test("restores the actual chosen team before contacting the server", async () =>
     displayName: "Winter HQ",
     preferenceRank: null,
   };
+  const channelId = "c".repeat(26),
+    otherId = "d".repeat(26);
+  const channel = (id: string, name: string) => ({
+    id,
+    kind: "O",
+    name,
+    displayName: name,
+    header: "",
+    purpose: "",
+    createAt: 1,
+    deleteAt: 0,
+    muted: false,
+    lastPostAt: 20,
+    lastRootPostAt: null,
+    lastViewedAt: 20,
+    totalMsgCount: 1,
+    totalMsgCountRoot: null,
+    msgCount: 1,
+    msgCountRoot: null,
+    mentionCount: 0,
+    mentionCountRoot: 0,
+    urgentMentionCount: 0,
+  });
+  const rooms = [channel(channelId, "General"), channel(otherId, "Design")];
+  let selected = channelId;
   const connection = {
+    readWorkspaceSettings: vi.fn().mockResolvedValue({
+      preferences: {
+        nameFormat: null,
+        collapsedThreads: null,
+        separateUnreads: null,
+        limit: null,
+        directShown: {},
+        groupShown: {},
+        viewTimes: {},
+      },
+      server: {
+        collapsedThreads: "disabled",
+        nameFormat: "username",
+        lockNameFormat: false,
+        separateUnreads: false,
+      },
+    }),
+    refreshWorkspaceServerPolicy: vi.fn(),
+    readTeamSidebar: vi.fn(async () => ({
+      selectedChannel: selected,
+      data: {
+        channels: rooms,
+        categories: [
+          {
+            id: "main",
+            kind: "channels",
+            displayName: "Channels",
+            collapsed: false,
+            muted: false,
+            sorting: "manual",
+            channelIds: [channelId, otherId],
+          },
+        ],
+      },
+    })),
+    selectSidebarChannel: vi.fn(async (_team: string, id: string) => {
+      selected = id;
+      return true;
+    }),
+    refreshTeamSidebar: vi.fn(),
+    readChannelWindow: vi.fn(async ({ channelId: id }) => ({
+      posts: [
+        {
+          id,
+          channelId: id,
+          userId: user,
+          createAt: 5,
+          editAt: 0,
+          isPinned: false,
+          message: id === channelId ? "Saved in General" : "Saved in Design",
+        },
+      ],
+      older: { kind: "end" },
+      newer: { kind: "end" },
+      firstInaccessiblePostTime: 0,
+    })),
+    refreshChannelHistory: vi.fn(),
+    readSavedProfiles: vi
+      .fn()
+      .mockResolvedValue({ profiles: {}, usernames: {} }),
+    refreshSavedProfiles: vi.fn(),
     readJoinedTeams: vi
       .fn()
       .mockResolvedValue({ teams: [team], selectedTeam: team.id }),
@@ -113,12 +200,27 @@ test("restores the actual chosen team before contacting the server", async () =>
     >,
   );
   const view = render(<App language="en" />);
-  expect(await screen.findByRole("heading", { name: "Winter HQ" })).toBe(
-    document.activeElement,
+  expect((await screen.findByRole("article")).textContent).toContain(
+    "Saved in General",
   );
   expect(openAccountRestConnection).toHaveBeenCalledWith(origin, user);
   expect(screen.queryByRole("textbox")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Switch team" }));
+  fireEvent.click(screen.getByRole("button", { name: "Design" }));
+  await screen.findByText("Saved in Design");
+  expect(connection.selectSidebarChannel).toHaveBeenCalledWith(
+    team.id,
+    otherId,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Account" }));
+  await screen.findByRole("dialog");
+  expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Close account menu" }));
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Account" }),
+  );
+  fireEvent.click(
+    screen.getByRole("button", { name: "Switch team, Winter HQ" }),
+  );
   expect(
     screen.getByRole("button", {
       name: "Winter HQ",
@@ -129,9 +231,11 @@ test("restores the actual chosen team before contacting the server", async () =>
   fireEvent.click(
     screen.getByRole("button", { name: "Winter HQ", description: "/winter" }),
   );
-  expect(await screen.findByRole("heading", { name: "Winter HQ" })).toBe(
-    document.activeElement,
-  );
+  await screen.findByText("Saved in Design");
+  expect(connection.refreshTeamSidebar).not.toHaveBeenCalled();
+  expect(connection.refreshChannelHistory).not.toHaveBeenCalled();
+  expect(connection.refreshSavedProfiles).not.toHaveBeenCalled();
+  expect(connection.refreshWorkspaceServerPolicy).not.toHaveBeenCalled();
   view.unmount();
   expect(connection.close).toHaveBeenCalledOnce();
   expect(connection.refreshJoinedTeams).not.toHaveBeenCalled();

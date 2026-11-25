@@ -3,6 +3,7 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { App } from "../../src/App.tsx";
 import { getCurrentAccountId } from "../../src/mattermost/native-rest.ts";
+import { openChannelNavigation } from "./account-team-window.tsx";
 
 export async function checkBrowserApp(server: string) {
   const host = document.createElement("div");
@@ -27,14 +28,18 @@ export async function checkBrowserApp(server: string) {
       !ui.queryByText(server)
     )
       throw Error("browser wait lost the chosen installation");
-    await ui.findByRole(
-      "heading",
-      { name: "Browser team" },
-      { timeout: 20_000 },
-    );
-    const switchTeam = await ui.findByRole("button", { name: "Switch team" });
-    if (ui.queryByRole("textbox"))
-      throw Error("verified account stayed on an entry form");
+    await ui.findByText("Town fixture message", {}, { timeout: 20_000 });
+    await ui.findByText("fixture-author");
+    openChannelNavigation(host, "Channels");
+    const design = ui.getByRole("button", { name: "Design" });
+    flushSync(() => fireEvent.click(design));
+    await ui.findByText("Design fixture message", {}, { timeout: 10_000 });
+    if (ui.queryByText("Town fixture message"))
+      throw Error("room switch retained a different timeline");
+    openChannelNavigation(host, "Channels");
+    const switchTeam = ui.getByRole("button", {
+      name: "Switch team, Browser team",
+    });
     flushSync(() => fireEvent.click(switchTeam));
     const current = await ui.findByRole("button", {
       name: "Browser team",
@@ -43,11 +48,14 @@ export async function checkBrowserApp(server: string) {
     if (document.activeElement !== current)
       throw Error("first browser sign-in lost the current team focus");
     flushSync(() => fireEvent.click(current));
-    const heading = await ui.findByRole("heading", { name: "Browser team" });
-    if (document.activeElement !== heading)
-      throw Error("the selected workspace lost keyboard focus");
+    await ui.findByText("Design fixture message", {}, { timeout: 10_000 });
+    await ui.findByRole("heading", { name: "Design" });
+    await ui.findByText("fixture-author");
     if ((await getCurrentAccountId(server)) !== "f".repeat(26))
       throw Error("entry did not retain the signed-in account");
+    flushSync(() =>
+      fireEvent.click(ui.getByRole("button", { name: "Account" })),
+    );
     ui.getByRole("button", { name: "Sign out" }).click();
     const stay = await ui.findByRole(
       "button",

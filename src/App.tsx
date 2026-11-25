@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { AccountSessionWindow } from "./entry/AccountSessionWindow";
+import { ChannelsWorkspace } from "./channels/ChannelsWorkspace";
 import { AccountTeamWindow } from "./entry/AccountTeamWindow";
 import { EntryWindow } from "./entry/EntryWindow";
 import type { EntryLanguage } from "./entry/language";
@@ -62,8 +62,8 @@ function EntryRoute({
         onSessionEnded={reopen}
       >
         {(workspace) => (
-          <AccountSessionWindow
-            key={workspace.connection.rid}
+          <ChannelsWorkspace
+            key={JSON.stringify([workspace.connection.rid, workspace.team.id])}
             workspace={workspace}
             language={language}
             onEnded={reopen}

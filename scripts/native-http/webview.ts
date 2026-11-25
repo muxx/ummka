@@ -10,6 +10,7 @@ import { respondToHistory } from "./history.ts";
 import { historyRefreshFixture } from "./history-refresh.ts";
 import { respondToPostContext } from "./post-context.ts";
 import { respondToPostMutation } from "./post-mutations.ts";
+import { respondToWorkspace } from "./workspace.ts";
 
 export function webviewServers(
   trusted: https.ServerOptions,
@@ -254,6 +255,11 @@ export function webviewServers(
     );
     if (mutation) {
       visits.push(mutation);
+      return;
+    }
+    const workspace = await respondToWorkspace(req, res, url, userId);
+    if (workspace) {
+      visits.push(workspace);
       return;
     }
     const account = respondToAccount(req, res, url, userId, (name) =>
@@ -602,6 +608,7 @@ export function webviewServers(
         "history-focused-after",
         "history-focused-before",
         "history-anonymous",
+        "saved-room-history",
         "post-info-root",
         "post-info-prefixed",
         "post-thread-archive",
@@ -632,6 +639,19 @@ export function webviewServers(
           "browser-action-confirmed",
           "browser-entry-unconfirmed",
           "browser-entry-unconfirmed",
+          "live-config/client",
+          "live-license/client",
+          "live-channels",
+          "live-members",
+          "live-categories",
+          "live-channels",
+          "live-members",
+          "live-categories",
+          "live-posts-" + "c".repeat(26),
+          "live-posts-" + "d".repeat(26),
+          "live-posts-" + "d".repeat(26),
+          "live-authors",
+          "live-authors",
           "browser-entry-config/client",
           "browser-entry-license/client",
           ...[
