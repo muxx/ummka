@@ -34,7 +34,7 @@ impl Operation<'_> {
             let matched = match expected {
                 "{user_id}" => actual == "me" || is_mattermost_id(actual),
                 "{team_id}" | "{channel_id}" | "{post_id}" => is_mattermost_id(actual),
-                "{emoji_name}" => valid_reaction_name(actual),
+                "{emoji_name}" => valid_emoji_name(actual),
                 literal => actual == literal,
             };
             if !matched {
@@ -52,8 +52,8 @@ impl Operation<'_> {
     }
 }
 
-// Mattermost reaction names are 1–64 ASCII bytes. A plus is encoded as %2B by the SDK.
-fn valid_reaction_name(segment: &str) -> bool {
+// Mattermost emoji names are 1–64 ASCII bytes. A plus is encoded as %2B by the SDK.
+fn valid_emoji_name(segment: &str) -> bool {
     let mut length = 0;
     for byte in percent_encoding::percent_decode_str(segment) {
         length += 1;

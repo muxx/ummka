@@ -265,5 +265,11 @@
     "method": "DELETE",
     "path": "/api/v4/users/{user_id}/posts/{post_id}/reactions/{emoji_name}",
     "id": "DeleteReaction"
+  },
+  {
+    "file": "emoji.yaml",
+    "method": "GET",
+    "path": "/api/v4/emoji/name/{emoji_name}",
+    "id": "GetEmojiByName"
   }
 ]

@@ -21,6 +21,7 @@ import {
   correctCommandResponse,
   correctExecuteCommand,
 } from "./command-corrections.ts";
+import { correctCustomEmoji } from "./custom-emoji-correction.ts";
 import {
   correctFileModel,
   correctFileSearch,
@@ -174,6 +175,8 @@ export function buildSpecification(
         source,
         object(upstream.PostList, "PostList"),
       );
+    else if (name === "Emoji")
+      group[name] = correctCustomEmoji(source, read("definitions-12.1.0.yaml"));
     else if (name === "Reaction")
       group[name] = correctReaction(source, read("definitions-12.1.0.yaml"));
     else if (name === "ChannelStats")
