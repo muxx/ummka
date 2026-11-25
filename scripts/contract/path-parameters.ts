@@ -41,6 +41,7 @@ export function checkPathParameters(
       segment === "{team_id}" ||
       segment === "{channel_id}" ||
       segment === "{post_id}" ||
+      segment === "{file_id}" ||
       segment === "{emoji_name}"
     )
       names.add(segment.slice(1, -1));

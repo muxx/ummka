@@ -1,5 +1,6 @@
 import {
   type Configuration,
+  FilesApi,
   PostsApi,
   ResponseError,
 } from "../../vendor/mattermost/index.js";
@@ -9,6 +10,27 @@ export async function checkPostContext(
   prefixed: Configuration,
 ) {
   const query = { postId: "p".repeat(26) };
+  const fileQuery = { fileId: "f".repeat(26) };
+  const file = await new FilesApi(prefixed).getFileInfo(fileQuery);
+  if (
+    file.id !== fileQuery.fileId ||
+    file.postId !== query.postId ||
+    file.channelId !== "c".repeat(26) ||
+    file.name !== "fixture.txt"
+  )
+    throw Error("Single file metadata did not identify its post");
+  try {
+    await new FilesApi(root).getFileInfo(fileQuery);
+    throw Error("Expected a file history restriction");
+  } catch (error) {
+    if (
+      !(error instanceof ResponseError) ||
+      error.response.status !== 403 ||
+      error.response.headers.get("first-inaccessible-file-time") !== "1" ||
+      (await error.response.json()).id !== "app.file.cloud.get.app_error"
+    )
+      throw error;
+  }
   const single = await new PostsApi(prefixed).getPost(query);
   if (
     single.id !== query.postId ||

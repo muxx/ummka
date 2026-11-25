@@ -163,6 +163,12 @@
   },
   {
     "file": "files.yaml",
+    "method": "GET",
+    "path": "/api/v4/files/{file_id}/info",
+    "id": "GetFileInfo"
+  },
+  {
+    "file": "files.yaml",
     "method": "POST",
     "path": "/api/v4/teams/{team_id}/files/search",
     "id": "SearchFiles",
