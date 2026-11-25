@@ -332,6 +332,53 @@ fn legacy_empty_drafts_keep_their_revision_and_unknown_origin_across_upgrade() {
 }
 
 #[test]
+fn explicit_command_repeat_rotates_only_the_shown_attempt_after_restart() {
+    use DraftCommandAction::{Complete, Release, Restart, Start};
+    let root = tempdir().unwrap();
+    let mut view = open(root.path());
+    let original = saved(view.save_draft(ROOM, None, None, "/me ready").unwrap());
+    let original_rev = original.revision.as_deref().unwrap();
+    assert!(matches!(
+        view.transition_draft_command(ROOM, None, original_rev, Restart)
+            .unwrap(),
+        DraftSave::Conflict(_)
+    ));
+    let first = saved(
+        view.transition_draft_command(ROOM, None, original_rev, Start)
+            .unwrap(),
+    );
+    let old = first.revision.as_deref().unwrap();
+    drop(view);
+    let mut view = open(root.path());
+    let repeated = saved(
+        view.transition_draft_command(ROOM, None, old, Restart)
+            .unwrap(),
+    );
+    assert_ne!(repeated.revision, first.revision);
+    assert!(repeated.command_pending);
+    assert_eq!(repeated.message, first.message);
+    for action in [Restart, Complete, Release] {
+        let mut another_window = open(root.path());
+        assert!(matches!(
+            another_window.transition_draft_command(ROOM, None, old, action).unwrap(),
+            DraftSave::Conflict(actual) if actual == repeated
+        ));
+    }
+    let rev = repeated.revision.as_deref().unwrap();
+    assert!(matches!(
+        view.transition_draft_command(ROOM, Some(THREAD), rev, Restart)
+            .unwrap(),
+        DraftSave::Conflict(_)
+    ));
+    let released = saved(
+        view.transition_draft_command(ROOM, None, rev, Release)
+            .unwrap(),
+    );
+    assert!(!released.command_pending);
+    assert_eq!(released.message, original.message);
+}
+
+#[test]
 fn only_one_window_can_start_a_command_and_its_text_never_enters_pending_posts() {
     use DraftCommandAction::{Complete, Release, Start};
     let root = tempdir().unwrap();

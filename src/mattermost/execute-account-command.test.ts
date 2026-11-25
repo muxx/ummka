@@ -255,6 +255,43 @@ test("keeps a known server reply when the draft has changed or SQLite refuses th
   }
 });
 
+test("a confirmed repeat sends only after reserving a new attempt for that revision", async () => {
+  const { client, visits } = fixture(() => Response.json(response));
+  const draft = {
+    message: "/me ready",
+    revision: "next",
+    commandPending: true as const,
+  };
+  const change = vi
+    .fn<Parameters<typeof executeSavedCommand>[1]>()
+    .mockResolvedValueOnce({ kind: "conflict", draft })
+    .mockResolvedValueOnce({ kind: "saved", draft })
+    .mockResolvedValueOnce({
+      kind: "saved",
+      draft: { message: "", revision: "completed" },
+    });
+  const repeat = () =>
+    executeSavedCommand(
+      client,
+      change,
+      target,
+      "shown",
+      "repeatAfterConfirmation",
+    );
+  await expect(repeat()).resolves.toMatchObject({ kind: "conflict" });
+  expect(visits).toHaveLength(0);
+  await expect(repeat()).resolves.toMatchObject({
+    kind: "answered",
+    settlement: "saved",
+  });
+  expect(visits).toHaveLength(1);
+  expect(change.mock.calls).toEqual([
+    [{ ...target, revision: "shown" }, "restart"],
+    [{ ...target, revision: "shown" }, "restart"],
+    [{ ...target, revision: "next" }, "complete"],
+  ]);
+});
+
 test("offline submission and malformed team IDs never reserve the text", async () => {
   const { client, visits } = fixture(() => Response.json(response));
   const change = vi.fn<Parameters<typeof executeSavedCommand>[1]>();

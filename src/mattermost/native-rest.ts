@@ -19,7 +19,10 @@ import {
 } from "./channel-permissions.ts";
 import type { ChannelProfile } from "./channel-profiles.ts";
 import { executeAccountCommand } from "./execute-account-command.ts";
-import { executeSavedCommand } from "./execute-saved-command.ts";
+import {
+  type CommandIntent,
+  executeSavedCommand,
+} from "./execute-saved-command.ts";
 import { type JoinedTeams, projectJoinedTeams } from "./joined-teams.ts";
 import type {
   ChannelWindowQuery,
@@ -193,6 +196,7 @@ export async function openAccountRestConnection(
     submitDraftCommand(
       location: DraftLocation & { teamId: string },
       revision: string,
+      intent?: CommandIntent,
     ) {
       return readWhileOpen(() =>
         executeSavedCommand(
@@ -200,6 +204,7 @@ export async function openAccountRestConnection(
           delivery.transitionDraftCommand,
           location,
           revision,
+          intent,
         ),
       );
     },

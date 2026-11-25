@@ -25,6 +25,7 @@ pub enum DraftSave {
 #[serde(rename_all = "camelCase")]
 pub enum DraftCommandAction {
     Start,
+    Restart,
     Complete,
     Release,
 }
@@ -127,6 +128,9 @@ impl AccountHistory {
                 DraftCommandAction::Start
                     if !current.command_pending && current.message.starts_with('/') =>
                 {
+                    (current.message.as_str(), None, true)
+                }
+                DraftCommandAction::Restart if current.command_pending => {
                     (current.message.as_str(), None, true)
                 }
                 DraftCommandAction::Complete if current.command_pending => ("", Some(true), false),
