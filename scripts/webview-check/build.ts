@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { build } from "vite";
+import appConfig from "../../src-tauri/tauri.conf.json" with { type: "json" };
 
 export async function buildWebviewFixture(
   dir: string,
@@ -22,10 +23,9 @@ export async function buildWebviewFixture(
     app: {
       windows: [
         {
+          ...appConfig.app.windows[0],
           label: "main",
-          title: "ummka",
-          visible: false,
-          ...(platform === "macos" && { width: 1180, height: 750 }),
+          visible: platform === "android",
         },
       ],
       ...(platform === "macos" && {

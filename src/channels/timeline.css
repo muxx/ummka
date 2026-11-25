@@ -1,0 +1,141 @@
+.channel-timeline {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: var(--canvas);
+  color: var(--text);
+}
+.timeline-scroll {
+  box-sizing: border-box;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overflow-anchor: none;
+  overscroll-behavior: contain;
+  padding-block: 8px 16px;
+}
+.timeline-scroll:focus-visible {
+  outline-offset: -2px;
+}
+.timeline-status,
+.timeline-limit,
+.timeline-empty,
+.timeline-boundary {
+  margin: 0;
+  padding: 8px 14px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+.timeline-status {
+  border-block-end: 1px solid var(--divider);
+  background: var(--surface);
+}
+.timeline-limit {
+  background: var(--message-target);
+  color: var(--text);
+}
+.timeline-empty {
+  padding-block: 32px;
+}
+.timeline-day {
+  z-index: 1;
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 4px 16px;
+  pointer-events: none;
+}
+.timeline-day::before,
+.timeline-day::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--divider);
+}
+.timeline-day span {
+  padding: 3px 10px;
+  border: 1px solid var(--divider);
+  border-radius: 12px;
+  background: var(--canvas);
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.75rem;
+}
+.timeline-post {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  column-gap: 10px;
+  padding: 5px clamp(10px, 2.25%, 22px);
+}
+.timeline-post:hover {
+  background: var(--message-hover);
+}
+.timeline-avatar {
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--row-selected);
+  color: var(--text);
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+.timeline-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.timeline-post-body {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.timeline-post-body header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  column-gap: 8px;
+}
+.timeline-post-body strong {
+  min-width: 0;
+  font-size: 0.9375rem;
+  line-height: 1.4;
+}
+.timeline-post-body :is(time, small, .timeline-pin) {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.timeline-post-body p {
+  margin: 1px 0 0;
+  white-space: pre-wrap;
+  font-size: 0.9375rem;
+  line-height: 1.45;
+}
+.timeline-boundary {
+  margin: 6px 12px;
+  border-block: 1px dashed var(--divider);
+}
+.timeline-boundary button {
+  min-height: 44px;
+  padding-inline: 12px;
+  font: inherit;
+  font-weight: 600;
+  border: 0;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--link);
+  cursor: pointer;
+}
+.timeline-boundary button:hover {
+  background: var(--row-hover);
+}

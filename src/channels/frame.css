@@ -1,0 +1,193 @@
+.channels-frame {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  height: 100dvh;
+  min-width: 0;
+  padding-block-start: env(safe-area-inset-top);
+  background: var(--topbar);
+  color: var(--text);
+}
+.channels-frame button {
+  font: inherit;
+}
+.channels-bar {
+  display: flex;
+  align-items: center;
+  flex: 0 0 46px;
+  padding-inline: max(12px, env(safe-area-inset-left))
+    max(12px, env(safe-area-inset-right));
+  background:
+    radial-gradient(180px 62px at 54px -6px, #66b29859, transparent),
+    var(--topbar);
+  color: var(--on-topbar);
+  user-select: none;
+}
+.channels-frame[data-macos-overlay] .channels-bar {
+  padding-inline-start: 86px;
+}
+.channels-bar-brand {
+  display: flex;
+  align-self: stretch;
+  align-items: center;
+  flex: 1;
+}
+.channels-bar-brand img {
+  display: block;
+  width: auto;
+  height: 25px;
+  transform: translateY(-2px);
+  pointer-events: none;
+}
+.channels-account,
+.channels-icon-action,
+.channels-team {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.channels-account,
+.channels-icon-action {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 8px;
+}
+.channels-account span {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 29px;
+  height: 29px;
+  border: 1px solid currentColor;
+  border-radius: 9px;
+  font-weight: 650;
+  font-size: 0.875rem;
+}
+.channels-account:hover {
+  background: #ffffff1c;
+}
+.channels-panes {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.channels-sidebar,
+.channels-conversation,
+.channels-thread {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding-block-end: env(safe-area-inset-bottom);
+}
+.channels-sidebar {
+  flex: 0 0 244px;
+  padding-inline-start: env(safe-area-inset-left);
+  color: var(--on-navigation);
+  background: var(--navigation);
+}
+.channels-team,
+.channels-pane-head {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-height: 52px;
+  gap: 8px;
+  padding-inline: 16px;
+}
+.channels-team {
+  justify-content: space-between;
+  text-align: start;
+}
+.channels-team span,
+.channels-pane-head :is(h1, h2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1.0625rem;
+  font-weight: 650;
+  line-height: 1.4;
+}
+.channels-team:hover {
+  background: var(--navigation-hover);
+}
+.channels-team svg {
+  flex: none;
+}
+.channels-pane-head {
+  border-bottom: 1px solid var(--divider);
+  background: var(--canvas);
+}
+.channels-pane-head :is(h1, h2) {
+  margin: 0;
+}
+.channels-pane-head h2 {
+  flex: 1;
+}
+.channels-conversation,
+.channels-thread {
+  background: var(--canvas);
+  color: var(--text);
+}
+.channels-conversation {
+  flex: 1;
+}
+.channels-conversation:last-child,
+.channels-thread {
+  padding-inline-end: env(safe-area-inset-right);
+}
+.channels-thread {
+  flex: 0 0 clamp(300px, 32cqi, 420px);
+  border-inline-start: 1px solid var(--divider);
+}
+.channels-pane-body,
+.channels-conversation-body {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.channels-icon-action:hover {
+  background: var(--row-hover);
+}
+.channels-mobile-back {
+  display: none;
+}
+@container (width <= 900px) {
+  .channels-sidebar {
+    flex-basis: 180px;
+  }
+}
+@container (width <= 740px) {
+  .channels-sidebar,
+  .channels-conversation,
+  .channels-thread {
+    display: none;
+    flex: 1;
+    border: 0;
+    padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
+  }
+  .channels-panes[data-page="navigation"] .channels-sidebar,
+  .channels-panes[data-page="conversation"] .channels-conversation,
+  .channels-panes[data-page="thread"] .channels-thread {
+    display: flex;
+  }
+  .channels-mobile-back {
+    display: grid;
+  }
+  .channels-pane-head {
+    padding-inline: 6px 12px;
+  }
+  .channels-thread .channels-pane-head {
+    padding-inline: 16px 6px;
+  }
+}
