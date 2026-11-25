@@ -292,8 +292,16 @@ mod tests {
             ),
         ] {
             let url = Url::parse(&format!("{base}{path}")).unwrap();
+            let mut request = Request::new(method, url);
+            if request.method() == reqwest::Method::POST {
+                *request.body_mut() = Some(format!(r#"{{"user_id":"{user}"}}"#).into());
+                request.headers_mut().insert(
+                    CONTENT_TYPE,
+                    reqwest::header::HeaderValue::from_static("application/json"),
+                );
+            }
             assert_eq!(
-                connection.check_request(&Request::new(method, url)).is_ok(),
+                connection.check_request(&request).is_ok(),
                 allowed,
                 "{path}"
             );
