@@ -41,6 +41,7 @@ async function fixture(message: string) {
     },
     route: vi.fn().mockResolvedValue({ kind: "post" }),
     performOther: vi.fn(),
+    resolveAttempt: vi.fn(),
   };
   const report = vi.fn();
   const sessionIssue = vi.fn();

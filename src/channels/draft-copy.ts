@@ -4,8 +4,6 @@ export const draftCopy = {
     asText: "Send as a message",
     dismiss: "Dismiss",
     onlyYou: "Only visible to you",
-    pendingCommand:
-      "The command may have run. Check its result before editing or sending again.",
     settlementFailed: "Couldn’t update the saved draft on this device.",
     send: "Send message",
     command: "Run command",
@@ -40,8 +38,6 @@ export const draftCopy = {
     asText: "Отправить текстом",
     dismiss: "Убрать ответ",
     onlyYou: "Видно только вам",
-    pendingCommand:
-      "Сервер мог выполнить команду. Проверьте результат перед правкой или повтором.",
     settlementFailed: "Не удалось обновить сохранённый черновик на устройстве.",
     send: "Отправить сообщение",
     command: "Выполнить команду",

@@ -134,7 +134,10 @@ export async function respondToWorkspace(
     (path === "config/client" || path === "license/client") &&
     req.headers.authorization !== undefined;
   const post =
-    path === "users/ids" || path === "roles/names" || path === "posts";
+    path === "users/ids" ||
+    path === "roles/names" ||
+    path === "posts" ||
+    path === "commands/execute";
   if (!routes.has(path) && !channelId && !policy && !post) return;
   assert.equal(req.headers.authorization, "Bearer fixture-browser-action");
   assert.equal(req.headers.cookie, undefined);
@@ -164,6 +167,20 @@ export async function respondToWorkspace(
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk);
     const body = JSON.parse(Buffer.concat(chunks).toString());
+    if (path === "commands/execute") {
+      assert.deepEqual(body, {
+        channel_id: town,
+        team_id: team,
+        command: "/me repeat from the window",
+      });
+      return json(
+        {
+          response_type: "ephemeral",
+          text: "The fixture received the confirmed repeat.",
+        },
+        "live-window-command-repeat",
+      );
+    }
     if (path === "posts") {
       const pending = body.pending_post_id;
       assert.equal(typeof pending, "string");

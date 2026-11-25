@@ -7,6 +7,7 @@ import {
   openAccountRestConnection,
 } from "../../src/mattermost/native-rest.ts";
 import { openChannelNavigation } from "./account-team-window.tsx";
+import { checkPendingCommandActions } from "./pending-command-actions.ts";
 
 export async function checkBrowserApp(server: string) {
   const host = document.createElement("div");
@@ -99,6 +100,7 @@ export async function checkBrowserApp(server: string) {
         },
         { timeout: 10_000 },
       );
+      await checkPendingCommandActions(host, townDraft, delivery);
     } finally {
       await delivery.close();
     }

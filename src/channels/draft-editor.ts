@@ -22,7 +22,7 @@ export async function openDraftEditor(
   storage: DraftStorage,
   location: DraftLocation,
 ) {
-  const key = { ...location };
+  const key = Object.freeze({ ...location });
   const stored = await storage.readDraft(key);
   let state: EditorState = {
     message: stored.message,
@@ -215,6 +215,7 @@ export async function openDraftEditor(
       message,
       revision,
       isCurrent,
+      location: key,
       submitPost: () => submit(isCurrent),
     };
   }
@@ -311,6 +312,7 @@ export async function openDraftEditor(
   }
 
   return {
+    location: key,
     getSnapshot: () => state,
     subscribe(listener: () => void) {
       listeners.add(listener);

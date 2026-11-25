@@ -73,6 +73,7 @@ function inputs(connection: ReturnType<typeof storage>["connection"]) {
       },
       route: vi.fn().mockResolvedValue({ kind: "post" }),
       performOther: vi.fn(),
+      resolveAttempt: vi.fn(),
     },
     connection,
     language: "ru" as const,
@@ -540,10 +541,139 @@ test("a saved command with an uncertain result cannot execute again simply by re
   const props = { ...inputs(connection), online: true };
   render(<DraftComposer {...props} />);
   await field();
-  expect(screen.getByText(/Сервер мог выполнить команду/)).toBeTruthy();
+  expect(
+    screen.getByRole("group", {
+      name: /Неизвестно, выполнилась ли команда \/me/,
+    }),
+  ).toBeTruthy();
   expect(
     screen.getByRole<HTMLButtonElement>("button", { name: "Выполнить команду" })
       .disabled,
   ).toBe(true);
   expect(props.sendContext.performOther).not.toHaveBeenCalled();
+});
+
+test("a pending thread command needs two explicit actions and Escape returns to the first one", async () => {
+  const { connection, rows } = storage();
+  const props = { ...inputs(connection), online: true };
+  rows.set("A/reply", {
+    message: "/me ready",
+    revision: "attempt",
+    commandPending: true,
+  });
+  props.sendContext.resolveAttempt.mockImplementation(async () => {
+    rows.set("A/reply", {
+      message: "",
+      revision: "done",
+      clearedBySubmission: true,
+    });
+    return {
+      kind: "command",
+      answer: {
+        kind: "answered",
+        result: { kind: "executed", response: {} },
+        settlement: "saved",
+        draft: rows.get("A/reply"),
+      },
+    };
+  });
+  render(<DraftComposer {...props} rootId="reply" />);
+  const input = await field();
+  expect(input.readOnly).toBe(true);
+  fireEvent.keyDown(input, { key: "Enter" });
+  const repeat = screen.getByRole("button", { name: "Выполнить ещё раз" });
+  fireEvent.click(repeat);
+  const confirm = screen.getByRole("button", { name: "Всё равно выполнить" });
+  expect(document.activeElement).toBe(confirm);
+  fireEvent.keyDown(confirm, { key: "Escape" });
+  const again = screen.getByRole("button", { name: "Выполнить ещё раз" });
+  expect(document.activeElement).toBe(again);
+  expect(props.sendContext.resolveAttempt).not.toHaveBeenCalled();
+  fireEvent.click(again);
+  fireEvent.click(screen.getByRole("button", { name: "Всё равно выполнить" }));
+  await waitFor(() => expect(input.value).toBe(""));
+  expect(props.sendContext.resolveAttempt).toHaveBeenCalledExactlyOnceWith(
+    { channelId: "A", rootId: "reply" },
+    "attempt",
+    "repeat",
+  );
+  expect(connection.submitDraft).not.toHaveBeenCalled();
+});
+
+test.each(["edit", "clear"] as const)(
+  "the pending draft can %s offline without sending",
+  async (action) => {
+    const { connection, rows } = storage();
+    const props = {
+      ...inputs(connection),
+      language: "en" as const,
+      online: false,
+    };
+    rows.set("A/", {
+      message: "/me ready",
+      revision: "previous",
+      commandPending: true,
+    });
+    props.sendContext.resolveAttempt.mockImplementation(async () => {
+      rows.set("A/", {
+        message: action === "edit" ? "/me ready" : "",
+        revision: "changed",
+      });
+      return { kind: "changedPendingCommand", action };
+    });
+    render(<DraftComposer {...props} />);
+    const input = await field();
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Run again" })
+        .disabled,
+    ).toBe(true);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: action === "edit" ? "Edit text" : "Clear field",
+      }),
+    );
+    await waitFor(() => expect(input.readOnly).toBe(false));
+    expect(input.value).toBe(action === "edit" ? "/me ready" : "");
+    expect(document.activeElement).toBe(input);
+    expect(props.sendContext.resolveAttempt).toHaveBeenCalledExactlyOnceWith(
+      { channelId: "A", rootId: undefined },
+      "previous",
+      action,
+    );
+    expect(connection.submitDraft).not.toHaveBeenCalled();
+    expect(props.sendContext.performOther).not.toHaveBeenCalled();
+  },
+);
+
+test("losing connectivity after handing off a command still displays its saved attempt", async () => {
+  const { connection, rows } = storage();
+  const props = { ...inputs(connection), online: true };
+  props.sendContext.route.mockResolvedValue({ kind: "command" });
+  let finish!: () => void;
+  props.sendContext.performOther.mockImplementation(async () => {
+    rows.set("A/", {
+      message: "/me ready",
+      revision: "started",
+      commandPending: true,
+    });
+    await new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    return { kind: "command", answer: { kind: "unconfirmed" } };
+  });
+  const view = render(<DraftComposer {...props} />);
+  const input = await field();
+  fireEvent.change(input, { target: { value: "/me ready" } });
+  fireEvent.click(screen.getByRole("button", { name: "Выполнить команду" }));
+  await waitFor(() =>
+    expect(props.sendContext.performOther).toHaveBeenCalledOnce(),
+  );
+  view.rerender(<DraftComposer {...props} online={false} />);
+  await act(async () => finish());
+  await screen.findByText(/Связь прервалась после передачи/);
+  expect(input.readOnly).toBe(true);
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Выполнить ещё раз" })
+      .disabled,
+  ).toBe(true);
 });

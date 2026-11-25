@@ -14,6 +14,7 @@ import { DraftPostConfirmation } from "./DraftPostConfirmation.tsx";
 import { draftActionFeedback } from "./draft-action-feedback.ts";
 import { draftCopy } from "./draft-copy.ts";
 import { openVisibleDraft, type VisibleDraft } from "./open-visible-draft.ts";
+import { PendingCommandActions } from "./PendingCommandActions.tsx";
 import { type DraftSendContext, useDraftSend } from "./use-draft-send.ts";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
 import { workspaceFailure } from "./workspace-data.ts";
@@ -181,10 +182,9 @@ function DraftField({
       : null;
   const pending =
     state.stored.commandPending && state.message === state.stored.message;
-  const resultText = feedback
-    ? draftActionFeedback(feedback, language)
-    : pending
-      ? copy.pendingCommand
+  const resultText =
+    feedback && (!pending || answer?.kind === "answered")
+      ? draftActionFeedback(feedback, language)
       : "";
   const labelSend = state.message.startsWith("/") ? copy.command : copy.send;
   function submit(amended?: string) {
@@ -411,7 +411,7 @@ function DraftField({
           rows={1}
           aria-label={label}
           placeholder={label}
-          readOnly={sending.runningCommand}
+          readOnly={sending.runningCommand || Boolean(pending)}
           aria-describedby={state.conflict ? id + "-hint" : undefined}
           value={state.message}
           onKeyDown={(event) => {
@@ -469,6 +469,21 @@ function DraftField({
         </button>
         {!online && <small>{copy.offline}</small>}
       </div>
+      {pending && !state.conflict && state.stored.revision && (
+        <PendingCommandActions
+          key={state.stored.revision}
+          language={language}
+          message={state.stored.message}
+          known={answer?.kind === "answered"}
+          interrupted={answer?.kind === "unconfirmed"}
+          busy={sending.busy}
+          online={online}
+          act={(action) => {
+            if (state.stored.revision)
+              void sending.resolveAttempt(action, state.stored.revision);
+          }}
+        />
+      )}
       <span className="draft-announcement" role="status">
         {announcement}
       </span>

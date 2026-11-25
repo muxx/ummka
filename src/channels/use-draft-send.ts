@@ -14,6 +14,8 @@ import {
   type VisiblePostContext,
 } from "./prepare-visible-post.ts";
 
+import type { PendingCommandAction } from "./resolve-pending-command.ts";
+
 type PreparedDraft = NonNullable<
   Awaited<ReturnType<VisibleDraft["prepareSubmission"]>>
 >;
@@ -21,6 +23,11 @@ type Route = Awaited<ReturnType<typeof resolveComposerSubmission>>;
 type OtherRoute = Exclude<Route, { kind: "post" }>;
 export type DraftSendContext = {
   post: VisiblePostContext;
+  resolveAttempt: (
+    place: VisibleDraft["location"],
+    revision: string,
+    action: PendingCommandAction,
+  ) => Promise<ActionFeedback>;
   route: (message: string, signal: AbortSignal) => Promise<Route>;
   performOther: (
     route: OtherRoute,
@@ -28,7 +35,11 @@ export type DraftSendContext = {
     signal: AbortSignal,
   ) => Promise<ActionFeedback>;
 };
-type ActiveSend = { controller: AbortController; confirmPost?: PreparedDraft };
+type ActiveSend = {
+  controller: AbortController;
+  confirmPost?: PreparedDraft;
+  awaitingDraftWrite?: boolean;
+};
 
 export function useDraftSend(
   editor: VisibleDraft,
@@ -60,7 +71,7 @@ export function useDraftSend(
     [],
   );
   useLayoutEffect(() => {
-    if (!online) cancel();
+    if (!online && !active.current?.awaitingDraftWrite) cancel();
   }, [online, cancel]);
   useLayoutEffect(
     () =>
@@ -116,6 +127,7 @@ export function useDraftSend(
           : ({ kind: "post" } as const);
       if (!prepared.isCurrent() || controller.signal.aborted) return;
       if (route.kind !== "post") {
+        action.awaitingDraftWrite = route.kind === "command";
         setRunningCommand(route.kind === "command");
         const answer = await context.performOther(
           route,
@@ -148,6 +160,47 @@ export function useDraftSend(
       if (!action.confirmPost) finish(controller);
     }
   }
+  async function resolveAttempt(
+    action: PendingCommandAction,
+    revision: string,
+  ) {
+    if (active.current || (action === "repeat" && !online)) return;
+    const state = editor.getSnapshot();
+    if (
+      !state.stored.commandPending ||
+      state.stored.revision !== revision ||
+      state.conflict ||
+      state.message !== state.stored.message
+    )
+      return;
+    const controller = new AbortController();
+    active.current = { controller, awaitingDraftWrite: true };
+    setBusy(true);
+    setRunningCommand(action === "repeat");
+    setFeedback(null);
+    try {
+      const result = await context.resolveAttempt(
+        editor.location,
+        revision,
+        action,
+      );
+      if (!controller.signal.aborted) {
+        setFeedback(result);
+        if (
+          result.kind === "command" &&
+          result.answer.kind === "answered" &&
+          result.answer.result.kind === "unauthorized"
+        )
+          sessionIssue("unauthorized");
+      }
+      await editor.refresh();
+      if (!controller.signal.aborted) focus();
+    } catch (error) {
+      if (!controller.signal.aborted) report(error);
+    } finally {
+      finish(controller);
+    }
+  }
   async function confirm() {
     const action = active.current;
     const prepared = action?.confirmPost;
@@ -166,6 +219,7 @@ export function useDraftSend(
   }
   return {
     begin,
+    resolveAttempt,
     feedback,
     clearFeedback: () => setFeedback(null),
     confirm,

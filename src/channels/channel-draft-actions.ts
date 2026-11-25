@@ -2,6 +2,7 @@ import type { TeamWorkspace } from "../entry/AccountTeamWindow.tsx";
 import type { savedChannelPermissions } from "../mattermost/channel-permissions.ts";
 import type { TeamSidebar } from "../mattermost/team-sidebar.ts";
 import { resolveComposerSubmission } from "./composer-submission.ts";
+import { resolvePendingCommand } from "./resolve-pending-command.ts";
 import { submitChannelReaction } from "./submit-channel-reaction.ts";
 import { submitVisibleCommand } from "./submit-visible-command.ts";
 import type { DraftSendContext } from "./use-draft-send.ts";
@@ -21,6 +22,13 @@ export function channelDraftActions(
       channelPermission: permission(channel, "use_channel_mentions"),
       groupPermission: permission(channel, "use_group_mentions"),
     },
+    resolveAttempt: (place, revision, action) =>
+      resolvePendingCommand(
+        connection,
+        { ...place, teamId: team.id },
+        revision,
+        action,
+      ),
     route: (message, signal) =>
       resolveComposerSubmission(
         { message, hasAttachments: false, scheduled: false },
@@ -50,7 +58,7 @@ export function channelDraftActions(
       }
       return submitVisibleCommand(
         connection,
-        { channelId: channel.id, teamId: team.id },
+        { ...draft.location, teamId: team.id },
         draft,
         signal,
         () => sessionIssue("unauthorized"),

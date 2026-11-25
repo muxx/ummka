@@ -6,6 +6,7 @@ type Command = Awaited<ReturnType<WorkspaceConnection["submitDraftCommand"]>>;
 type Reaction = Awaited<ReturnType<typeof submitChannelReaction>>;
 export type ActionFeedback =
   | { kind: "command"; answer: Command }
+  | { kind: "changedPendingCommand"; action: "edit" | "clear" }
   | { kind: "reaction"; answer: Reaction; emoji: string }
   | { kind: "localCommand"; trigger: string }
   | { kind: "blockedCommand"; reason: "attachments" | "scheduled" }
@@ -17,6 +18,12 @@ export function draftActionFeedback(
 ): string {
   const ru = lang === "ru";
   switch (action.kind) {
+    case "changedPendingCommand":
+      if (action.action === "clear")
+        return ru ? "Поле очищено." : "Draft cleared.";
+      return ru
+        ? "Текст можно править. Следующая отправка выполнит команду заново."
+        : "You can edit the text. Sending it will run the command again.";
     case "localCommand":
       return ru
         ? `Команда ${action.trigger} пока недоступна в этом окне.`

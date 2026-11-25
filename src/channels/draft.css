@@ -185,6 +185,45 @@
   color: var(--text);
   font-size: 0.85rem;
 }
+.draft-pending {
+  margin: 0;
+  padding: 4px 12px 8px;
+  min-width: 0;
+  border: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.draft-pending legend {
+  font-weight: 600;
+}
+.draft-pending p {
+  margin: 3px 0;
+  color: var(--muted);
+}
+.draft-pending div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 12px;
+}
+.draft-pending button {
+  padding: 2px 0;
+  min-height: 32px;
+  background: transparent;
+  border: 0;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.draft-pending button:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+@media (max-width: 600px), (pointer: coarse) {
+  .draft-pending button {
+    min-height: 44px;
+  }
+}
 .draft-feedback {
   min-width: 0;
   padding: 6px 12px;
