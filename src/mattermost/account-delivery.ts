@@ -1,15 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Post, PostsApi } from "../../vendor/mattermost/index.js";
+import type { MutationRefusal } from "./mutation-error.ts";
 import type { ComposerDraft, DraftLocation, DraftSave } from "./native-rest.ts";
 import { outgoingRowState } from "./outgoing-row-state.ts";
 import type { createPostActivity } from "./post-activity.ts";
 import { deliverAccountPost } from "./send-account-post.ts";
 
-export type PostRefusal = {
-  status: number;
-  code: string;
-  message: string | null;
-};
+export type PostRefusal = MutationRefusal;
 export type RefusalScope = "delivery" | "retry";
 type AttemptKey = { pendingId: string; attempt: number };
 /** SQLite returns a decimal string when a sequence exceeds JavaScript's exact integer range. */
