@@ -1,3 +1,4 @@
+import type { DraftLocation } from "../mattermost/native-rest.ts";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
 
 const localCommands = new Set([
@@ -10,7 +11,7 @@ const localCommands = new Set([
 
 export async function submitVisibleCommand(
   account: Pick<WorkspaceConnection, "submitDraftCommand">,
-  location: { channelId: string; teamId: string },
+  location: DraftLocation & { teamId: string },
   draft: { message: string; revision: string },
   signal: AbortSignal,
   unauthorized: () => void,
