@@ -15,6 +15,7 @@
     "allow-close-rest-connection",
     "allow-read-composer-draft",
     "allow-save-composer-draft",
+    "allow-transition-draft-command",
     "allow-stage-composer-post",
     "allow-read-pending-posts",
     "allow-confirm-post-delivery",

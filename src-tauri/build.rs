@@ -11,6 +11,7 @@ fn main() {
         "close_rest_connection",
         "read_composer_draft",
         "save_composer_draft",
+        "transition_draft_command",
         "stage_composer_post",
         "read_pending_posts",
         "confirm_post_delivery",

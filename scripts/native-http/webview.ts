@@ -467,11 +467,14 @@ export function webviewServers(
       );
       assert.equal(req.headers.cookie, undefined);
       assert.equal(url.search, "");
-      assert.deepEqual(await json(req), {
+      const command = await json(req);
+      assert(command && typeof command === "object" && "root_id" in command);
+      const saved = command.root_id === "k".repeat(26);
+      assert.deepEqual(command, {
         channel_id: channelId,
         team_id: teamId,
-        root_id: "r".repeat(26),
-        command: "/release --Status",
+        root_id: (saved ? "k" : "r").repeat(26),
+        command: saved ? "/release --Saved" : "/release --Status",
       });
       res.writeHead(200, { "Content-Type": "application/json" }).end(
         JSON.stringify({
@@ -489,7 +492,7 @@ export function webviewServers(
           extra_responses: null,
         }),
       );
-      visits.push("signed-slash-command");
+      visits.push(saved ? "saved-slash-command" : "signed-slash-command");
       return;
     }
     if (
@@ -601,6 +604,32 @@ export function webviewServers(
         ),
       );
       visits.push(stats ? "channel-stats" : "channel-timezones");
+      return;
+    }
+    const ownTeam = `/team/chat/api/v4/teams/${teamId}/members`;
+    if (url.pathname === ownTeam || url.pathname === `${ownTeam}/${userId}`) {
+      const join = url.pathname === ownTeam;
+      assert.equal(url.search, "");
+      assert.equal(req.method, join ? "POST" : "DELETE");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      if (join) {
+        assert.equal(req.headers["content-type"], "application/json");
+        assert.deepEqual(await json(req), { team_id: teamId, user_id: userId });
+      }
+      res
+        .writeHead(join ? 201 : 200, { "Content-Type": "application/json" })
+        .end(
+          JSON.stringify(
+            join
+              ? { team_id: teamId, user_id: userId, delete_at: 0 }
+              : { status: "OK" },
+          ),
+        );
+      visits.push(join ? "own-team-join" : "own-team-leave");
       return;
     }
     const member = await respondToChannelMembers(
@@ -983,6 +1012,7 @@ export function webviewServers(
         "bulk-channel-view",
         "single-channel-view",
         "signed-slash-command",
+        "saved-slash-command",
         "channel-stats",
         "channel-stats",
         "broadcast-timezones",
@@ -997,6 +1027,8 @@ export function webviewServers(
         "group-audience-empty",
         "group-audience-timezones",
         "group-audience-timezones",
+        "own-team-join",
+        "own-team-leave",
         "member-add",
         "member-remove",
         "member-self",

@@ -300,6 +300,15 @@ export async function checkGeneratedRequests(ports: string[]) {
       "team-navigation-directory",
     );
     const teamId = "Team0123456789012345678901";
+    const teamMembership = { kind: "team" as const, id: teamId };
+    for (const change of ["join", "leave"] as const) {
+      const result = await accountPrefix.changeOwnMembership(
+        teamMembership,
+        change,
+      );
+      check(result.kind === "applied", `signed-team-membership-${change}`);
+    }
+
     const channelId = "c".repeat(26);
     const command = await accountPrefix.executeServerCommand(
       { channelId, teamId, rootId: "r".repeat(26) },
@@ -310,6 +319,38 @@ export async function checkGeneratedRequests(ports: string[]) {
         command.response.responseType === "ephemeral" &&
         command.response.text === "Fixture status",
       "account-server-command",
+    );
+
+    const commandThread = { channelId, teamId, rootId: "k".repeat(26) };
+    const localCommand = await accountPrefix.saveDraft({
+      ...commandThread,
+      expectedRevision: null,
+      message: "/RELEASE  —Saved  ",
+    });
+    const commandRevision = localCommand.draft.revision;
+    check(
+      localCommand.kind === "saved" && commandRevision,
+      "saved-command-local-draft",
+    );
+    const commandOutcomes = await Promise.all(
+      [1, 2].map(() =>
+        accountPrefix.submitDraftCommand(commandThread, commandRevision),
+      ),
+    );
+    check(
+      commandOutcomes.some(
+        (s) =>
+          s.kind === "answered" &&
+          s.settlement === "saved" &&
+          s.result.kind === "executed" &&
+          s.result.response.text === "Fixture status",
+      ) && commandOutcomes.some((s) => s.kind === "conflict"),
+      "saved-command-single-request",
+    );
+    const afterCommand = await accountPrefix.readDraft(commandThread);
+    check(
+      afterCommand.message === "" && afterCommand.clearedBySubmission,
+      "saved-command-cleared",
     );
 
     const broadcast = await readPostMentionDecision(

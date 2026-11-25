@@ -62,6 +62,10 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
                 json!({"rid":0,"channelId":"a".repeat(26),"rootId":null}),
             ),
             (
+                "transition_draft_command",
+                json!({"rid":0,"channelId":"a".repeat(26),"rootId":null,"revision":"1".repeat(32),"action":"start"}),
+            ),
+            (
                 "save_composer_draft",
                 json!({"rid":0,"channelId":"a".repeat(26),"rootId":null,"expectedRevision":null,"message":"local"}),
             ),

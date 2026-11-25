@@ -330,3 +330,227 @@ fn legacy_empty_drafts_keep_their_revision_and_unknown_origin_across_upgrade() {
         retained
     );
 }
+
+#[test]
+fn explicit_command_repeat_rotates_only_the_shown_attempt_after_restart() {
+    use DraftCommandAction::{Complete, Release, Restart, Start};
+    let root = tempdir().unwrap();
+    let mut view = open(root.path());
+    let original = saved(view.save_draft(ROOM, None, None, "/me ready").unwrap());
+    let original_rev = original.revision.as_deref().unwrap();
+    assert!(matches!(
+        view.transition_draft_command(ROOM, None, original_rev, Restart)
+            .unwrap(),
+        DraftSave::Conflict(_)
+    ));
+    let first = saved(
+        view.transition_draft_command(ROOM, None, original_rev, Start)
+            .unwrap(),
+    );
+    let old = first.revision.as_deref().unwrap();
+    drop(view);
+    let mut view = open(root.path());
+    let repeated = saved(
+        view.transition_draft_command(ROOM, None, old, Restart)
+            .unwrap(),
+    );
+    assert_ne!(repeated.revision, first.revision);
+    assert!(repeated.command_pending);
+    assert_eq!(repeated.message, first.message);
+    for action in [Restart, Complete, Release] {
+        let mut another_window = open(root.path());
+        assert!(matches!(
+            another_window.transition_draft_command(ROOM, None, old, action).unwrap(),
+            DraftSave::Conflict(actual) if actual == repeated
+        ));
+    }
+    let rev = repeated.revision.as_deref().unwrap();
+    assert!(matches!(
+        view.transition_draft_command(ROOM, Some(THREAD), rev, Restart)
+            .unwrap(),
+        DraftSave::Conflict(_)
+    ));
+    let released = saved(
+        view.transition_draft_command(ROOM, None, rev, Release)
+            .unwrap(),
+    );
+    assert!(!released.command_pending);
+    assert_eq!(released.message, original.message);
+}
+
+#[test]
+fn only_one_window_can_start_a_command_and_its_text_never_enters_pending_posts() {
+    use DraftCommandAction::{Complete, Release, Start};
+    let root = tempdir().unwrap();
+    let mut view = open(root.path());
+    let text = "/me first";
+    let original = saved(view.save_draft(ROOM, None, None, text).unwrap());
+    let original_rev = original.revision.as_deref().unwrap();
+    let gate = Barrier::new(2);
+    let contenders = thread::scope(|scope| {
+        let spawn = || {
+            scope.spawn(|| {
+                let mut other = open(root.path());
+                gate.wait();
+                other
+                    .transition_draft_command(ROOM, None, original_rev, Start)
+                    .unwrap()
+            })
+        };
+        let a = spawn();
+        let b = spawn();
+        [a.join().unwrap(), b.join().unwrap()]
+    });
+    let claimed = view.read_draft(ROOM, None).unwrap();
+    assert!(claimed.command_pending);
+    assert_ne!(claimed.revision, original.revision);
+    assert!(
+        contenders
+            .iter()
+            .any(|r| matches!(r, DraftSave::Saved(d) if d == &claimed))
+    );
+    assert!(
+        contenders
+            .iter()
+            .any(|r| matches!(r, DraftSave::Conflict(d) if d == &claimed))
+    );
+    drop(view);
+    let mut view = open(root.path());
+    let claimed = view.read_draft(ROOM, None).unwrap();
+    let revision = claimed.revision.as_deref().unwrap();
+    assert_eq!(
+        saved(
+            view.save_draft(ROOM, None, Some(original_rev), text)
+                .unwrap()
+        ),
+        claimed
+    );
+    assert!(matches!(
+        view.stage_post(ROOM, None, revision).unwrap(),
+        crate::history::StagePost::NotStaged { .. }
+    ));
+    assert!(view.pending_posts(ROOM, None, 0, 50).unwrap().is_empty());
+    assert!(matches!(
+        view.transition_draft_command(ROOM, None, revision, Start)
+            .unwrap(),
+        DraftSave::Conflict(_)
+    ));
+    let released = saved(
+        view.transition_draft_command(ROOM, None, revision, Release)
+            .unwrap(),
+    );
+    assert_eq!(released.message, text);
+    assert!(!released.command_pending);
+    let second = saved(
+        view.transition_draft_command(ROOM, None, released.revision.as_deref().unwrap(), Start)
+            .unwrap(),
+    );
+    assert!(
+        matches!(view.transition_draft_command(ROOM,None,revision,Complete).unwrap(),DraftSave::Conflict(d) if d == second)
+    );
+    let edited = saved(
+        view.save_draft(ROOM, None, second.revision.as_deref(), "a new message")
+            .unwrap(),
+    );
+    assert!(!edited.command_pending);
+    assert!(
+        matches!(view.transition_draft_command(ROOM,None,second.revision.as_deref().unwrap(),Complete).unwrap(),DraftSave::Conflict(d) if d == edited)
+    );
+    assert!(matches!(
+        view.transition_draft_command(ROOM, None, edited.revision.as_deref().unwrap(), Start)
+            .unwrap(),
+        DraftSave::Conflict(_)
+    ));
+    let reply = saved(
+        view.save_draft(ROOM, Some(THREAD), None, "/me replies")
+            .unwrap(),
+    );
+    let in_thread = saved(
+        view.transition_draft_command(
+            ROOM,
+            Some(THREAD),
+            reply.revision.as_deref().unwrap(),
+            Start,
+        )
+        .unwrap(),
+    );
+    let completed = saved(
+        view.transition_draft_command(
+            ROOM,
+            Some(THREAD),
+            in_thread.revision.as_deref().unwrap(),
+            Complete,
+        )
+        .unwrap(),
+    );
+    assert_eq!(completed.cleared_by_submission, Some(true));
+    assert!(!completed.command_pending && completed.message.is_empty());
+    assert_eq!(view.read_draft(ROOM, None).unwrap(), edited);
+}
+
+#[test]
+fn format_21_preserves_existing_revisions_and_rolls_back_an_interrupted_upgrade() {
+    let root = tempdir().unwrap();
+    let rev = "e".repeat(32);
+    let mut previous = HistoryDatabase::open_with(root.path(), URL, &MIGRATIONS[..20]).unwrap();
+    let owner = previous.restore(&account()).unwrap();
+    previous.write(&owner, |tx| tx.execute(
+        "INSERT INTO composer_draft(channel_id,root_id,message,revision,cleared_by_submission) VALUES (?1,'','/me old',?2,NULL),(?1,?3,'',?2,1)",
+        params![ROOM,rev,THREAD],
+    )).unwrap();
+    drop(previous);
+    let mut broken: Vec<_> = MIGRATIONS[..20]
+        .iter()
+        .map(|m| Migration {
+            statements: m.statements,
+            objects: m.objects,
+        })
+        .collect();
+    const INTERRUPTED: &[&str] = &[
+        MIGRATIONS[20].statements[0],
+        "CREATE INDEX broken ON missing(col)",
+    ];
+    broken.push(Migration {
+        statements: INTERRUPTED,
+        objects: MIGRATIONS[20].objects,
+    });
+    assert!(matches!(
+        HistoryDatabase::open_with(root.path(), URL, &broken),
+        Err(HistoryError::Storage)
+    ));
+    let mut previous = HistoryDatabase::open_with(root.path(), URL, &MIGRATIONS[..20]).unwrap();
+    assert_eq!(
+        previous
+            .read(&owner, |tx| tx.query_row(
+                "SELECT count(*) FROM composer_draft WHERE revision=?1",
+                [&rev],
+                |row| row.get::<_, i64>(0)
+            ))
+            .unwrap(),
+        2
+    );
+    drop(previous);
+    let mut current = open(root.path());
+    let command = current.read_draft(ROOM, None).unwrap();
+    assert_eq!(command.message, "/me old");
+    assert_eq!(command.revision.as_ref(), Some(&rev));
+    assert!(!command.command_pending);
+    assert_eq!(
+        current
+            .read_draft(ROOM, Some(THREAD))
+            .unwrap()
+            .cleared_by_submission,
+        Some(true)
+    );
+    let claimed = saved(
+        current
+            .transition_draft_command(ROOM, None, &rev, DraftCommandAction::Start)
+            .unwrap(),
+    );
+    drop(current);
+    assert!(matches!(
+        HistoryDatabase::open_with(root.path(), URL, &MIGRATIONS[..20]),
+        Err(HistoryError::UnsupportedSchema)
+    ));
+    assert_eq!(open(root.path()).read_draft(ROOM, None).unwrap(), claimed);
+}
