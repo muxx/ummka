@@ -30,18 +30,43 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<ComposerDraft> {
     })
 }
 
-fn draft(tx: &Transaction<'_>, channel: &str, root: &str) -> rusqlite::Result<ComposerDraft> {
+pub(super) fn draft(
+    tx: &Transaction<'_>,
+    channel: &str,
+    root: &str,
+) -> rusqlite::Result<ComposerDraft> {
     Ok(tx
         .query_row(READ, [channel, root], read_row)
         .optional()?
         .unwrap_or_default())
 }
 
-fn root_key<'a>(channel: &str, root: Option<&'a str>) -> Result<&'a str, HistoryError> {
+pub(super) fn root_key<'a>(channel: &str, root: Option<&'a str>) -> Result<&'a str, HistoryError> {
     if !is_mattermost_id(channel) || root.is_some_and(|id| !is_mattermost_id(id)) {
         return Err(HistoryError::InvalidDraft);
     }
     Ok(root.unwrap_or(""))
+}
+
+pub(super) fn validate_revision(revision: &str) -> Result<(), HistoryError> {
+    if revision.len() == 32
+        && revision
+            .bytes()
+            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+    {
+        Ok(())
+    } else {
+        Err(HistoryError::InvalidDraft)
+    }
+}
+
+pub(super) fn write_draft(
+    tx: &Transaction<'_>,
+    channel: &str,
+    root: &str,
+    message: &str,
+) -> rusqlite::Result<ComposerDraft> {
+    tx.query_row(SAVE, params![channel, root, message], read_row)
 }
 
 impl AccountHistory {
@@ -62,13 +87,8 @@ impl AccountHistory {
         message: &str,
     ) -> Result<DraftSave, HistoryError> {
         let root = root_key(channel, root)?;
-        if expected_revision.is_some_and(|value| {
-            value.len() != 32
-                || !value
-                    .bytes()
-                    .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
-        }) {
-            return Err(HistoryError::InvalidDraft);
+        if let Some(revision) = expected_revision {
+            validate_revision(revision)?;
         }
         // An immediate transaction serializes the comparison and update across app windows.
         self.write(|tx| {
@@ -79,11 +99,7 @@ impl AccountHistory {
             if current.revision.as_deref() != expected_revision {
                 return Ok(DraftSave::Conflict(current));
             }
-            Ok(DraftSave::Saved(tx.query_row(
-                SAVE,
-                params![channel, root, message],
-                read_row,
-            )?))
+            Ok(DraftSave::Saved(write_draft(tx, channel, root, message)?))
         })
     }
 }

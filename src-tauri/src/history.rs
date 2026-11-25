@@ -11,6 +11,8 @@ pub use directory::{DirectoryTeam, TeamDirectory, TeamDirectoryLoad};
 mod drafts;
 pub use drafts::{ComposerDraft, DraftSave};
 mod lifecycle;
+mod pending;
+pub use pending::{PendingPost, StagePost};
 mod posts;
 mod profiles;
 pub use profiles::{ChannelProfile, ProfileLookup, ProfileQuery};
