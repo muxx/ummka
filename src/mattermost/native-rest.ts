@@ -18,6 +18,7 @@ import type {
   ChannelWindowQuery,
   LocalChannelWindow,
 } from "./local-history.ts";
+import { accountMentionGroups } from "./mention-group-reads.ts";
 import { nativeFetch } from "./native-fetch.ts";
 import { loadAccountDirectory, loadTeamDirectory } from "./navigation-data.ts";
 import { refreshNavigation } from "./navigation-refresh.ts";
@@ -114,6 +115,7 @@ export async function openAccountRestConnection(
   return {
     ...connection,
     ...accountChannelAudience(config, readWhileOpen),
+    ...accountMentionGroups(config, readWhileOpen),
     readSavedProfiles(query: VisibleProfileQuery) {
       return readWhileOpen(() =>
         invoke<SavedProfiles>("read_saved_profiles", { rid, query }),
