@@ -100,6 +100,11 @@ export async function resumeRegistryCheck(): Promise<boolean> {
             settings.preferences.composerKeys.codeBlockOnCtrlEnter !== false ||
             settings.server?.collapsedThreads !== "always_on" ||
             settings.server.sharedChannelDMs !== true ||
+            settings.server.mentions?.maxNotificationsPerChannel !==
+              "9223372036854775807" ||
+            settings.server.mentions.confirmNotifications ||
+            !settings.server.mentions.customGroups ||
+            !settings.server.mentions.ldapGroups ||
             !settings.server.lockNameFormat
       )
         throw Error(

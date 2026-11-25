@@ -559,6 +559,11 @@ pub(super) const MIGRATIONS: &[Migration] = &[
         statements: &[],
         objects: SHARED_CHANNEL_OBJECTS,
     },
+    // Format 18 adds mention settings to the strict server policy JSON.
+    Migration {
+        statements: &[],
+        objects: SHARED_CHANNEL_OBJECTS,
+    },
 ];
 
 pub(super) fn version(connection: &Connection) -> rusqlite::Result<i64> {

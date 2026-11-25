@@ -505,11 +505,19 @@ export function webviewServers(
             ? {
                 CollapsedThreads: "always_on",
                 FeatureFlagEnableSharedChannelsDMs: "true",
+                EnableConfirmNotificationsToChannel: "false",
+                MaxNotificationsPerChannel: "9223372036854775807",
+                EnableCustomGroups: "true",
                 TeammateNameDisplay: "full_name",
                 LockTeammateNameDisplay: "true",
                 Unrelated: "ignored",
               }
-            : { LockTeammateNameDisplay: "true", Company: "ignored" },
+            : {
+                LockTeammateNameDisplay: "true",
+                IsLicensed: "true",
+                LDAPGroups: "true",
+                Company: "ignored",
+              },
         ),
       );
       return;
