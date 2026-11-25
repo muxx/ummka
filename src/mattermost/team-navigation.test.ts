@@ -104,6 +104,7 @@ test("keeps only joined rows and preserves category and channel order and archiv
   expect(projection.channels.find((c) => c.id === d)).toMatchObject({
     kind: "D",
     displayName: "",
+    createAt: null,
     lastPostAt: null,
     mentionCountRoot: 0,
   });
@@ -135,6 +136,7 @@ test("projects each channel counter and category setting independently", async (
         display_name: "Project",
         header: "Header",
         purpose: "Purpose",
+        create_at: 37,
         last_post_at: 89,
         last_root_post_at: 83,
         total_msg_count: 71,
@@ -178,6 +180,7 @@ test("projects each channel counter and category setting independently", async (
         header: "Header",
         purpose: "Purpose",
         deleteAt: 0,
+        createAt: 37,
         lastPostAt: 89,
         lastRootPostAt: 83,
         totalMsgCount: 71,

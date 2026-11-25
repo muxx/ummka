@@ -28,7 +28,7 @@ fn open(root: &Path) -> AccountHistory {
 
 fn publish(view: &mut AccountHistory, teams: &[DirectoryTeam]) {
     let load = view.begin_team_directory_load().unwrap();
-    assert!(view.store_team_directory(load, teams).unwrap());
+    assert!(view.store_team_directory(load, teams, None).unwrap());
 }
 
 #[test]
@@ -39,8 +39,11 @@ fn a_newer_refresh_and_an_explicit_choice_survive_other_writers() {
     assert_eq!(a.read_team_directory().unwrap(), None);
     let old = a.begin_team_directory_load().unwrap();
     let new = b.begin_team_directory_load().unwrap();
-    assert!(b.store_team_directory(new, &[]).unwrap());
-    assert!(!a.store_team_directory(old, &[team(SECOND, None)]).unwrap());
+    assert!(b.store_team_directory(new, &[], None).unwrap());
+    assert!(
+        !a.store_team_directory(old, &[team(SECOND, None)], None)
+            .unwrap()
+    );
     assert_eq!(a.read_team_directory().unwrap().unwrap().teams, []);
     publish(&mut a, &[team(FIRST, None)]);
     assert_eq!(
@@ -65,7 +68,7 @@ fn a_newer_refresh_and_an_explicit_choice_survive_other_writers() {
     assert!(b.select_team(SECOND).unwrap());
     assert!(!b.select_team(USER).unwrap());
     assert!(
-        a.store_team_directory(refresh, &[team(SECOND, None), team(FIRST, Some(4))])
+        a.store_team_directory(refresh, &[team(SECOND, None), team(FIRST, Some(4))], None)
             .unwrap()
     );
     let restored = open(root.path()).read_team_directory().unwrap().unwrap();
@@ -96,7 +99,7 @@ fn failed_replacement_preserves_the_whole_snapshot_and_its_selection() {
     ] {
         let load = a.begin_team_directory_load().unwrap();
         assert_eq!(
-            a.store_team_directory(load, &invalid),
+            a.store_team_directory(load, &invalid, None),
             Err(HistoryError::InvalidDirectory)
         );
     }
@@ -109,7 +112,7 @@ fn failed_replacement_preserves_the_whole_snapshot_and_its_selection() {
     .unwrap();
     let load = a.begin_team_directory_load().unwrap();
     assert_eq!(
-        a.store_team_directory(load, &[team(SECOND, Some(0)), team(FIRST, None)]),
+        a.store_team_directory(load, &[team(SECOND, Some(0)), team(FIRST, None)], None),
         Err(HistoryError::Storage)
     );
     drop(a);
@@ -126,7 +129,7 @@ fn a_new_login_keeps_teams_but_revokes_old_loads_and_sign_out_purges_them() {
     let mut fresh = open(root.path());
     assert_eq!(old.read_team_directory(), Err(HistoryError::StaleOwner));
     assert_eq!(
-        fresh.store_team_directory(load, &[]),
+        fresh.store_team_directory(load, &[], None),
         Err(HistoryError::StaleOwner)
     );
     assert_eq!(

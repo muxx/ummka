@@ -13,6 +13,7 @@ pub struct SidebarChannel {
     pub display_name: String,
     pub header: String,
     pub purpose: String,
+    pub create_at: Option<i64>,
     pub delete_at: i64,
     pub last_post_at: Option<i64>,
     pub last_root_post_at: Option<i64>,
@@ -61,7 +62,7 @@ pub struct SidebarLoad {
 
 const READ_CHANNELS: &str = "SELECT channel_id, kind, name, display_name, header, purpose, delete_at,
     last_post_at, last_root_post_at, total_msg_count, total_msg_count_root, last_viewed_at, msg_count,
-    msg_count_root, mention_count, mention_count_root, urgent_mention_count, muted FROM sidebar_channel
+    msg_count_root, mention_count, mention_count_root, urgent_mention_count, muted, create_at FROM sidebar_channel
     WHERE team_id = ?1 ORDER BY position";
 const READ_CATEGORIES: &str =
     "SELECT category_id, kind, display_name, sorting, collapsed, muted FROM sidebar_category
@@ -80,6 +81,7 @@ impl SidebarData {
                 && channels.insert(c.id.as_str())
                 && matches!(c.kind.as_str(), "O" | "P" | "D" | "G")
                 && [
+                    c.create_at,
                     Some(c.delete_at),
                     c.last_post_at,
                     c.last_root_post_at,
@@ -127,6 +129,7 @@ impl SidebarData {
                     mention_count_root: r.get(15)?,
                     urgent_mention_count: r.get(16)?,
                     muted: r.get(17)?,
+                    create_at: r.get(18)?,
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -165,8 +168,8 @@ impl SidebarData {
         tx.execute("DELETE FROM sidebar_channel WHERE team_id = ?1", [team])?;
         let mut channel = tx.prepare_cached("INSERT INTO sidebar_channel(team_id,position,channel_id,kind,name,display_name,header,purpose,
             delete_at,last_post_at,last_root_post_at,total_msg_count,total_msg_count_root,last_viewed_at,msg_count,msg_count_root,
-            mention_count,mention_count_root,urgent_mention_count,muted)
-            VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)")?;
+            mention_count,mention_count_root,urgent_mention_count,muted,create_at)
+            VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21)")?;
         for (position, c) in (0_i64..).zip(&self.channels) {
             channel.execute(params![
                 team,
@@ -188,7 +191,8 @@ impl SidebarData {
                 c.mention_count,
                 c.mention_count_root,
                 c.urgent_mention_count,
-                c.muted
+                c.muted,
+                c.create_at
             ])?;
         }
         let mut category = tx.prepare_cached("INSERT INTO sidebar_category(team_id,position,category_id,kind,display_name,sorting,collapsed,muted)
