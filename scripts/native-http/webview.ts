@@ -446,6 +446,20 @@ export function webviewServers(
       visits.push(groupAudience);
       return;
     }
+    if (url.pathname === `/team/chat/api/v4/channels/${channelId}/timezones`) {
+      assert.equal(req.method, "GET");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      assert.equal(url.search, "");
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end(JSON.stringify(["Europe/Moscow", "Asia/Tokyo"]));
+      visits.push("broadcast-timezones");
+      return;
+    }
     const stats =
       url.pathname === `/team/chat/api/v4/channels/${channelId}/stats`;
     if (stats || url.pathname === `/api/v4/channels/${channelId}/timezones`) {
@@ -837,6 +851,8 @@ export function webviewServers(
         "bulk-channel-view",
         "single-channel-view",
         "channel-stats",
+        "channel-stats",
+        "broadcast-timezones",
         "channel-timezones",
         "team-group-associations-all",
         "team-group-associations-empty",

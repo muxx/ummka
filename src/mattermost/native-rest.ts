@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Configuration, PostsApi } from "../../vendor/mattermost/index.js";
 import { accountDelivery } from "./account-delivery.ts";
 import { atDirectoryStep } from "./account-directory-error.ts";
+import { accountChannelAudience } from "./channel-audience.ts";
 import {
   type ChannelRefreshRequest,
   type ChannelRefreshResult,
@@ -112,6 +113,7 @@ export async function openAccountRestConnection(
   }
   return {
     ...connection,
+    ...accountChannelAudience(config, readWhileOpen),
     readSavedProfiles(query: VisibleProfileQuery) {
       return readWhileOpen(() =>
         invoke<SavedProfiles>("read_saved_profiles", { rid, query }),

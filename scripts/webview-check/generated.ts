@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { readBroadcastDecision } from "../../src/channels/broadcast-audience.ts";
 import { inspectInstallation } from "../../src/mattermost/inspect-installation.ts";
 import {
   openAccountRestConnection,
@@ -277,6 +278,24 @@ export async function checkGeneratedRequests(ports: string[]) {
     );
     const teamId = "Team0123456789012345678901";
     const channelId = "c".repeat(26);
+    const broadcast = await readBroadcastDecision(
+      accountPrefix,
+      channelId,
+      ["@here"],
+      {
+        confirmNotifications: true,
+        maxNotificationsPerChannel: 100n,
+        canMentionChannel: true,
+        canMentionGroups: false,
+      },
+    );
+    check(
+      broadcast.confirmation?.kind === "here" &&
+        broadcast.confirmation.members === 29 &&
+        broadcast.confirmation.timezones === 2,
+      "account-broadcast-confirmation",
+    );
+
     check(
       (await accountPrefix.readTeamSidebar(teamId)) === null,
       "cold-channel-catalog",
