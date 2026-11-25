@@ -5,6 +5,7 @@ import {
   type ChannelRefreshResult,
   refreshChannelHistory,
 } from "./channel-history-refresh.ts";
+import type { ChannelProfile } from "./channel-profiles.ts";
 import { type JoinedTeams, projectJoinedTeams } from "./joined-teams.ts";
 import type {
   ChannelWindowQuery,
@@ -49,6 +50,11 @@ export function openNativeRestConnection(serverUrl: string) {
   return openConnection(serverUrl);
 }
 
+export type SavedProfiles = {
+  profiles: Record<string, ChannelProfile>;
+  usernames: Record<string, string>;
+};
+
 export type AccountSignOut =
   | { status: "signed_out" }
   | { status: "unconfirmed" }
@@ -75,6 +81,21 @@ export async function openAccountRestConnection(
   }
   return {
     ...connection,
+    readSavedProfiles(query: VisibleProfileQuery) {
+      return readWhileOpen(() =>
+        invoke<SavedProfiles>("read_saved_profiles", { rid, query }),
+      );
+    },
+    refreshSavedProfiles(query: VisibleProfileQuery, signal?: AbortSignal) {
+      return readWhileOpen(async () => {
+        const profiles = await loadVisibleProfiles(config, query, signal);
+        signal?.throwIfAborted();
+        if (retired) throw "cancelled";
+        if (profiles.length)
+          await invoke<void>("store_channel_profiles", { rid, profiles });
+        signal?.throwIfAborted();
+      });
+    },
     readVisibleProfiles(query: VisibleProfileQuery, signal?: AbortSignal) {
       return readWhileOpen(() => loadVisibleProfiles(config, query, signal));
     },

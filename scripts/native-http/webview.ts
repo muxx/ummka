@@ -556,7 +556,22 @@ export function webviewServers(
         "my-team-members",
         "sidebar-preferences",
       );
-      if (platform === "android") expected.push("browser-action-confirmed");
+      if (platform === "android")
+        expected.push(
+          "browser-action-confirmed",
+          "browser-action-confirmed",
+          "browser-entry-unconfirmed",
+          "browser-entry-unconfirmed",
+          "browser-entry-config/client",
+          "browser-entry-license/client",
+          ...[
+            "config/client",
+            "license/client",
+            "users/me/teams",
+            "users/me/teams/members",
+            "users/me/preferences",
+          ].map((path) => "browser-entry-" + path),
+        );
       assert.deepEqual(visits.sort(), expected.sort());
     },
   };

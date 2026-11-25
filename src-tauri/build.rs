@@ -14,6 +14,8 @@ fn main() {
         "begin_team_directory_load",
         "store_team_directory",
         "cancel_team_directory_load",
+        "read_saved_profiles",
+        "store_channel_profiles",
         "read_team_sidebar",
         "select_sidebar_channel",
         "begin_sidebar_load",

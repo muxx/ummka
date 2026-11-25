@@ -146,13 +146,33 @@ export async function checkGeneratedRequests(ports: string[]) {
     );
     const signed = new Configuration(accountPrefix);
     const users = new UsersApi(signed);
-    const named = await accountPrefix.readVisibleProfiles({
-      ids: [],
-      usernames: ["unknown", "fixture"],
-    });
+    const lookup = { ids: [] as string[], usernames: ["unknown", "fixture"] };
     check(
-      named.length === 1 && named[0].id === userId,
-      "generated-profile-by-name",
+      !Object.keys((await accountPrefix.readSavedProfiles(lookup)).profiles)
+        .length,
+      "cold-profile-store",
+    );
+    await accountPrefix.refreshSavedProfiles(lookup);
+    const named = await accountPrefix.readSavedProfiles(lookup);
+    check(
+      named.usernames.fixture === userId &&
+        named.profiles[userId]?.username === "fixture" &&
+        !Object.hasOwn(named.usernames, "unknown"),
+      "stored-profile-by-name",
+    );
+    check(
+      !Object.keys((await accountRoot.readSavedProfiles(lookup)).profiles)
+        .length,
+      "isolated-profile-store",
+    );
+    check(
+      (await rejected(
+        invoke("store_channel_profiles", {
+          rid: accountPrefix.rid,
+          profiles: [{ id: userId, unexpected: "invalid" }],
+        }),
+      )) === "invalid_directory",
+      "invalid-profile-shape",
     );
     const image = await users.getProfileImage({ userId });
     const bytes = new DataView(await image.arrayBuffer());
