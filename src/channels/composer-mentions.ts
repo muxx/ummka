@@ -16,7 +16,7 @@ function mentionableText(tokens: Token[]): string {
       token.type === "html"
     ) {
       if (token.type === "text" && token.tokens) token.tokens.forEach(visit);
-      else pieces.push(token.text.replace(/:[a-zA-Z0-9_+-]+:/g, " "));
+      else pieces.push(token.text);
       return;
     }
     pieces.push(" ");
@@ -40,20 +40,33 @@ function mentionableText(tokens: Token[]): string {
   return pieces.join("");
 }
 
-export function composerMentions(message: string): ComposerMentions {
-  if (message.startsWith("/") || !message.includes("@"))
-    return { channel: [], groupCandidates: [] };
+/** Only outgoing posts reach this scanner. A command explicitly sent as text is a post. */
+export function composerPostMentions(message: string): ComposerMentions {
+  if (!message.includes("@")) return { channel: [], groupCandidates: [] };
   const channel = new Set<ChannelMention>();
   const groupCandidates = new Set<string>();
   const text = mentionableText(Lexer.lex(message, { gfm: true }));
-  // Mattermost permits dots, hyphens and underscores inside a handle. Trailing punctuation
-  // after a reserved mention is prose; a real group handle must be resolved against the directory.
-  for (const match of text.matchAll(/(?:\B|\b_+)@([a-z0-9._-]+)/gi)) {
-    const handle = match[1].toLowerCase();
-    const name = handle.replace(/[._-]+$/, "");
-    if (name === "all" || name === "channel" || name === "here")
-      channel.add(`@${name}`);
-    else if (name) groupCandidates.add(handle);
+  // These are the word boundaries used by Mattermost's StandardMentionParser.
+  for (const [word] of text.matchAll(/[\p{L}\p{N}@.:_-]+/gu)) {
+    if (!word.includes("@") || (word.startsWith(":") && word.endsWith(":")))
+      continue;
+    const trimmed = word.replace(/^[:._-]+/, "");
+    const candidates = trimmed.startsWith("@")
+      ? [trimmed]
+      : trimmed.split(/[.:-]/);
+    for (const candidate of candidates) {
+      if (!candidate.startsWith("@")) continue;
+      const handle = candidate.slice(1).toLowerCase();
+      const name = handle.replace(/[.:_-]+$/, "");
+      if (name === "all" || name === "channel" || name === "here")
+        channel.add(`@${name}`);
+      else if (name) {
+        // A colon can terminate a handle but cannot belong to a group name.
+        const groupHandle = handle.replace(/:[.:_-]*$/, "");
+        if (/^[a-z0-9._-]+$/.test(groupHandle))
+          groupCandidates.add(groupHandle);
+      }
+    }
   }
   return { channel: [...channel], groupCandidates: [...groupCandidates] };
 }

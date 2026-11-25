@@ -1,11 +1,11 @@
 import { expect, test } from "vitest";
 import { mentionTextCases } from "../../scripts/contract/compatibility/mention-text-cases.ts";
-import { composerMentions } from "./composer-mentions.ts";
+import { composerPostMentions } from "./composer-mentions.ts";
 
 test.each([
   ["", []],
   ["no mentions", []],
-  ["/away @all", []],
+  ["/away @all", ["@all"]],
   [" /not_cmd @all", ["@all"]],
   ["@ALL, @channel and @HERE…", ["@all", "@channel", "@here"]],
   ["@channel @CHANNEL @here @channel", ["@channel", "@here"]],
@@ -33,26 +33,38 @@ test.each([
   ["| one | two |\n| --- | --- |\n| @here | `@all` |", ["@here"]],
   ['<span title="@all">hello</span>', ["@all"]],
 ] as const)("collects whole channel references in %j", (message, channel) => {
-  expect(composerMentions(message).channel).toEqual(channel);
+  expect(composerPostMentions(message).channel).toEqual(channel);
 });
 
 test("keeps first appearance and spelling of candidates for the server group directory", () => {
   const text =
     "Meeting @RElease.qa @all. @Dev-Team and @dev-team, @team_one! @Release.qa";
-  expect(composerMentions(text)).toEqual({
+  expect(composerPostMentions(text)).toEqual({
     channel: ["@all"],
     groupCandidates: ["release.qa", "dev-team", "team_one"],
   });
   expect(
-    composerMentions("(@docs.) `@secret` <https://example.org/@archive> @...")
-      .groupCandidates,
+    composerPostMentions(
+      "(@docs.) `@secret` <https://example.org/@archive> @...",
+    ).groupCandidates,
   ).toEqual(["docs."]);
+});
+
+test("keeps eligible group handles next to colon punctuation", () => {
+  expect(
+    composerPostMentions(
+      "@ops: @docs:. @product.: @ops:smile:world hi:smile:@releases",
+    ),
+  ).toEqual({
+    channel: [],
+    groupCandidates: ["ops", "docs", "product.", "releases"],
+  });
 });
 
 test.each(mentionTextCases)(
   "reflects notification delivery on both tagged servers for %j",
   (message, alertsReader) => {
-    expect(composerMentions(message).channel.includes("@all")).toBe(
+    expect(composerPostMentions(message).channel.includes("@all")).toBe(
       alertsReader,
     );
   },
