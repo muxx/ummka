@@ -74,6 +74,20 @@ export async function resumeRegistryCheck(): Promise<boolean> {
     const recovered = await openAccountRestConnection(base, current);
     try {
       const teams = await recovered.readJoinedTeams();
+      const catalog = await recovered.readTeamSidebar(
+        "Team0123456789012345678901",
+      );
+      if (
+        base === root
+          ? catalog !== null
+          : catalog?.selectedChannel !== "c".repeat(26) ||
+            catalog.data.channels[0]?.mentionCountRoot !== 2 ||
+            catalog.data.categories[0]?.kind !== "managed"
+      ) {
+        throw Error(
+          "offline channel catalog lost its account, order or selection",
+        );
+      }
       if (
         base === root
           ? teams !== null

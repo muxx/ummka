@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { expect, test } from "vitest";
 import { Configuration, ResponseError } from "../../vendor/mattermost/index.js";
 import { loadTeamDirectory } from "./navigation-data.ts";
+import { projectTeamSidebar } from "./team-sidebar.ts";
 
 const user = "u".repeat(26);
 const team = "t".repeat(26);
@@ -98,6 +99,20 @@ test("keeps only joined rows and preserves category and channel order and archiv
   ]);
   expect(result.channels[2]?.channel.deleteAt).toBe(20);
   expect(result.channels[1]?.channel.displayName).toBe("");
+  const projection = projectTeamSidebar(result);
+  expect(projection.channels.find((c) => c.id === archived)?.deleteAt).toBe(20);
+  expect(projection.channels.find((c) => c.id === d)).toMatchObject({
+    kind: "D",
+    displayName: "",
+    lastPostAt: null,
+    mentionCountRoot: 0,
+  });
+  expect(projection.categories.map((c) => [c.id, c.channelIds])).toEqual([
+    ["managed", [d]],
+    [system, [archived, a]],
+    ["empty", []],
+  ]);
+
   expect(result.categories.map((c) => [c.id, c.channelIds])).toEqual([
     ["managed", [d]],
     [system, [archived, a]],
@@ -110,6 +125,84 @@ test("keeps only joined rows and preserves category and channel order and archiv
       team,
     ),
   ).resolves.toEqual({ teamId: team, channels: [], categories: [] });
+});
+
+test("projects each channel counter and category setting independently", async () => {
+  const config = response(
+    [
+      {
+        ...channel(a),
+        display_name: "Project",
+        header: "Header",
+        purpose: "Purpose",
+        last_post_at: 89,
+        last_root_post_at: 83,
+        total_msg_count: 71,
+        total_msg_count_root: 59,
+      },
+    ],
+    [
+      {
+        ...member(a),
+        last_viewed_at: 79,
+        msg_count: 47,
+        msg_count_root: 43,
+        mention_count: 31,
+        mention_count_root: 19,
+        urgent_mention_count: 7,
+        notify_props: { mark_unread: "mention" },
+      },
+    ],
+    {
+      order: [system],
+      categories: [
+        {
+          ...category(system, [a]),
+          sorting: "alpha",
+          muted: true,
+          collapsed: true,
+        },
+      ],
+    },
+  );
+  const snapshot = projectTeamSidebar(
+    await loadTeamDirectory(config, user, team),
+  );
+  expect(snapshot).toEqual({
+    channels: [
+      {
+        id: a,
+        kind: "O",
+        name: a,
+        displayName: "Project",
+        header: "Header",
+        purpose: "Purpose",
+        deleteAt: 0,
+        lastPostAt: 89,
+        lastRootPostAt: 83,
+        totalMsgCount: 71,
+        totalMsgCountRoot: 59,
+        lastViewedAt: 79,
+        msgCount: 47,
+        msgCountRoot: 43,
+        mentionCount: 31,
+        mentionCountRoot: 19,
+        urgentMentionCount: 7,
+        muted: true,
+      },
+    ],
+    categories: [
+      {
+        id: system,
+        kind: "custom",
+        displayName: system,
+        sorting: "alpha",
+        collapsed: true,
+        muted: true,
+        channelIds: [a],
+      },
+    ],
+  });
 });
 
 test("rejects foreign owners, channels in the wrong team and inconsistent category identities", async () => {
