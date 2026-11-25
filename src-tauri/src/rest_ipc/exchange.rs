@@ -16,6 +16,8 @@ pub(crate) enum ExchangeError {
     UnknownConnection,
     UnknownExchange,
     UnknownHistoryLoad,
+    UnknownDirectoryLoad,
+    InvalidDirectory,
     InvalidHistoryRequest,
     InvalidExchangeState,
     Cancelled,
@@ -65,6 +67,19 @@ impl Session {
             history: super::history::LocalHistory::new(),
             lifetime,
         }
+    }
+
+    /// Owned pending operations are consumed once, never borrowed.
+    pub(super) fn take_pending<T: Resource>(
+        &self,
+        id: ResourceId,
+        missing: ExchangeError,
+    ) -> Result<T, ExchangeError> {
+        self.open_resources()?
+            .take::<T>(id)
+            .ok()
+            .and_then(Arc::into_inner)
+            .ok_or(missing)
     }
 
     pub(super) fn open_resources(

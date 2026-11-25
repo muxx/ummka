@@ -5,6 +5,7 @@ import {
   type ChannelRefreshResult,
   refreshChannelHistory,
 } from "./channel-history-refresh.ts";
+import { type JoinedTeams, projectJoinedTeams } from "./joined-teams.ts";
 import type {
   ChannelWindowQuery,
   LocalChannelWindow,
@@ -70,6 +71,40 @@ export async function openAccountRestConnection(
     ...connection,
     readAccountDirectory(signal?: AbortSignal) {
       return readWhileOpen(() => loadAccountDirectory(config, userId, signal));
+    },
+    readJoinedTeams() {
+      return readWhileOpen(() =>
+        invoke<JoinedTeams | null>("read_joined_teams", { rid }),
+      );
+    },
+    selectJoinedTeam(teamId: string) {
+      return readWhileOpen(() =>
+        invoke<boolean>("select_joined_team", { rid, teamId }),
+      );
+    },
+    refreshJoinedTeams(signal?: AbortSignal) {
+      return readWhileOpen(async () => {
+        signal?.throwIfAborted();
+        const load = await invoke<number>("begin_team_directory_load", { rid });
+        let teams: ReturnType<typeof projectJoinedTeams>;
+        try {
+          const directory = await loadAccountDirectory(config, userId, signal);
+          signal?.throwIfAborted();
+          teams = projectJoinedTeams(directory);
+        } catch (error) {
+          try {
+            await invoke<void>("cancel_team_directory_load", { rid, load });
+          } catch (closeError) {
+            if (
+              closeError !== "unknown_connection" &&
+              closeError !== "cancelled"
+            )
+              throw closeError;
+          }
+          throw error;
+        }
+        return invoke<boolean>("store_team_directory", { rid, load, teams });
+      });
     },
     readTeamDirectory(teamId: string, signal?: AbortSignal) {
       return readWhileOpen(() =>

@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { inspectInstallation } from "../../src/mattermost/inspect-installation.ts";
 import {
   openAccountRestConnection,
@@ -31,6 +32,27 @@ async function rejected(action: Promise<unknown>) {
     return error;
   }
   throw Error("generated request unexpectedly succeeded");
+}
+
+async function checkTeamLoadOwnership(rid: number, other: number) {
+  const begin = () => invoke<number>("begin_team_directory_load", { rid });
+  const store = (handle: number, load: number, teams: unknown) =>
+    invoke<boolean>("store_team_directory", { rid: handle, load, teams });
+  const older = await begin();
+  const current = await begin();
+  check(!(await store(rid, older, [])), "replaced-team-directory-load");
+  check(
+    (await rejected(store(other, current, []))) === "unknown_directory_load",
+    "foreign-team-directory-load",
+  );
+  check(
+    (await rejected(store(rid, current, [{}]))) === "invalid_directory",
+    "invalid-team-directory",
+  );
+  check(
+    (await rejected(store(rid, current, []))) === "unknown_directory_load",
+    "consumed-invalid-directory-load",
+  );
 }
 
 export async function checkGeneratedRequests(ports: string[]) {
@@ -160,6 +182,23 @@ export async function checkGeneratedRequests(ports: string[]) {
     await checkAccountResponses(accountPrefix, userId, observed);
     await checkChannelRefresh(accountPrefix, observed);
     await checkTeamReads(rootSession, signed);
+    await checkTeamLoadOwnership(accountPrefix.rid, accountRoot.rid);
+    check(
+      (await accountPrefix.readJoinedTeams()) === null,
+      "cold-team-directory",
+    );
+    check(await accountPrefix.refreshJoinedTeams(), "team-directory-published");
+    const cached = await accountPrefix.readJoinedTeams();
+    check(
+      cached?.teams[0]?.id === "Team0123456789012345678901" &&
+        cached.teams[0].displayName === "Fixture Team" &&
+        cached.selectedTeam === "Team0123456789012345678901",
+      "cached-team-names",
+    );
+    check(
+      await accountPrefix.selectJoinedTeam(cached.teams[0].id),
+      "select-joined-team",
+    );
     const directory = await accountPrefix.readAccountDirectory();
     check(
       directory.teams.length === 1 &&
