@@ -295,6 +295,7 @@ test("opens a native account by installation and user ID", async () => {
     "readJoinedTeams",
     "readPendingPosts",
     "readSavedProfiles",
+    "readSavedTeamRoles",
     "readTeamDirectory",
     "readTeamSidebar",
     "readVisibleProfiles",

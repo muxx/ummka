@@ -7,6 +7,11 @@ import {
 import { isMattermostId, isMattermostTime } from "./model-fields.ts";
 import type { loadTeamDirectory } from "./navigation-data.ts";
 
+export type TeamRoleSnapshot = {
+  systemRoles: string;
+  definitions: { name: string; permissions: string[] }[];
+};
+
 type PermissionSource = {
   userId: string;
   user: Pick<User, "id" | "roles">;

@@ -6,6 +6,7 @@ import {
   type ChannelRefreshResult,
   refreshChannelHistory,
 } from "./channel-history-refresh.ts";
+import type { TeamRoleSnapshot } from "./channel-permissions.ts";
 import type { ChannelProfile } from "./channel-profiles.ts";
 import { type JoinedTeams, projectJoinedTeams } from "./joined-teams.ts";
 import type {
@@ -191,6 +192,11 @@ export async function openAccountRestConnection(
             invoke<boolean>("store_team_sidebar", { rid, load, data }),
           (load) => invoke<void>("cancel_sidebar_load", { rid, load }),
         ),
+      );
+    },
+    readSavedTeamRoles(teamId: string) {
+      return readWhileOpen(() =>
+        invoke<TeamRoleSnapshot | null>("read_team_roles", { rid, teamId }),
       );
     },
     readTeamDirectory(teamId: string, signal?: AbortSignal) {

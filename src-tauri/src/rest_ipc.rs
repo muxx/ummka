@@ -15,6 +15,7 @@ pub(crate) mod profiles;
 mod response;
 pub(crate) mod settings;
 pub(crate) mod sidebar;
+pub(crate) mod team_roles;
 #[cfg(all(feature = "webview-check", target_os = "macos"))]
 mod window_check;
 

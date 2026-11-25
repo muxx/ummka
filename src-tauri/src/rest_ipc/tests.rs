@@ -115,6 +115,10 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
             ("begin_sidebar_load", json!({"rid":0,"teamId":"x"})),
             ("store_team_sidebar", json!({"rid":0,"load":1,"data":{}})),
             ("cancel_sidebar_load", json!({"rid":0,"load":1})),
+            ("read_team_roles", json!({"rid":0,"teamId":"x"})),
+            ("begin_team_role_load", json!({"rid":0,"teamId":"x"})),
+            ("store_team_roles", json!({"rid":0,"load":1,"data":{}})),
+            ("cancel_team_role_load", json!({"rid":0,"load":1})),
             (
                 "read_channel_window",
                 json!({"rid":0,"query":{"kind":"latest","channelId":"c".repeat(26),"collapsedThreads":false,"limit":1}}),
