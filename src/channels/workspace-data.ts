@@ -136,7 +136,7 @@ export function workspaceProfileQuery(
   return { ids: [...ids], usernames: [...usernames] };
 }
 
-const channelPageSize = 60;
+export const channelPageSize = 60;
 type TimelineConnection = Pick<
   Connection,
   "readChannelWindow" | "refreshChannelHistory"

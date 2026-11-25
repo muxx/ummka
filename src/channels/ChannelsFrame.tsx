@@ -19,6 +19,7 @@ type FrameProps = {
   labels: FrameLabels;
   teamName: string;
   accountName: string;
+  accountRef?: RefObject<HTMLButtonElement | null>;
   channel: { id: string; title: string } | null;
   emptyTitle: string;
   page: "navigation" | "conversation";
@@ -59,6 +60,7 @@ export function ChannelsFrame({
   labels,
   teamName,
   accountName,
+  accountRef,
   channel,
   emptyTitle,
   page,
@@ -162,6 +164,8 @@ export function ChannelsFrame({
           <img src={smallLockup} alt="ummka" width="83" height="25" />
         </div>
         <button
+          ref={accountRef}
+          aria-haspopup={accountRef ? "dialog" : undefined}
           className="channels-account"
           type="button"
           onClick={onAccount}
