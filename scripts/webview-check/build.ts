@@ -26,6 +26,8 @@ export async function buildWebviewFixture(
           ...appConfig.app.windows[0],
           label: "main",
           visible: platform === "android",
+          // Keep layout observers running in the hidden macOS test window.
+          ...(platform === "macos" && { backgroundThrottling: "disabled" }),
         },
       ],
       ...(platform === "macos" && {
