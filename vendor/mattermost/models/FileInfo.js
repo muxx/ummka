@@ -22,6 +22,8 @@ export function FileInfoFromJSONTyped(json, ignoreDiscriminator) {
         'width': json['width'] == null ? undefined : json['width'],
         'height': json['height'] == null ? undefined : json['height'],
         'hasPreviewImage': json['has_preview_image'] == null ? undefined : json['has_preview_image'],
+        'channelId': json['channel_id'] == null ? undefined : json['channel_id'],
+        'archived': json['archived'] == null ? undefined : json['archived'],
     };
 }
 export function FileInfoToJSON(json) {
@@ -45,5 +47,7 @@ export function FileInfoToJSONTyped(value, ignoreDiscriminator = false) {
         'width': value['width'],
         'height': value['height'],
         'has_preview_image': value['hasPreviewImage'],
+        'channel_id': value['channelId'],
+        'archived': value['archived'],
     };
 }

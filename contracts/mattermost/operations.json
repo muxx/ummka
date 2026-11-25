@@ -156,6 +156,20 @@
     "body": "json"
   },
   {
+    "file": "files.yaml",
+    "method": "POST",
+    "path": "/api/v4/teams/{team_id}/files/search",
+    "id": "SearchFiles",
+    "body": "json"
+  },
+  {
+    "file": "files.yaml",
+    "method": "POST",
+    "path": "/api/v4/files/search",
+    "id": "SearchFilesInAllTeams",
+    "body": "json"
+  },
+  {
     "file": "channels.yaml",
     "method": "POST",
     "path": "/api/v4/channels/members/{user_id}/view",

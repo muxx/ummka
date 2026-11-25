@@ -12,6 +12,8 @@ export interface FileInfo {
     width?: number;
     height?: number;
     hasPreviewImage?: boolean;
+    channelId?: string;
+    archived?: boolean;
 }
 export declare function instanceOfFileInfo(value: object): value is FileInfo;
 export declare function FileInfoFromJSON(json: any): FileInfo;

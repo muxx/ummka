@@ -22,6 +22,10 @@ import {
   correctExecuteCommand,
 } from "./command-corrections.ts";
 import {
+  correctFileModel,
+  correctFileSearch,
+} from "./file-search-corrections.ts";
+import {
   checkChannelGroupMap,
   correctAssociatedGroup,
   correctGroupAssociations,
@@ -159,6 +163,12 @@ export function buildSpecification(
         source,
         read("definitions-12.1.0.yaml"),
       );
+    else if (name === "FileInfo" || name === "FileInfoList")
+      group[name] = correctFileModel(
+        name,
+        source,
+        read("definitions-12.1.0.yaml"),
+      );
     else if (name === "PostListWithSearchMatches")
       group[name] = correctPostSearchResults(
         source,
@@ -232,14 +242,19 @@ export function buildSpecification(
       throw new Error(`Expected a REST v4 path: ${path}`);
     const sourcePath = object(read(file)[path], path);
     const originalOperation = object(sourcePath[method], `${method} ${path}`);
-    const operation =
-      id === "SetPostUnread"
-        ? correctSetPostUnread(
-            originalOperation,
-            read("posts-12.1.0.yaml"),
-            path,
-          )
-        : originalOperation;
+    let operation = originalOperation;
+    if (id === "SetPostUnread")
+      operation = correctSetPostUnread(
+        originalOperation,
+        read("posts-12.1.0.yaml"),
+        path,
+      );
+    else if (id === "SearchFiles" || id === "SearchFilesInAllTeams")
+      operation = correctFileSearch(
+        path,
+        originalOperation,
+        read("files-12.1.0.yaml"),
+      );
     if (operation.operationId !== id)
       throw new Error(`Expected operation ${id} at ${method} ${path}`);
     if (id === "GetReactions" || id === "DeleteReaction") {

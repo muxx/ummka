@@ -30,6 +30,7 @@ import {
 import { checkChannelAudience } from "./channel-audience.ts";
 import { checkCommands } from "./commands.ts";
 import { checkEventStream } from "./event-stream.ts";
+import { checkFileSearch } from "./file-search.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
 import {
   checkChannelRoster,
@@ -570,6 +571,15 @@ const extraTeam = await (
 await checkPostSearch(
   session,
   new Configuration({ basePath: base, accessToken: readerToken }),
+  team.id,
+  channelId,
+  extraTeam.id,
+  version,
+);
+await checkFileSearch(
+  session,
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  authorization,
   team.id,
   channelId,
   extraTeam.id,
