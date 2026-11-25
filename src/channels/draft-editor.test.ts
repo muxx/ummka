@@ -7,6 +7,7 @@ const empty = { message: "", revision: null };
 function storage(initial: ComposerDraft = empty) {
   return {
     readDraft: vi.fn().mockResolvedValue(initial),
+    submitDraft: vi.fn(),
     saveDraft: vi
       .fn()
       .mockImplementation(async ({ message }: { message: string }) => ({

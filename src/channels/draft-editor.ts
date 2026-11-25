@@ -6,13 +6,14 @@ import type {
 
 type DraftStorage = Pick<
   Awaited<ReturnType<typeof openAccountRestConnection>>,
-  "readDraft" | "saveDraft"
+  "readDraft" | "saveDraft" | "submitDraft"
 >;
 
 type EditorState = {
   message: string;
   stored: ComposerDraft;
   conflict: boolean;
+  submitting: boolean;
   error: unknown;
 };
 
@@ -27,11 +28,14 @@ export async function openDraftEditor(
     message: stored.message,
     stored,
     conflict: false,
+    submitting: false,
     error: null,
   };
   const listeners = new Set<() => void>();
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let active: { kind: "read" | "write"; done: Promise<void> } | undefined;
+  let active:
+    | { kind: "read" | "write" | "submit"; done: Promise<unknown> }
+    | undefined;
 
   function publish(next: EditorState) {
     state = next;
@@ -43,7 +47,10 @@ export async function openDraftEditor(
     timer = undefined;
   }
 
-  function start(kind: "read" | "write", operation: () => Promise<void>) {
+  function start<T>(
+    kind: "read" | "write" | "submit",
+    operation: () => Promise<T>,
+  ) {
     const done = operation().finally(() => {
       active = undefined;
     });
@@ -72,8 +79,9 @@ export async function openDraftEditor(
 
   function flush(): Promise<void> {
     unschedule();
-    // A failed foreground read cannot cancel a pending compare-and-save.
-    if (active?.kind === "read") return active.done.then(flush, flush);
+    // A different device operation cannot cancel a queued compare-and-save.
+    if (active && active.kind !== "write")
+      return active.done.then(flush, flush);
     if (active) return active.done.then(flush);
     if (state.conflict || state.message === state.stored.message)
       return Promise.resolve();
@@ -91,7 +99,7 @@ export async function openDraftEditor(
       conflict,
       error: matches ? null : state.error,
     });
-    if (!conflict && (!matches || active?.kind === "write")) {
+    if (!conflict && (!matches || (active && active.kind !== "read"))) {
       // Observers receive storage errors in the snapshot, including a timer-driven write.
       timer = setTimeout(() => {
         void flush().catch(() => {});
@@ -100,7 +108,7 @@ export async function openDraftEditor(
   }
 
   function refresh(): Promise<void> {
-    if (active?.kind === "read") return active.done;
+    if (active?.kind === "read") return active.done.then(() => {});
     if (active) return active.done.then(refresh);
     return start("read", async () => {
       let latest: ComposerDraft;
@@ -118,6 +126,7 @@ export async function openDraftEditor(
       unschedule();
       const conflict = !clean && latest.message !== state.message;
       publish({
+        ...state,
         message: conflict ? state.message : latest.message,
         stored: latest,
         conflict,
@@ -135,6 +144,57 @@ export async function openDraftEditor(
       conflict: false,
       error: null,
     });
+  }
+
+  async function submit() {
+    const intended = state.message;
+    const unchanged = { kind: "unchanged" } as const;
+    if (state.submitting || state.conflict || !intended.trim())
+      return unchanged;
+    unschedule();
+    publish({ ...state, submitting: true });
+    try {
+      // Use the same queue as autosave and focus refresh until SQLite finishes the handoff.
+      // The separate HTTP completion never holds this queue.
+      while (active) {
+        const pending = active;
+        if (pending.kind === "read") await pending.done.catch(() => {});
+        else await pending.done;
+      }
+      if (state.conflict || state.message !== intended) return unchanged;
+      return await start("submit", async () => {
+        if (state.stored.message !== intended) await saveCurrent();
+        const revision = state.stored.revision;
+        if (
+          state.conflict ||
+          state.message !== intended ||
+          state.stored.message !== intended ||
+          revision === null
+        )
+          return unchanged;
+        const result = await storage.submitDraft({ ...key, revision });
+        if (result.kind === "offline") return result;
+        const typed = state.message !== intended;
+        const conflict =
+          result.kind === "notStaged" &&
+          typed &&
+          state.message !== result.draft.message;
+        if (conflict || !typed) unschedule();
+        publish({
+          ...state,
+          message: typed ? state.message : result.draft.message,
+          stored: result.draft,
+          conflict,
+          error: null,
+        });
+        return result;
+      });
+    } catch (error) {
+      publish({ ...state, error });
+      throw error;
+    } finally {
+      publish({ ...state, submitting: false });
+    }
   }
 
   function keepLocal(seenRevision: string | null): Promise<void> {
@@ -160,6 +220,7 @@ export async function openDraftEditor(
       };
     },
     edit,
+    submit,
     flush,
     refresh,
     takeStored,

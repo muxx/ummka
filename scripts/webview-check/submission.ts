@@ -1,3 +1,4 @@
+import { openDraftEditor } from "../../src/channels/draft-editor.ts";
 import { openAccountRestConnection } from "../../src/mattermost/native-rest.ts";
 
 type Account = Awaited<ReturnType<typeof openAccountRestConnection>>;
@@ -17,9 +18,16 @@ async function edit(account: Account, message: string, root?: string) {
   return { ...location, revision: saved.draft.revision };
 }
 async function start(account: Account, message: string, root?: string) {
-  const started = await account.submitDraft(await edit(account, message, root));
+  const editor = await openDraftEditor(account, { channelId, rootId: root });
+  editor.edit(message);
+  const started = await editor.submit();
   if (started.kind !== "sending")
     throw Error("A fresh saved draft should start one request");
+  if (
+    editor.getSnapshot().message !== "" ||
+    editor.getSnapshot().stored.clearedBySubmission !== true
+  )
+    throw Error("The editor did not accept its local submission");
   return started;
 }
 
@@ -31,15 +39,19 @@ export async function checkSubmissions(
 ) {
   const neighbor = await openAccountRestConnection(prefixed.basePath, userId);
   try {
-    const draft = await edit(prefixed, "  **First** 🐻‍❄️\n");
-    const results = await Promise.all(
-      [prefixed, neighbor].map((account) => account.submitDraft(draft)),
+    await edit(prefixed, "  **First** 🐻‍❄️\n");
+    const editors = await Promise.all(
+      [prefixed, neighbor].map((account) =>
+        openDraftEditor(account, { channelId }),
+      ),
     );
+    const results = await Promise.all(editors.map((editor) => editor.submit()));
     const started = results.find((r) => r.kind === "sending");
     if (
       !started ||
       !results.some((r) => r.kind === "notStaged") ||
-      started.draft.message !== ""
+      started.draft.message !== "" ||
+      editors.some((editor) => editor.getSnapshot().message !== "")
     )
       throw Error("Exactly one window should send before the HTTP result");
     await control("received", "submit-post");
@@ -54,6 +66,14 @@ export async function checkSubmissions(
       waiting[0].pendingId !== started.post.pendingId
     )
       throw Error("The message must be durable while HTTP is still held");
+    editors[0].edit("The next draft while the server is replying");
+    await editors[0].flush();
+    await editors[1].refresh();
+    if (
+      editors[1].getSnapshot().message !==
+      "The next draft while the server is replying"
+    )
+      throw Error("The network response blocked the next local draft");
     await control("release-submission", "submit-post");
     const accepted = await started.completion;
     if (
