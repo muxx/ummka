@@ -323,6 +323,7 @@ test("opens a native account by installation and user ID", async () => {
     "readPostDestination",
     "readPostReactions",
     "readPostSearchPage",
+    "readSavedPost",
     "readSavedProfiles",
     "readSavedTeamRoles",
     "readTeamDirectory",
@@ -349,7 +350,9 @@ test("opens a native account by installation and user ID", async () => {
     "signOutOnDevice",
     "stagePost",
     "submitDraft",
+    "submitDraftCommand",
     "subscribeToPostActivity",
+    "transitionDraftCommand",
   ]);
 });
 
@@ -793,6 +796,41 @@ test("closing an account discards its pending reaction confirmation", async () =
   }
 });
 
+test("the signed connection supplies its own user and discards a late membership result after close", async () => {
+  const userId = "u".repeat(26);
+  const target = { kind: "team" as const, id: "t".repeat(26) };
+  ipc.mockResolvedValueOnce(19);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    userId,
+  );
+  let finish!: () => void;
+  const mutate = vi.spyOn(membership, "changeOwnMembership").mockImplementation(
+    () =>
+      new Promise((accept) => {
+        finish = () => accept({ kind: "applied" });
+      }),
+  );
+  try {
+    const change = account.changeOwnMembership(target, "join");
+    expect(mutate).toHaveBeenCalledExactlyOnceWith(
+      expect.anything(),
+      userId,
+      target,
+      "join",
+    );
+    await account.close();
+    finish();
+    await expect(change).rejects.toBe("cancelled");
+    await expect(account.changeOwnMembership(target, "leave")).rejects.toBe(
+      "unknown_connection",
+    );
+    expect(mutate).toHaveBeenCalledTimes(1);
+  } finally {
+    mutate.mockRestore();
+  }
+});
+
 test("a post destination from a retired account cannot open in the replacement window", async () => {
   ipc.mockResolvedValueOnce(42);
   const account = await openAccountRestConnection(
@@ -826,40 +864,5 @@ test("a post destination from a retired account cannot open in the replacement w
     expect(call).toHaveBeenCalledOnce();
   } finally {
     call.mockRestore();
-  }
-});
-
-test("the signed connection supplies its own user and discards a late membership result after close", async () => {
-  const userId = "u".repeat(26);
-  const target = { kind: "team" as const, id: "t".repeat(26) };
-  ipc.mockResolvedValueOnce(19);
-  const account = await openAccountRestConnection(
-    "https://chat.example.test",
-    userId,
-  );
-  let finish!: () => void;
-  const mutate = vi.spyOn(membership, "changeOwnMembership").mockImplementation(
-    () =>
-      new Promise((accept) => {
-        finish = () => accept({ kind: "applied" });
-      }),
-  );
-  try {
-    const change = account.changeOwnMembership(target, "join");
-    expect(mutate).toHaveBeenCalledExactlyOnceWith(
-      expect.anything(),
-      userId,
-      target,
-      "join",
-    );
-    await account.close();
-    finish();
-    await expect(change).rejects.toBe("cancelled");
-    await expect(account.changeOwnMembership(target, "leave")).rejects.toBe(
-      "unknown_connection",
-    );
-    expect(mutate).toHaveBeenCalledTimes(1);
-  } finally {
-    mutate.mockRestore();
   }
 });
