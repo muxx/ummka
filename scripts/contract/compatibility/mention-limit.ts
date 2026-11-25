@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
-import type {
-  ChannelsApi,
-  PostsApi,
+import { readPostMentionDecision } from "../../../src/channels/post-mention-decision.ts";
+import { accountChannelAudience } from "../../../src/mattermost/channel-audience.ts";
+import { accountMentionGroups } from "../../../src/mattermost/mention-group-reads.ts";
+import {
+  type ChannelsApi,
+  Configuration,
+  type PostsApi,
 } from "../../../vendor/mattermost/index.js";
 
 /** Exercise the actual notification gate, which differs from the sender's informational warning. */
@@ -19,6 +23,14 @@ export async function checkMentionLimit(
   };
   const config = await fetch(`${base}/api/v4/config`, { headers });
   assert.equal(config.status, 200);
+  const session = new Configuration({
+    basePath: base,
+    accessToken: adminToken,
+  });
+  const account = {
+    ...accountChannelAudience(session, (read) => read()),
+    ...accountMentionGroups(session, (read) => read()),
+  };
   const original = (await config.json()).TeamSettings
     .MaxNotificationsPerChannel;
   assert.ok(Number.isSafeInteger(original));
@@ -47,6 +59,28 @@ export async function checkMentionLimit(
   try {
     for (const limit of [members + 1, members, members - 1]) {
       await setLimit(limit);
+      const decision = await readPostMentionDecision(
+        account,
+        { id: channelId },
+        null,
+        { channel: ["@all"], groupCandidates: [] },
+        {
+          maxNotificationsPerChannel: BigInt(limit),
+          confirmNotifications: true,
+          canMentionChannel: true,
+          canMentionGroups: false,
+          customGroups: false,
+          ldapGroups: false,
+        },
+      );
+      assert.equal(decision.kind, "ready");
+      if (decision.kind !== "ready") throw Error("Unexpected scope refresh");
+      assert.deepEqual(
+        decision.suppression,
+        members < limit
+          ? null
+          : { kind: "limit", members, maximum: BigInt(limit) },
+      );
       const before = await get();
       await posts.createPost({
         createPostRequest: { channelId, message: "Boundary @all" },

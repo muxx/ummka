@@ -1,7 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
+import { composerPostMentions } from "../../src/channels/composer-mentions.ts";
 import { resolveComposerSubmission } from "../../src/channels/composer-submission.ts";
-import { readBroadcastDecision } from "../../src/channels/broadcast-audience.ts";
 import { readGroupMentionAudience } from "../../src/channels/group-mention-audience.ts";
+import { readPostMentionDecision } from "../../src/channels/post-mention-decision.ts";
 import { inspectInstallation } from "../../src/mattermost/inspect-installation.ts";
 import {
   openAccountRestConnection,
@@ -298,21 +299,26 @@ export async function checkGeneratedRequests(ports: string[]) {
     );
     const teamId = "Team0123456789012345678901";
     const channelId = "c".repeat(26);
-    const broadcast = await readBroadcastDecision(
+    const broadcast = await readPostMentionDecision(
       accountPrefix,
-      channelId,
-      ["@here"],
+      { id: channelId, groupConstrained: true },
+      { id: teamId, groupConstrained: true },
+      composerPostMentions("Ready @here and @release-qa"),
       {
         confirmNotifications: true,
         maxNotificationsPerChannel: 100n,
         canMentionChannel: true,
-        canMentionGroups: false,
+        canMentionGroups: true,
+        ldapGroups: true,
+        customGroups: false,
       },
     );
     check(
-      broadcast.confirmation?.kind === "here" &&
+      broadcast.kind === "ready" &&
+        broadcast.confirmation?.kind === "here" &&
         broadcast.confirmation.members === 29 &&
-        broadcast.confirmation.timezones === 2,
+        broadcast.confirmation.timezones === 2 &&
+        broadcast.suppression === null,
       "account-broadcast-confirmation",
     );
     const audience = await readGroupMentionAudience(
