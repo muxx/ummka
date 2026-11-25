@@ -8,7 +8,8 @@ use reqwest::{Method, Url};
 pub(super) const CALLBACK: &str = "io.github.muxx.ummka.auth://callback";
 const MAX_CALLBACK_BYTES: usize = 16 * 1024;
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum BrowserProvider {
     GitLab,
     Google,

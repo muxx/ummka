@@ -15,7 +15,8 @@ pub(crate) mod checks;
 #[cfg(target_os = "macos")]
 mod macos;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PresentationError {
     Busy,
     Cancelled,
@@ -64,7 +65,7 @@ impl Presentations {
             .map(|slot| slot.id)
     }
 
-    fn deliver(&self, id: Uuid, result: Returned) {
+    fn deliver(&self, id: Uuid, result: Returned) -> bool {
         let mut state = self.0.lock().expect("browser presentation mutex poisoned");
         if let Some(sender) = state
             .as_mut()
@@ -72,7 +73,9 @@ impl Presentations {
             .and_then(|slot| slot.result.take())
         {
             let _ = sender.send(result);
+            return true;
         }
+        false
     }
 
     /// Returns true if an unfinished system dialog still needs to be dismissed.
@@ -105,10 +108,17 @@ fn dismiss<R: Runtime>(_app: &AppHandle<R>, _id: Uuid) {
     android::dismiss(_app, _id);
 }
 
+pub(crate) fn cancel<R: Runtime>(app: &AppHandle<R>, id: Uuid) -> bool {
+    let cancelled = PRESENTATION.deliver(id, Err(PresentationError::Cancelled));
+    if cancelled {
+        dismiss(app, id);
+    }
+    cancelled
+}
+
 pub(crate) fn owner_closed<R: Runtime>(app: &AppHandle<R>) {
     if let Some(id) = PRESENTATION.waiting() {
-        PRESENTATION.deliver(id, Err(PresentationError::Cancelled));
-        dismiss(app, id);
+        cancel(app, id);
     }
 }
 
@@ -118,8 +128,9 @@ impl BrowserSignIn {
         self,
         window: &WebviewWindow<R>,
         sessions: &AccountSessions,
+        on_reserved: impl FnOnce(Uuid) -> Result<(), PresentationError>,
     ) -> Result<Account, SystemSignInError> {
-        let (_owner, receive) = begin(window, self.browser_url())
+        let (_owner, receive) = begin(window, self.browser_url(), on_reserved)
             .await
             .map_err(SystemSignInError::Browser)?;
         let result = receive
@@ -135,6 +146,7 @@ impl BrowserSignIn {
 async fn begin<R: Runtime>(
     window: &WebviewWindow<R>,
     url: reqwest::Url,
+    on_reserved: impl FnOnce(Uuid) -> Result<(), PresentationError>,
 ) -> Result<(Owner<R>, oneshot::Receiver<Returned>), PresentationError> {
     use tauri::Manager;
     let (id, receive) = PRESENTATION.reserve()?;
@@ -142,6 +154,7 @@ async fn begin<R: Runtime>(
         app: window.app_handle().clone(),
         id,
     };
+    on_reserved(id)?;
     open(window, id, url).await?;
     Ok((owner, receive))
 }

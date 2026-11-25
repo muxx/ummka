@@ -45,6 +45,35 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
+    fn explicit_open_is_atomic_for_new_and_known_installations() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("installations.sqlite");
+        let a = "https://chat.example.test/a";
+        let b = "https://chat.example.test/b";
+        let c = "https://chat.example.test/c";
+        let registry = InstallationRegistry::open(&path).unwrap();
+        registry.connect(a).unwrap();
+        registry.connect(b).unwrap();
+        registry.connect(a).unwrap();
+        registry.connect(a).unwrap();
+        let before = InstallationRegistry::read_selection(&path).unwrap();
+        assert_eq!(before.installations, [a, b]);
+        assert_eq!(before.selected.as_deref(), Some(a));
+        // Fail the second statement after clearing the previous selection.
+        registry
+            .connection
+            .execute_batch(
+                "CREATE TEMP TRIGGER reject_open BEFORE INSERT ON installations
+             BEGIN SELECT RAISE(ABORT, 'failed insert'); END;",
+            )
+            .unwrap();
+        assert_eq!(registry.connect(c), Err(RegistryError::Storage));
+        assert_eq!(registry.connect(b), Err(RegistryError::Storage));
+        drop(registry);
+        assert_eq!(InstallationRegistry::read_selection(&path).unwrap(), before);
+    }
+
+    #[test]
     fn remembers_and_forgets_across_reopens() {
         let dir = tempdir().unwrap();
         round_trip(&dir.path().join("installations.sqlite")).unwrap();

@@ -1,7 +1,9 @@
 import { getDeviceLaunchContext } from "../../src/mattermost/device-launch.ts";
 import {
+  connectInstallation,
   forgetInstallation,
   listInstallations,
+  readInstallationSelection,
   rememberInstallation,
   selectInstallation,
 } from "../../src/mattermost/installation-registry.ts";
@@ -140,9 +142,12 @@ export async function resumeRegistryCheck(): Promise<boolean> {
 }
 
 export async function seedRegistry() {
-  await rememberInstallation(second);
-  await rememberInstallation(first);
-  await selectInstallation(first);
+  await connectInstallation(second);
+  await connectInstallation(first);
+  const added = await readInstallationSelection();
+  if (added.selected !== first) throw Error("new installation was not opened");
+  await selectInstallation(second);
+  await connectInstallation(first);
   const urls = await listInstallations();
   if (urls.length !== 2 || urls[0] !== first || urls[1] !== second) {
     throw Error("registry seed failed");

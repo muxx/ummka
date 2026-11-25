@@ -512,6 +512,7 @@ export function webviewServers(
         "my-team-members",
         "sidebar-preferences",
       );
+      if (platform === "android") expected.push("browser-action-confirmed");
       assert.deepEqual(visits.sort(), expected.sort());
     },
   };

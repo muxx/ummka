@@ -1,0 +1,7 @@
+{
+  "identifier": "main-browser-sign-in",
+  "description": "The local main window may start and cancel its system browser sign-in.",
+  "local": true,
+  "webviews": ["main"],
+  "permissions": ["allow-sign-in-with-browser", "allow-cancel-browser-sign-in"]
+}

@@ -40,8 +40,11 @@ pub(crate) fn run(mut context: Context<Wry>, mode: &str) {
 
 async fn check_started(window: WebviewWindow, url: reqwest::Url) {
     let check = async {
-        let (_owner, received) = begin(&window, url.clone()).await?;
-        if !matches!(begin(&window, url).await, Err(PresentationError::Busy)) {
+        let (_owner, received) = begin(&window, url.clone(), |_| Ok(())).await?;
+        if !matches!(
+            begin(&window, url, |_| Ok(())).await,
+            Err(PresentationError::Busy)
+        ) {
             return Err(PresentationError::Unavailable);
         }
         owner_closed(window.app_handle());

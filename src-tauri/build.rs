@@ -22,9 +22,12 @@ fn main() {
         "send_rest_request",
         "read_rest_body",
         "cancel_rest_request",
+        "sign_in_with_browser",
+        "cancel_browser_sign_in",
         "list_installations",
         "read_installation_selection",
         "select_installation",
+        "connect_installation",
         "remember_installation",
         "forget_installation",
     ]);

@@ -1,5 +1,6 @@
 mod app_error;
 pub mod authentication;
+mod browser_ipc;
 mod channels_links;
 pub mod credentials;
 pub mod history;
@@ -48,9 +49,12 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
             rest_ipc::send_rest_request,
             rest_ipc::read_rest_body,
             rest_ipc::cancel_rest_request,
+            browser_ipc::sign_in_with_browser,
+            browser_ipc::cancel_browser_sign_in,
             registry_ipc::list_installations,
             registry_ipc::read_installation_selection,
             registry_ipc::select_installation,
+            registry_ipc::connect_installation,
             registry_ipc::remember_installation,
             registry_ipc::forget_installation
         ])
@@ -71,6 +75,10 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
         .on_page_load(|webview, load| {
             if load.event() == tauri::webview::PageLoadEvent::Started {
                 rest_ipc::clear_connections(webview);
+                if webview.label() == "main" {
+                    use tauri::Manager;
+                    authentication::system_browser::owner_closed(webview.app_handle());
+                }
             }
             #[cfg(feature = "webview-check")]
             if load.event() == tauri::webview::PageLoadEvent::Finished {

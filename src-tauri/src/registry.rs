@@ -127,11 +127,22 @@ impl InstallationRegistry {
         Ok(())
     }
 
+    pub fn connect(&self, url: &str) -> Result<(), RegistryError> {
+        self.change_selection(
+            url,
+            "INSERT INTO installations (url, active) VALUES (?1, 1) ON CONFLICT(url) DO UPDATE SET active = 1",
+        )
+    }
+
     pub fn select(&self, url: &str) -> Result<(), RegistryError> {
+        self.change_selection(url, "UPDATE installations SET active = 1 WHERE url = ?1")
+    }
+
+    fn change_selection(&self, url: &str, write: &str) -> Result<(), RegistryError> {
         parse_canonical(url).ok_or(RegistryError::InvalidInstallation)?;
         let tx = Transaction::new_unchecked(&self.connection, TransactionBehavior::Immediate)?;
         tx.execute("UPDATE installations SET active = 0 WHERE active = 1", [])?;
-        if tx.execute("UPDATE installations SET active = 1 WHERE url = ?1", [url])? == 0 {
+        if tx.execute(write, [url])? == 0 {
             return Err(RegistryError::UnknownInstallation);
         }
         tx.commit()?;
