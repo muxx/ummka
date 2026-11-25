@@ -3,7 +3,7 @@ import { openSearchResults } from "../../../src/channels/search-results-session.
 import { accountSearch } from "../../../src/mattermost/account-search.ts";
 import {
   ChannelsApi,
-  type Configuration,
+  Configuration,
   FilesApi,
   PostsApi,
   ResponseError,
@@ -26,6 +26,7 @@ export async function checkFileSearch(
   const other = channels.find((channel) => channel.name === "town-square");
   assert.ok(other?.id);
   const posts = new PostsApi(session);
+  const owner = new FilesApi(session);
   async function attach(channel: string, number: number) {
     const data = new FormData();
     const name = `${terms}-${number}.txt`;
@@ -43,6 +44,12 @@ export async function checkFileSearch(
     assert.equal(upload.status, 201, "Upload fixture attachment");
     const id: unknown = (await upload.json()).file_infos[0].id;
     assert.ok(typeof id === "string" && id.length === 26);
+    const uploaded = await owner.getFileInfoRaw({ fileId: id });
+    assert.equal(uploaded.raw.status, 200);
+    const unattached = await uploaded.value();
+    assert.equal(unattached.id, id);
+    assert.equal(unattached.name, name);
+    assert.equal(unattached.postId, undefined);
     const post = await posts.createPost({
       createPostRequest: {
         channelId: channel,
@@ -51,12 +58,28 @@ export async function checkFileSearch(
       },
     });
     assert.ok(post.id);
+    const attached = await owner.getFileInfo({ fileId: id });
+    assert.equal(attached.id, id);
+    assert.equal(attached.channelId, channel);
+    assert.equal(attached.postId, post.id);
     return { id, postId: post.id, name };
   }
   const first = await attach(channelId, 1);
   const second = await attach(other.id, 2);
-  const owner = new FilesApi(session);
   const reader = new FilesApi(readerSession);
+  const anonymous = new FilesApi(
+    new Configuration({ basePath: session.basePath }),
+  );
+  await assert.rejects(
+    anonymous.getFileInfo({ fileId: first.id }),
+    (error: unknown) =>
+      error instanceof ResponseError && error.response.status === 401,
+  );
+  await assert.rejects(
+    reader.getFileInfo({ fileId: second.id }),
+    (error: unknown) =>
+      error instanceof ResponseError && error.response.status === 403,
+  );
   const params = { terms, isOrSearch: false };
   const scope = (api: FilesApi, id: string) =>
     api.searchFiles({ teamId: id, searchFilesRequest: params });
