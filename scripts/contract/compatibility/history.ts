@@ -44,6 +44,7 @@ import { checkCommands } from "./commands.ts";
 import { checkCustomEmojiLookup } from "./custom-emoji.ts";
 import { checkEventStream } from "./event-stream.ts";
 import { checkFileSearch } from "./file-search.ts";
+import { checkFocusedConversation } from "./focused-conversation.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
 import { checkJoinPostTarget } from "./join-post-target.ts";
 import {
@@ -1210,6 +1211,16 @@ console.log(
 await checkEventStream(base, token, session, team.id, channelId);
 console.log(
   `Mattermost ${version} verified sequenced posts, command replies and replay of a post after reconnect.`,
+);
+
+await checkFocusedConversation(memberPosts, readerPosts, closed.id, () =>
+  new ChannelsApi(session).removeUserFromChannel({
+    channelId: closed.id,
+    userId: reader.id,
+  }),
+);
+console.log(
+  `Mattermost ${version} verified focused channel windows for roots and a reply beyond the first thread page, including subsequent loss of channel access.`,
 );
 
 const secondLogin = await create("users/login", {
