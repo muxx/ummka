@@ -8,6 +8,18 @@ export function respondToAccount(
   firstId: string,
   event: (name: string) => void,
 ): string | undefined {
+  if (url.pathname === "/browser-action-check/api/v4/users/me") {
+    assert.equal(request.method, "GET");
+    assert.equal(
+      request.headers.authorization,
+      "Bearer fixture-browser-action",
+    );
+    assert.equal(request.headers.cookie, undefined);
+    assert.equal(url.search, "");
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ id: "f".repeat(26) }));
+    return "browser-action-confirmed";
+  }
   if (url.pathname === "/vault-refusal/api/v4/users/logout") {
     assert.equal(request.method, "POST");
     assert.equal(url.search, "");

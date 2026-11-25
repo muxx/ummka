@@ -91,7 +91,7 @@ fn address(action: &str) -> reqwest::Url {
 }
 
 async fn late_result<R: Runtime>(window: &WebviewWindow<R>) -> bool {
-    let Ok((old, old_result)) = begin(window, address("late")).await else {
+    let Ok((old, old_result)) = begin(window, address("late"), |_| Ok(())).await else {
         return false;
     };
     OLD_PROVIDER_READY.notified().await;
@@ -123,6 +123,6 @@ async fn late_result<R: Runtime>(window: &WebviewWindow<R>) -> bool {
 
 async fn request<R: Runtime>(window: &WebviewWindow<R>, action: &str) -> Returned {
     let url = address(action);
-    let (_owner, received) = begin(window, url).await?;
+    let (_owner, received) = begin(window, url, |_| Ok(())).await?;
     received.await.map_err(|_| PresentationError::Unavailable)?
 }

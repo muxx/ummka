@@ -19,6 +19,27 @@ class BrowserCheckActivity : Activity() {
         if (intent.getBooleanExtra(AuthTabIntent.EXTRA_LAUNCH_AUTH_TAB, false) &&
             intent.getStringExtra(AuthTabIntent.EXTRA_REDIRECT_SCHEME) == scheme
         ) {
+            val start = intent.data
+            if (start?.scheme == "https" && start.host == "127.0.0.1" && start.port > 0 &&
+                start.path == "/browser-action-check/oauth/gitlab/mobile_login" &&
+                start.getQueryParameter("redirect_to") == "$scheme://callback"
+            ) {
+                val callback = Uri.parse("$scheme://callback").buildUpon()
+                    .appendQueryParameter("MMAUTHTOKEN", "fixture-browser-action")
+                    .appendQueryParameter("MMCSRF", "fixture-browser-csrf")
+                    .appendQueryParameter("srv", "https://127.0.0.1:${start.port}/browser-action-check")
+                    .build()
+                setResult(RESULT_OK, Intent().setData(callback))
+                finish()
+                return
+            }
+            if (start?.scheme == "https" && start.host == "127.0.0.1" && start.port > 0 &&
+                start.path == "/browser-action-check/oauth/google/mobile_login" &&
+                start.getQueryParameter("redirect_to") == "$scheme://callback"
+            ) {
+                // Leave this request pending so the main WebView can cancel it.
+                return
+            }
             when (intent.dataString) {
                 "https://127.0.0.1/ummka-browser-check/return" ->
                     setResult(RESULT_OK, Intent().setData(Uri.parse("$scheme://callback?fixture=returned")))
