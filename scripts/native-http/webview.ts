@@ -9,6 +9,7 @@ import { respondToChannelView } from "./channel-view.ts";
 import { respondToHistory } from "./history.ts";
 import { historyRefreshFixture } from "./history-refresh.ts";
 import { respondToPostContext } from "./post-context.ts";
+import { respondToPostMutation } from "./post-mutations.ts";
 import { respondToWorkspace } from "./workspace.ts";
 
 export function webviewServers(
@@ -243,6 +244,17 @@ export function webviewServers(
           status_code: 503,
         }),
       );
+      return;
+    }
+    const mutation = await respondToPostMutation(
+      req,
+      res,
+      url,
+      channelId,
+      userId,
+    );
+    if (mutation) {
+      visits.push(mutation);
       return;
     }
     const workspace = await respondToWorkspace(req, res, url, userId);
@@ -584,6 +596,10 @@ export function webviewServers(
         "team-memberships",
         "sidebar-categories",
         "sidebar-preferences",
+        "create-post-root",
+        "create-post-reply",
+        "patch-post",
+        "delete-post",
         "bulk-channel-view",
         "single-channel-view",
         "set-post-unread",

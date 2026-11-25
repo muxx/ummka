@@ -117,5 +117,25 @@
     "path": "/api/v4/users/{user_id}/posts/{post_id}/set_unread",
     "id": "SetPostUnread",
     "body": "json"
+  },
+  {
+    "file": "posts.yaml",
+    "method": "POST",
+    "path": "/api/v4/posts",
+    "id": "CreatePost",
+    "body": "json"
+  },
+  {
+    "file": "posts.yaml",
+    "method": "PUT",
+    "path": "/api/v4/posts/{post_id}/patch",
+    "id": "PatchPost",
+    "body": "json"
+  },
+  {
+    "file": "posts.yaml",
+    "method": "DELETE",
+    "path": "/api/v4/posts/{post_id}",
+    "id": "DeletePost"
   }
 ]

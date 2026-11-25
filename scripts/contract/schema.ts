@@ -20,6 +20,10 @@ import {
   postInfoSchema,
 } from "./post-info-correction.ts";
 import {
+  correctCreatePost,
+  correctPatchPost,
+} from "./post-mutation-corrections.ts";
+import {
   correctProfileImage,
   correctUserProfile,
 } from "./profile-corrections.ts";
@@ -166,6 +170,16 @@ export function buildSpecification(
         operation,
         read("posts-12.1.0.yaml"),
         path,
+      );
+    else if (id === "CreatePost")
+      paths[path][method] = correctCreatePost(
+        operation,
+        read("posts-12.1.0.yaml"),
+      );
+    else if (id === "PatchPost")
+      paths[path][method] = correctPatchPost(
+        operation,
+        read("posts-12.1.0.yaml"),
       );
     else if (id === "ViewChannel")
       paths[path][method] = correctChannelView(

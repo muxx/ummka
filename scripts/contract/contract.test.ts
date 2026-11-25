@@ -28,6 +28,10 @@ import {
   postInfoSchema,
 } from "./post-info-correction.ts";
 import {
+  correctCreatePost,
+  correctPatchPost,
+} from "./post-mutation-corrections.ts";
+import {
   correctProfileImage,
   correctUserProfile,
 } from "./profile-corrections.ts";
@@ -157,6 +161,56 @@ const definitionPaths = [
   ["components", "responses", "Unauthorized"],
   ["components", "responses", "NotFound"],
 ];
+
+test("create-post correction detects changes in either tagged source", () => {
+  const route = "/api/v4/posts";
+  const old = at(read("posts.yaml"), [route, "post"]);
+  const reference = read("posts-12.1.0.yaml");
+  const props = [
+    "requestBody",
+    "content",
+    "application/json",
+    "schema",
+    "properties",
+  ];
+  for (const changedVersion of ["baseline", "reference"]) {
+    const before = structuredClone(object(old, route));
+    const after = structuredClone(reference);
+    const changed =
+      changedVersion === "baseline" ? before : at(after, [route, "post"]);
+    object(at(changed, props), "properties").pending_post_id = {
+      type: "string",
+    };
+    assert.throws(() => correctCreatePost(before, after), /Review CreatePost/);
+  }
+});
+
+test("a corrected upstream patch-body type requires rechecking the local correction", () => {
+  const route = "/api/v4/posts/{post_id}/patch";
+  const source = object(at(read("posts.yaml"), [route, "put"]), route);
+  const newer = read("posts-12.1.0.yaml");
+  for (const version of ["baseline", "reference"]) {
+    const baseline = structuredClone(source);
+    const reference = structuredClone(newer);
+    const changed =
+      version === "baseline" ? baseline : at(reference, [route, "put"]);
+    object(
+      at(changed, [
+        "requestBody",
+        "content",
+        "application/json",
+        "schema",
+        "properties",
+        "props",
+      ]),
+      "props",
+    ).type = "object";
+    assert.throws(
+      () => correctPatchPost(baseline, reference),
+      /Review PatchPost/,
+    );
+  }
+});
 
 test("checks both upstream channel-view bodies and the bulk operation before correcting them", () => {
   const view = "/api/v4/channels/members/{user_id}/view";
@@ -296,6 +350,10 @@ test("retains the catalog operations, security and transitive models", () => {
     }
     const source = object(at(read(file), key), path);
     let expected = source;
+    if (path === "/api/v4/posts" && method === "POST")
+      expected = correctCreatePost(source, read("posts-12.1.0.yaml"));
+    if (path === "/api/v4/posts/{post_id}/patch")
+      expected = correctPatchPost(source, read("posts-12.1.0.yaml"));
     if (source.operationId === "ViewChannel")
       expected = correctChannelView(source, read("channels-12.1.0.yaml"), path);
     if (source.operationId === "MarkChannelsReadForUser")
@@ -345,6 +403,7 @@ test("retains the catalog operations, security and transitive models", () => {
       "Preference",
       "Reaction",
       "SidebarCategoryWithChannels",
+      "StatusOK",
       "SystemStatusResponse",
       "Team",
       "TeamMember",
