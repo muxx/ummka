@@ -66,6 +66,7 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
             rest_ipc::team_roles::begin_team_role_load,
             rest_ipc::team_roles::store_team_roles,
             rest_ipc::team_roles::cancel_team_role_load,
+            rest_ipc::history::read_saved_post,
             rest_ipc::history::read_channel_window,
             rest_ipc::history::begin_channel_history_load,
             rest_ipc::history::store_channel_history_page,
