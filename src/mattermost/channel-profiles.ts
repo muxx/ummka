@@ -93,11 +93,27 @@ export function directPartnerId(name: string, currentUserId: string) {
   return ids[1] === currentUserId ? ids[0] : null;
 }
 
-export function indexChannelProfiles(profiles: readonly ChannelProfile[]) {
-  return {
-    byId: new Map(profiles.map((p) => [p.id, p])),
-    byUsername: new Map(profiles.map((p) => [p.username, p])),
-  };
+export function indexChannelProfiles(
+  profiles: readonly ChannelProfile[],
+  matchedNames?: Readonly<Record<string, string>>,
+) {
+  const byId = new Map(profiles.map((profile) => [profile.id, profile]));
+  const byUsername = new Map<string, ChannelProfile>();
+  if (matchedNames) {
+    // Offline lookup can return a requested ID while deliberately leaving its ambiguous username unresolved.
+    for (const [name, id] of Object.entries(matchedNames)) {
+      const profile = byId.get(id);
+      if (profile?.username === name) byUsername.set(name, profile);
+    }
+  } else {
+    const ambiguous = new Set<string>();
+    for (const profile of byId.values()) {
+      if (byUsername.has(profile.username)) ambiguous.add(profile.username);
+      byUsername.set(profile.username, profile);
+    }
+    for (const name of ambiguous) byUsername.delete(name);
+  }
+  return { byId, byUsername };
 }
 
 const groupOrder = {

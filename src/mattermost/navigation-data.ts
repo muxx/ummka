@@ -9,7 +9,11 @@ import {
   type Team,
   TeamsApi,
 } from "../../vendor/mattermost/index.js";
-import { isMattermostId, isMattermostTime } from "./model-fields.ts";
+import {
+  assertAccountPreference,
+  isMattermostId,
+  isMattermostTime,
+} from "./model-fields.ts";
 
 type DirectoryRequest = <T>(
   send: (options: { signal: AbortSignal }) => Promise<T>,
@@ -101,15 +105,8 @@ export function loadAccountDirectory(
         ? [{ team, membership }]
         : [];
     });
-    for (const preference of preferences) {
-      if (
-        preference.userId !== userId ||
-        typeof preference.category !== "string" ||
-        typeof preference.name !== "string" ||
-        typeof preference.value !== "string"
-      )
-        throw new TypeError("Invalid Mattermost account preference.");
-    }
+    for (const preference of preferences)
+      assertAccountPreference(preference, userId);
     return { teams: joined, preferences };
   });
 }
