@@ -1881,3 +1881,39 @@ test("restored contract inputs must match their pins before generation", () => {
     "upstream.yaml",
   ]);
 });
+
+test("emoji compatibility checks reject changed aliases and duplicate names before replacing the directory", () => {
+  assert.ok(work);
+  const directory = mkdtempSync(join(work, "emoji-test-"));
+  const baseline = join(directory, "baseline.json");
+  const other = join(directory, "other.json");
+  const target = join(directory, "result.json");
+  const standard = {
+    short_name: "wave",
+    short_names: ["wave"],
+    unified: "1F44B",
+  };
+  const run = () =>
+    spawnSync(
+      process.execPath,
+      ["scripts/contract/standard-emoji.ts", baseline, other, target],
+      { encoding: "utf8" },
+    );
+  writeFileSync(baseline, JSON.stringify([standard]));
+  writeFileSync(
+    other,
+    JSON.stringify([{ ...standard, category: "extra upstream metadata" }]),
+  );
+  assert.equal(run().status, 0);
+  const original = readFileSync(target, "utf8");
+  assert.deepEqual(JSON.parse(original).rows, [["👋", "wave"]]);
+  for (const changed of [
+    [{ ...standard, short_names: ["wave", "greeting"] }],
+    [{ ...standard, unified: "ZZZZ" }],
+    [standard, standard],
+  ]) {
+    writeFileSync(other, JSON.stringify(changed));
+    assert.notEqual(run().status, 0);
+    assert.equal(readFileSync(target, "utf8"), original);
+  }
+});

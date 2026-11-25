@@ -96,6 +96,18 @@ test("rejects duplicate identities, another account and malformed navigation dat
     );
 });
 
+test("rejects a malformed group constraint in a server team", async () => {
+  const id = teamId("a");
+  const config = directory(
+    [{ ...team(id), group_constrained: "false" }],
+    [member(id)],
+    [],
+  );
+  await expect(loadAccountDirectory(config, user)).rejects.toThrow(
+    "Invalid Mattermost team",
+  );
+});
+
 test("stops sibling requests on error, preserving the original HTTP failure", async () => {
   const stopped: string[] = [];
   const config = configuration(async (input, init) => {

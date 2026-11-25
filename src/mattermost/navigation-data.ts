@@ -63,7 +63,9 @@ function hasTeamIdentity(
   return (
     isMattermostId(team?.id) &&
     typeof team.name === "string" &&
-    typeof team.displayName === "string"
+    typeof team.displayName === "string" &&
+    (team.groupConstrained == null ||
+      typeof team.groupConstrained === "boolean")
   );
 }
 
