@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readCustomEmoji } from "../../../src/mattermost/account-custom-emoji.ts";
 import {
   Configuration,
   EmojiApi,
@@ -13,9 +14,11 @@ export async function checkCustomEmojiLookup(
   readerToken: string,
 ) {
   const headers = { Authorization: `Bearer ${adminToken}` };
-  const reader = new EmojiApi(
-    new Configuration({ basePath: base, accessToken: readerToken }),
-  );
+  const session = new Configuration({
+    basePath: base,
+    accessToken: readerToken,
+  });
+  const reader = new EmojiApi(session);
   const name = "fixture_wave";
   const form = new FormData();
   form.append("emoji", JSON.stringify({ name, creator_id: creatorId }));
@@ -40,6 +43,12 @@ export async function checkCustomEmojiLookup(
     EmojiToJSON(await reader.getEmojiByName({ emojiName: name })),
     wire,
   );
+  const found = await readCustomEmoji(session, name);
+  assert.equal(found.kind, "found");
+  if (found.kind === "found") assert.deepEqual(EmojiToJSON(found.emoji), wire);
+  assert.deepEqual(await readCustomEmoji(session, "Fixture_Wave"), {
+    kind: "missing",
+  });
   const anonymous = new EmojiApi(new Configuration({ basePath: base }));
   await assert.rejects(
     anonymous.getEmojiByName({ emojiName: name }),
@@ -70,6 +79,9 @@ export async function checkCustomEmojiLookup(
   await enableCustomEmoji(false);
   try {
     await checkError(name, 501, "api.emoji.disabled.app_error");
+    assert.deepEqual(await readCustomEmoji(session, name), {
+      kind: "disabled",
+    });
   } finally {
     await enableCustomEmoji(true);
   }

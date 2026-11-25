@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { Configuration, PostsApi } from "../../vendor/mattermost/index.js";
+import { readCustomEmoji } from "./account-custom-emoji.ts";
 import { accountDelivery } from "./account-delivery.ts";
 import { atDirectoryStep } from "./account-directory-error.ts";
 import {
@@ -129,6 +130,9 @@ export async function openAccountRestConnection(
     },
     readVisibleProfiles(query: VisibleProfileQuery, signal?: AbortSignal) {
       return readWhileOpen(() => loadVisibleProfiles(config, query, signal));
+    },
+    readCustomEmoji(emojiName: string, signal?: AbortSignal) {
+      return readWhileOpen(() => readCustomEmoji(config, emojiName, signal));
     },
     readAccountDirectory(signal?: AbortSignal) {
       return readWhileOpen(() => loadAccountDirectory(config, userId, signal));

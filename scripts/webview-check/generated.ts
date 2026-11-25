@@ -230,6 +230,13 @@ export async function checkGeneratedRequests(ports: string[]) {
     await checkAccountResponses(accountPrefix, userId, observed);
     await checkChannelRefresh(accountPrefix, observed);
     await checkTeamReads(rootSession, signed);
+    const customEmoji = await accountPrefix.readCustomEmoji("fixture+wave");
+    check(
+      customEmoji.kind === "found" &&
+        customEmoji.emoji.name === "fixture+wave" &&
+        customEmoji.emoji.id === "e".repeat(26),
+      "account custom emoji",
+    );
     await checkTeamLoadOwnership(accountPrefix.rid, accountRoot.rid);
     check(
       (await accountPrefix.readJoinedTeams()) === null,
