@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { loadChannelPermissions } from "../../../src/mattermost/channel-permissions.ts";
 import { projectJoinedTeams } from "../../../src/mattermost/joined-teams.ts";
 import {
   loadAccountDirectory,
@@ -10,6 +11,7 @@ import {
   Configuration,
   ResponseError,
   TeamsApi,
+  UsersApi,
 } from "../../../vendor/mattermost/index.js";
 
 export async function checkNavigationMemberships(
@@ -45,6 +47,19 @@ export async function checkNavigationMemberships(
   }
   for (const teamId of [keepTeamId, leaveTeamId]) {
     const directory = await loadTeamDirectory(session, userId, teamId);
+    if (teamId === keepTeamId) {
+      const user = await new UsersApi(session).getUser({ userId: "me" });
+      const allows = await loadChannelPermissions(session, {
+        userId,
+        user,
+        membership: active.find((m) => m.teamId === teamId),
+        directory,
+      });
+      assert.ok(allows(channelId, "create_post"));
+      assert.ok(allows(directId, "create_direct_channel"));
+      assert.ok(!allows(directId, "manage_system"));
+      assert.ok(!allows("x".repeat(26), "create_direct_channel"));
+    }
     const projection = projectTeamSidebar(directory);
     assert.deepEqual(
       projection.categories.map((c) => [c.id, c.channelIds]),
