@@ -16,6 +16,7 @@ import {
   type ChannelRefreshResult,
   refreshChannelHistory,
 } from "./channel-history-refresh.ts";
+import { readChannelNotifications } from "./channel-notifications.ts";
 import {
   fetchTeamRoleSnapshot,
   type TeamRoleSnapshot,
@@ -147,6 +148,12 @@ export async function openAccountRestConnection(
       return readWhileOpen(() => readFileAnchor(files, fileId, signal), signal);
     },
     ...accountChannelAudience(config, readWhileOpen),
+    readChannelNotifications(channelId: string, signal?: AbortSignal) {
+      return readWhileOpen(
+        () => readChannelNotifications(config, userId, channelId, signal),
+        signal,
+      );
+    },
     ...accountMentionGroups(config, readWhileOpen),
     readSavedProfiles(query: VisibleProfileQuery) {
       return readWhileOpen(() =>
