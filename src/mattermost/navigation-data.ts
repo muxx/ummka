@@ -73,7 +73,7 @@ export function loadAccountDirectory(
       throw new TypeError("Invalid Mattermost account.");
     const api = new TeamsApi(config);
     const scope = { userId: "me" };
-    const [teams, members, preferences] = await Promise.all([
+    const [teams, members, storedPreferences] = await Promise.all([
       request((options) => api.getTeamsForUser(scope, options)),
       request((options) => api.getTeamMembersForUser(scope, options)),
       request((options) =>
@@ -105,6 +105,7 @@ export function loadAccountDirectory(
         ? [{ team, membership }]
         : [];
     });
+    const preferences = storedPreferences ?? [];
     for (const preference of preferences)
       assertAccountPreference(preference, userId);
     return { teams: joined, preferences };

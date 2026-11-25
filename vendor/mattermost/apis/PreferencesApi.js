@@ -26,7 +26,7 @@ export class PreferencesApi extends runtime.BaseAPI {
     async getPreferencesRaw(requestParameters, initOverrides) {
         const requestOptions = await this.getPreferencesRequestOpts(requestParameters);
         const response = await this.request(requestOptions, initOverrides);
-        return new runtime.JSONApiResponse(response, (jsonValue) => jsonValue.map(PreferenceFromJSON));
+        return new runtime.JSONApiResponse(response, (jsonValue) => jsonValue === null ? null : jsonValue.map(PreferenceFromJSON));
     }
     async getPreferences(requestParameters, initOverrides) {
         const response = await this.getPreferencesRaw(requestParameters, initOverrides);

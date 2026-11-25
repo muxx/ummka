@@ -164,9 +164,10 @@ export async function checkTeamReads(
     category.collapsed !== true
   )
     throw Error("generated sidebar categories");
-  const [preference] = await new PreferencesApi(prefixed).getPreferences({
+  const saved = await new PreferencesApi(prefixed).getPreferences({
     userId: "me",
   });
+  const preference = saved?.[0];
   if (
     preference?.userId !== userId ||
     preference.category !== "direct_channel_show" ||

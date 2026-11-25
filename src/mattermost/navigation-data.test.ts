@@ -25,7 +25,7 @@ function configuration(fetchApi: typeof fetch) {
 function directory(
   teams: unknown[],
   members: unknown[],
-  preferences: unknown[],
+  preferences: unknown[] | null,
 ) {
   const routes = new Map([
     ["/sub/api/v4/users/me/teams", teams],
@@ -63,6 +63,16 @@ test("joins active teams by ID in server order, independently from membership or
   await expect(
     loadAccountDirectory(directory([], [], []), user),
   ).resolves.toEqual({ teams: [], preferences: [] });
+});
+
+test("keeps joined teams when Mattermost returns null for an empty preference store", async () => {
+  const id = teamId("a");
+  const result = await loadAccountDirectory(
+    directory([team(id)], [member(id)], null),
+    user,
+  );
+  expect(result.teams.map(({ team }) => team.id)).toEqual([id]);
+  expect(result.preferences).toEqual([]);
 });
 
 test("rejects duplicate identities, another account and malformed navigation data", async () => {

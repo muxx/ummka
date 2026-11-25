@@ -54,7 +54,7 @@ export function respondToAccount(
       "users/me/teams/members": [
         { team_id: teamId, user_id: userId, roles: "team_user", delete_at: 0 },
       ],
-      "users/me/preferences": [],
+      "users/me/preferences": null,
     };
     assert(
       Object.hasOwn(replies, path),
