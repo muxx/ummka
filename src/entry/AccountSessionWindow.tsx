@@ -109,7 +109,15 @@ export function AccountSessionWindow({
         {workspace.serverUrl}
       </p>
       {page === "account" && workspace.directoryNotice && (
-        <p role="status">{teamText[language][workspace.directoryNotice]}</p>
+        <p role="status">
+          {teamText[language][workspace.directoryNotice]}
+          {workspace.directoryCode && (
+            <>
+              {" "}
+              <code dir="ltr">{workspace.directoryCode}</code>
+            </>
+          )}
+        </p>
       )}
       {page !== "account" && (
         <p className="entry-lead">

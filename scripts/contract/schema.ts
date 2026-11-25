@@ -21,6 +21,7 @@ import {
   correctHistoryQuery,
   correctHistorySchema,
 } from "./history-corrections.ts";
+import { correctNullableList } from "./nullable-list-corrections.ts";
 import { type Fields, object } from "./objects.ts";
 import { checkPathParameters } from "./path-parameters.ts";
 import {
@@ -41,7 +42,6 @@ import {
   correctSetPostUnread,
   correctUnreadAt,
 } from "./read-state-corrections.ts";
-import { correctRoleList } from "./role-correction.ts";
 import {
   correctChannelSharing,
   correctSidebarResponse,
@@ -239,10 +239,15 @@ export function buildSpecification(
         operation,
         read("commands-12.1.0.yaml"),
       );
-    else if (id === "GetRolesByNames")
-      paths[path][method] = correctRoleList(
+    else if (id === "GetRolesByNames" || id === "GetPreferences")
+      paths[path][method] = correctNullableList(
+        id,
         operation,
-        read("roles-12.1.0.yaml"),
+        read(
+          id === "GetPreferences"
+            ? "preferences-12.1.0.yaml"
+            : "roles-12.1.0.yaml",
+        ),
       );
     else if (id === "GetSidebarCategoriesForTeamForUser")
       paths[path][method] = correctSidebarResponse(operation);

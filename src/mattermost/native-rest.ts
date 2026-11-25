@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { Configuration, PostsApi } from "../../vendor/mattermost/index.js";
 import { accountDelivery } from "./account-delivery.ts";
+import { atDirectoryStep } from "./account-directory-error.ts";
 import {
   type ChannelRefreshRequest,
   type ChannelRefreshResult,
@@ -146,20 +147,28 @@ export async function openAccountRestConnection(
       return readWhileOpen(() =>
         refreshNavigation(
           signal,
-          () => invoke<number>("begin_team_directory_load", { rid }),
+          () =>
+            atDirectoryStep("begin", () =>
+              invoke<number>("begin_team_directory_load", { rid }),
+            ),
           async () => {
             const directory = await loadAccountDirectory(
               config,
               userId,
               signal,
+              atDirectoryStep,
             );
             return {
               teams: projectJoinedTeams(directory),
-              preferences: sidebarPreferences(userId, directory.preferences),
+              preferences: await atDirectoryStep("sidebar", () =>
+                sidebarPreferences(userId, directory.preferences),
+              ),
             };
           },
           (load, data) =>
-            invoke<boolean>("store_team_directory", { rid, load, ...data }),
+            atDirectoryStep("publish", () =>
+              invoke<boolean>("store_team_directory", { rid, load, ...data }),
+            ),
           (load) => invoke<void>("cancel_team_directory_load", { rid, load }),
         ),
       );

@@ -50,6 +50,7 @@ download commands.yaml "$upstream/commands.yaml" 91517ad53a1d46cf2cbeaa5143865d1
 download commands-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/commands.yaml" 2ed01e423ff689cc230d0d049b2c9c92bb791b879bfcc7ca93a3bd3cc6d5b8d7
 download channels.yaml "$upstream/channels.yaml" 34282bb7db184ae792493b97b384f9b47c0789d9f8dce7527cb2f3df9c09f9b3
 download channels-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/channels.yaml" 57be9442965e8a747d88d579df013fdff377a5315cc91a8dc55f58eefeef2a6d
+download preferences-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/preferences.yaml" 3bf3c9734d69bfdf20e1dd4e71158a65a81fca9dd64ee1703269b460111625a2
 download preferences.yaml "$upstream/preferences.yaml" 3bf3c9734d69bfdf20e1dd4e71158a65a81fca9dd64ee1703269b460111625a2
 download posts.yaml "$upstream/posts.yaml" 83400ef682b755f3f3830dd4b622373b659bcc5b4d2d159756a735752b3b19ff
 download posts-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/posts.yaml" d133032e5ffa60c816a4fd084e46b761a04eba0a070b11175f6dee3ac0c71020
@@ -119,7 +120,7 @@ const thread: GetPostThreadRequest = { postId: "a-post-id", fromCreateAt: 12, pe
 // @ts-expect-error Timestamps on a thread cursor are numbers.
 const badCursor: GetPostThreadRequest = { postId: "a-post-id", fromCreateAt: "12" };
 declare const page: PostList;
-import type { ChannelsApi, PreferencesApi } from "./compiled/index.js";
+import type { ChannelsApi, Preference, PreferencesApi } from "./compiled/index.js";
 declare const channels: ChannelsApi;
 import type { Role, RolesApi } from "./compiled/index.js";
 declare const roles: RolesApi;
@@ -167,9 +168,12 @@ const categoryType: NonNullable<NonNullable<typeof sidebar.categories>[number]["
 // @ts-expect-error A sidebar is scoped to a team.
 channels.getSidebarCategoriesForTeamForUser({ userId: "me" });
 const savedPreferences = await preferences.getPreferences({ userId: "me" });
-savedPreferences[0]?.value satisfies string | undefined;
+savedPreferences satisfies Preference[] | null;
+// @ts-expect-error A user with no saved preferences receives null.
+savedPreferences satisfies Preference[];
+savedPreferences?.[0]?.value satisfies string | undefined;
 // @ts-expect-error Preference values remain strings.
-savedPreferences[0]?.value satisfies boolean | undefined;
+savedPreferences?.[0]?.value satisfies boolean | undefined;
 const teamChannels = await channels.getChannelsForTeamForUser({ userId: "me", teamId: "team" });
 teamChannels[0]?.totalMsgCountRoot satisfies number | undefined;
 teamChannels[0]?.lastRootPostAt satisfies number | undefined;

@@ -154,6 +154,18 @@ export function webviewServers(
           },
           {
             user_id: userId,
+            category: "channel_approximate_view_time",
+            name: "historical-channel-key",
+            value: "unrelated",
+          },
+          {
+            user_id: userId,
+            category: "channel_open_time",
+            name: channelId,
+            value: "310",
+          },
+          {
+            user_id: userId,
             category: "sidebar_settings",
             name: "limit_visible_dms_gms",
             value: "18",
