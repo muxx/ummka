@@ -15,6 +15,9 @@ test("projects display and mention policy from the old config and license endpoi
           EnableCustomGroups: "true",
           MaxNotificationsPerChannel: "6",
           UniqueEmojiReactionLimitPerPost: "-2",
+          EnableCrossTeamSearch: "true",
+          EnableFileAttachments: "true",
+          ExperimentalViewArchivedChannels: "false",
           FeatureFlagEnableSharedChannelsDMs: "true",
           ExperimentalGroupUnreadChannels: "default_on",
           TeammateNameDisplay: "full_name",
@@ -43,6 +46,7 @@ test("projects display and mention policy from the old config and license endpoi
     nameFormat: "full_name",
     lockNameFormat: false,
     sharedChannelDMs: true,
+    search: { allTeams: true, files: true, archivedChannels: false },
     uniqueReactionLimit: "-2",
     mentions: {
       confirmNotifications: false,
@@ -82,6 +86,50 @@ test("invalid fields and cancellation both release the outstanding sibling", asy
     ),
   ).rejects.toBe(reason);
   expect(pending.length).toBe(2);
+});
+
+test.each(["false", "TRUE", "", undefined])(
+  "only explicit true enables cross-team search (%s)",
+  (value) => {
+    expect(
+      workspaceServerPolicy({ EnableCrossTeamSearch: value }, {}).search
+        ?.allTeams,
+    ).toBe(false);
+  },
+);
+
+test.each([
+  [undefined, undefined, undefined, false, true],
+  ["true", undefined, "false", true, false],
+  ["true", "false", undefined, false, true],
+  ["false", "true", "true", false, true],
+  ["true", "true", undefined, true, true],
+  ["true", "unexpected", "unexpected", false, false],
+] as const)(
+  "uses the published search settings (%s, %s, %s)",
+  (uploads, search, archived, files, archivedChannels) => {
+    expect(
+      workspaceServerPolicy(
+        {
+          EnableFileAttachments: uploads,
+          EnableFileSearch: search,
+          ExperimentalViewArchivedChannels: archived,
+        },
+        {},
+      ).search,
+    ).toEqual({ allTeams: false, files, archivedChannels });
+  },
+);
+
+test("a malformed cross-team setting rejects the refresh", async () => {
+  const config = new Configuration({
+    basePath,
+    fetchApi: async (url) =>
+      Response.json(
+        String(url).includes("/config/") ? { EnableCrossTeamSearch: true } : {},
+      ),
+  });
+  await expect(loadWorkspaceServerPolicy(config)).rejects.toThrow(TypeError);
 });
 
 const mentionConfig = {
