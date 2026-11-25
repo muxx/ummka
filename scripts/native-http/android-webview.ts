@@ -4,7 +4,7 @@ import { coldLink, warmLink } from "../webview-check/link-examples.ts";
 
 type Adb = (...args: string[]) => Promise<string>;
 
-async function launch(
+export async function launchWebview(
   adb: Adb,
   app: string,
   activity: string,
@@ -29,7 +29,8 @@ async function launch(
       "RustStdoutStderr:I",
       "AndroidRuntime:E",
     );
-    assert.doesNotMatch(output, /FATAL EXCEPTION/);
+    // Chromium's native fatal log can precede both the Android exception and our result marker.
+    assert.doesNotMatch(output, /FATAL EXCEPTION|\[[^\]\r\n]*\bFATAL:/u);
     const result = /UMMKA_WEBVIEW_CHECK ([\w-]+)/u.exec(output);
     if (result) {
       assert.equal(result[1], expected, output);
@@ -125,7 +126,7 @@ export async function checkWebviewProcesses(
   await adb("shell", "svc", "power", "stayon", "true");
   await adb("shell", "input", "keyevent", "KEYCODE_WAKEUP");
   await adb("shell", "wm", "dismiss-keyguard");
-  const seeded = await launch(adb, app, activity, "browser-checked");
+  const seeded = await launchWebview(adb, app, activity, "browser-checked");
   // Android protects the device owner from force-stop. TLS checks have finished
   // using its test CA, so release ownership before testing process restarts.
   assert.match(
@@ -145,9 +146,14 @@ export async function checkWebviewProcesses(
     assert(Date.now() < deadline, "the emulator still has a default network");
     await delay(250);
   }
-  const removed = await launch(adb, app, activity, "registry-removed");
+  const removed = await launchWebview(adb, app, activity, "registry-removed");
   await stop(adb, app);
-  const confirmed = await launch(adb, app, activity, "registry-confirmed");
+  const confirmed = await launchWebview(
+    adb,
+    app,
+    activity,
+    "registry-confirmed",
+  );
   assert.equal(new Set([seeded, removed, confirmed]).size, 3);
   await stop(adb, app);
   const linkProcess = await openSystemLink(adb, app, activity, coldLink, 1);

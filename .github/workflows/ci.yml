@@ -126,6 +126,7 @@ jobs:
         with:
           path: .check-tools/mattermost-contract
           key: mattermost-contract-${{ hashFiles('scripts/check-contract.sh') }}
+          restore-keys: mattermost-contract-
       - run: make check-contract
         if: matrix.task == 'check-android-package'
       - run: make ${{ matrix.task }}
