@@ -8,7 +8,10 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 
-import { checkWebviewProcesses } from "./android-webview.ts";
+import {
+  checkWebviewProcesses,
+  type OnKeyboardReady,
+} from "./android-webview.ts";
 
 const exec = promisify(execFile);
 const app = "io.github.muxx.ummka.dev";
@@ -20,6 +23,7 @@ export async function checkAndroid(
   webviewPorts: number[],
   ca: Buffer,
   config: string,
+  onKeyboardReady: OnKeyboardReady,
 ) {
   const sdk = process.env.ANDROID_HOME;
   assert(sdk, "ANDROID_HOME is required");
@@ -261,7 +265,12 @@ export async function checkAndroid(
     );
     assert.match(result, /^INSTRUMENTATION_RESULT: result=PASS\r?$/m);
     assert.match(result, /^INSTRUMENTATION_CODE: -1\r?$/m);
-    await checkWebviewProcesses(adb, `${app}.httpcheck`, component);
+    await checkWebviewProcesses(
+      adb,
+      `${app}.httpcheck`,
+      component,
+      onKeyboardReady,
+    );
   } catch (error) {
     console.error((await readFile(log, "utf8")).slice(-1500));
     throw error;
