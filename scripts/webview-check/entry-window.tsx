@@ -31,6 +31,16 @@ export async function checkEntryWindow() {
     const card = host.querySelector<HTMLElement>(".entry-card");
     const action = main?.querySelector("button");
     if (!scene || !card || !main || !action) throw Error("entry-landmarks");
+    if (import.meta.env.UMMKA_MACOS_OVERLAY === true) {
+      const back = host.querySelector(".entry-back")?.getBoundingClientRect();
+      const top = scene.getBoundingClientRect().top;
+      if (
+        !back ||
+        Math.abs(back.top + back.height / 2 - top - 23) > 1 ||
+        back.left - scene.getBoundingClientRect().left < 80
+      )
+        throw Error("entry-back-window-controls-alignment");
+    }
     const brands = Array.from(host.querySelectorAll("img"));
     await Promise.all(brands.map((img) => img.decode()));
     if (
