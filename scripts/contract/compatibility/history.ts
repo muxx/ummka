@@ -57,6 +57,7 @@ import { checkPostReactions } from "./reactions.ts";
 import { checkRoleReads } from "./role-reads.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
+import { checkThreadWindow } from "./thread-window.ts";
 
 const base = "http://mattermost:8065";
 const version = process.argv[2];
@@ -670,6 +671,10 @@ for (const [thread, chronological] of [
     }
   }
 }
+await checkThreadWindow(readerPosts, channelId, imported.id, [
+  ...[early.id, tied.id].sort(),
+  late.id,
+]);
 console.log(
   `Mattermost ${version} verified ordinary-member thread pagination and reply anchors in both modes.`,
 );
