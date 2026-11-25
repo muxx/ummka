@@ -1,6 +1,28 @@
 import { isDeepStrictEqual } from "node:util";
 import { type Fields, object } from "./objects.ts";
 
+// Both handlers encode one PostList for the requesting user.
+// https://github.com/mattermost/mattermost/blob/v10.10.1/server/channels/api4/post.go#L361-L443
+// https://github.com/mattermost/mattermost/blob/v12.1.0/server/channels/api4/post.go#L489-L586
+export function correctFlaggedPosts(source: Fields, newer: Fields): Fields {
+  const id = "GetFlaggedPostsForUser";
+  const path = "/api/v4/users/{user_id}/posts/flagged";
+  const list = { $ref: "#/components/schemas/PostList" };
+  const result = structuredClone(source);
+  const reference = object(object(newer[path], path).get, id);
+  for (const op of [reference, result]) {
+    const ok = object(object(op.responses, id)["200"], id);
+    const media = object(object(ok.content, id)["application/json"], id);
+    if (
+      op.operationId !== id ||
+      !isDeepStrictEqual(media.schema, { type: "array", items: list })
+    )
+      throw Error("Review the GetFlaggedPostsForUser response");
+    if (op === result) media.schema = list;
+  }
+  return result;
+}
+
 const flags = [
   "skipFetchThreads",
   "collapsedThreads",

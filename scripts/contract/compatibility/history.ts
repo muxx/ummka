@@ -39,6 +39,7 @@ import {
   checkChannelNotifications,
   checkPersonalNotificationUpdate,
 } from "./channel-notifications.ts";
+import { checkCollectionActions } from "./collection-actions.ts";
 import { checkCommands } from "./commands.ts";
 import { checkCustomEmojiLookup } from "./custom-emoji.ts";
 import { checkEventStream } from "./event-stream.ts";
@@ -54,6 +55,10 @@ import {
 import { checkMentionLimit } from "./mention-limit.ts";
 import { checkMentionText } from "./mention-text.ts";
 import {
+  checkPostCollections,
+  checkSavedPageBoundary,
+} from "./post-collections.ts";
+import {
   checkPostMutations,
   checkPreviouslyAcceptedPost,
 } from "./post-mutations.ts";
@@ -64,8 +69,11 @@ import { checkReactionLimit } from "./reaction-limit.ts";
 import { checkPostReactions } from "./reactions.ts";
 import { checkRoleReads } from "./role-reads.ts";
 import { checkSearchScopePolicy } from "./search-scope.ts";
+import { expectedNavigationPost } from "./search-target.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
+import { checkThreadFollow } from "./thread-follow.ts";
+import { checkThreadSummary } from "./thread-summary.ts";
 import { checkThreadWindow } from "./thread-window.ts";
 import { checkUserNotifications } from "./user-notifications.ts";
 import { checkUserTimezone } from "./user-timezone.ts";
@@ -458,6 +466,7 @@ for (const [id, rootId] of [
     postId: id,
     channelId,
     rootId: rootId || null,
+    post: expectedNavigationPost(row),
   });
 }
 await assert.rejects(
@@ -822,6 +831,46 @@ await checkPostSearch(
   extraTeam.id,
   version,
 );
+const otherSaverName = "collection-reader";
+const otherSaverPassword = `${randomBytes(24).toString("hex")}aA7!`;
+const otherSaver = await (
+  await create("users", {
+    username: otherSaverName,
+    email: "collection-reader@example.test",
+    password: otherSaverPassword,
+  })
+).json();
+const otherSaverLogin = await create("users/login", {
+  login_id: otherSaverName,
+  password: otherSaverPassword,
+});
+const otherSaverToken = otherSaverLogin.headers.get("token");
+assert.ok(otherSaverToken);
+assert.equal(otherSaver.roles, "system_user");
+await checkPostCollections(
+  { session, id: user.id },
+  { id: reader.id, token: readerToken },
+  new Configuration({ basePath: base, accessToken: otherSaverToken }),
+  {
+    channel: channelId,
+    privateChannel: closed.id,
+    direct: dm.id,
+    team: team.id,
+    otherTeam: extraTeam.id,
+  },
+  { older: plainPost.id, newer: taggedPost.id, direct: dmPost.id },
+  version,
+);
+await checkCollectionActions(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  session,
+  reader.id,
+  user.id,
+  dm.id,
+  dmPost.id,
+  closedPost.id,
+  version,
+);
 await checkFileSearch(
   session,
   new Configuration({ basePath: base, accessToken: readerToken }),
@@ -878,6 +927,15 @@ await checkSidebarCounters(
 );
 console.log(
   `Mattermost ${version} verified root and reply counters through a channel view.`,
+);
+await checkThreadFollow(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  new Configuration({ basePath: base }),
+  { posts: memberPosts, userId: user.id },
+  team.id,
+  [channelId, dm.id],
+  closedPost.id,
+  version,
 );
 // The earlier non-member checks use this private channel before the reader joins.
 await create(`channels/${closed.id}/members`, { user_id: reader.id }, token);
@@ -1159,6 +1217,7 @@ console.log(
 );
 
 await checkPostReactions(base, token, session, user.id, reader.id, channelId);
+await checkThreadSummary(memberPosts, readerPosts, channelId);
 console.log(
   `Mattermost ${version} verified empty and populated reaction lists and post metadata.`,
 );
@@ -1166,6 +1225,13 @@ console.log(
 await checkEventStream(base, token, session, team.id, channelId);
 console.log(
   `Mattermost ${version} verified sequenced posts, command replies and replay of a post after reconnect.`,
+);
+
+await checkSavedPageBoundary(
+  base,
+  { id: reader.id, token: readerToken },
+  dm.id,
+  version,
 );
 
 const secondLogin = await create("users/login", {

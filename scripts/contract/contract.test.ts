@@ -47,6 +47,7 @@ import {
   correctGroupAudienceResponse,
 } from "./group-audience-correction.ts";
 import {
+  correctFlaggedPosts,
   correctHistoryQuery,
   correctHistorySchema,
 } from "./history-corrections.ts";
@@ -86,6 +87,7 @@ import {
 } from "./sidebar-corrections.ts";
 import { correctSinglePost } from "./single-post-correction.ts";
 import { correctTeamMemberRequest } from "./team-member-correction.ts";
+import { correctThreadFollow } from "./thread-follow-correction.ts";
 
 const sources = process.env.UMMKA_CONTRACT_SOURCES;
 const work = process.env.UMMKA_CONTRACT_WORK;
@@ -785,6 +787,61 @@ test("requires explicit unread support and detects changed upstream schemas on b
   }
 });
 
+test("flagged and pinned collections return a single PostList and changing either upstream flagged schema requires review", () => {
+  const path = "/api/v4/users/{user_id}/posts/flagged";
+  const output = ["responses", "200", "content", "application/json", "schema"];
+  const list = { $ref: "#/components/schemas/PostList" };
+  for (const route of [path, "/api/v4/channels/{channel_id}/pinned"])
+    assert.deepEqual(at(contract, ["paths", route, "get", ...output]), list);
+  for (const version of ["baseline", "reference"]) {
+    const old = read("posts.yaml"),
+      next = read("posts-12.1.0.yaml");
+    const media = object(
+      at(version === "baseline" ? old : next, [
+        path,
+        "get",
+        ...output.slice(0, -1),
+      ]),
+      path,
+    );
+    media.schema = list;
+    assert.throws(
+      () => correctFlaggedPosts(object(at(old, [path, "get"]), path), next),
+      /Review the GetFlaggedPostsForUser response/,
+    );
+  }
+});
+
+test("both thread follow verbs return StatusOK and stop on upstream response changes", () => {
+  const path =
+    "/api/v4/users/{user_id}/teams/{team_id}/threads/{thread_id}/following";
+  for (const method of ["put", "delete"]) {
+    const source = object(at(read("users.yaml"), [path, method]), method);
+    const newer = object(at(read("users-12.1.0.yaml"), [path, method]), method);
+    assert.equal(
+      at(contract, [
+        "paths",
+        path,
+        method,
+        "responses",
+        "200",
+        "content",
+        "application/json",
+        "schema",
+        "$ref",
+      ]),
+      "#/components/schemas/StatusOK",
+    );
+    const changed = {
+      ...source,
+      responses: { "200": { description: "changed" } },
+    };
+    assert.throws(() => correctThreadFollow(source, changed), /Review both/);
+    assert.throws(() => correctThreadFollow(changed, newer), /Review both/);
+    assert.throws(() => correctThreadFollow(changed, changed), /Review both/);
+  }
+});
+
 test("retains the catalog operations, security and transitive models", () => {
   for (const { file, path, method } of catalog) {
     const key = [path, method.toLowerCase()];
@@ -806,6 +863,16 @@ test("retains the catalog operations, security and transitive models", () => {
     }
     const source = object(at(read(file), key), path);
     let expected = source;
+    if (
+      source.operationId === "StartFollowingThread" ||
+      source.operationId === "StopFollowingThread"
+    )
+      expected = correctThreadFollow(
+        source,
+        object(at(read("users-12.1.0.yaml"), key), path),
+      );
+    if (source.operationId === "GetFlaggedPostsForUser")
+      expected = correctFlaggedPosts(source, read("posts-12.1.0.yaml"));
     if (source.operationId === "GetPost")
       expected = correctSinglePost(
         source,
@@ -1362,6 +1429,7 @@ function copySources() {
     "definitions-12.1.0.yaml",
     "roles-12.1.0.yaml",
     "teams-12.1.0.yaml",
+    "users-12.1.0.yaml",
     "files-12.1.0.yaml",
     "groups-12.1.0.yaml",
     "preferences-12.1.0.yaml",

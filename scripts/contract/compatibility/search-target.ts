@@ -8,14 +8,32 @@ import { readPostDestination } from "../../../src/mattermost/post-destination.ts
 import {
   type Configuration,
   FilesApi,
+  type Post,
   PostsApi,
 } from "../../../vendor/mattermost/index.js";
+
+export function expectedNavigationPost(row: Post) {
+  return {
+    id: row.id,
+    channelId: row.channelId,
+    rootId: row.rootId || null,
+    userId: row.userId,
+    createAt: row.createAt,
+    updateAt: row.updateAt,
+    editAt: row.editAt,
+    type: row.type,
+    message: row.message,
+    messageSource: row.messageSource ?? null,
+    hashtags: row.hashtags,
+    isPinned: row.isPinned,
+  };
+}
 
 export async function checkMessageTarget(
   session: Configuration,
   fileId: string,
   postId: string,
-  channelId: string,
+  created: Post,
   teamId: string,
 ) {
   const files = new FilesApi(session),
@@ -25,7 +43,15 @@ export async function checkMessageTarget(
     readPostAnchor: (id: string) => readPostAnchor(posts, id),
     readPostDestination: (id: string) => readPostDestination(posts, id),
   };
-  const expected = { kind: "ready", teamId, channelId, postId, rootId: null };
+  assert.ok(created.rootId && created.userId && created.createAt);
+  const expected = {
+    kind: "ready",
+    teamId,
+    channelId: created.channelId,
+    postId,
+    rootId: created.rootId,
+    post: expectedNavigationPost(created),
+  };
   assert.deepEqual(
     await inspectPostTarget(account, { kind: "file", id: fileId }, null),
     expected,

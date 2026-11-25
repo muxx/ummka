@@ -17,6 +17,13 @@ export interface CreatePostOperationRequest {
 export interface DeletePostRequest {
     postId: string;
 }
+export interface GetFlaggedPostsForUserRequest {
+    userId: string;
+    teamId?: string;
+    channelId?: string;
+    page?: number;
+    perPage?: number;
+}
 export interface GetPostRequest {
     postId: string;
     includeDeleted?: boolean;
@@ -52,6 +59,9 @@ export interface PatchPostOperationRequest {
     postId: string;
     patchPostRequest: PatchPostRequest;
 }
+export interface PinPostRequest {
+    postId: string;
+}
 export interface SearchPostsOperationRequest {
     teamId: string;
     searchPostsRequest: SearchPostsRequest;
@@ -64,6 +74,9 @@ export interface SetPostUnreadOperationRequest {
     postId: string;
     setPostUnreadRequest: SetPostUnreadRequest;
 }
+export interface UnpinPostRequest {
+    postId: string;
+}
 export declare class PostsApi extends runtime.BaseAPI {
     createPostRequestOpts(requestParameters: CreatePostOperationRequest): Promise<runtime.RequestOpts>;
     createPostRaw(requestParameters: CreatePostOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Post>>;
@@ -71,6 +84,9 @@ export declare class PostsApi extends runtime.BaseAPI {
     deletePostRequestOpts(requestParameters: DeletePostRequest): Promise<runtime.RequestOpts>;
     deletePostRaw(requestParameters: DeletePostRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<StatusOK>>;
     deletePost(requestParameters: DeletePostRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<StatusOK>;
+    getFlaggedPostsForUserRequestOpts(requestParameters: GetFlaggedPostsForUserRequest): Promise<runtime.RequestOpts>;
+    getFlaggedPostsForUserRaw(requestParameters: GetFlaggedPostsForUserRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<PostList>>;
+    getFlaggedPostsForUser(requestParameters: GetFlaggedPostsForUserRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<PostList>;
     getPostRequestOpts(requestParameters: GetPostRequest): Promise<runtime.RequestOpts>;
     getPostRaw(requestParameters: GetPostRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Post>>;
     getPost(requestParameters: GetPostRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Post>;
@@ -86,6 +102,9 @@ export declare class PostsApi extends runtime.BaseAPI {
     patchPostRequestOpts(requestParameters: PatchPostOperationRequest): Promise<runtime.RequestOpts>;
     patchPostRaw(requestParameters: PatchPostOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Post>>;
     patchPost(requestParameters: PatchPostOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Post>;
+    pinPostRequestOpts(requestParameters: PinPostRequest): Promise<runtime.RequestOpts>;
+    pinPostRaw(requestParameters: PinPostRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<StatusOK>>;
+    pinPost(requestParameters: PinPostRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<StatusOK>;
     searchPostsRequestOpts(requestParameters: SearchPostsOperationRequest): Promise<runtime.RequestOpts>;
     searchPostsRaw(requestParameters: SearchPostsOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<PostListWithSearchMatches>>;
     searchPosts(requestParameters: SearchPostsOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<PostListWithSearchMatches>;
@@ -95,4 +114,7 @@ export declare class PostsApi extends runtime.BaseAPI {
     setPostUnreadRequestOpts(requestParameters: SetPostUnreadOperationRequest): Promise<runtime.RequestOpts>;
     setPostUnreadRaw(requestParameters: SetPostUnreadOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<ChannelUnreadAt>>;
     setPostUnread(requestParameters: SetPostUnreadOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<ChannelUnreadAt>;
+    unpinPostRequestOpts(requestParameters: UnpinPostRequest): Promise<runtime.RequestOpts>;
+    unpinPostRaw(requestParameters: UnpinPostRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<StatusOK>>;
+    unpinPost(requestParameters: UnpinPostRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<StatusOK>;
 }

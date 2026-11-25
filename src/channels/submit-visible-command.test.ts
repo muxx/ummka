@@ -82,52 +82,55 @@ test.each(["changed", "aborted", "not opened"] as const)(
     expect(account.submitDraftCommand).not.toHaveBeenCalled();
   },
 );
-test("a server command uses its saved revision and reports an expired session only in the originating window", async () => {
-  const controller = new AbortController(),
-    unauthorized = vi.fn();
-  const answer = { kind: "answered", result: { kind: "unauthorized" } };
-  const account = {
-    saveDraft: vi.fn(),
-    submitDraftCommand: vi
-      .fn()
-      .mockResolvedValueOnce(answer)
-      .mockImplementationOnce(async () => {
-        controller.abort();
-        return answer;
-      }),
-  };
-  expect(
+test.each([location, { ...location, rootId: "r".repeat(26) }])(
+  "a server command uses its saved revision and reports an expired session only in the originating window",
+  async (scope) => {
+    const controller = new AbortController(),
+      unauthorized = vi.fn();
+    const answer = { kind: "answered", result: { kind: "unauthorized" } };
+    const account = {
+      saveDraft: vi.fn(),
+      submitDraftCommand: vi
+        .fn()
+        .mockResolvedValueOnce(answer)
+        .mockImplementationOnce(async () => {
+          controller.abort();
+          return answer;
+        }),
+    };
+    expect(
+      await submitVisibleCommand(
+        account,
+        scope,
+        draft,
+        controller.signal,
+        unauthorized,
+        vi.fn(),
+      ),
+    ).toEqual({ kind: "command", answer });
+    expect(account.submitDraftCommand).toHaveBeenCalledExactlyOnceWith(
+      scope,
+      draft.revision,
+    );
     await submitVisibleCommand(
       account,
-      location,
+      scope,
       draft,
       controller.signal,
       unauthorized,
       vi.fn(),
-    ),
-  ).toEqual({ kind: "command", answer });
-  expect(account.submitDraftCommand).toHaveBeenCalledExactlyOnceWith(
-    location,
-    draft.revision,
-  );
-  await submitVisibleCommand(
-    account,
-    location,
-    draft,
-    controller.signal,
-    unauthorized,
-    vi.fn(),
-  );
-  expect(unauthorized).toHaveBeenCalledOnce();
-  await expect(
-    submitVisibleCommand(
-      account,
-      location,
-      draft,
-      controller.signal,
-      unauthorized,
-      vi.fn(),
-    ),
-  ).rejects.toThrow();
-  expect(account.submitDraftCommand).toHaveBeenCalledTimes(2);
-});
+    );
+    expect(unauthorized).toHaveBeenCalledOnce();
+    await expect(
+      submitVisibleCommand(
+        account,
+        scope,
+        draft,
+        controller.signal,
+        unauthorized,
+        vi.fn(),
+      ),
+    ).rejects.toThrow();
+    expect(account.submitDraftCommand).toHaveBeenCalledTimes(2);
+  },
+);

@@ -7,6 +7,7 @@ import { type ChannelNotifyProps } from '../models/ChannelNotifyProps.js';
 import { type ChannelStats } from '../models/ChannelStats.js';
 import { type MarkChannelsReadForUser200Response } from '../models/MarkChannelsReadForUser200Response.js';
 import { type OrderedSidebarCategories } from '../models/OrderedSidebarCategories.js';
+import { type PostList } from '../models/PostList.js';
 import { type StatusOK } from '../models/StatusOK.js';
 import { type ViewChannel200Response } from '../models/ViewChannel200Response.js';
 import { type ViewChannelRequest } from '../models/ViewChannelRequest.js';
@@ -47,6 +48,9 @@ export interface GetChannelsForTeamForUserRequest {
     teamId: string;
     includeDeleted?: boolean;
     lastDeleteAt?: number;
+}
+export interface GetPinnedPostsRequest {
+    channelId: string;
 }
 export interface GetSidebarCategoriesForTeamForUserRequest {
     teamId: string;
@@ -97,6 +101,9 @@ export declare class ChannelsApi extends runtime.BaseAPI {
     getChannelsForTeamForUserRequestOpts(requestParameters: GetChannelsForTeamForUserRequest): Promise<runtime.RequestOpts>;
     getChannelsForTeamForUserRaw(requestParameters: GetChannelsForTeamForUserRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Array<Channel>>>;
     getChannelsForTeamForUser(requestParameters: GetChannelsForTeamForUserRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Array<Channel>>;
+    getPinnedPostsRequestOpts(requestParameters: GetPinnedPostsRequest): Promise<runtime.RequestOpts>;
+    getPinnedPostsRaw(requestParameters: GetPinnedPostsRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<PostList>>;
+    getPinnedPosts(requestParameters: GetPinnedPostsRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<PostList>;
     getSidebarCategoriesForTeamForUserRequestOpts(requestParameters: GetSidebarCategoriesForTeamForUserRequest): Promise<runtime.RequestOpts>;
     getSidebarCategoriesForTeamForUserRaw(requestParameters: GetSidebarCategoriesForTeamForUserRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<OrderedSidebarCategories>>;
     getSidebarCategoriesForTeamForUser(requestParameters: GetSidebarCategoriesForTeamForUserRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<OrderedSidebarCategories>;

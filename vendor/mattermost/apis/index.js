@@ -9,4 +9,5 @@ export * from './ReactionsApi.js';
 export * from './RolesApi.js';
 export * from './SystemApi.js';
 export * from './TeamsApi.js';
+export * from './ThreadsApi.js';
 export * from './UsersApi.js';

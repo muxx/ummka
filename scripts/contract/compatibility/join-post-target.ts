@@ -17,6 +17,7 @@ import {
   PostsApi,
   TeamsApi,
 } from "../../../vendor/mattermost/index.js";
+import { expectedNavigationPost } from "./search-target.ts";
 
 export async function checkJoinPostTarget(
   owner: Configuration,
@@ -62,6 +63,7 @@ export async function checkJoinPostTarget(
       channelId,
       teamId,
       rootId: null,
+      post: expectedNavigationPost(created),
     },
     joined: [{ kind: "channel", id: channelId }],
   });
@@ -119,6 +121,7 @@ export async function checkJoinPostTarget(
               kind: "ready",
               postId: destinationPost.id,
               rootId: null,
+              post: expectedNavigationPost(destinationPost),
               teamId: otherTeamId,
               channelId: defaultRoom.id,
             },

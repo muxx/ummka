@@ -3,7 +3,10 @@ import type { savedChannelPermissions } from "../mattermost/channel-permissions.
 import type { TeamSidebar } from "../mattermost/team-sidebar.ts";
 import { resolveComposerSubmission } from "./composer-submission.ts";
 import { resolvePendingCommand } from "./resolve-pending-command.ts";
-import { submitChannelReaction } from "./submit-channel-reaction.ts";
+import {
+  type ReactionThread,
+  submitChannelReaction,
+} from "./submit-channel-reaction.ts";
 import { submitVisibleCommand } from "./submit-visible-command.ts";
 import type { DraftSendContext } from "./use-draft-send.ts";
 
@@ -13,6 +16,7 @@ export function channelDraftActions(
   permission: ReturnType<typeof savedChannelPermissions>,
   collapsedThreads: boolean | null,
   openSearch: (terms: string, origin: AbortSignal) => Promise<boolean>,
+  thread?: ReactionThread,
 ): DraftSendContext {
   return {
     post: {
@@ -46,6 +50,7 @@ export function channelDraftActions(
             channelId: channel.id,
             userId,
             collapsedThreads,
+            thread,
             archived: Boolean(channel.deleteAt),
             add: permission(channel, "add_reaction"),
             remove: permission(channel, "remove_reaction"),

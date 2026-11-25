@@ -33,10 +33,11 @@ fn save(id: &str, stamp: i64) -> PostChange {
         message_source: None,
         hashtags: String::new(),
         is_pinned: false,
+        thread_summary: None,
     })
 }
 
-fn page(source: WindowSource, posts: &[(&str, i64)]) -> ChannelHistoryPage {
+pub(super) fn page(source: WindowSource, posts: &[(&str, i64)]) -> ChannelHistoryPage {
     ChannelHistoryPage {
         channel_id: CHANNEL.into(),
         collapsed_threads: false,
@@ -51,7 +52,10 @@ fn page(source: WindowSource, posts: &[(&str, i64)]) -> ChannelHistoryPage {
 fn focus(id: &str) -> WindowSource {
     WindowSource::Focused { post_id: id.into() }
 }
-fn apply(view: &mut AccountHistory, page: &ChannelHistoryPage) -> Result<PageWrite, HistoryError> {
+pub(super) fn apply(
+    view: &mut AccountHistory,
+    page: &ChannelHistoryPage,
+) -> Result<PageWrite, HistoryError> {
     let load = view.begin_channel_load(&page.channel_id)?;
     view.apply_channel_window(load, page)
 }
@@ -415,6 +419,7 @@ pub(crate) fn round_trip(root: &Path) -> Result<(), HistoryError> {
     replaced_neighbors(&root.join("replacement"))?;
     delayed_tie_edges(&root.join("delayed"))?;
     sparse_and_removal(&root.join("removal"))?;
+    super::thread_summaries::run(&root.join("summaries"))?;
     upgrade_and_plans(&root.join("upgrade"))
 }
 

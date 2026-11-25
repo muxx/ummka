@@ -5,14 +5,17 @@ type SavedPost = Pick<
   "id" | "channelId" | "rootId" | "type"
 >;
 
-/** Use the latest saved window in server order. Local outgoing attempts are separate. */
+/** Inspect the newest row first without reordering the stored window. */
 export function latestReactionTarget(
   channelId: string,
-  newestFirst: readonly SavedPost[],
+  posts: readonly SavedPost[],
   rootId?: string,
+  order: "newestFirst" | "oldestFirst" = "newestFirst",
 ): string | null {
   let root: string | null = null;
-  for (const post of newestFirst) {
+  for (let offset = 0; offset < posts.length; offset++) {
+    const post =
+      posts[order === "newestFirst" ? offset : posts.length - 1 - offset];
     if (post.channelId !== channelId || post.type.startsWith("system_"))
       continue;
     if (rootId === undefined || post.rootId === rootId) return post.id;
