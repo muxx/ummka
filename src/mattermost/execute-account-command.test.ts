@@ -205,11 +205,12 @@ test("preserves the command on refusal and on an uncertain response", async () =
       });
     const result = await executeSavedCommand(client, change, target, "one");
     if (kind === "unconfirmed") {
-      expect(result).toEqual({ kind });
+      expect(result).toEqual({ kind, attemptRevision: "two" });
       expect(change).toHaveBeenCalledTimes(1);
     } else {
       expect(result).toMatchObject({
         kind: "answered",
+        attemptRevision: "two",
         result: { kind },
         settlement: "saved",
         draft: { message: "/release one", revision: "three" },
@@ -248,6 +249,7 @@ test("keeps a known server reply when the draft has changed or SQLite refuses th
     else
       await expect(result).resolves.toMatchObject({
         kind: "answered",
+        attemptRevision: "active",
         result: { kind: "executed", response: { text: response.text } },
         settlement: problem === "edit" ? "conflict" : "storageUnavailable",
       });
@@ -282,6 +284,7 @@ test("a confirmed repeat sends only after reserving a new attempt for that revis
   expect(visits).toHaveLength(0);
   await expect(repeat()).resolves.toMatchObject({
     kind: "answered",
+    attemptRevision: "next",
     settlement: "saved",
   });
   expect(visits).toHaveLength(1);
