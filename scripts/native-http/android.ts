@@ -10,7 +10,7 @@ import { promisify } from "node:util";
 
 import {
   checkWebviewProcesses,
-  type OnKeyboardReady,
+  type OnAndroidInputReady,
 } from "./android-webview.ts";
 
 const exec = promisify(execFile);
@@ -68,7 +68,7 @@ export async function checkAndroid(
   webviewPorts: number[],
   ca: Buffer,
   config: string,
-  onKeyboardReady: OnKeyboardReady,
+  onAndroidInputReady: OnAndroidInputReady,
 ) {
   const sdk = process.env.ANDROID_HOME;
   assert(sdk, "ANDROID_HOME is required");
@@ -288,7 +288,7 @@ export async function checkAndroid(
       adb,
       `${app}.httpcheck`,
       component,
-      onKeyboardReady,
+      onAndroidInputReady,
     );
   } catch (error) {
     console.error((await readFile(log, "utf8")).slice(-1500));

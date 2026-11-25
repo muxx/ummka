@@ -76,6 +76,44 @@ export async function checkSavedTeamWindow(
       throw Error("An offline draft offered sending");
     const edited = field.value + " Ещё строка.";
     flushSync(() => fireEvent.input(field, { target: { value: edited } }));
+    if (import.meta.env.UMMKA_MACOS_OVERLAY && !removeOutgoing) {
+      const post = (await saved()).closest("article");
+      if (!post) throw Error("The saved post is outside its timeline row");
+      const opener = within(post).getByRole("button", { name: "Открыть тред" });
+      opener.focus();
+      flushSync(() => fireEvent.click(opener));
+      const thread = await ui.findByRole("complementary", {
+        name: "Обсуждение",
+      });
+      await within(thread).findByText("Saved fixture room message");
+      const conversation = ui.getByRole("main", { name: "Town Square" });
+      const channelBox = conversation.getBoundingClientRect();
+      const threadBox = thread.getBoundingClientRect();
+      if (
+        !channelBox.width ||
+        threadBox.width < 300 ||
+        threadBox.left < channelBox.right - 1 ||
+        threadBox.right > innerWidth + 1
+      )
+        throw Error(
+          "The desktop thread panel overlaps or displaces the channel",
+        );
+      flushSync(() =>
+        fireEvent.click(
+          within(thread).getByRole("button", { name: "Закрыть тред" }),
+        ),
+      );
+      if (
+        thread.isConnected ||
+        document.activeElement !== opener ||
+        ui.getByRole("textbox", { name: "Написать в #Town Square…" }) !==
+          field ||
+        field.value !== edited
+      )
+        throw Error(
+          "Closing the desktop thread lost the saved channel row or its draft",
+        );
+    }
     if (typeof navigator.clipboard?.writeText !== "function")
       throw Error("The packaged WebView cannot copy text");
     if (removeOutgoing) {

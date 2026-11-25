@@ -5,6 +5,7 @@ import { App } from "../../src/App.tsx";
 import {
   getCurrentAccountId,
   openAccountRestConnection,
+  openNativeRestConnection,
 } from "../../src/mattermost/native-rest.ts";
 import { openChannelNavigation } from "./account-team-window.tsx";
 import { checkPendingCommandActions } from "./pending-command-actions.ts";
@@ -21,7 +22,7 @@ export async function waitForAppForeground() {
   );
 }
 
-export async function checkBrowserApp(server: string) {
+export async function checkBrowserApp(server: string, controlPort: string) {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -121,6 +122,49 @@ export async function checkBrowserApp(server: string) {
       fireEvent.input(townDraft, {
         target: { value: "Draft from the channel window" },
       }),
+    );
+    const town = ui.getByText("Town fixture message").closest("article");
+    if (!town) throw Error("Town post is outside its timeline row");
+    const opener = within(town).getByRole("button", { name: "Open thread" });
+    opener.focus();
+    flushSync(() => fireEvent.click(opener));
+    const thread = await ui.findByRole("complementary", { name: "Thread" });
+    await within(thread).findByText(
+      "Reply visible only inside Town’s thread",
+      {},
+      { timeout: 10_000 },
+    );
+    if (town.getClientRects().length || document.activeElement === townDraft)
+      throw Error("The compact thread did not take over the conversation");
+    const control = await openNativeRestConnection(
+      `https://127.0.0.1:${controlPort}`,
+    );
+    try {
+      const response = await control.fetchApi(
+        `${control.basePath}/api/v4/system/ping?step=thread-back`,
+      );
+      if (response.status !== 204)
+        throw Error("Android did not inject the Back key");
+    } finally {
+      await control.close();
+    }
+    await waitFor(
+      () => {
+        if (thread.isConnected)
+          throw Error("Android Back left the thread open");
+        if (!document.hasFocus()) throw Error("Android Back left the Activity");
+        if (document.activeElement !== opener || !town.getClientRects().length)
+          throw Error(
+            "Android Back did not restore the channel and its opener",
+          );
+        if (
+          ui.getByRole("textbox", { name: "Message #Town Square…" }) !==
+            townDraft ||
+          townDraft.value !== "Draft from the channel window"
+        )
+          throw Error("Android Back lost the channel draft");
+      },
+      { timeout: 10_000 },
     );
     openChannelNavigation(host, "Channels");
     const design = ui.getByRole("button", { name: "Design" });

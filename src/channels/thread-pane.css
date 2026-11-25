@@ -1,0 +1,29 @@
+.thread-feed {
+  height: 100%;
+}
+.thread-root {
+  padding-block-end: 10px;
+  margin-block-end: 6px;
+  border-block-end: 1px solid var(--divider);
+}
+.thread-reply[data-selected] article {
+  background: var(--row-selected);
+}
+.thread-feed article:focus-visible {
+  outline-offset: -2px;
+}
+.thread-edge {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+}
+
+.thread-count {
+  margin: 0;
+  padding: 5px 14px;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}

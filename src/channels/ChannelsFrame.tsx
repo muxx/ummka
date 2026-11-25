@@ -242,7 +242,11 @@ export function ChannelsFrame({
                 aria-label={labels.closeThread}
                 onClick={thread.close}
               >
+                <span className="thread-back-icon">
+                  <Chevron direction="back" />
+                </span>
                 <svg
+                  className="thread-close-icon"
                   width="18"
                   height="18"
                   viewBox="0 0 24 24"

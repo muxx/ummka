@@ -2,13 +2,15 @@ import type { PendingPost } from "../mattermost/account-delivery.ts";
 import type { LocalChannelWindow } from "../mattermost/local-history.ts";
 
 type Saved = LocalChannelWindow["posts"][number];
-export type TimelineMessage = Pick<
-  Saved,
-  "id" | "userId" | "createAt" | "editAt" | "message" | "isPinned"
-> & {
-  localId?: string;
-  outgoing?: PendingPost;
-};
+export type TimelineMessage = { localId?: string } & (
+  | (Saved & { outgoing?: never })
+  | (Pick<
+      Saved,
+      "id" | "userId" | "createAt" | "editAt" | "message" | "isPinned"
+    > & {
+      outgoing: PendingPost;
+    })
+);
 
 /** Both inputs are newest first. The server owns tie order and SQLite owns the order of local attempts. */
 export function conversationRows(
