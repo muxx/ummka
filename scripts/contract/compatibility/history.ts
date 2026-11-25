@@ -3,6 +3,11 @@ import { randomBytes } from "node:crypto";
 import { channelHistoryPage } from "../../../src/mattermost/channel-history-page.ts";
 import { channelPostChanges } from "../../../src/mattermost/channel-post-records.ts";
 import {
+  channelProfile,
+  conversationName,
+  indexChannelProfiles,
+} from "../../../src/mattermost/channel-profiles.ts";
+import {
   assembleFocusedHistory,
   readFocusedNeighbors,
 } from "../../../src/mattermost/focused-history.ts";
@@ -641,6 +646,51 @@ assert.equal(person.position, "Fixture engineer");
 assert.equal(person.isBot, undefined);
 assert.equal(person.remoteId, "");
 assert.equal(botProfile.isBot, true);
+const readerProfile = await users.getUser({ userId: reader.id });
+const personLabel = channelProfile(person);
+const botLabel = channelProfile(botProfile);
+const readerLabel = channelProfile(readerProfile);
+assert.equal(personLabel.position, "Fixture engineer");
+assert.equal(personLabel.remoteUsername, "");
+assert.equal(botLabel.isBot, true);
+const known = indexChannelProfiles([personLabel, botLabel, readerLabel]);
+assert.equal(
+  conversationName(
+    { kind: dm.type, name: dm.name, displayName: dm.display_name },
+    user.id,
+    known,
+    "username",
+    "en",
+  ),
+  readerLogin.login_id,
+);
+const group = await (
+  await create("channels/group", [user.id, reader.id, bot.user_id], token)
+).json();
+assert.equal(group.type, "G");
+const groupName = {
+  kind: group.type,
+  name: group.name,
+  displayName: group.display_name,
+};
+assert.deepEqual(
+  new Set(group.display_name.split(", ")),
+  new Set([username, readerLabel.username, botLabel.username]),
+);
+assert.equal(
+  conversationName(groupName, user.id, known, "username", "en"),
+  [readerLabel.username, botLabel.username].sort().join(", "),
+);
+assert.equal(
+  conversationName(
+    groupName,
+    user.id,
+    indexChannelProfiles([personLabel]),
+    "username",
+    "en",
+  ),
+  group.display_name,
+);
 console.log(
   `Mattermost ${version} verified local user position and bot identity through generated profile reads.`,
 );
