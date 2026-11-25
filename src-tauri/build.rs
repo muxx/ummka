@@ -11,6 +11,8 @@ fn main() {
         "close_rest_connection",
         "read_composer_draft",
         "save_composer_draft",
+        "stage_composer_post",
+        "read_pending_posts",
         "read_workspace_settings",
         "begin_workspace_policy_load",
         "store_workspace_policy",

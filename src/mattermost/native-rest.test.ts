@@ -255,6 +255,8 @@ test("passes the canonical installation and closes the exact native handle", asy
   expect(ipc).toHaveBeenNthCalledWith(1, "open_rest_connection", { basePath });
   expect("signOut" in connection).toBe(false);
   expect("readChannelWindow" in connection).toBe(false);
+  expect("stagePost" in connection).toBe(false);
+  expect("readPendingPosts" in connection).toBe(false);
   expect("readAccountDirectory" in connection).toBe(false);
   expect("readTeamDirectory" in connection).toBe(false);
   expect("refreshChannelHistory" in connection).toBe(false);
@@ -287,6 +289,7 @@ test("opens a native account by installation and user ID", async () => {
     "readChannelWindow",
     "readDraft",
     "readJoinedTeams",
+    "readPendingPosts",
     "readSavedProfiles",
     "readTeamDirectory",
     "readTeamSidebar",
@@ -303,6 +306,7 @@ test("opens a native account by installation and user ID", async () => {
     "selectSidebarChannel",
     "signOut",
     "signOutOnDevice",
+    "stagePost",
   ]);
 });
 
@@ -339,6 +343,37 @@ test("drafts use the account handle and discard a late read after closing it", a
   finish(current);
   await expect(pending).rejects.toBe("cancelled");
   await expect(account.saveDraft(change)).rejects.toBe("unknown_connection");
+});
+
+test("a closed account cannot publish a delayed stage result or read pending posts", async () => {
+  ipc.mockResolvedValueOnce(37);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    "u".repeat(26),
+  );
+  const channelId = "c".repeat(26);
+  const revision = "a".repeat(32);
+  let finish!: () => void;
+  ipc.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const stage = account.stagePost({ channelId, revision });
+  expect(ipc).toHaveBeenLastCalledWith("stage_composer_post", {
+    rid: 37,
+    channelId,
+    rootId: null,
+    revision,
+  });
+  await account.close();
+  finish();
+  await expect(stage).rejects.toBe("cancelled");
+  await expect(
+    account.readPendingPosts({ channelId, after: 0, limit: 20 }),
+  ).rejects.toBe("unknown_connection");
+  expect(ipc).toHaveBeenLastCalledWith("close_rest_connection", { rid: 37 });
 });
 
 test("a directory delivered after the account signs out is discarded", async () => {

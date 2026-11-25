@@ -65,6 +65,20 @@ export type DraftLocation = { channelId: string; rootId?: string };
 export type ComposerDraft = { message: string; revision: string | null };
 export type DraftSave = { kind: "saved" | "conflict"; draft: ComposerDraft };
 
+type PendingPost = {
+  sequence: number;
+  pendingId: string;
+  channelId: string;
+  rootId: string | null;
+  message: string;
+  createdAt: number;
+  previousLogin: boolean;
+  confirmedPostId: string | null;
+};
+type StagePost =
+  | { kind: "created"; post: PendingPost; draft: ComposerDraft }
+  | { kind: "notStaged"; draft: ComposerDraft };
+
 export type AccountSignOut =
   | { status: "signed_out" }
   | { status: "unconfirmed" }
@@ -169,6 +183,36 @@ export async function openAccountRestConnection(
           rootId: rootId ?? null,
           expectedRevision,
           message,
+        }),
+      );
+    },
+    stagePost({
+      channelId,
+      rootId,
+      revision,
+    }: DraftLocation & { revision: string }) {
+      return readWhileOpen(() =>
+        invoke<StagePost>("stage_composer_post", {
+          rid,
+          channelId,
+          rootId: rootId ?? null,
+          revision,
+        }),
+      );
+    },
+    readPendingPosts({
+      channelId,
+      rootId,
+      after,
+      limit,
+    }: DraftLocation & { after: number; limit: number }) {
+      return readWhileOpen(() =>
+        invoke<PendingPost[]>("read_pending_posts", {
+          rid,
+          channelId,
+          rootId: rootId ?? null,
+          after,
+          limit,
         }),
       );
     },
