@@ -186,6 +186,18 @@ export async function checkSidebarReads(
       name: "name_format",
       value: "nickname_full_name",
     },
+    {
+      user_id: userId,
+      category: "advanced_settings",
+      name: "send_on_ctrl_enter",
+      value: "true",
+    },
+    {
+      user_id: userId,
+      category: "advanced_settings",
+      name: "code_block_ctrl_enter",
+      value: "false",
+    },
   ]);
   const saved = await preferences.getPreferences({ userId: "me" });
   const system = new SystemApi(config);
@@ -208,6 +220,10 @@ export async function checkSidebarReads(
   assert.ok(storedChannel?.createAt && storedChannel.createAt > 0);
   assert.equal(policy.directShown[otherUserId], undefined);
   assert.equal(policy.viewTimes[channelId], 310);
+  assert.deepEqual(policy.composerKeys, {
+    sendOnCtrlEnter: true,
+    codeBlockOnCtrlEnter: false,
+  });
   assert.equal(policy.nameFormat, "nickname_full_name");
   assert.equal(visibleConversationLimit(policy, false), 15);
   assert.equal(visibleConversationLimit(policy, true), 15);

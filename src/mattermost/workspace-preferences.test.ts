@@ -1,5 +1,7 @@
 import { expect, test } from "vitest";
 import {
+  effectiveWorkspacePreferences,
+  sidebarPreferences,
   visibleConversationLimit,
   workspacePreferences,
   workspaceServerPolicy,
@@ -19,6 +21,43 @@ const display = (name: string, value: string) =>
 const sidebar = (name: string, value: string) =>
   pref("sidebar_settings", name, value);
 
+test("honours independent Mattermost keyboard settings on the signed-in account", () => {
+  const advanced = (name: string, value: string) =>
+    pref("advanced_settings", name, value);
+  expect(sidebarPreferences(me, []).composerKeys).toEqual({
+    sendOnCtrlEnter: false,
+    codeBlockOnCtrlEnter: true,
+  });
+  const rows = [
+    advanced("send_on_ctrl_enter", "true"),
+    advanced("code_block_ctrl_enter", "false"),
+    display("send_on_ctrl_enter", "false"),
+  ];
+  expect(sidebarPreferences(me, rows).composerKeys).toEqual({
+    sendOnCtrlEnter: true,
+    codeBlockOnCtrlEnter: false,
+  });
+  expect(
+    sidebarPreferences(me, [
+      advanced("send_on_ctrl_enter", ""),
+      advanced("code_block_ctrl_enter", "FALSE"),
+    ]).composerKeys,
+  ).toEqual({ sendOnCtrlEnter: true, codeBlockOnCtrlEnter: true });
+  expect(() => sidebarPreferences(me, [{ ...rows[0], userId: other }])).toThrow(
+    "account preference",
+  );
+  const { composerKeys, ...old } = sidebarPreferences(me, []);
+  expect(
+    effectiveWorkspacePreferences(old, workspaceServerPolicy({}, {}))
+      .composerKeys,
+  ).toBeUndefined();
+  expect(
+    effectiveWorkspacePreferences(
+      { ...old, composerKeys },
+      workspaceServerPolicy({}, {}),
+    ).composerKeys,
+  ).toEqual(composerKeys);
+});
 test("chooses thread counters using the server policy and the individual's setting", () => {
   for (const [mode, defaults, on, off] of [
     [undefined, false, false, false],

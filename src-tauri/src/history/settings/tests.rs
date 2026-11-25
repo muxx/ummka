@@ -146,6 +146,15 @@ fn accepts_only_known_settings_and_indexes_an_owner_lookup() {
     let mut raw = serde_json::to_value(&prefs).unwrap();
     raw["email"] = json!("private");
     assert!(serde_json::from_value::<SidebarPreferences>(raw).is_err());
+    for malformed in [
+        json!({"sendOnCtrlEnter":true}),
+        json!({"sendOnCtrlEnter":"true","codeBlockOnCtrlEnter":false}),
+        json!({"sendOnCtrlEnter":true,"codeBlockOnCtrlEnter":false,"other":true}),
+    ] {
+        let mut raw = serde_json::to_value(&prefs).unwrap();
+        raw["composerKeys"] = malformed;
+        assert!(serde_json::from_value::<SidebarPreferences>(raw).is_err());
+    }
     let mut raw = serde_json::to_value(policy()).unwrap();
     raw["nameFormat"] = json!("unrecognised-value");
     assert!(serde_json::from_value::<ServerPolicy>(raw).is_err());
@@ -171,6 +180,55 @@ fn accepts_only_known_settings_and_indexes_an_owner_lookup() {
         Ok(())
     })
     .unwrap();
+}
+
+#[test]
+fn v16_keeps_the_draft_and_unknown_shortcuts_until_this_account_refreshes() {
+    let root = tempdir().unwrap();
+    let v16 = &MIGRATIONS[..16];
+    let mut old = HistoryDatabase::open_with(root.path(), URL, v16).unwrap();
+    let owner = old.restore(&account()).unwrap();
+    let legacy = serde_json::to_string(&preferences()).unwrap();
+    assert!(!legacy.contains("composerKeys"));
+    old.write(&owner, |tx| {
+        tx.execute("INSERT INTO workspace_settings(owner,preferences) VALUES(1,?1)", [&legacy])?;
+        tx.execute("INSERT INTO composer_draft(channel_id,root_id,message,revision) VALUES(?1,'','my draft',lower(hex(randomblob(16))))", [OTHER])?;
+        Ok(())
+    }).unwrap();
+    let mut db = open(root.path());
+    assert_eq!(
+        db.read_workspace_settings().unwrap().preferences,
+        Some(preferences())
+    );
+    let mut choice = preferences();
+    choice.composer_keys = Some(ComposerKeys {
+        send_on_ctrl_enter: true,
+        code_block_on_ctrl_enter: false,
+    });
+    let load = db.begin_team_directory_load().unwrap();
+    assert!(
+        db.store_team_directory(load, &[team()], Some(&choice))
+            .unwrap()
+    );
+    assert_eq!(
+        old.write(&owner, |tx| tx
+            .execute("DELETE FROM workspace_settings", [])),
+        Err(HistoryError::UnsupportedSchema)
+    );
+    drop(db);
+    assert!(matches!(
+        HistoryDatabase::open_with(root.path(), URL, v16),
+        Err(HistoryError::UnsupportedSchema)
+    ));
+    let mut reopened = open(root.path());
+    assert_eq!(
+        reopened.read_workspace_settings().unwrap().preferences,
+        Some(choice)
+    );
+    assert_eq!(
+        reopened.read_draft(OTHER, None).unwrap().message,
+        "my draft"
+    );
 }
 
 #[test]

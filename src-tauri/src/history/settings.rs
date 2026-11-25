@@ -24,6 +24,8 @@ enum ThreadMode {
 #[derive(Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SidebarPreferences {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    composer_keys: Option<ComposerKeys>,
     name_format: Option<NameFormat>,
     collapsed_threads: Option<bool>,
     separate_unreads: Option<bool>,
@@ -31,6 +33,13 @@ pub struct SidebarPreferences {
     direct_shown: BTreeMap<String, bool>,
     group_shown: BTreeMap<String, bool>,
     view_times: BTreeMap<String, u64>,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ComposerKeys {
+    send_on_ctrl_enter: bool,
+    code_block_on_ctrl_enter: bool,
 }
 
 impl SidebarPreferences {
