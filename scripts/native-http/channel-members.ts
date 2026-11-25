@@ -13,8 +13,13 @@ export async function respondToChannelMembers(
   const single = url.pathname === `/team/chat${route}/${userId}`;
   const page = url.pathname === route;
   const batch = url.pathname === `/team/chat${route}/ids`;
-  if (!self && !single && !page && !batch) return;
-  assert.equal(request.method, batch ? "POST" : "GET");
+  const add = url.pathname === `/team/chat${route}`;
+  const remove = single && request.method === "DELETE";
+  if (!self && !single && !page && !batch && !add) return;
+  assert.equal(
+    request.method,
+    add || batch ? "POST" : remove ? "DELETE" : "GET",
+  );
   assert.equal(url.search, page ? "?page=2&per_page=3" : "");
   assert.equal(request.headers.cookie, undefined);
   assert.equal(
@@ -37,13 +42,23 @@ export async function respondToChannelMembers(
     notify_props: { mark_unread: "mention" },
   };
   const other = "v".repeat(26);
-  if (batch) {
+  if (remove) {
+    response
+      .writeHead(200, { "Content-Type": "application/json" })
+      .end(JSON.stringify({ status: "OK" }));
+    return "member-remove";
+  }
+  if (batch || add) {
     assert.equal(request.headers["content-type"], "application/json");
     const chunks: Buffer[] = [];
     for await (const chunk of request) chunks.push(chunk);
     assert.equal(
       Buffer.concat(chunks).toString("utf8"),
-      JSON.stringify([other, userId]),
+      JSON.stringify(
+        add
+          ? { user_id: userId, post_root_id: "r".repeat(26) }
+          : [other, userId],
+      ),
     );
   }
   const payload = page
@@ -52,8 +67,9 @@ export async function respondToChannelMembers(
       ? [member, { ...member, user_id: other }]
       : member;
   response
-    .writeHead(200, { "Content-Type": "application/json" })
+    .writeHead(add ? 201 : 200, { "Content-Type": "application/json" })
     .end(JSON.stringify(payload));
+  if (add) return "member-add";
   if (page) return "members-page";
   if (batch) return "members-batch";
   return self ? "member-self" : "member-id";

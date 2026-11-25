@@ -79,3 +79,56 @@ for (const prefix of ["", "/teams/chat"]) {
     assert.equal(responses.length, 0);
   });
 }
+
+test("changes a single team membership under the installation prefix", async (t) => {
+  const member = { team_id: teamId, user_id: userId };
+  const calls: {
+    method?: string;
+    path?: string;
+    auth?: string;
+    type?: string;
+    body: string;
+  }[] = [];
+  const { base } = await listen(t, async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const add = req.method === "POST";
+    calls.push({
+      method: req.method,
+      path: req.url,
+      auth: req.headers.authorization,
+      type: req.headers["content-type"],
+      body: Buffer.concat(chunks).toString(),
+    });
+    res
+      .writeHead(add ? 201 : 200, { "Content-Type": "application/json" })
+      .end(JSON.stringify(add ? member : { status: "OK" }));
+  });
+  const api = new TeamsApi(
+    new Configuration({
+      ...createRestTransport(base + "/team/chat", fetch),
+      accessToken: "synthetic-session",
+    }),
+  );
+  const route = `/team/chat/api/v4/teams/${teamId}/members`;
+  const target = { teamId, userId };
+  const added = await api.addTeamMember({
+    teamId,
+    addTeamMemberRequest: target,
+  });
+  assert.equal(added.userId, userId);
+  assert.equal(added.teamId, teamId);
+  assert.equal((await api.removeTeamMember(target)).status, "OK");
+  const [post, remove] = calls;
+  assert.equal(calls.length, 2);
+  assert.ok(post && remove);
+  assert.deepEqual(
+    [post.method, post.path, post.auth, post.type],
+    ["POST", route, "Bearer synthetic-session", "application/json"],
+  );
+  assert.deepEqual(JSON.parse(post.body), member);
+  assert.deepEqual(
+    [remove.method, remove.path, remove.auth, remove.body],
+    ["DELETE", route + "/" + userId, "Bearer synthetic-session", ""],
+  );
+});

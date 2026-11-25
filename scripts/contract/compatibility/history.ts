@@ -581,6 +581,55 @@ await create(
   { team_id: team.id, user_id: reader.id },
   token,
 );
+const joinable = await (
+  await create(
+    "channels",
+    {
+      team_id: team.id,
+      name: "membership-roundtrip",
+      display_name: "Membership round trip",
+      type: "O",
+    },
+    token,
+  )
+).json();
+const memberApi = new ChannelsApi(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+);
+const ownMembership = { channelId: joinable.id, userId: reader.id };
+const beforeJoin = await memberApi.getChannelMembersForUser({
+  teamId: team.id,
+  userId: "me",
+});
+assert.ok(!beforeJoin.some((row) => row.channelId === joinable.id));
+const addition = await memberApi.addChannelMemberRaw({
+  channelId: joinable.id,
+  addChannelMemberRequest: { userId: reader.id },
+});
+assert.equal(addition.raw.status, 201);
+const addedMember = await addition.value();
+assert.equal(addedMember.userId, reader.id);
+assert.equal(addedMember.channelId, joinable.id);
+assert.equal(
+  (await memberApi.getChannelMember(ownMembership)).userId,
+  reader.id,
+);
+const removal = await memberApi.removeUserFromChannelRaw(ownMembership);
+assert.equal(removal.raw.status, 200);
+assert.equal((await removal.value()).status, "OK");
+const afterLeave = await memberApi.getChannelMembersForUser({
+  teamId: team.id,
+  userId: "me",
+});
+assert.ok(!afterLeave.some((row) => row.channelId === joinable.id));
+await assert.rejects(
+  memberApi.addChannelMember({
+    channelId: dm.id,
+    addChannelMemberRequest: { userId: reader.id },
+  }),
+  (e: unknown) => e instanceof ResponseError && e.response.status === 400,
+);
+
 const extraTeam = await (
   await create(
     "teams",
@@ -610,11 +659,6 @@ await checkFileSearch(
   extraTeam.id,
   version,
 );
-await create(
-  `teams/${extraTeam.id}/members`,
-  { team_id: extraTeam.id, user_id: reader.id },
-  token,
-);
 await checkNavigationMemberships(
   new Configuration({ basePath: base, accessToken: readerToken }),
   reader.id,
@@ -623,11 +667,6 @@ await checkNavigationMemberships(
   extraTeam.id,
   channelId,
   dm.id,
-  () =>
-    fetch(`${base}/api/v4/teams/${extraTeam.id}/members/${reader.id}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${readerToken}` },
-    }),
 );
 console.log(
   `Mattermost ${version} verified channel and team roles, active and removed membership and anonymous HTTP 401.`,
