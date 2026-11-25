@@ -168,3 +168,45 @@ export async function checkEmptyTeamDirectory(
     actual.categories.every((category) => category.channelIds?.length === 0),
   );
 }
+
+export async function checkChannelRoster(
+  api: ChannelsApi,
+  privateChannel: string,
+  direct: string,
+  expected: string[],
+) {
+  const pages = await Promise.all(
+    [0, 1, 2].map((page) =>
+      api.getChannelMembers({ channelId: direct, page, perPage: 1 }),
+    ),
+  );
+  assert.deepEqual(
+    pages.map((p) => p.length),
+    [1, 1, 0],
+  );
+  const listed = pages.flat();
+  const expectedIds = [...expected].sort();
+  assert.deepEqual(listed.map((m) => m.userId).sort(), expectedIds);
+  assert.ok(
+    listed.every((m) => m.channelId === direct && m.schemeUser === true),
+  );
+  const selected = await api.getChannelMembersByIds({
+    channelId: direct,
+    requestBody: [expected[1], "z".repeat(26), expected[0]],
+  });
+  assert.deepEqual(selected.map((m) => m.userId).sort(), expectedIds);
+  assert.ok(selected.every((m) => m.channelId === direct));
+  const denied = (error: unknown) =>
+    error instanceof ResponseError && error.response.status === 403;
+  await assert.rejects(
+    api.getChannelMembers({ channelId: privateChannel }),
+    denied,
+  );
+  await assert.rejects(
+    api.getChannelMembersByIds({
+      channelId: privateChannel,
+      requestBody: expected,
+    }),
+    denied,
+  );
+}
