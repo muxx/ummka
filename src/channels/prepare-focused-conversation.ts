@@ -14,6 +14,7 @@ export async function prepareFocusedConversation(
   post: LocalPost,
   collapsedThreads: boolean,
   signal: AbortSignal,
+  online = true,
 ) {
   signal.throwIfAborted();
   const focusedReply = collapsedThreads && post.rootId ? post : undefined;
@@ -32,6 +33,7 @@ export async function prepareFocusedConversation(
   let page = await account.readChannelWindow(around);
   signal.throwIfAborted();
   if (!page) {
+    if (!online) return { status: "offline" } as const;
     const result = await account.refreshChannelHistory(
       { ...scope, kind: "focused", perPage: neighbors },
       signal,

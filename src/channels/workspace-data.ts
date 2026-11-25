@@ -143,7 +143,8 @@ type TimelineConnection = Pick<
 >;
 export type EdgeResult =
   | { status: "ready"; page: LocalChannelWindow }
-  | { status: "offline" | "unavailable" };
+  | { status: "offline" | "unavailable" | "missing" | "superseded" }
+  | { status: "inaccessible"; firstInaccessiblePostTime: number };
 
 // Keep part of the old screen in the new window, allowing the scroller to anchor actual rows.
 export async function readTimelineEdge(
@@ -170,20 +171,24 @@ export async function readTimelineEdge(
     newer: direction === "newer" ? channelPageSize : 20,
     older: direction === "older" ? channelPageSize : 20,
   };
+  const anchorIndex = (page: LocalChannelWindow | null) =>
+    page?.posts.findIndex(
+      (p) => p.id === boundary.id && p.channelId === channelId,
+    ) ?? -1;
   const advanced = (page: LocalChannelWindow | null) => {
-    const index = page?.posts.findIndex((p) => p.id === boundary.id) ?? -1;
+    const index = anchorIndex(page);
     return (
       page &&
       index >= 0 &&
-      (direction === "older" ? index < page.posts.length - 1 : index > 0)
+      (page[direction].kind === "end" ||
+        (direction === "older" ? index < page.posts.length - 1 : index > 0))
     );
   };
   const cached = await connection.readChannelWindow(query);
   signal.throwIfAborted();
-  if (cached && (advanced(cached) || cached[direction].kind === "end"))
-    return { status: "ready", page: cached };
+  if (cached && advanced(cached)) return { status: "ready", page: cached };
   if (!online) return { status: "offline" };
-  await connection.refreshChannelHistory(
+  const write = await connection.refreshChannelHistory(
     {
       ...scope,
       kind: direction === "older" ? "before" : "after",
@@ -193,10 +198,16 @@ export async function readTimelineEdge(
     signal,
   );
   signal.throwIfAborted();
+  if (write.kind === "superseded") return { status: "superseded" };
+  if (write.kind === "inaccessible")
+    return {
+      status: "inaccessible",
+      firstInaccessiblePostTime: write.firstInaccessiblePostTime,
+    };
   const published = await connection.readChannelWindow(query);
   signal.throwIfAborted();
-  return published &&
-    (advanced(published) || published[direction].kind === "end")
+  if (anchorIndex(published) === -1) return { status: "missing" };
+  return published && advanced(published)
     ? { status: "ready", page: published }
     : { status: "unavailable" };
 }
