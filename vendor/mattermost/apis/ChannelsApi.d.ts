@@ -5,6 +5,10 @@ import { type MarkChannelsReadForUser200Response } from '../models/MarkChannelsR
 import { type OrderedSidebarCategories } from '../models/OrderedSidebarCategories.js';
 import { type ViewChannel200Response } from '../models/ViewChannel200Response.js';
 import { type ViewChannelRequest } from '../models/ViewChannelRequest.js';
+export interface GetChannelMemberRequest {
+    channelId: string;
+    userId: string;
+}
 export interface GetChannelMembersForUserRequest {
     userId: string;
     teamId: string;
@@ -28,6 +32,9 @@ export interface ViewChannelOperationRequest {
     viewChannelRequest: ViewChannelRequest;
 }
 export declare class ChannelsApi extends runtime.BaseAPI {
+    getChannelMemberRequestOpts(requestParameters: GetChannelMemberRequest): Promise<runtime.RequestOpts>;
+    getChannelMemberRaw(requestParameters: GetChannelMemberRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<ChannelMember>>;
+    getChannelMember(requestParameters: GetChannelMemberRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<ChannelMember>;
     getChannelMembersForUserRequestOpts(requestParameters: GetChannelMembersForUserRequest): Promise<runtime.RequestOpts>;
     getChannelMembersForUserRaw(requestParameters: GetChannelMembersForUserRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Array<ChannelMember>>>;
     getChannelMembersForUser(requestParameters: GetChannelMembersForUserRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Array<ChannelMember>>;

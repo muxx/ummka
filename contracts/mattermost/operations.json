@@ -50,6 +50,12 @@
   {
     "file": "channels.yaml",
     "method": "GET",
+    "path": "/api/v4/channels/{channel_id}/members/{user_id}",
+    "id": "GetChannelMember"
+  },
+  {
+    "file": "channels.yaml",
+    "method": "GET",
     "path": "/api/v4/users/{user_id}/teams/{team_id}/channels/categories",
     "id": "GetSidebarCategoriesForTeamForUser"
   },

@@ -6,6 +6,41 @@ import { OrderedSidebarCategoriesFromJSON, } from '../models/OrderedSidebarCateg
 import { ViewChannel200ResponseFromJSON, } from '../models/ViewChannel200Response.js';
 import { ViewChannelRequestToJSON, } from '../models/ViewChannelRequest.js';
 export class ChannelsApi extends runtime.BaseAPI {
+    async getChannelMemberRequestOpts(requestParameters) {
+        if (requestParameters['channelId'] == null) {
+            throw new runtime.RequiredError('channelId', 'Required parameter "channelId" was null or undefined when calling getChannelMember().');
+        }
+        if (requestParameters['userId'] == null) {
+            throw new runtime.RequiredError('userId', 'Required parameter "userId" was null or undefined when calling getChannelMember().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/channels/{channel_id}/members/{user_id}`;
+        urlPath = urlPath.replace('{channel_id}', encodeURIComponent(String(requestParameters['channelId'])));
+        urlPath = urlPath.replace('{user_id}', encodeURIComponent(String(requestParameters['userId'])));
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async getChannelMemberRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.getChannelMemberRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => ChannelMemberFromJSON(jsonValue));
+    }
+    async getChannelMember(requestParameters, initOverrides) {
+        const response = await this.getChannelMemberRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
     async getChannelMembersForUserRequestOpts(requestParameters) {
         if (requestParameters['userId'] == null) {
             throw new runtime.RequiredError('userId', 'Required parameter "userId" was null or undefined when calling getChannelMembersForUser().');

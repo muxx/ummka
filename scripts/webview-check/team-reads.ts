@@ -60,6 +60,25 @@ export async function checkTeamReads(
   )
     throw Error("generated channel read timestamps");
   const userId = "Abc01234567890123456789012";
+  for (const member of [
+    await new ChannelsApi(root).getChannelMember({ channelId, userId: "me" }),
+    await api.getChannelMember({ channelId, userId }),
+  ]) {
+    if (
+      member.channelId !== channelId ||
+      member.userId !== userId ||
+      member.roles !== "channel_user" ||
+      member.schemeUser !== true ||
+      member.lastViewedAt !== 101 ||
+      member.msgCount !== 18 ||
+      member.msgCountRoot !== 13 ||
+      member.mentionCount !== 6 ||
+      member.mentionCountRoot !== 3 ||
+      member.urgentMentionCount !== 2 ||
+      member.notifyProps?.markUnread !== "mention"
+    )
+      throw Error("generated individual channel membership");
+  }
   const unread = await new PostsApi(prefixed).setPostUnread({
     userId: "me",
     postId: "p".repeat(26),
