@@ -16,6 +16,10 @@ import { refreshNavigation } from "./navigation-refresh.ts";
 import { createRestTransport } from "./rest-transport.ts";
 import { canonicalServerUrl } from "./server-url.ts";
 import { projectTeamSidebar, type TeamSidebar } from "./team-sidebar.ts";
+import {
+  loadVisibleProfiles,
+  type VisibleProfileQuery,
+} from "./visible-profiles.ts";
 
 export async function getCurrentAccountId(
   serverUrl: string,
@@ -71,6 +75,9 @@ export async function openAccountRestConnection(
   }
   return {
     ...connection,
+    readVisibleProfiles(query: VisibleProfileQuery, signal?: AbortSignal) {
+      return readWhileOpen(() => loadVisibleProfiles(config, query, signal));
+    },
     readAccountDirectory(signal?: AbortSignal) {
       return readWhileOpen(() => loadAccountDirectory(config, userId, signal));
     },

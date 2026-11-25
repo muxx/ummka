@@ -11,6 +11,7 @@ import {
   assembleFocusedHistory,
   readFocusedNeighbors,
 } from "../../../src/mattermost/focused-history.ts";
+import { loadVisibleProfiles } from "../../../src/mattermost/visible-profiles.ts";
 import {
   ChannelsApi,
   Configuration,
@@ -654,7 +655,25 @@ const readerLabel = channelProfile(readerProfile);
 assert.equal(personLabel.position, "Fixture engineer");
 assert.equal(personLabel.remoteUsername, "");
 assert.equal(botLabel.isBot, true);
-const known = indexChannelProfiles([personLabel, botLabel, readerLabel]);
+const visibleById = await loadVisibleProfiles(session, {
+  ids: [user.id, reader.id, bot.user_id],
+  usernames: [],
+});
+const visibleByName = await loadVisibleProfiles(session, {
+  ids: [],
+  usernames: [
+    readerLabel.username,
+    botLabel.username,
+    username,
+    "unknown-lookup-fixture",
+  ],
+});
+const known = indexChannelProfiles(visibleById);
+assert.deepEqual(known.byId, indexChannelProfiles(visibleByName).byId);
+assert.deepEqual(
+  known.byId,
+  indexChannelProfiles([personLabel, botLabel, readerLabel]).byId,
+);
 assert.equal(
   conversationName(
     { kind: dm.type, name: dm.name, displayName: dm.display_name },
