@@ -31,6 +31,17 @@ export async function checkNavigationMemberships(
 ) {
   const teams = new TeamsApi(session);
   const own = { userId: "me" };
+  const list = await teams.getTeamsForUserRaw(own);
+  const rawTeams: { id: string; group_constrained: boolean | null }[] =
+    await list.raw.clone().json();
+  const decoded = await list.value();
+  for (const id of [keepTeamId, leaveTeamId]) {
+    const team = rawTeams.find((row) => row.id === id);
+    const typed = decoded.find((row) => row.id === id);
+    assert.ok(team && typed && Object.hasOwn(team, "group_constrained"));
+    assert.equal(team.group_constrained, null);
+    assert.equal(typed.groupConstrained, team.group_constrained);
+  }
   const active = await teams.getTeamMembersForUser(own);
   await assert.rejects(
     teams.getTeamMembersForUser({ userId: admin.userId }),

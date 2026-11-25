@@ -35,6 +35,7 @@ import {
   checkNavigationMemberships,
 } from "./memberships.ts";
 import { checkMentionLimit } from "./mention-limit.ts";
+import { checkMentionText } from "./mention-text.ts";
 import {
   checkPostMutations,
   checkPreviouslyAcceptedPost,
@@ -285,6 +286,7 @@ const closedReader = new ChannelsApi(
 );
 await checkChannelAudience(
   base,
+  team.id,
   { id: dm.id, postId: dmPost.id },
   closed.id,
   { id: user.id, token },
@@ -577,6 +579,8 @@ await checkSidebarCounters(
 console.log(
   `Mattermost ${version} verified root and reply counters through a channel view.`,
 );
+// The earlier non-member checks use this private channel before the reader joins.
+await create(`channels/${closed.id}/members`, { user_id: reader.id }, token);
 await checkSidebarReads(
   base,
   readerToken,
@@ -585,6 +589,7 @@ await checkSidebarReads(
   team.id,
   channelId,
   dm.id,
+  closed.id,
 );
 console.log(
   `Mattermost ${version} verified personal sidebar categories, order, flags, preferences and ownership.`,
@@ -773,6 +778,33 @@ await checkProfileReads(
 
 await checkPostMutations(base, posts, channelId, user.id, version);
 await checkCommands(session, team.id, channelId, version);
+// A self-join avoids the membership notification produced when somebody adds the reader.
+const mentionRoom = await (
+  await create(
+    "channels",
+    {
+      team_id: team.id,
+      name: "mention-text",
+      display_name: "Mention text",
+      type: "O",
+    },
+    token,
+  )
+).json();
+await create(
+  `channels/${mentionRoom.id}/members`,
+  { user_id: reader.id },
+  readerToken,
+);
+await checkMentionText(
+  posts,
+  closedReader,
+  mentionRoom.id,
+  readerLogin.login_id,
+);
+console.log(
+  `Mattermost ${version} verified channel mentions against a second member’s counters.`,
+);
 const receiptRoom = await (
   await create(
     "channels",

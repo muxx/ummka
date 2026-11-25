@@ -22,6 +22,11 @@ import {
   correctExecuteCommand,
 } from "./command-corrections.ts";
 import {
+  checkChannelGroupMap,
+  correctAssociatedGroup,
+  correctGroupAssociations,
+} from "./group-association-corrections.ts";
+import {
   correctGroupAudienceModel,
   correctGroupAudienceResponse,
 } from "./group-audience-correction.ts";
@@ -29,6 +34,7 @@ import {
   correctHistoryQuery,
   correctHistorySchema,
 } from "./history-corrections.ts";
+import { correctMentionGroup } from "./mention-group-correction.ts";
 import { correctNullableList } from "./nullable-list-corrections.ts";
 import { type Fields, object } from "./objects.ts";
 import { checkPathParameters } from "./path-parameters.ts";
@@ -51,7 +57,7 @@ import {
   correctUnreadAt,
 } from "./read-state-corrections.ts";
 import {
-  correctChannelSharing,
+  correctDirectoryFlags,
   correctSidebarResponse,
   correctSidebarSchema,
 } from "./sidebar-corrections.ts";
@@ -133,6 +139,21 @@ export function buildSpecification(
         source,
         read("definitions-12.1.0.yaml"),
       );
+    else if (name === "GroupsAssociatedToChannels")
+      group[name] = checkChannelGroupMap(
+        source,
+        read("definitions-12.1.0.yaml"),
+      );
+    else if (name === "GroupWithSchemeAdmin")
+      group[name] = correctAssociatedGroup(
+        source,
+        read("definitions-12.1.0.yaml"),
+      );
+    else if (name === "Group")
+      group[name] = correctMentionGroup(
+        source,
+        read("definitions-12.1.0.yaml"),
+      );
     else if (name === "ChannelStats")
       group[name] = correctChannelStats(
         source,
@@ -140,8 +161,9 @@ export function buildSpecification(
       );
     else if (name === "ChannelUnreadAt")
       group[name] = correctUnreadAt(source, read("definitions-12.1.0.yaml"));
-    else if (name === "Channel")
-      group[name] = correctChannelSharing(
+    else if (name === "Channel" || name === "Team")
+      group[name] = correctDirectoryFlags(
+        name,
         correctSidebarSchema(name, correctHistorySchema(name, source)),
         read("definitions-12.1.0.yaml"),
       );
@@ -230,6 +252,16 @@ export function buildSpecification(
       paths[path][method] = correctPatchPost(
         operation,
         read("posts-12.1.0.yaml"),
+      );
+    else if (
+      id === "GetGroupsByTeam" ||
+      id === "GetGroupsAssociatedToChannelsByTeam"
+    )
+      paths[path][method] = correctGroupAssociations(
+        id,
+        path,
+        operation,
+        read("groups-12.1.0.yaml"),
       );
     else if (id === "GetChannelMemberCountsByGroup")
       paths[path][method] = correctGroupAudienceResponse(

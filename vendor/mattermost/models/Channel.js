@@ -26,6 +26,7 @@ export function ChannelFromJSONTyped(json, ignoreDiscriminator) {
         'totalMsgCountRoot': json['total_msg_count_root'] == null ? undefined : json['total_msg_count_root'],
         'lastRootPostAt': json['last_root_post_at'] == null ? undefined : json['last_root_post_at'],
         'shared': json['shared'] === undefined ? undefined : json['shared'] === null ? null : json['shared'],
+        'groupConstrained': json['group_constrained'] === undefined ? undefined : json['group_constrained'] === null ? null : json['group_constrained'],
     };
 }
 export function ChannelToJSON(json) {
@@ -53,5 +54,6 @@ export function ChannelToJSONTyped(value, ignoreDiscriminator = false) {
         'total_msg_count_root': value['totalMsgCountRoot'],
         'last_root_post_at': value['lastRootPostAt'],
         'shared': value['shared'],
+        'group_constrained': value['groupConstrained'],
     };
 }

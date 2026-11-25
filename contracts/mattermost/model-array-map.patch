@@ -1,0 +1,20 @@
+--- a/modelGeneric.mustache
++++ b/modelGeneric.mustache
+@@ -108,7 +108,7 @@
+         {{/isDateTimeType}}
+         {{^isDateType}}
+         {{^isDateTimeType}}
+-        '{{name}}': {{^required}}{{#isNullable}}json['{{baseName}}'] === undefined ? undefined : json['{{baseName}}'] === null ? null : {{/isNullable}}{{^isNullable}}json['{{baseName}}'] == null ? undefined : {{/isNullable}}{{/required}}json['{{baseName}}'],
++        '{{name}}': {{^required}}{{#isNullable}}json['{{baseName}}'] === undefined ? undefined : json['{{baseName}}'] === null ? null : {{/isNullable}}{{^isNullable}}json['{{baseName}}'] == null ? undefined : {{/isNullable}}{{/required}}{{#isMap}}{{#items.isArray}}{{#items.items.isModel}}json['{{baseName}}'] == null ? json['{{baseName}}'] : mapValues({{/items.items.isModel}}{{/items.isArray}}{{/isMap}}json['{{baseName}}']{{#isMap}}{{#items.isArray}}{{#items.items.isModel}}, rows => rows == null ? rows : {{#items.uniqueItems}}new Set(rows.map({{items.items.datatype}}FromJSON)){{/items.uniqueItems}}{{^items.uniqueItems}}rows.map({{items.items.datatype}}FromJSON){{/items.uniqueItems}}){{/items.items.isModel}}{{/items.isArray}}{{/isMap}},
+         {{/isDateTimeType}}
+         {{/isDateType}}
+         {{/isArray}}
+@@ -187,7 +187,7 @@
+         {{^isDateType}}
+         {{^isDateTimeType}}
+         {{^isArray}}
+-        '{{baseName}}': value['{{name}}'],
++        '{{baseName}}': {{#isMap}}{{#items.isArray}}{{#items.items.isModel}}value['{{name}}'] == null ? value['{{name}}'] : mapValues({{/items.items.isModel}}{{/items.isArray}}{{/isMap}}value['{{name}}']{{#isMap}}{{#items.isArray}}{{#items.items.isModel}}, rows => rows == null ? rows : Array.from(rows, {{items.items.datatype}}ToJSON)){{/items.items.isModel}}{{/items.isArray}}{{/isMap}},
+         {{/isArray}}
+         {{/isDateTimeType}}
+         {{/isDateType}}
