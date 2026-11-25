@@ -49,6 +49,7 @@ export async function respondToWorkspace(
   res: ServerResponse,
   url: URL,
   prefixedUser: string,
+  restoredPosting: boolean,
 ): Promise<string | undefined> {
   function json(value: unknown, name: string) {
     res
@@ -96,7 +97,11 @@ export async function respondToWorkspace(
     ],
     [
       `users/me/teams/${team}/channels/members`,
-      [town, design].map((channel_id) => ({ channel_id, user_id: member })),
+      [town, design].map((channel_id) => ({
+        channel_id,
+        user_id: member,
+        roles: channel_id === town ? "channel_user" : "fixture_reader",
+      })),
     ],
     [
       `users/me/teams/${team}/channels/categories`,
@@ -128,11 +133,11 @@ export async function respondToWorkspace(
   const policy =
     (path === "config/client" || path === "license/client") &&
     req.headers.authorization !== undefined;
-  if (!routes.has(path) && !channelId && !policy && path !== "users/ids")
-    return;
+  const post = path === "users/ids" || path === "roles/names";
+  if (!routes.has(path) && !channelId && !policy && !post) return;
   assert.equal(req.headers.authorization, "Bearer fixture-browser-action");
   assert.equal(req.headers.cookie, undefined);
-  assert.equal(req.method, path === "users/ids" ? "POST" : "GET");
+  assert.equal(req.method, post ? "POST" : "GET");
   if (policy) {
     assert.equal(url.search, "?format=old");
     return json(
@@ -153,11 +158,32 @@ export async function respondToWorkspace(
       "live-posts-" + channelId,
     );
   }
-  if (path === "users/ids") {
+  if (post) {
     assert.equal(url.search, "");
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk);
-    assert.deepEqual(JSON.parse(Buffer.concat(chunks).toString()), [member]);
+    const body = JSON.parse(Buffer.concat(chunks).toString());
+    if (path === "roles/names") {
+      const names = [
+        "channel_user",
+        "fixture_reader",
+        "system_user",
+        "team_user",
+      ];
+      assert.deepEqual(body.sort(), names);
+      return json(
+        names.map((name) => ({
+          name,
+          permissions:
+            name === "channel_user" ||
+            (name === "fixture_reader" && restoredPosting)
+              ? ["create_post"]
+              : [],
+        })),
+        "live-roles",
+      );
+    }
+    assert.deepEqual(body, [member]);
     return json(
       [{ id: member, username: "fixture-author", update_at: 100 }],
       "live-authors",

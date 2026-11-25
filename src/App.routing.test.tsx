@@ -132,6 +132,7 @@ test("restores the selected team, channel, messages and account actions without 
     id: "b".repeat(26),
     name: "winter",
     displayName: "Winter HQ",
+    roles: "",
     preferenceRank: null,
   };
   const channelId = "c".repeat(26),
@@ -139,6 +140,7 @@ test("restores the selected team, channel, messages and account actions without 
   const channel = (id: string, name: string) => ({
     id,
     kind: "O",
+    roles: id === channelId ? "writer" : "reader",
     name,
     displayName: name,
     header: "",
@@ -200,6 +202,14 @@ test("restores the selected team, channel, messages and account actions without 
       return true;
     }),
     refreshTeamSidebar: vi.fn(),
+    readSavedTeamRoles: vi.fn().mockResolvedValue({
+      systemRoles: "",
+      definitions: [
+        { name: "writer", permissions: ["create_post"] },
+        { name: "reader", permissions: [] },
+      ],
+    }),
+    refreshTeamRoles: vi.fn(),
     readChannelWindow: vi.fn(async ({ channelId: id }) => ({
       posts: [
         {
@@ -238,9 +248,13 @@ test("restores the selected team, channel, messages and account actions without 
     "Saved in General",
   );
   expect(openAccountRestConnection).toHaveBeenCalledWith(origin, user);
+  expect(screen.queryByRole("note")).toBeNull();
   expect(screen.queryByRole("textbox")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Design" }));
   await screen.findByText("Saved in Design");
+  expect((await screen.findByRole("note")).textContent).toContain(
+    "This channel is read-only.",
+  );
   expect(connection.selectSidebarChannel).toHaveBeenCalledWith(
     team.id,
     otherId,
@@ -267,9 +281,42 @@ test("restores the selected team, channel, messages and account actions without 
   );
   await screen.findByText("Saved in Design");
   expect(connection.refreshTeamSidebar).not.toHaveBeenCalled();
+  expect(connection.readSavedTeamRoles).toHaveBeenCalledWith(team.id);
+  expect(connection.refreshTeamRoles).not.toHaveBeenCalled();
   expect(connection.refreshChannelHistory).not.toHaveBeenCalled();
   expect(connection.refreshSavedProfiles).not.toHaveBeenCalled();
   expect(connection.refreshWorkspaceServerPolicy).not.toHaveBeenCalled();
+  rooms[1].deleteAt = 100;
+  fireEvent.click(
+    screen.getByRole("button", { name: "Switch team, Winter HQ" }),
+  );
+  fireEvent.click(
+    screen.getByRole("button", { name: "Winter HQ", description: "/winter" }),
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "Close channel" }));
+  await screen.findByText("Saved in General");
+  expect(screen.queryByRole("button", { name: "Design" })).toBeNull();
+  expect(connection.selectSidebarChannel).toHaveBeenLastCalledWith(
+    team.id,
+    channelId,
+  );
+  // A joined direct conversation is not this team's default destination.
+  rooms[0].kind = "D";
+  selected = otherId;
+  fireEvent.click(
+    screen.getByRole("button", { name: "Switch team, Winter HQ" }),
+  );
+  fireEvent.click(
+    screen.getByRole("button", { name: "Winter HQ", description: "/winter" }),
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "Close channel" }));
+  expect(
+    await screen.findByRole("button", {
+      name: "Winter HQ",
+      description: "/winter",
+    }),
+  ).toBeTruthy();
+  expect(selected).toBe(otherId);
   view.unmount();
   expect(connection.close).toHaveBeenCalledOnce();
   expect(connection.refreshJoinedTeams).not.toHaveBeenCalled();

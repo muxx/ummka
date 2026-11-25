@@ -10,7 +10,9 @@ import {
 import { AccountSessionWindow } from "../entry/AccountSessionWindow.tsx";
 import type { TeamWorkspace } from "../entry/AccountTeamWindow.tsx";
 import type { EntryLanguage } from "../entry/language.ts";
+import { savedChannelPermissions } from "../mattermost/channel-permissions.ts";
 import {
+  directPartnerId,
   indexChannelProfiles,
   teammateName,
 } from "../mattermost/channel-profiles.ts";
@@ -18,9 +20,11 @@ import { visibleSidebar } from "../mattermost/sidebar-rows.ts";
 import { effectiveWorkspacePreferences } from "../mattermost/workspace-preferences.ts";
 import { ChannelsFrame } from "./ChannelsFrame.tsx";
 import { ChannelTimeline } from "./ChannelTimeline.tsx";
+import { ComposerAccessNotice } from "./ComposerAccessNotice.tsx";
+import { channelComposerAccess } from "./composer-access.ts";
 import { useChannelTimeline } from "./use-channel-timeline.ts";
 import { useWorkspaceProfiles } from "./use-workspace-profiles.ts";
-import { useWorkspaceRead } from "./use-workspace-read.ts";
+import { useTeamRoles, useWorkspaceRead } from "./use-workspace-read.ts";
 import { workspaceCopy } from "./workspace-copy.ts";
 import { openingChannel, workspaceProfileQuery } from "./workspace-data.ts";
 import "./workspace.css";
@@ -197,6 +201,15 @@ export function ChannelsWorkspace({
     [connection, team.id],
   );
   const directory = useWorkspaceRead(team.id, online, read, refresh);
+  const roles = useTeamRoles(
+    connection,
+    team,
+    online && directory.state.status === "ready",
+  );
+  const permission = useMemo(
+    () => savedChannelPermissions(roles.state.value, team.roles),
+    [roles.state.value, team.roles],
+  );
   const snapshot = directory.state.value;
   const channel = useMemo(
     () =>
@@ -207,6 +220,13 @@ export function ChannelsWorkspace({
     [snapshot, selected, language],
   );
   const chosen = channel?.id ?? null;
+  const recent = useRef(new Set<string>());
+  useEffect(() => {
+    if (chosen) {
+      recent.current.delete(chosen);
+      recent.current.add(chosen);
+    }
+  }, [chosen]);
   const settings = useMemo(
     () =>
       policy.user && policy.server.value
@@ -256,12 +276,21 @@ export function ChannelsWorkspace({
     .flatMap((s) => s.rows)
     .find((r) => r.id === chosen)?.title;
   useEffect(() => {
-    for (const issue of [directory.state.status, policy.server.status])
+    for (const issue of [
+      directory.state.status,
+      policy.server.status,
+      roles.state.status,
+    ])
       if (issue === "session" || issue === "unauthorized") {
         sessionIssue(issue);
         return;
       }
-  }, [sessionIssue, directory.state.status, policy.server.status]);
+  }, [
+    sessionIssue,
+    directory.state.status,
+    policy.server.status,
+    roles.state.status,
+  ]);
 
   function choose(id: string) {
     const version = ++choice.current;
@@ -282,6 +311,54 @@ export function ChannelsWorkspace({
     });
   }
   const status = directory.state.status;
+  const access = channelComposerAccess({
+    channel: channel ?? undefined,
+    permission: permission(channel ?? undefined, "create_post"),
+    userId,
+    profiles: profiles.byId,
+    sharedChannelDMs: policy.server.value?.sharedChannelDMs,
+  });
+  function closeChannel() {
+    if (!snapshot) return;
+    const available = snapshot.data.channels.filter((room) => {
+      if (room.id === chosen || room.deleteAt) return false;
+      const peer = room.kind === "D" && directPartnerId(room.name, userId);
+      return !peer || !profiles.byId.get(peer)?.deleteAt;
+    });
+    const ids = new Set(available.map((room) => room.id));
+    const previous = [...recent.current].reverse().find((id) => ids.has(id));
+    const canJoin = permission("team", "join_public_channels");
+    const target =
+      previous ??
+      (canJoin === "denied"
+        ? openingChannel(
+            {
+              selectedChannel: null,
+              data: { ...snapshot.data, channels: available },
+            },
+            language,
+          )?.id
+        : available.find(
+            (room) => room.kind === "O" && room.name === "town-square",
+          )?.id);
+    if (target) choose(target);
+    else workspace.chooseAnotherTeam();
+  }
+  function retryPostingAccess() {
+    if (
+      !online ||
+      (status === "ready" &&
+        ["storage", "network", "forbidden"].includes(roles.state.status))
+    )
+      roles.retry();
+    else directory.retry();
+    if (
+      !policy.server.value ||
+      ((channel?.kind === "D" || channel?.kind === "G") &&
+        policy.server.value.sharedChannelDMs === undefined)
+    )
+      policy.retry();
+  }
   const error = (kind: string) =>
     kind === "forbidden"
       ? text.forbidden
@@ -364,6 +441,19 @@ export function ChannelsWorkspace({
         onAccount={() => setAccountOpen(true)}
         onTeam={workspace.chooseAnotherTeam}
         navigation={nav}
+        composer={
+          timeline.status !== "forbidden" &&
+          timeline.notice !== "forbidden" && (
+            <ComposerAccessNotice
+              access={access}
+              language={language}
+              online={online}
+              statuses={[status, roles.state.status, policy.server.status]}
+              close={closeChannel}
+              retry={retryPostingAccess}
+            />
+          )
+        }
       >
         {historyIssue && notice(historyIssue, timeline.retry, true)}
         {chosen &&

@@ -1,4 +1,4 @@
-import { fireEvent, within } from "@testing-library/dom";
+import { fireEvent, waitFor, within } from "@testing-library/dom";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { App } from "../../src/App.tsx";
@@ -34,6 +34,7 @@ export async function checkBrowserApp(server: string) {
     const design = ui.getByRole("button", { name: "Design" });
     flushSync(() => fireEvent.click(design));
     await ui.findByText("Design fixture message", {}, { timeout: 10_000 });
+    await ui.findByText("This channel is read-only.", {}, { timeout: 10_000 });
     if (ui.queryByText("Town fixture message"))
       throw Error("room switch retained a different timeline");
     openChannelNavigation(host, "Channels");
@@ -50,6 +51,13 @@ export async function checkBrowserApp(server: string) {
     flushSync(() => fireEvent.click(current));
     await ui.findByText("Design fixture message", {}, { timeout: 10_000 });
     await ui.findByRole("heading", { name: "Design" });
+    await waitFor(
+      () => {
+        if (ui.getByRole("main").querySelector(".workspace-composer-note"))
+          throw Error("the refreshed team role did not restore posting");
+      },
+      { timeout: 10_000 },
+    );
     await ui.findByText("fixture-author");
     if ((await getCurrentAccountId(server)) !== "f".repeat(26))
       throw Error("entry did not retain the signed-in account");

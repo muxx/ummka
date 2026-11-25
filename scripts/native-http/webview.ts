@@ -336,7 +336,13 @@ export function webviewServers(
       visits.push(mutation);
       return;
     }
-    const workspace = await respondToWorkspace(req, res, url, userId);
+    const workspace = await respondToWorkspace(
+      req,
+      res,
+      url,
+      userId,
+      visits.includes("live-roles"),
+    );
     if (workspace) {
       visits.push(workspace);
       return;
@@ -745,6 +751,10 @@ export function webviewServers(
         expected.push(
           "browser-action-confirmed",
           "browser-action-confirmed",
+          "browser-action-confirmed",
+          "browser-action-confirmed",
+          "live-roles",
+          "live-roles",
           "browser-entry-unconfirmed",
           "browser-entry-unconfirmed",
           "live-config/client",
