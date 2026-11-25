@@ -130,6 +130,12 @@
     "id": "GetPostsForChannel"
   },
   {
+    "file": "posts.yaml",
+    "method": "GET",
+    "path": "/api/v4/posts/{post_id}",
+    "id": "GetPost"
+  },
+  {
     "file": "posts-12.1.0.yaml",
     "method": "GET",
     "path": "/api/v4/posts/{post_id}/info",
@@ -154,6 +160,12 @@
     "path": "/api/v4/posts/search",
     "id": "SearchPostsInAllTeams",
     "body": "json"
+  },
+  {
+    "file": "files.yaml",
+    "method": "GET",
+    "path": "/api/v4/files/{file_id}/info",
+    "id": "GetFileInfo"
   },
   {
     "file": "files.yaml",

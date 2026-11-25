@@ -17,6 +17,10 @@ export interface CreatePostOperationRequest {
 export interface DeletePostRequest {
     postId: string;
 }
+export interface GetPostRequest {
+    postId: string;
+    includeDeleted?: boolean;
+}
 export interface GetPostInfoRequest {
     postId: string;
 }
@@ -67,6 +71,9 @@ export declare class PostsApi extends runtime.BaseAPI {
     deletePostRequestOpts(requestParameters: DeletePostRequest): Promise<runtime.RequestOpts>;
     deletePostRaw(requestParameters: DeletePostRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<StatusOK>>;
     deletePost(requestParameters: DeletePostRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<StatusOK>;
+    getPostRequestOpts(requestParameters: GetPostRequest): Promise<runtime.RequestOpts>;
+    getPostRaw(requestParameters: GetPostRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Post>>;
+    getPost(requestParameters: GetPostRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Post>;
     getPostInfoRequestOpts(requestParameters: GetPostInfoRequest): Promise<runtime.RequestOpts>;
     getPostInfoRaw(requestParameters: GetPostInfoRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<PostInfo>>;
     getPostInfo(requestParameters: GetPostInfoRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<PostInfo>;
