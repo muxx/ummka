@@ -9,6 +9,7 @@ mod installation_url;
 mod ipc_test;
 pub mod models;
 mod native_http;
+pub mod realtime;
 pub mod registry;
 mod registry_ipc;
 pub mod rest;

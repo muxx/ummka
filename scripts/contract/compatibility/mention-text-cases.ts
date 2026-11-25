@@ -1,0 +1,22 @@
+// Each root post is read by a second member with channel notifications enabled.
+export const mentionTextCases = [
+  ["@all", true],
+  ["Ordinary fixture post", false],
+  ["~~~@all~~~", false],
+  ["@all@example.com", false],
+  [" /not_cmd @all", true],
+  ["/no-such-command @all", true],
+  ["/no-such-command `@all`", false],
+  ["/no-such-command [@all](https://example.test/)", true],
+  ["/no-such-command [someone](https://example.test/@all)", false],
+  ["hi:smile:@all", true],
+  ["hi:made-up:@all", true],
+  ["@all:smile:world", false],
+  ["hello :smile: @all", true],
+  ["[room](https://example.test/@all)", false],
+  ["[@all](https://example.test/project)", true],
+  ["![bear @all](https://example.test/image.png)", true],
+  ["https://example.test/@all", false],
+  ['<span title="@all">hello</span>', true],
+  ["@a**ll**", false],
+] as const;
