@@ -1207,9 +1207,16 @@ console.log(
   `Mattermost ${version} verified empty and populated reaction lists and post metadata.`,
 );
 
-await checkEventStream(base, token, session, team.id, channelId);
+await checkEventStream(
+  base,
+  readerToken,
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  reader.id,
+  team.id,
+  channelId,
+);
 console.log(
-  `Mattermost ${version} verified sequenced posts, command replies and replay of a post after reconnect.`,
+  `Mattermost ${version} verified an ordinary author's pending_post_id in posted, command replies and post replay after reconnect.`,
 );
 
 const secondLogin = await create("users/login", {

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { on, once } from "node:events";
 import {
   CommandsApi,
@@ -83,12 +84,15 @@ export async function checkEventStream(
   base: string,
   token: string,
   session: Configuration,
+  userId: string,
   teamId: string,
   channelId: string,
 ) {
   const posts = new PostsApi(session);
-  const createPost = (message: string) =>
-    posts.createPost({ createPostRequest: { channelId, message } });
+  const createPost = (message: string, pendingPostId?: string) =>
+    posts.createPost({
+      createPostRequest: { channelId, message, pendingPostId },
+    });
   const containsPost = (id: string) => (frame: FixtureFrame) =>
     frame.event === "posted" &&
     typeof frame.data?.post === "string" &&
@@ -102,10 +106,18 @@ export async function checkEventStream(
     assert.ok(id);
     assert.match(id, /^[a-z0-9]{26}$/);
     connectionId = id;
-    const post = await createPost("Event stream fixture");
+    const pendingPostId = `${userId}:${randomUUID()}`;
+    const post = await createPost("Event stream fixture", pendingPostId);
     assert.ok(post.id);
     const posted = await first.until(containsPost(post.id));
     assert.equal(posted.broadcast?.channel_id, channelId);
+    assert.ok(posted.data?.post);
+    const wire = JSON.parse(posted.data.post);
+    assert.equal(wire.id, post.id);
+    assert.equal(wire.user_id, userId);
+    assert.equal(wire.channel_id, channelId);
+    assert.equal(wire.root_id, "");
+    assert.equal(wire.pending_post_id, pendingPostId);
     const help = await new CommandsApi(session).executeCommand({
       executeCommandRequest: { channelId, teamId, command: "/help" },
     });
