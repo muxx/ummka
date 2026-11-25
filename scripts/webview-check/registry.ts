@@ -23,6 +23,7 @@ import { checkDraftRestore } from "./composer-drafts.ts";
 import { verifyHistoryLoadsAfterRestart } from "./history-loads.ts";
 import { signInLinkServer } from "./link-examples.ts";
 import { checkOfflineWindows } from "./local-history.ts";
+import { checkSubmissionRestore } from "./submission.ts";
 import { checkSystemLinks } from "./system-links.ts";
 
 const first = "https://chat.example.test";
@@ -87,6 +88,7 @@ export async function resumeRegistryCheck(): Promise<boolean> {
       )
         throw Error("offline profile directory changed after process restart");
       await checkDraftRestore(recovered, base !== root);
+      await checkSubmissionRestore(recovered, base !== root);
       const settings = await recovered.readWorkspaceSettings();
       if (
         base === root

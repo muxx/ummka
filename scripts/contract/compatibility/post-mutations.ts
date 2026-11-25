@@ -6,6 +6,42 @@ import {
   ResponseError,
 } from "../../../vendor/mattermost/index.js";
 
+export async function checkPreviouslyAcceptedPost(
+  member: PostsApi,
+  observer: PostsApi,
+  channelId: string,
+  userId: string,
+  removeMember: () => Promise<Response>,
+  version: string,
+) {
+  const message =
+    "Previously accepted while the author belonged to the private channel";
+  const request = {
+    createPostRequest: {
+      channelId,
+      message,
+      pendingPostId: `${userId}:${randomUUID()}`,
+    },
+  };
+  const accepted = await member.createPost(request);
+  assert.ok(accepted.id);
+  assert.equal((await removeMember()).status, 200);
+  const refused = await member.createPost(request).then(
+    () => assert.fail("A removed member must not be able to repeat the post"),
+    (error: unknown) => {
+      assert.ok(error instanceof ResponseError);
+      return error.response;
+    },
+  );
+  assert.equal(refused.status, 403);
+  assert.equal((await refused.json()).id, "api.context.permissions.app_error");
+  const retained = await observer.getPostThread({ postId: accepted.id });
+  assert.equal(retained.posts?.[accepted.id]?.message, message);
+  console.log(
+    `Mattermost ${version} retained an accepted post after refusing the same request from its removed author.`,
+  );
+}
+
 export async function checkPostMutations(
   base: string,
   posts: PostsApi,

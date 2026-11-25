@@ -10,6 +10,7 @@ import { respondToHistory } from "./history.ts";
 import { historyRefreshFixture } from "./history-refresh.ts";
 import { respondToPostContext } from "./post-context.ts";
 import { respondToPostMutation } from "./post-mutations.ts";
+import { submissionFixture } from "./submit-post.ts";
 import { respondToWorkspace } from "./workspace.ts";
 
 export function webviewServers(
@@ -29,6 +30,7 @@ export function webviewServers(
     "account-error-body",
     "account-retire",
     "refresh-late",
+    "submit-post",
   ];
   const events = new EventEmitter();
   // Each fixture signal fires once and has no error event.
@@ -52,6 +54,9 @@ export function webviewServers(
   const settings = new Map<string, ServerResponse>();
   const entrySettings = new Map<string, ServerResponse>();
   const userId = "Abc01234567890123456789012";
+  const submissions = submissionFixture(userId, () =>
+    events.emit("submit-post-received"),
+  );
   const refresh = historyRefreshFixture(userId, () =>
     events.emit("refresh-late-received"),
   );
@@ -252,6 +257,7 @@ export function webviewServers(
       url,
       channelId,
       userId,
+      submissions,
     );
     if (mutation) {
       visits.push(mutation);
@@ -520,6 +526,8 @@ export function webviewServers(
       before = true;
     } else if (step === "release-history") {
       refresh.release();
+    } else if (step === "release-submission") {
+      submissions.release();
     } else if (step === "disconnect") {
       assert(disconnect);
       disconnect.destroy();
@@ -597,6 +605,13 @@ export function webviewServers(
         "sidebar-categories",
         "sidebar-preferences",
         "create-post-root",
+        "submit-root",
+        "submit-refused",
+        "submit-corrected",
+        "submit-unknown",
+        "submit-unknown-retry",
+        "submit-wrong-author",
+        "submit-expired",
         "create-post-reply",
         "patch-post",
         "delete-post",

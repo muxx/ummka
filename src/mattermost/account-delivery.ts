@@ -1,15 +1,19 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Post } from "../../vendor/mattermost/index.js";
-
+import type { Post, PostsApi } from "../../vendor/mattermost/index.js";
 import type { ComposerDraft, DraftLocation, DraftSave } from "./native-rest.ts";
+import { deliverAccountPost } from "./send-account-post.ts";
 
-type PostRefusal = { status: number; code: string; message: string | null };
+export type PostRefusal = {
+  status: number;
+  code: string;
+  message: string | null;
+};
 type AttemptKey = { pendingId: string; attempt: number };
 type RetryChoice =
   | { kind: "despiteUnknownDelivery" }
   | { kind: "afterRefusal"; message: string };
 
-type PendingPost = {
+export type PendingPost = {
   sequence: number;
   pendingId: string;
   channelId: string;
@@ -31,8 +35,10 @@ type DeliverySource =
 export function accountDelivery(
   rid: number,
   whileOpen: <T>(operation: () => Promise<T>) => Promise<T>,
+  posts: PostsApi,
+  userId: string,
 ) {
-  return {
+  const local = {
     readDraft({ channelId, rootId }: DraftLocation) {
       return whileOpen(() =>
         invoke<ComposerDraft>("read_composer_draft", {
@@ -147,6 +153,31 @@ export function accountDelivery(
       return whileOpen(() =>
         invoke<boolean>("dismiss_pending_post", { rid, pendingId, attempt }),
       );
+    },
+  };
+  function send(post: PendingPost) {
+    return whileOpen(() => deliverAccountPost(posts, userId, post, local));
+  }
+  return {
+    ...local,
+    async submitDraft(draft: DraftLocation & { revision: string }) {
+      if (navigator.onLine === false)
+        return whileOpen(async () => ({ kind: "offline" }) as const);
+      const result = await local.stagePost(draft);
+      if (result.kind === "notStaged") return result;
+      return {
+        kind: "sending",
+        post: result.post,
+        draft: result.draft,
+        completion: send(result.post),
+      } as const;
+    },
+    async resendPost(previous: AttemptKey, choice: RetryChoice) {
+      if (navigator.onLine === false)
+        return whileOpen(async () => ({ kind: "offline" }) as const);
+      const post = await local.retryPendingPost(previous, choice);
+      if (!post) return { kind: "unavailable" } as const;
+      return { kind: "sending", post, completion: send(post) } as const;
     },
   };
 }

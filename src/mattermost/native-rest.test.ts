@@ -305,6 +305,7 @@ test("opens a native account by installation and user ID", async () => {
     "refreshSavedProfiles",
     "refreshTeamSidebar",
     "refreshWorkspaceServerPolicy",
+    "resendPost",
     "retireDeliveredPosts",
     "retryPendingPost",
     "rid",
@@ -314,6 +315,7 @@ test("opens a native account by installation and user ID", async () => {
     "signOut",
     "signOutOnDevice",
     "stagePost",
+    "submitDraft",
   ]);
 });
 
@@ -456,6 +458,43 @@ test("retry actions use the retained attempt and cannot finish on a closed conne
   await expect(account.dismissPendingPost(key)).rejects.toBe(
     "unknown_connection",
   );
+});
+
+test("explicit offline submission leaves the editor and prior attempt untouched", async () => {
+  ipc.mockResolvedValueOnce(31);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    "u".repeat(26),
+  );
+  vi.stubGlobal("navigator", { onLine: false });
+  try {
+    await expect(
+      account.submitDraft({
+        channelId: "c".repeat(26),
+        revision: "a".repeat(32),
+      }),
+    ).resolves.toEqual({ kind: "offline" });
+    await expect(
+      account.resendPost(
+        { pendingId: "waiting", attempt: 1 },
+        { kind: "despiteUnknownDelivery" },
+      ),
+    ).resolves.toEqual({ kind: "offline" });
+    expect(ipc).toHaveBeenCalledTimes(1);
+    await account.close();
+    await expect(
+      account.submitDraft({ channelId: "c".repeat(26), revision: "stale" }),
+    ).rejects.toBe("unknown_connection");
+    await expect(
+      account.resendPost(
+        { pendingId: "waiting", attempt: 1 },
+        { kind: "despiteUnknownDelivery" },
+      ),
+    ).rejects.toBe("unknown_connection");
+    expect(ipc).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 
 test("a directory delivered after the account signs out is discarded", async () => {

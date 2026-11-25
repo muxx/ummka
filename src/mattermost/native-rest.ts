@@ -145,7 +145,7 @@ export async function openAccountRestConnection(
         ),
       );
     },
-    ...accountDelivery(rid, readWhileOpen),
+    ...accountDelivery(rid, readWhileOpen, posts, userId),
     readWorkspaceSettings() {
       return readWhileOpen(() =>
         invoke<SavedWorkspaceSettings>("read_workspace_settings", { rid }),

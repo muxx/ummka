@@ -31,7 +31,10 @@ import {
   checkEmptyTeamDirectory,
   checkNavigationMemberships,
 } from "./memberships.ts";
-import { checkPostMutations } from "./post-mutations.ts";
+import {
+  checkPostMutations,
+  checkPreviouslyAcceptedPost,
+} from "./post-mutations.ts";
 import { checkProfileReads } from "./profile-reads.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
@@ -732,6 +735,35 @@ await checkProfileReads(
 );
 
 await checkPostMutations(base, posts, channelId, user.id, version);
+const receiptRoom = await (
+  await create(
+    "channels",
+    {
+      team_id: team.id,
+      name: "delivery-attempt",
+      display_name: "Delivery attempt",
+      type: "P",
+    },
+    token,
+  )
+).json();
+await create(
+  `channels/${receiptRoom.id}/members`,
+  { user_id: reader.id },
+  token,
+);
+await checkPreviouslyAcceptedPost(
+  readerPosts,
+  posts,
+  receiptRoom.id,
+  reader.id,
+  () =>
+    fetch(`${base}/api/v4/channels/${receiptRoom.id}/members/${reader.id}`, {
+      method: "DELETE",
+      headers: authorization,
+    }),
+  version,
+);
 
 const secondLogin = await create("users/login", {
   login_id: username,
