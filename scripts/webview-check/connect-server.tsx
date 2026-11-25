@@ -1,7 +1,12 @@
-import { fireEvent, within } from "@testing-library/dom";
+import {
+  fireEvent,
+  waitForElementToBeRemoved,
+  within,
+} from "@testing-library/dom";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { App } from "../../src/App.tsx";
+import { sessionText } from "../../src/entry/session-text.ts";
 
 import {
   forgetInstallation,
@@ -16,7 +21,10 @@ export async function checkConnectServer(origin: string) {
     flushSync(() => root.render(<App language="ru" />));
     const ui = within(host);
     const address = `${new URL(origin).host}/entry/team/`;
-    const input = await ui.findByRole<HTMLInputElement>("textbox", {
+    const opening = () => ui.queryByText(sessionText.ru.opening);
+    if (opening())
+      await waitForElementToBeRemoved(opening, { timeout: 20_000 });
+    const input = ui.getByRole<HTMLInputElement>("textbox", {
       name: "Адрес сервера",
     });
     flushSync(() => fireEvent.input(input, { target: { value: address } }));
