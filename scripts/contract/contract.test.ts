@@ -44,6 +44,7 @@ import {
 import { correctRoleList } from "./role-correction.ts";
 import { buildSpecification, readSource } from "./schema.ts";
 import {
+  correctChannelSharing,
   correctSidebarCategory,
   correctSidebarResponse,
   correctSidebarSchema,
@@ -406,6 +407,11 @@ test("retains the catalog operations, security and transitive models", () => {
     if (name === "User") expected = correctUserProfile(object(source, name));
     if (["Channel", "ChannelMember", "TeamMember"].includes(name))
       expected = correctSidebarSchema(name, object(source, name));
+    if (name === "Channel")
+      expected = correctChannelSharing(
+        object(expected, name),
+        read("definitions-12.1.0.yaml"),
+      );
     assert.deepEqual(at(contract, path), expected);
   }
   assert.deepEqual(
@@ -1032,6 +1038,45 @@ const channelRoleFields = {
   scheme_admin: { type: "boolean" },
   explicit_roles: { type: "string" },
 };
+test("models the shared channel flag and detects its addition to either pinned source", () => {
+  const path = ["components", "schemas", "Channel"];
+  assert.deepEqual(at(contract, [...path, "properties", "shared"]), {
+    type: "boolean",
+    nullable: true,
+  });
+  const model = object(at(definitions, path), "Channel");
+  const newer = read("definitions-12.1.0.yaml");
+  const changed = (schema: Record<string, unknown>) => ({
+    ...schema,
+    properties: {
+      ...object(schema.properties, "channel properties"),
+      shared: { type: "boolean" },
+    },
+  });
+  assert.throws(
+    () => correctChannelSharing(changed(model), newer),
+    /Review the Channel.shared correction/,
+  );
+  assert.throws(
+    () =>
+      correctChannelSharing(model, {
+        components: {
+          schemas: {
+            Channel: changed(object(at(newer, path), "newer Channel")),
+          },
+        },
+      }),
+    /Review the Channel.shared correction/,
+  );
+  for (const flag of [true, false]) {
+    const channel = ChannelFromJSON({ id: "sample", shared: flag });
+    assert.equal(channel.shared, flag);
+    assert.equal(ChannelToJSON(channel).shared, flag);
+  }
+  for (const wire of [{ shared: null }, {}])
+    assert.ok(ChannelFromJSON(wire).shared == null);
+});
+
 test("root-only and urgent counts survive generation, including zero and absent values", () => {
   for (const { name, keys, decode, encode } of [
     {
@@ -1063,7 +1108,9 @@ test("root-only and urgent counts survive generation, including zero and absent 
     assert.deepEqual(published, {
       ...properties,
       ...additions,
-      ...(name === "ChannelMember" ? channelRoleFields : {}),
+      ...(name === "Channel"
+        ? { shared: { type: "boolean", nullable: true } }
+        : channelRoleFields),
     });
     for (const key of keys) {
       assert.throws(

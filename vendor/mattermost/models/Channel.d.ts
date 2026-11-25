@@ -15,6 +15,7 @@ export interface Channel {
     creatorId?: string;
     totalMsgCountRoot?: number;
     lastRootPostAt?: number;
+    shared?: boolean | null;
 }
 export declare function instanceOfChannel(value: object): value is Channel;
 export declare function ChannelFromJSON(json: any): Channel;

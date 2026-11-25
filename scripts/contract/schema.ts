@@ -34,6 +34,7 @@ import {
 } from "./read-state-corrections.ts";
 import { correctRoleList } from "./role-correction.ts";
 import {
+  correctChannelSharing,
   correctSidebarResponse,
   correctSidebarSchema,
 } from "./sidebar-corrections.ts";
@@ -105,6 +106,11 @@ export function buildSpecification(
     if (kind !== "schemas") group[name] = source;
     else if (name === "ChannelUnreadAt")
       group[name] = correctUnreadAt(source, read("definitions-12.1.0.yaml"));
+    else if (name === "Channel")
+      group[name] = correctChannelSharing(
+        correctSidebarSchema(name, correctHistorySchema(name, source)),
+        read("definitions-12.1.0.yaml"),
+      );
     else if (name === "User") group[name] = correctUserProfile(source);
     else
       group[name] = correctSidebarSchema(
