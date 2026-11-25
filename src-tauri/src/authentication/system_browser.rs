@@ -6,6 +6,10 @@ use tauri::{AppHandle, Runtime, WebviewWindow};
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
+#[cfg(target_os = "android")]
+mod android;
+#[cfg(all(feature = "webview-check", target_os = "android"))]
+pub(crate) mod android_check;
 #[cfg(all(feature = "webview-check", target_os = "macos"))]
 pub(crate) mod checks;
 #[cfg(target_os = "macos")]
@@ -97,6 +101,8 @@ impl<R: Runtime> Drop for Owner<R> {
 fn dismiss<R: Runtime>(_app: &AppHandle<R>, _id: Uuid) {
     #[cfg(target_os = "macos")]
     macos::dismiss(_app, _id);
+    #[cfg(target_os = "android")]
+    android::dismiss(_app, _id);
 }
 
 pub(crate) fn owner_closed<R: Runtime>(app: &AppHandle<R>) {
@@ -143,7 +149,10 @@ async fn begin<R: Runtime>(
 #[cfg(target_os = "macos")]
 use macos::open;
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "android")]
+use android::open;
+
+#[cfg(not(any(target_os = "macos", target_os = "android")))]
 async fn open<R: Runtime>(
     _window: &WebviewWindow<R>,
     _id: Uuid,
