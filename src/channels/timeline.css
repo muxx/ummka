@@ -144,3 +144,32 @@
 .timeline-boundary button:hover {
   background: var(--row-hover);
 }
+
+.timeline-local-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  margin-top: 0.125rem;
+}
+.timeline-local-actions button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--link);
+  padding: 0.25rem 0;
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+.timeline-local-actions button:hover {
+  text-decoration: underline;
+}
+.timeline-local-actions button[aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: default;
+}
+@media (pointer: coarse) {
+  .timeline-local-actions button {
+    min-height: 44px;
+  }
+}

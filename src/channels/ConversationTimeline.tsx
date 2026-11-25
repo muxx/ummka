@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { PendingPost } from "../mattermost/account-delivery.ts";
 import { ChannelTimeline, type TimelineProps } from "./ChannelTimeline.tsx";
 import { conversationRows } from "./conversation-rows.ts";
+import { OutgoingLocalActions } from "./OutgoingLocalActions.tsx";
 import { outgoingCopy, outgoingDescription } from "./outgoing-copy.ts";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
 import { channelPageSize, workspaceFailure } from "./workspace-data.ts";
@@ -13,6 +14,7 @@ type Account = Pick<
   | "readPendingPosts"
   | "retireDeliveredPosts"
   | "getOutgoingPostState"
+  | "dismissPendingPost"
 >;
 type Props = TimelineProps & {
   connection: Account;
@@ -78,6 +80,7 @@ function Conversation({
 }: Props) {
   const { channelId, page, locale } = timeline;
   const [pages, setPages] = useState(1);
+  const [actionNotice, notify] = useState("");
   const retry = useRef<(() => void) | null>(null);
   const [slice, setSlice] = useState(emptySlice);
   const copy = outgoingCopy[locale];
@@ -176,11 +179,34 @@ function Conversation({
       {...timeline}
       messages={messages}
       ownName={copy.you}
-      describeOutgoing={(post) =>
-        outgoingDescription(connection.getOutgoingPostState(post), locale)
-      }
+      renderOutgoing={(post) => {
+        const state = connection.getOutgoingPostState(post);
+        const description = outgoingDescription(state, locale);
+        return (
+          <>
+            {description && (
+              <small className="timeline-delivery">{description}</small>
+            )}
+            <OutgoingLocalActions
+              key={post.attempt}
+              post={post}
+              state={state}
+              locale={locale}
+              dismiss={connection.dismissPendingPost}
+              refresh={() => retry.current?.()}
+              notify={notify}
+              sessionIssue={sessionIssue}
+            />
+          </>
+        );
+      }}
       localNotice={
         <>
+          {actionNotice && (
+            <div className="workspace-notice" role="status">
+              {actionNotice}
+            </div>
+          )}
           {slice.failed && (
             <div className="workspace-notice" role="alert">
               {copy.readFailed}

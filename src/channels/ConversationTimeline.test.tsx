@@ -15,7 +15,10 @@ import { conversationRows } from "./conversation-rows.ts";
 import { outgoingDescription } from "./outgoing-copy.ts";
 import { channelPageSize } from "./workspace-data.ts";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 function pending(n: number, extra: Partial<PendingPost> = {}): PendingPost {
   return {
     sequence: n,
@@ -81,6 +84,19 @@ function account(rows: PendingPost[]) {
               (before === undefined || BigInt(p.sequence) < BigInt(before)),
           )
           .slice(0, limit),
+    ),
+    dismissPendingPost: vi.fn(
+      async (key: { pendingId: string; attempt: number }) => {
+        const index = saved.findIndex(
+          (p) =>
+            p.pendingId === key.pendingId &&
+            p.attempt === key.attempt &&
+            p.confirmedPostId === null,
+        );
+        if (index < 0) return false;
+        saved.splice(index, 1);
+        return true;
+      },
     ),
     retireDeliveredPosts: vi.fn(async (ids: string[]) => {
       const removed = saved.filter(
@@ -293,4 +309,95 @@ test("distinguishes an active send, a definite refusal, an uncertain retry and a
     "прежнему входу",
   );
   expect(label(pending(1, { confirmedPostId: "server" }))).toBe("");
+});
+
+test("copies the shown text including line breaks from an earlier login without network", async () => {
+  const message = "first line\n**second** 🐻";
+  const clipboard = {
+    writeText: vi
+      .fn()
+      .mockRejectedValueOnce(new Error("system clipboard"))
+      .mockResolvedValue(undefined),
+  };
+  vi.stubGlobal("navigator", { clipboard, onLine: false });
+  const store = account([pending(7, { message, previousLogin: true })]);
+  render(<ConversationTimeline {...view} connection={store.connection} />);
+  const button = await screen.findByRole("button", { name: "Copy text" });
+  fireEvent.click(button);
+  await screen.findByText("Couldn’t copy the text.");
+  fireEvent.click(button);
+  await screen.findByText("Text copied.");
+  expect(clipboard.writeText).toHaveBeenCalledWith(message);
+  expect(store.connection.dismissPendingPost).not.toHaveBeenCalled();
+  expect(store.saved).toHaveLength(1);
+});
+
+test("removes just the observed attempt, refreshes offline and returns keyboard focus to this timeline", async () => {
+  const store = account([pending(8, { message: "local only" })]);
+  render(<ConversationTimeline {...view} connection={store.connection} />);
+  const button = await screen.findByRole("button", { name: "Remove" });
+  button.focus();
+  fireEvent.click(button);
+  await screen.findByText("Message removed from this device.");
+  await waitFor(() => expect(screen.queryByText("local only")).toBeNull());
+  expect(store.connection.dismissPendingPost).toHaveBeenCalledExactlyOnceWith({
+    pendingId: "pending-8",
+    attempt: 1,
+  });
+  expect(document.activeElement).toBe(
+    screen.getByRole("region", { name: "Channel messages" }),
+  );
+  expect(screen.queryByRole("button", { name: "Copy text" })).toBeNull();
+});
+
+test("reloads a newer attempt after a stale removal and leaves failed storage actionable", async () => {
+  const store = account([pending(9, { message: "old row" })]);
+  render(<ConversationTimeline {...view} connection={store.connection} />);
+  const button = await screen.findByRole("button", { name: "Remove" });
+  store.connection.dismissPendingPost.mockRejectedValueOnce(
+    "history_storage_unavailable",
+  );
+  fireEvent.click(button);
+  await screen.findByText("Couldn’t remove this message from the device.");
+  store.saved[0] = {
+    ...store.saved[0],
+    attempt: 2,
+    message: "changed elsewhere",
+  };
+  fireEvent.click(button);
+  await screen.findByText("The outgoing message has changed.");
+  await screen.findByText("changed elsewhere");
+  expect(store.saved).toHaveLength(1);
+  expect(store.connection.dismissPendingPost).toHaveBeenLastCalledWith({
+    pendingId: "pending-9",
+    attempt: 1,
+  });
+});
+
+test("a late removal reply cannot announce or focus in a different conversation", async () => {
+  const store = account([pending(10)]);
+  let finish!: (removed: boolean) => void;
+  store.connection.dismissPendingPost.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const current = render(
+    <ConversationTimeline {...view} connection={store.connection} />,
+  );
+  const button = await screen.findByRole("button", { name: "Remove" });
+  button.focus();
+  fireEvent.click(button);
+  fireEvent.click(button);
+  current.rerender(
+    <ConversationTimeline
+      {...view}
+      channelId="moved"
+      connection={store.connection}
+    />,
+  );
+  await act(async () => finish(true));
+  expect(store.connection.dismissPendingPost).toHaveBeenCalledTimes(1);
+  expect(screen.queryByText("Message removed from this device.")).toBeNull();
 });

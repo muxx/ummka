@@ -52,7 +52,7 @@ export type TimelineProps = {
   author: (userId: string) => Author | undefined;
   onReadEdge?: (direction: Direction, postId: string) => void;
   messages?: readonly TimelineMessage[];
-  describeOutgoing?: (post: PendingPost) => string;
+  renderOutgoing?: (post: PendingPost) => ReactNode;
   ownName?: string;
   localNotice?: ReactNode;
   waitingMessage?: string;
@@ -145,7 +145,7 @@ export function ChannelTimeline({
   author,
   onReadEdge,
   messages,
-  describeOutgoing,
+  renderOutgoing,
   ownName,
   localNotice,
   waitingMessage,
@@ -202,7 +202,7 @@ export function ChannelTimeline({
     }
     const person = author(post.userId);
     const name = person?.name || (post.outgoing && ownName) || text.unknown;
-    const delivery = post.outgoing && describeOutgoing?.(post.outgoing);
+    const delivery = post.outgoing && renderOutgoing?.(post.outgoing);
     rows.push(
       <article
         key={post.localId ?? post.id}
@@ -232,7 +232,7 @@ export function ChannelTimeline({
               <small className="timeline-edited"> ({text.edited})</small>
             )}
           </p>
-          {delivery && <small className="timeline-delivery">{delivery}</small>}
+          {delivery}
         </div>
       </article>,
     );

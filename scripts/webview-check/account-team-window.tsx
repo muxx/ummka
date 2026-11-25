@@ -20,7 +20,11 @@ export function openChannelNavigation(element: HTMLElement, label: string) {
   if (back) flushSync(() => fireEvent.click(back));
 }
 
-export async function checkSavedTeamWindow(serverUrl: string, userId: string) {
+export async function checkSavedTeamWindow(
+  serverUrl: string,
+  userId: string,
+  removeOutgoing: boolean,
+) {
   const original = await readInstallationSelection();
   const element = document.createElement("div");
   document.body.append(element);
@@ -57,6 +61,28 @@ export async function checkSavedTeamWindow(serverUrl: string, userId: string) {
       throw Error("offline startup lost the exact channel draft");
     const edited = field.value + " Ещё строка.";
     flushSync(() => fireEvent.input(field, { target: { value: edited } }));
+    if (typeof navigator.clipboard?.writeText !== "function")
+      throw Error("The packaged WebView cannot copy text");
+    if (removeOutgoing) {
+      const remove = within(outgoing).getByRole<HTMLButtonElement>("button", {
+        name: "Удалить",
+      });
+      remove.focus();
+      flushSync(() => fireEvent.click(remove));
+      await ui.findByText("Строка удалена только с устройства.");
+      await waitFor(() => {
+        if (outgoing.isConnected)
+          throw Error("Removed outgoing row is still visible");
+      });
+      if (
+        document.activeElement !==
+          ui.getByRole("region", { name: "Сообщения канала" }) ||
+        field.value !== edited
+      )
+        throw Error(
+          "Removing a local post lost the conversation focus or draft",
+        );
+    }
     if (!ui.getByRole("heading", { name: "Town Square" }))
       throw Error("offline startup lost the selected room");
     flushSync(() =>
@@ -101,6 +127,17 @@ export async function checkSavedTeamWindow(serverUrl: string, userId: string) {
     fireEvent.focusOut(restored);
     const observer = await openAccountRestConnection(serverUrl, userId);
     try {
+      const pending = await observer.readPendingPosts({
+        channelId: "c".repeat(26),
+        limit: 50,
+      });
+      const remains = pending.some(
+        (post) => post.pendingId === outgoing.dataset.postId,
+      );
+      if (remains === removeOutgoing)
+        throw Error(
+          "The saved outgoing row does not match the choice in the window",
+        );
       await waitFor(async () => {
         const stored = await observer.readDraft({ channelId: "c".repeat(26) });
         if (stored.message !== restored.value)
