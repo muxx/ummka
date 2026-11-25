@@ -74,6 +74,14 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
             let main = app
                 .get_webview_window("main")
                 .ok_or("missing main WebView")?;
+            #[cfg(all(target_os = "macos", feature = "webview-check"))]
+            {
+                // Setup runs on the main thread. The Tauri window owns this NSWindow.
+                let native = unsafe { &*main.ns_window()?.cast::<objc2_app_kit::NSWindow>() };
+                if native.minSize().width != 400.0 {
+                    return Err("unexpected native minimum window width".into());
+                }
+            }
             rest_ipc::watch_window(main.as_ref());
             Ok(())
         })
