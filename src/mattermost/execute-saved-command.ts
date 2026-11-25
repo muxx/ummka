@@ -28,19 +28,21 @@ export async function executeSavedCommand(
     return { kind: "conflict", draft: claim.draft } as const;
   if (!claim.draft.revision || !claim.draft.commandPending)
     throw new Error("Missing draft command attempt.");
+  const attemptRevision = claim.draft.revision;
   const result = await executeAccountCommand(
     api,
     location,
     claim.draft.message,
   );
-  if (result.kind === "unconfirmed") return result;
+  if (result.kind === "unconfirmed") return { ...result, attemptRevision };
   try {
     const finished = await transition(
-      { ...location, revision: claim.draft.revision },
+      { ...location, revision: attemptRevision },
       result.kind === "executed" ? "complete" : "release",
     );
     return {
       kind: "answered",
+      attemptRevision,
       result,
       settlement: finished.kind,
       draft: finished.draft,
@@ -49,6 +51,7 @@ export async function executeSavedCommand(
     if (error !== "history_storage_unavailable") throw error;
     return {
       kind: "answered",
+      attemptRevision,
       result,
       settlement: "storageUnavailable",
     } as const;
