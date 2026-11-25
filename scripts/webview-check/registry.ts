@@ -17,6 +17,7 @@ import {
   resumeChannelsLink,
   routeChannelsLink,
 } from "../../src/mattermost/route-channels-link.ts";
+import { checkSavedTeamWindow } from "./account-team-window.tsx";
 import { checkRefreshedAfterRestart } from "./channel-refresh.ts";
 import { verifyHistoryLoadsAfterRestart } from "./history-loads.ts";
 import { signInLinkServer } from "./link-examples.ts";
@@ -73,6 +74,28 @@ export async function resumeRegistryCheck(): Promise<boolean> {
     if (current !== firstId) throw Error("wrong current account offline");
     const recovered = await openAccountRestConnection(base, current);
     try {
+      const saved = await recovered.readSavedProfiles({
+        ids: [firstId],
+        usernames: ["fixture"],
+      });
+      if (
+        base === root
+          ? Object.keys(saved.profiles).length !== 0
+          : saved.usernames.fixture !== firstId ||
+            saved.profiles[firstId]?.username !== "fixture"
+      )
+        throw Error("offline profile directory changed after process restart");
+      const settings = await recovered.readWorkspaceSettings();
+      if (
+        base === root
+          ? settings.preferences !== null || settings.server !== null
+          : settings.preferences?.limit !== 18 ||
+            settings.server?.collapsedThreads !== "always_on" ||
+            !settings.server.lockNameFormat
+      )
+        throw Error(
+          "offline workspace settings did not belong to the restored account",
+        );
       const teams = await recovered.readJoinedTeams();
       const catalog = await recovered.readTeamSidebar(
         "Team0123456789012345678901",
@@ -81,6 +104,7 @@ export async function resumeRegistryCheck(): Promise<boolean> {
         base === root
           ? catalog !== null
           : catalog?.selectedChannel !== "c".repeat(26) ||
+            catalog.data.channels[0]?.createAt !== 90 ||
             catalog.data.channels[0]?.mentionCountRoot !== 2 ||
             catalog.data.categories[0]?.kind !== "managed"
       ) {
@@ -100,6 +124,7 @@ export async function resumeRegistryCheck(): Promise<boolean> {
       await recovered.close();
     }
   }
+  await checkSavedTeamWindow(`${root}/team/chat`, firstId);
   if ((await getCurrentAccountId(`${root}/team/chat/secondary`)) !== null)
     throw Error("signed-out installation has a current account offline");
   const forgotten = await openAccountRestConnection(

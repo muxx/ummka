@@ -20,6 +20,58 @@ export function respondToAccount(
     response.end(JSON.stringify({ id: "f".repeat(26) }));
     return "browser-action-confirmed";
   }
+  if (url.pathname === "/browser-action-check/api/v4/users/logout") {
+    assert.equal(request.method, "POST");
+    assert.equal(
+      request.headers.authorization,
+      "Bearer fixture-browser-action",
+    );
+    response.writeHead(503, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ id: "fixture.logout.unavailable" }));
+    return "browser-entry-unconfirmed";
+  }
+  const prefix = "/browser-action-check/api/v4/";
+  if (url.pathname.startsWith(prefix)) {
+    const path = url.pathname.slice(prefix.length);
+    const teamId = "Team0123456789012345678901";
+    const userId = "f".repeat(26);
+    const replies: Record<string, unknown> = {
+      "config/client": {
+        Version: "10.10.1",
+        SiteName: "Browser fixture",
+        EnableSignUpWithGitLab: "true",
+        EnableSignUpWithGoogle: "true",
+      },
+      "license/client": { IsLicensed: "false" },
+      "users/me/teams": [
+        {
+          id: teamId,
+          name: "browser",
+          display_name: "Browser team",
+          delete_at: 0,
+        },
+      ],
+      "users/me/teams/members": [
+        { team_id: teamId, user_id: userId, delete_at: 0 },
+      ],
+      "users/me/preferences": [],
+    };
+    assert(
+      Object.hasOwn(replies, path),
+      "unexpected browser entry fixture route",
+    );
+    const publicRead = path === "config/client" || path === "license/client";
+    assert.equal(request.method, "GET");
+    assert.equal(
+      request.headers.authorization,
+      publicRead ? undefined : "Bearer fixture-browser-action",
+    );
+    assert.equal(request.headers.cookie, undefined);
+    assert.equal(url.search, publicRead ? "?format=old" : "");
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(JSON.stringify(replies[path]));
+    return "browser-entry-" + path;
+  }
   if (url.pathname === "/vault-refusal/api/v4/users/logout") {
     assert.equal(request.method, "POST");
     assert.equal(url.search, "");

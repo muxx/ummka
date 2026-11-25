@@ -3,9 +3,15 @@ import { randomBytes } from "node:crypto";
 import { channelHistoryPage } from "../../../src/mattermost/channel-history-page.ts";
 import { channelPostChanges } from "../../../src/mattermost/channel-post-records.ts";
 import {
+  channelProfile,
+  conversationName,
+  indexChannelProfiles,
+} from "../../../src/mattermost/channel-profiles.ts";
+import {
   assembleFocusedHistory,
   readFocusedNeighbors,
 } from "../../../src/mattermost/focused-history.ts";
+import { loadVisibleProfiles } from "../../../src/mattermost/visible-profiles.ts";
 import {
   ChannelsApi,
   Configuration,
@@ -14,6 +20,7 @@ import {
   PostsApi,
   PostToJSON,
   ResponseError,
+  UsersApi,
 } from "../../../vendor/mattermost/index.js";
 import { checkBrowserSignIn } from "./browser-sign-in.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
@@ -21,6 +28,7 @@ import {
   checkEmptyTeamDirectory,
   checkNavigationMemberships,
 } from "./memberships.ts";
+import { checkProfileReads } from "./profile-reads.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
 
@@ -45,7 +53,12 @@ async function create(route: string, body: object, token?: string) {
 const username = "history-fixture";
 const password = `${randomBytes(24).toString("hex")}aA7!`;
 const user = await (
-  await create("users", { username, password, email: "history@example.test" })
+  await create("users", {
+    username,
+    password,
+    email: "history@example.test",
+    position: "Fixture engineer",
+  })
 ).json();
 const login = await create("users/login", { login_id: username, password });
 assert.equal(login.status, 200);
@@ -613,6 +626,100 @@ await verifyHistoryRefresh(
 );
 console.log(
   `Mattermost ${version} verified the generated requests and normalized writes for all five channel history refresh operations.`,
+);
+
+// A bot may create a direct channel with its owner, so create it after the empty-directory fixture.
+const bot = await (
+  await create(
+    "bots",
+    { username: "profile-fixture-bot", display_name: "Fixture Bot" },
+    token,
+  )
+).json();
+assert.equal(typeof bot.user_id, "string");
+const users = new UsersApi(session);
+const profiles = await users.getUsersByIds({
+  requestBody: [user.id, bot.user_id],
+});
+const person = profiles.find((profile) => profile.id === user.id);
+const botProfile = profiles.find((profile) => profile.id === bot.user_id);
+assert.ok(person && botProfile);
+assert.equal(person.position, "Fixture engineer");
+assert.equal(person.isBot, undefined);
+assert.equal(person.remoteId, "");
+assert.equal(botProfile.isBot, true);
+const readerProfile = await users.getUser({ userId: reader.id });
+const personLabel = channelProfile(person);
+const botLabel = channelProfile(botProfile);
+const readerLabel = channelProfile(readerProfile);
+assert.equal(personLabel.position, "Fixture engineer");
+assert.equal(personLabel.remoteUsername, "");
+assert.equal(botLabel.isBot, true);
+const visibleById = await loadVisibleProfiles(session, {
+  ids: [user.id, reader.id, bot.user_id],
+  usernames: [],
+});
+const visibleByName = await loadVisibleProfiles(session, {
+  ids: [],
+  usernames: [
+    readerLabel.username,
+    botLabel.username,
+    username,
+    "unknown-lookup-fixture",
+  ],
+});
+const known = indexChannelProfiles(visibleById);
+assert.deepEqual(known.byId, indexChannelProfiles(visibleByName).byId);
+assert.deepEqual(
+  known.byId,
+  indexChannelProfiles([personLabel, botLabel, readerLabel]).byId,
+);
+assert.equal(
+  conversationName(
+    { kind: dm.type, name: dm.name, displayName: dm.display_name },
+    user.id,
+    known,
+    "username",
+    "en",
+  ),
+  readerLogin.login_id,
+);
+const group = await (
+  await create("channels/group", [user.id, reader.id, bot.user_id], token)
+).json();
+assert.equal(group.type, "G");
+const groupName = {
+  kind: group.type,
+  name: group.name,
+  displayName: group.display_name,
+};
+assert.deepEqual(
+  new Set(group.display_name.split(", ")),
+  new Set([username, readerLabel.username, botLabel.username]),
+);
+assert.equal(
+  conversationName(groupName, user.id, known, "username", "en"),
+  [readerLabel.username, botLabel.username].sort().join(", "),
+);
+assert.equal(
+  conversationName(
+    groupName,
+    user.id,
+    indexChannelProfiles([personLabel]),
+    "username",
+    "en",
+  ),
+  group.display_name,
+);
+console.log(
+  `Mattermost ${version} verified local user position and bot identity through generated profile reads.`,
+);
+await checkProfileReads(
+  base,
+  users,
+  { id: user.id, username },
+  { id: bot.user_id, username: bot.username },
+  version,
 );
 
 const secondLogin = await create("users/login", {

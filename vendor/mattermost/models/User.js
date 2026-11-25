@@ -33,6 +33,9 @@ export function UserFromJSONTyped(json, ignoreDiscriminator) {
         'timezone': json['timezone'] == null ? undefined : TimezoneFromJSON(json['timezone']),
         'termsOfServiceId': json['terms_of_service_id'] == null ? undefined : json['terms_of_service_id'],
         'termsOfServiceCreateAt': json['terms_of_service_create_at'] == null ? undefined : json['terms_of_service_create_at'],
+        'position': json['position'] == null ? undefined : json['position'],
+        'isBot': json['is_bot'] == null ? undefined : json['is_bot'],
+        'remoteId': json['remote_id'] == null ? undefined : json['remote_id'],
     };
 }
 export function UserToJSON(json) {
@@ -65,5 +68,8 @@ export function UserToJSONTyped(value, ignoreDiscriminator = false) {
         'timezone': TimezoneToJSON(value['timezone']),
         'terms_of_service_id': value['termsOfServiceId'],
         'terms_of_service_create_at': value['termsOfServiceCreateAt'],
+        'position': value['position'],
+        'is_bot': value['isBot'],
+        'remote_id': value['remoteId'],
     };
 }

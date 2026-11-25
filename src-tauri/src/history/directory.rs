@@ -1,4 +1,4 @@
-use super::{AccountHistory, HistoryError, HistoryOwner};
+use super::{AccountHistory, HistoryError, HistoryOwner, SidebarPreferences};
 use crate::rest::is_mattermost_id;
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -83,17 +83,20 @@ impl AccountHistory {
         &mut self,
         load: TeamDirectoryLoad,
         teams: &[DirectoryTeam],
+        preferences: Option<&SidebarPreferences>,
     ) -> Result<bool, HistoryError> {
         if self.owner != load.owner {
             return Err(HistoryError::StaleOwner);
         }
         let mut ids = HashSet::with_capacity(teams.len());
         let mut ranks = HashSet::new();
-        if teams.iter().any(|team| {
-            !is_mattermost_id(&team.id)
-                || !ids.insert(&team.id)
-                || team.preference_rank.is_some_and(|rank| !ranks.insert(rank))
-        }) {
+        if preferences.is_some_and(|prefs| !prefs.valid())
+            || teams.iter().any(|team| {
+                !is_mattermost_id(&team.id)
+                    || !ids.insert(&team.id)
+                    || team.preference_rank.is_some_and(|rank| !ranks.insert(rank))
+            })
+        {
             return Err(HistoryError::InvalidDirectory);
         }
         self.write(|tx| {
@@ -103,6 +106,9 @@ impl AccountHistory {
             )?;
             if changed == 0 {
                 return Ok(false);
+            }
+            if let Some(prefs) = preferences {
+                prefs.publish(tx)?;
             }
             let selected: Option<String> = tx.query_row(SELECTED, [], |row| row.get(0)).optional()?;
             // Opening the sole joined team is implicit. Record it in this same transaction

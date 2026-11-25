@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import https from "node:https";
 import type { Socket } from "node:net";
@@ -141,6 +142,18 @@ export function webviewServers(
             name: "d".repeat(26),
             value: "false",
           },
+          {
+            user_id: userId,
+            category: "sidebar_settings",
+            name: "limit_visible_dms_gms",
+            value: "18",
+          },
+          {
+            user_id: userId,
+            category: "display_settings",
+            name: "name_format",
+            value: "nickname_full_name",
+          },
         ],
       },
     ],
@@ -156,6 +169,7 @@ export function webviewServers(
             name: "town-square",
             display_name: "Town Square",
             delete_at: 0,
+            create_at: 90,
             last_root_post_at: 300,
           },
         ],
@@ -179,6 +193,44 @@ export function webviewServers(
   }
   const data = https.createServer(trusted, async (req, res) => {
     const url = new URL(req.url ?? "/", "https://localhost");
+    if (url.pathname === "/team/chat/api/v4/users/usernames") {
+      assert.equal(req.method, "POST");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers["content-type"], "application/json");
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk);
+      assert.deepEqual(JSON.parse(Buffer.concat(chunks).toString()), [
+        "unknown",
+        "fixture",
+      ]);
+      visits.push("profiles-by-name");
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end(JSON.stringify([{ id: userId, username: "fixture" }]));
+      return;
+    }
+    if (url.pathname === `/team/chat/api/v4/users/${userId}/image`) {
+      assert.equal(req.method, "GET");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      visits.push("profile-image");
+      res
+        .writeHead(200, { "Content-Type": "image/png" })
+        .end(
+          readFileSync(
+            new URL(
+              "../../src-tauri/icons/linux/hicolor/48x48/apps/ummka.png",
+              import.meta.url,
+            ),
+          ),
+        );
+      return;
+    }
     if (refresh.handle(req, res, url)) return;
     if (url.pathname.startsWith("/offline-history/")) {
       offlineHistoryRequests++;
@@ -299,6 +351,29 @@ export function webviewServers(
       /^\/(team\/chat|entry\/team)\/api\/v4\/(config|license)\/client$/.exec(
         url.pathname,
       );
+    if (setting?.[1] === "team/chat" && req.headers.authorization) {
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      assert.equal(url.search, "?format=old");
+      visits.push(`workspace-${setting[2]}`);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify(
+          setting[2] === "config"
+            ? {
+                CollapsedThreads: "always_on",
+                TeammateNameDisplay: "full_name",
+                LockTeammateNameDisplay: "true",
+                Unrelated: "ignored",
+              }
+            : { LockTeammateNameDisplay: "true", Company: "ignored" },
+        ),
+      );
+      return;
+    }
     if (setting) {
       assert.equal(url.search, "?format=old");
       assert.equal(req.headers.authorization, undefined);
@@ -460,12 +535,16 @@ export function webviewServers(
         "ping-root",
         "user-me",
         "user-profile",
+        "profiles-by-name",
+        "profile-image",
         "account-logout-confirmed",
         "account-logout-unconfirmed",
         "account-first",
         "account-second",
         "account-denied",
         "account-expired",
+        "workspace-config",
+        "workspace-license",
         "account-html",
         "account-large",
         "account-truncated",
@@ -515,7 +594,22 @@ export function webviewServers(
         "my-team-members",
         "sidebar-preferences",
       );
-      if (platform === "android") expected.push("browser-action-confirmed");
+      if (platform === "android")
+        expected.push(
+          "browser-action-confirmed",
+          "browser-action-confirmed",
+          "browser-entry-unconfirmed",
+          "browser-entry-unconfirmed",
+          "browser-entry-config/client",
+          "browser-entry-license/client",
+          ...[
+            "config/client",
+            "license/client",
+            "users/me/teams",
+            "users/me/teams/members",
+            "users/me/preferences",
+          ].map((path) => "browser-entry-" + path),
+        );
       assert.deepEqual(visits.sort(), expected.sort());
     },
   };

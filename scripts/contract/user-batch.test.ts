@@ -5,9 +5,31 @@ import {
   Configuration,
   RequiredError,
   ResponseError,
+  UserFromJSON,
   UsersApi,
+  UserToJSON,
 } from "../../vendor/mattermost/index.js";
 import { listen } from "./test-server.ts";
+
+test("the generated profile codecs preserve optional identity fields", () => {
+  for (const wire of [
+    { username: "ordinary", position: "", remote_id: "" },
+    { username: "bot-user", is_bot: true },
+    {
+      username: "local-alias",
+      position: "Developer",
+      remote_id: "r".repeat(26),
+      props: { RemoteUsername: "remote-user" },
+    },
+    { username: "partial" },
+  ]) {
+    const profile = UserFromJSON(wire);
+    assert.equal(profile.position, wire.position);
+    assert.equal(profile.remoteId, wire.remote_id);
+    assert.equal(profile.isBot, wire.is_bot);
+    assert.deepEqual(JSON.parse(JSON.stringify(UserToJSON(profile))), wire);
+  }
+});
 
 for (const prefix of ["", "/teams/chat"]) {
   test(`the generated client posts a single ID array at ${prefix || "/"}`, async (t) => {

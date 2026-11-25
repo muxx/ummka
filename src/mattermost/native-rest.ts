@@ -5,6 +5,7 @@ import {
   type ChannelRefreshResult,
   refreshChannelHistory,
 } from "./channel-history-refresh.ts";
+import type { ChannelProfile } from "./channel-profiles.ts";
 import { type JoinedTeams, projectJoinedTeams } from "./joined-teams.ts";
 import type {
   ChannelWindowQuery,
@@ -16,6 +17,16 @@ import { refreshNavigation } from "./navigation-refresh.ts";
 import { createRestTransport } from "./rest-transport.ts";
 import { canonicalServerUrl } from "./server-url.ts";
 import { projectTeamSidebar, type TeamSidebar } from "./team-sidebar.ts";
+import {
+  loadVisibleProfiles,
+  type VisibleProfileQuery,
+} from "./visible-profiles.ts";
+
+import {
+  type SavedWorkspaceSettings,
+  sidebarPreferences,
+} from "./workspace-preferences.ts";
+import { loadWorkspaceServerPolicy } from "./workspace-server.ts";
 
 export async function getCurrentAccountId(
   serverUrl: string,
@@ -45,6 +56,11 @@ export function openNativeRestConnection(serverUrl: string) {
   return openConnection(serverUrl);
 }
 
+export type SavedProfiles = {
+  profiles: Record<string, ChannelProfile>;
+  usernames: Record<string, string>;
+};
+
 export type AccountSignOut =
   | { status: "signed_out" }
   | { status: "unconfirmed" }
@@ -71,6 +87,24 @@ export async function openAccountRestConnection(
   }
   return {
     ...connection,
+    readSavedProfiles(query: VisibleProfileQuery) {
+      return readWhileOpen(() =>
+        invoke<SavedProfiles>("read_saved_profiles", { rid, query }),
+      );
+    },
+    refreshSavedProfiles(query: VisibleProfileQuery, signal?: AbortSignal) {
+      return readWhileOpen(async () => {
+        const profiles = await loadVisibleProfiles(config, query, signal);
+        signal?.throwIfAborted();
+        if (retired) throw "cancelled";
+        if (profiles.length)
+          await invoke<void>("store_channel_profiles", { rid, profiles });
+        signal?.throwIfAborted();
+      });
+    },
+    readVisibleProfiles(query: VisibleProfileQuery, signal?: AbortSignal) {
+      return readWhileOpen(() => loadVisibleProfiles(config, query, signal));
+    },
     readAccountDirectory(signal?: AbortSignal) {
       return readWhileOpen(() => loadAccountDirectory(config, userId, signal));
     },
@@ -89,13 +123,37 @@ export async function openAccountRestConnection(
         refreshNavigation(
           signal,
           () => invoke<number>("begin_team_directory_load", { rid }),
-          async () =>
-            projectJoinedTeams(
-              await loadAccountDirectory(config, userId, signal),
-            ),
-          (load, teams) =>
-            invoke<boolean>("store_team_directory", { rid, load, teams }),
+          async () => {
+            const directory = await loadAccountDirectory(
+              config,
+              userId,
+              signal,
+            );
+            return {
+              teams: projectJoinedTeams(directory),
+              preferences: sidebarPreferences(userId, directory.preferences),
+            };
+          },
+          (load, data) =>
+            invoke<boolean>("store_team_directory", { rid, load, ...data }),
           (load) => invoke<void>("cancel_team_directory_load", { rid, load }),
+        ),
+      );
+    },
+    readWorkspaceSettings() {
+      return readWhileOpen(() =>
+        invoke<SavedWorkspaceSettings>("read_workspace_settings", { rid }),
+      );
+    },
+    refreshWorkspaceServerPolicy(signal?: AbortSignal) {
+      return readWhileOpen(() =>
+        refreshNavigation(
+          signal,
+          () => invoke<number>("begin_workspace_policy_load", { rid }),
+          () => loadWorkspaceServerPolicy(config, signal),
+          (load, server) =>
+            invoke<boolean>("store_workspace_policy", { rid, load, server }),
+          (load) => invoke<void>("cancel_workspace_policy_load", { rid, load }),
         ),
       );
     },

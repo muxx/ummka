@@ -9,14 +9,18 @@ import {
   type Team,
   TeamsApi,
 } from "../../vendor/mattermost/index.js";
-import { isMattermostId, isMattermostTime } from "./model-fields.ts";
+import {
+  assertAccountPreference,
+  isMattermostId,
+  isMattermostTime,
+} from "./model-fields.ts";
 
 type DirectoryRequest = <T>(
   send: (options: { signal: AbortSignal }) => Promise<T>,
 ) => Promise<T>;
 
 // Stop outstanding siblings on failure. The caller owns the failing response, including its body.
-async function readDirectory<T>(
+export async function readDirectory<T>(
   signal: AbortSignal | undefined,
   read: (request: DirectoryRequest) => Promise<T>,
 ): Promise<T> {
@@ -101,15 +105,8 @@ export function loadAccountDirectory(
         ? [{ team, membership }]
         : [];
     });
-    for (const preference of preferences) {
-      if (
-        preference.userId !== userId ||
-        typeof preference.category !== "string" ||
-        typeof preference.name !== "string" ||
-        typeof preference.value !== "string"
-      )
-        throw new TypeError("Invalid Mattermost account preference.");
-    }
+    for (const preference of preferences)
+      assertAccountPreference(preference, userId);
     return { teams: joined, preferences };
   });
 }

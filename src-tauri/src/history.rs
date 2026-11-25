@@ -10,10 +10,14 @@ mod directory;
 pub use directory::{DirectoryTeam, TeamDirectory, TeamDirectoryLoad};
 mod lifecycle;
 mod posts;
+mod profiles;
+pub use profiles::{ChannelProfile, ProfileLookup, ProfileQuery};
 mod reclamation;
 pub use lifecycle::AccountHistory;
 pub use posts::{ChannelPostLoad, PageWrite, PostChange, StoredPost};
 mod schema;
+mod settings;
+pub use settings::{ServerPolicy, ServerPolicyLoad, SidebarPreferences, WorkspaceSettings};
 mod sidebar;
 pub use sidebar::{SidebarCategory, SidebarChannel, SidebarData, SidebarLoad, SidebarSnapshot};
 mod windows;
@@ -34,7 +38,7 @@ impl fmt::Display for HistoryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::InvalidInstallation => "Invalid canonical HTTPS installation",
-            Self::InvalidDirectory => "Invalid team directory",
+            Self::InvalidDirectory => "Invalid directory data",
             Self::InvalidPost => "Invalid channel history record",
             Self::UnsupportedSchema => "Unsupported local history database",
             Self::OwnerConflict => "Local history belongs to another account or installation",

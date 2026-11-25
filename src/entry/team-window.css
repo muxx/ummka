@@ -1,0 +1,45 @@
+.entry-teams {
+  display: grid;
+  gap: 8px;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.entry-team {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 10px;
+  text-align: start;
+  font: inherit;
+  color: var(--text);
+  background: var(--canvas);
+  border: 1px solid var(--field-border);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.entry-team:hover,
+.entry-team:focus-visible {
+  border-color: var(--accent);
+}
+.entry-team:focus-visible {
+  outline: 2px solid var(--keyboard-focus);
+  outline-offset: 2px;
+}
+.entry-team-initial {
+  display: grid;
+  flex: 0 0 34px;
+  min-height: 34px;
+  place-items: center;
+  color: var(--on-navigation);
+  background: var(--navigation);
+  border-radius: 8px;
+  font-weight: 650;
+}
+.entry-team small {
+  display: block;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}

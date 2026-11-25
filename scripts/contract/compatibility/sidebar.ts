@@ -1,11 +1,21 @@
 import assert from "node:assert/strict";
+import { indexChannelProfiles } from "../../../src/mattermost/channel-profiles.ts";
 import { loadTeamDirectory } from "../../../src/mattermost/navigation-data.ts";
+import { visibleSidebar } from "../../../src/mattermost/sidebar-rows.ts";
 import { projectTeamSidebar } from "../../../src/mattermost/team-sidebar.ts";
+import {
+  effectiveWorkspacePreferences,
+  sidebarPreferences,
+  visibleConversationLimit,
+  workspacePreferences,
+} from "../../../src/mattermost/workspace-preferences.ts";
+import { loadWorkspaceServerPolicy } from "../../../src/mattermost/workspace-server.ts";
 import {
   ChannelsApi,
   Configuration,
   PreferencesApi,
   ResponseError,
+  SystemApi,
 } from "../../../vendor/mattermost/index.js";
 
 export async function checkSidebarReads(
@@ -126,7 +136,55 @@ export async function checkSidebarReads(
       value: "false",
     },
   ]);
+  await fixture("PUT", "users/me/preferences", [
+    {
+      user_id: userId,
+      category: "sidebar_settings",
+      name: "limit_visible_dms_gms",
+      value: "15",
+    },
+    {
+      user_id: userId,
+      category: "channel_open_time",
+      name: channelId,
+      value: "310",
+    },
+    {
+      user_id: userId,
+      category: "channel_approximate_view_time",
+      name: channelId,
+      value: "280",
+    },
+    {
+      user_id: userId,
+      category: "display_settings",
+      name: "name_format",
+      value: "nickname_full_name",
+    },
+  ]);
   const saved = await preferences.getPreferences({ userId: "me" });
+  const system = new SystemApi(config);
+  const [settings, license] = await Promise.all([
+    system.getClientConfigRaw({ format: "old" }).then((r) => r.raw.json()),
+    system.getClientLicenseRaw({ format: "old" }).then((r) => r.raw.json()),
+  ]);
+  assert.equal(typeof settings.CollapsedThreads, "string");
+  const policy = workspacePreferences(userId, saved, settings, license);
+  const serverPolicy = await loadWorkspaceServerPolicy(config);
+  const received = sidebarPreferences(userId, saved);
+  assert.deepEqual(
+    effectiveWorkspacePreferences(received, serverPolicy),
+    policy,
+  );
+  const storedChannel = projectTeamSidebar(directory).channels.find(
+    (c) => c.id === channelId,
+  );
+  assert.ok(storedChannel?.createAt && storedChannel.createAt > 0);
+  assert.equal(policy.directShown[otherUserId], undefined);
+  assert.equal(policy.viewTimes[channelId], 310);
+  assert.equal(policy.nameFormat, "nickname_full_name");
+  assert.equal(visibleConversationLimit(policy, false), 15);
+  assert.equal(visibleConversationLimit(policy, true), 15);
   assert.deepEqual(
     saved.find(
       (p) => p.category === "direct_channel_show" && p.name === otherUserId,
@@ -138,6 +196,23 @@ export async function checkSidebarReads(
       value: "false",
     },
   );
+  const sections = visibleSidebar(
+    { data: projectTeamSidebar(directory), selectedChannel: channelId },
+    {
+      preferences: policy,
+      userId,
+      profiles: indexChannelProfiles([]),
+      locale: "en",
+      compact: false,
+    },
+  );
+  const ownSection = sections.find((s) => s.id === custom.id);
+  assert.equal(ownSection?.muted, true);
+  assert.equal(ownSection?.collapsed, true);
+  const active = sections.flatMap((s) => s.rows).filter((r) => r.current);
+  assert.equal(active.length, 1);
+  assert.equal(active[0].id, channelId);
+  assert.equal(active[0].title, row.channel.displayName);
   const denied = (e: unknown) =>
     e instanceof ResponseError && e.response.status === 403;
   await assert.rejects(
