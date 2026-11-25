@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { openSearchResults } from "../../../src/channels/search-results-session.ts";
 import { accountSearch } from "../../../src/mattermost/account-search.ts";
 import {
   ChannelsApi,
@@ -45,7 +46,7 @@ export async function checkFileSearch(
     const post = await posts.createPost({
       createPostRequest: {
         channelId: channel,
-        message: "File search fixture",
+        message: `Search fixture ${terms}`,
         fileIds: [id],
       },
     });
@@ -106,6 +107,25 @@ export async function checkFileSearch(
   const last = await account.readFileSearchPage({ ...query, page: 1 });
   assert.deepEqual(last.items, []);
   assert.equal(last.isEnd, true);
+  const results = openSearchResults(account, query);
+  await results.select("posts");
+  const postTab = results.getSnapshot().posts;
+  assert.deepEqual(
+    postTab.items.map((item) => item.id),
+    [first.postId],
+  );
+  await results.select("files");
+  assert.deepEqual(
+    results.getSnapshot().files.items.map((item) => item.id),
+    [first.id],
+  );
+  await results.more();
+  assert.equal(results.getSnapshot().files.isEnd, true);
+  await results.select("posts");
+  assert.equal(results.getSnapshot().posts, postTab);
+  await results.more();
+  assert.equal(results.getSnapshot().posts.isEnd, true);
+  results.close();
   console.log(
     `Mattermost ${version} file search verified two attached files, team scopes, viewer access and empty results.`,
   );
