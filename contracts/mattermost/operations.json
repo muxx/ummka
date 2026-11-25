@@ -43,6 +43,19 @@
     "id": "GetTeamMembersForUser"
   },
   {
+    "file": "teams.yaml",
+    "method": "POST",
+    "path": "/api/v4/teams/{team_id}/members",
+    "id": "AddTeamMember",
+    "body": "json"
+  },
+  {
+    "file": "teams.yaml",
+    "method": "DELETE",
+    "path": "/api/v4/teams/{team_id}/members/{user_id}",
+    "id": "RemoveTeamMember"
+  },
+  {
     "file": "channels.yaml",
     "method": "GET",
     "path": "/api/v4/users/{user_id}/teams/{team_id}/channels",

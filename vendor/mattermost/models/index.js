@@ -1,4 +1,5 @@
 export * from './AddChannelMemberRequest.js';
+export * from './AddTeamMemberRequest.js';
 export * from './AppError.js';
 export * from './AutocompleteCommand.js';
 export * from './AutocompleteSuggestion.js';

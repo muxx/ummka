@@ -82,6 +82,7 @@ import {
   correctSidebarResponse,
   correctSidebarSchema,
 } from "./sidebar-corrections.ts";
+import { correctTeamMemberRequest } from "./team-member-correction.ts";
 
 const sources = process.env.UMMKA_CONTRACT_SOURCES;
 const work = process.env.UMMKA_CONTRACT_WORK;
@@ -765,6 +766,8 @@ test("retains the catalog operations, security and transitive models", () => {
     let expected = source;
     if (source.operationId === "SearchFiles")
       expected = correctFileSearch(path, source, read("files-12.1.0.yaml"));
+    if (source.operationId === "AddTeamMember")
+      expected = correctTeamMemberRequest(source, read("teams-12.1.0.yaml"));
     if (source.operationId === "AddChannelMember")
       expected = singleChannelMember(source, read("channels-12.1.0.yaml"));
     if (source.operationId === "SaveReaction")
@@ -1299,6 +1302,7 @@ function copySources() {
     "definitions.yaml",
     "definitions-12.1.0.yaml",
     "roles-12.1.0.yaml",
+    "teams-12.1.0.yaml",
     "files-12.1.0.yaml",
     "groups-12.1.0.yaml",
     "preferences-12.1.0.yaml",
@@ -2129,4 +2133,35 @@ test("file search uses JSON in both scopes and retains the attachment and its na
     `/mattermost/api/v4/teams/${team}/files/search`,
     "/mattermost/api/v4/files/search",
   ]);
+});
+
+test("requires the team and user IDs and detects drift in either AddTeamMember input", () => {
+  const path = "/api/v4/teams/{team_id}/members";
+  const source = object(at(read("teams.yaml"), [path, "post"]), path);
+  const newer = read("teams-12.1.0.yaml");
+  const required = [
+    "requestBody",
+    "content",
+    "application/json",
+    "schema",
+    "required",
+  ];
+  assert.deepEqual(at(correctTeamMemberRequest(source, newer), required), [
+    "team_id",
+    "user_id",
+  ]);
+  for (const target of ["baseline", "reference"]) {
+    const baseline = structuredClone(source);
+    const reference = structuredClone(newer);
+    const op =
+      target === "baseline"
+        ? baseline
+        : object(at(reference, [path, "post"]), path);
+    const schema = object(at(op, required.slice(0, -1)), path);
+    schema.required = ["user_id"];
+    assert.throws(
+      () => correctTeamMemberRequest(baseline, reference),
+      /Review the pinned AddTeamMember/,
+    );
+  }
 });
