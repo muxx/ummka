@@ -24,6 +24,7 @@ import { checkPostContext } from "./post-context.ts";
 import { checkPostMutations } from "./post-mutations.ts";
 import { checkSubmissions } from "./submission.ts";
 import { checkTeamReads } from "./team-reads.ts";
+import { checkRoleStorage } from "./team-role-storage.ts";
 import { checkWorkspaceSettings } from "./workspace-settings.ts";
 
 function check(value: unknown, message: string): asserts value {
@@ -340,6 +341,7 @@ export async function checkGeneratedRequests(ports: string[]) {
       await accountPrefix.refreshTeamSidebar(teamId),
       "publish-channel-catalog",
     );
+    await checkRoleStorage(accountPrefix, accountRoot, userId);
     check(
       await accountPrefix.selectSidebarChannel(teamId, channelId),
       "select-saved-room",

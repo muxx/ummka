@@ -1,6 +1,9 @@
 import { expect, test } from "vitest";
 import { Configuration, ResponseError } from "../../vendor/mattermost/index.js";
-import { loadChannelPermissions } from "./channel-permissions.ts";
+import {
+  fetchTeamRoleSnapshot,
+  loadChannelPermissions,
+} from "./channel-permissions.ts";
 
 const userId = "u".repeat(26);
 const teamId = "t".repeat(26);
@@ -178,4 +181,69 @@ test("propagates a failed batch or a caller's cancellation without publishing pa
     loadChannelPermissions(stopped.config, many, controller.signal),
   ).rejects.toBe(reason);
   expect(stopped.calls).toHaveLength(1);
+});
+
+test("reads the signed-in user's roles once and records missing assignments in the complete snapshot", async () => {
+  const assigned = Array.from({ length: 102 }, (_, i) => `assigned_${i}`);
+  const requests: string[] = [];
+  const batches: string[][] = [];
+  const config = new Configuration({
+    basePath: "https://fixture.test/chat",
+    fetchApi: async (url, init) => {
+      const path = new URL(String(url)).pathname;
+      requests.push(path);
+      if (path.endsWith("/users/me"))
+        return Response.json({ id: userId, roles: "system_user assigned_0" });
+      const names: string[] = JSON.parse(String(init?.body));
+      batches.push(names);
+      return Response.json(
+        names.includes("system_user")
+          ? [{ name: "system_user", permissions: ["read_channel"] }]
+          : null,
+      );
+    },
+  });
+  const snapshot = await fetchTeamRoleSnapshot(config, userId, [
+    ...assigned,
+    "assigned_0",
+  ]);
+  expect(requests).toEqual([
+    "/chat/api/v4/users/me",
+    "/chat/api/v4/roles/names",
+    "/chat/api/v4/roles/names",
+  ]);
+  expect(batches.map((batch) => batch.length)).toEqual([100, 3]);
+  expect(snapshot.systemRoles).toBe("system_user assigned_0");
+  expect(snapshot.definitions).toEqual([
+    ...assigned.map((name) => ({ name, permissions: [] })),
+    { name: "system_user", permissions: ["read_channel"] },
+  ]);
+});
+
+test("a foreign profile, missing role assignments or an aborted profile read cannot publish permissions", async () => {
+  for (const profile of [
+    { id: teamId, roles: "system_admin" },
+    { id: userId },
+  ]) {
+    const config = new Configuration({
+      fetchApi: async (url) => {
+        expect(String(url)).toMatch(/users\/me$/);
+        return Response.json(profile);
+      },
+    });
+    await expect(
+      fetchTeamRoleSnapshot(config, userId, ["reader"]),
+    ).rejects.toThrow(TypeError);
+  }
+  const abort = new AbortController();
+  const reason = new Error("Changed team");
+  const cancelled = new Configuration({
+    fetchApi: async () => {
+      abort.abort(reason);
+      return Response.json({ id: userId, roles: "system_user" });
+    },
+  });
+  await expect(
+    fetchTeamRoleSnapshot(cancelled, userId, [], abort.signal),
+  ).rejects.toBe(reason);
 });

@@ -28,6 +28,8 @@ mod settings;
 pub use settings::{ServerPolicy, ServerPolicyLoad, SidebarPreferences, WorkspaceSettings};
 mod sidebar;
 pub use sidebar::{SidebarCategory, SidebarChannel, SidebarData, SidebarLoad, SidebarSnapshot};
+mod team_roles;
+pub use team_roles::{TeamRoleLoad, TeamRoleSnapshot};
 mod windows;
 pub use windows::{ChannelHistoryPage, WindowEdge, WindowSlice, WindowSource};
 

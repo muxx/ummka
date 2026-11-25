@@ -1,9 +1,9 @@
-export async function refreshNavigation<T>(
+export async function refreshNavigation<T, Load>(
   signal: AbortSignal | undefined,
-  begin: () => Promise<number | null>,
-  fetchRows: () => Promise<T>,
-  publish: (load: number, rows: T) => Promise<boolean>,
-  cancel: (load: number) => Promise<void>,
+  begin: () => Promise<Load | null>,
+  fetchRows: (load: Load) => Promise<T>,
+  publish: (load: Load, rows: T) => Promise<boolean>,
+  cancel: (load: Load) => Promise<void>,
 ) {
   signal?.throwIfAborted();
   const load = await begin();
@@ -14,7 +14,7 @@ export async function refreshNavigation<T>(
   let rows: T;
   try {
     signal?.throwIfAborted();
-    rows = await fetchRows();
+    rows = await fetchRows(load);
     signal?.throwIfAborted();
   } catch (error) {
     try {

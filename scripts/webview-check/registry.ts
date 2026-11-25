@@ -25,6 +25,7 @@ import { signInLinkServer } from "./link-examples.ts";
 import { checkOfflineWindows } from "./local-history.ts";
 import { checkSubmissionRestore } from "./submission.ts";
 import { checkSystemLinks } from "./system-links.ts";
+import { checkRestoredTeamRoles } from "./team-role-storage.ts";
 
 const first = "https://chat.example.test";
 const second = "https://chat.example.test/Team";
@@ -88,6 +89,7 @@ export async function resumeRegistryCheck(): Promise<boolean> {
       )
         throw Error("offline profile directory changed after process restart");
       await checkDraftRestore(recovered, base !== root);
+      await checkRestoredTeamRoles(recovered, base !== root);
       await checkSubmissionRestore(recovered, base !== root);
       const settings = await recovered.readWorkspaceSettings();
       if (

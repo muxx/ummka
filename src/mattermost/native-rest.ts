@@ -6,6 +6,10 @@ import {
   type ChannelRefreshResult,
   refreshChannelHistory,
 } from "./channel-history-refresh.ts";
+import {
+  fetchTeamRoleSnapshot,
+  type TeamRoleSnapshot,
+} from "./channel-permissions.ts";
 import type { ChannelProfile } from "./channel-profiles.ts";
 import { type JoinedTeams, projectJoinedTeams } from "./joined-teams.ts";
 import type {
@@ -201,6 +205,28 @@ export async function openAccountRestConnection(
             invoke<boolean>("store_team_sidebar", { rid, load, data }),
           (load) => invoke<void>("cancel_sidebar_load", { rid, load }),
         ),
+      );
+    },
+    refreshTeamRoles(teamId: string, signal?: AbortSignal) {
+      return readWhileOpen(() =>
+        refreshNavigation(
+          signal,
+          () =>
+            invoke<{ load: number; roleNames: string[] } | null>(
+              "begin_team_role_load",
+              { rid, teamId },
+            ),
+          ({ roleNames }) =>
+            fetchTeamRoleSnapshot(config, userId, roleNames, signal),
+          ({ load }, data) =>
+            invoke<boolean>("store_team_roles", { rid, load, data }),
+          ({ load }) => invoke<void>("cancel_team_role_load", { rid, load }),
+        ),
+      );
+    },
+    readSavedTeamRoles(teamId: string) {
+      return readWhileOpen(() =>
+        invoke<TeamRoleSnapshot | null>("read_team_roles", { rid, teamId }),
       );
     },
     readTeamDirectory(teamId: string, signal?: AbortSignal) {

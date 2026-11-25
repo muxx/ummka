@@ -125,6 +125,11 @@ export function respondToAccount(
       .length,
     1,
   );
+  if (scenario === undefined) {
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ id: firstId, roles: "system_user" }));
+    return "account-role-owner";
+  }
   if (scenario === "retire") {
     request.socket.once("close", () => event("account-retire-closed"));
     event("account-retire-received");

@@ -212,7 +212,7 @@ const readerToken = (await create("users/login", readerLogin)).headers.get(
   "token",
 );
 assert.ok(readerToken);
-await checkRoleReads(base, readerToken, version);
+await checkRoleReads(base, readerToken, reader.id, version);
 const readerPosts = new PostsApi(
   new Configuration({ basePath: base, accessToken: readerToken }),
 );

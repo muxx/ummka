@@ -263,6 +263,23 @@ export function webviewServers(
         res.writeHead(200, { "Content-Type": "application/json" }).end("null");
         return;
       }
+      if (Array.isArray(names) && names.includes("system_user")) {
+        assert.deepEqual([...names].sort(), [
+          "channel_user",
+          "custom_writer",
+          "system_user",
+          "team_guest",
+        ]);
+        visits.push("saved-role-definitions");
+        res.writeHead(200, { "Content-Type": "application/json" }).end(
+          JSON.stringify([
+            { name: "channel_user", permissions: ["create_post"] },
+            { name: "system_user", permissions: ["create_direct_channel"] },
+            { name: "team_guest", permissions: [] },
+          ]),
+        );
+        return;
+      }
       assert.deepEqual(names, ["team_guest", "channel_user"]);
       visits.push("role-definitions");
       res.writeHead(200, { "Content-Type": "application/json" }).end(
@@ -675,6 +692,8 @@ export function webviewServers(
         "member-id",
         "members-page",
         "members-batch",
+        "account-role-owner",
+        "saved-role-definitions",
         "role-definitions",
         "absent-roles",
         "set-post-unread",
