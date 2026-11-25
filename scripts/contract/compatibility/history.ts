@@ -22,6 +22,7 @@ import {
   checkEmptyTeamDirectory,
   checkNavigationMemberships,
 } from "./memberships.ts";
+import { checkProfileReads } from "./profile-reads.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
 
@@ -642,6 +643,13 @@ assert.equal(person.remoteId, "");
 assert.equal(botProfile.isBot, true);
 console.log(
   `Mattermost ${version} verified local user position and bot identity through generated profile reads.`,
+);
+await checkProfileReads(
+  base,
+  users,
+  { id: user.id, username },
+  { id: bot.user_id, username: bot.username },
+  version,
 );
 
 const secondLogin = await create("users/login", {

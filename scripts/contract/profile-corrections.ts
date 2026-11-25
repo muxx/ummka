@@ -19,3 +19,28 @@ export function correctUserProfile(source: Fields): Fields {
     throw Error("Review the User profile correction against the pinned source");
   return { ...source, properties: { ...fields, ...missing } };
 }
+
+// https://github.com/mattermost/mattermost/blob/v10.10.1/server/channels/api4/user.go#L383-L427
+// https://github.com/mattermost/mattermost/blob/v12.1.0/server/channels/api4/user.go#L562-L607
+export function correctProfileImage(source: Fields): Fields {
+  const responses = object(source.responses, "profile image responses");
+  const success = object(responses["200"], "profile image success");
+  if (
+    source.operationId !== "GetProfileImage" ||
+    success.description !== "User's profile image" ||
+    Object.hasOwn(success, "content")
+  )
+    throw Error("Review the profile image response against the pinned source");
+  return {
+    ...source,
+    responses: {
+      ...responses,
+      "200": {
+        ...success,
+        content: {
+          "image/png": { schema: { type: "string", format: "binary" } },
+        },
+      },
+    },
+  };
+}

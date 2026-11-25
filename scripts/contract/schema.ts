@@ -19,7 +19,10 @@ import {
   checkPostInfoOperation,
   postInfoSchema,
 } from "./post-info-correction.ts";
-import { correctUserProfile } from "./profile-corrections.ts";
+import {
+  correctProfileImage,
+  correctUserProfile,
+} from "./profile-corrections.ts";
 import {
   correctSidebarResponse,
   correctSidebarSchema,
@@ -150,6 +153,8 @@ export function buildSpecification(
       );
     else if (id === "GetSidebarCategoriesForTeamForUser")
       paths[path][method] = correctSidebarResponse(operation);
+    else if (id === "GetProfileImage")
+      paths[path][method] = correctProfileImage(operation);
     else paths[path][method] = correctAuthentication(operation);
     if (Object.hasOwn(operation, "security"))
       includeSecurity(operation.security);

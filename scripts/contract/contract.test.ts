@@ -27,7 +27,10 @@ import {
   checkPostInfoOperation,
   postInfoSchema,
 } from "./post-info-correction.ts";
-import { correctUserProfile } from "./profile-corrections.ts";
+import {
+  correctProfileImage,
+  correctUserProfile,
+} from "./profile-corrections.ts";
 import { buildSpecification, readSource } from "./schema.ts";
 import {
   correctSidebarCategory,
@@ -48,6 +51,7 @@ const nativeContract = JSON.parse(
 const definitions = read("definitions.yaml");
 const ping = "/api/v4/system/ping";
 const system = read("system.yaml");
+const profileImage = "/api/v4/users/{user_id}/image";
 const userRoute = "/api/v4/users/{user_id}";
 const users = read("users.yaml");
 const history = "/api/v4/channels/{channel_id}/posts";
@@ -168,10 +172,10 @@ test("retains the catalog operations, security and transitive models", () => {
       );
     }
     const source = object(at(read(file), key), path);
-    assert.deepEqual(
-      actual,
-      path === sidebar ? correctSidebarResponse(source) : source,
-    );
+    let expected = source;
+    if (path === sidebar) expected = correctSidebarResponse(source);
+    if (path === profileImage) expected = correctProfileImage(source);
+    assert.deepEqual(actual, expected);
   }
   for (const path of definitionPaths) {
     const source = at(definitions, path);
@@ -214,6 +218,32 @@ test("retains the catalog operations, security and transitive models", () => {
       "UserNotifyProps",
     ],
   );
+});
+
+test("both image operations carry an undocumented PNG body and preserve error responses", () => {
+  for (const spec of [users, read("users-12.1.0.yaml")]) {
+    const operation = object(at(spec, [profileImage, "get"]), profileImage);
+    const original = structuredClone(operation);
+    const corrected = correctProfileImage(operation);
+    const responses = object(original.responses, "responses");
+    assert.deepEqual(corrected, {
+      ...original,
+      responses: {
+        ...responses,
+        "200": {
+          ...object(responses["200"], "success"),
+          content: {
+            "image/png": { schema: { type: "string", format: "binary" } },
+          },
+        },
+      },
+    });
+    assert.deepEqual(operation, original);
+    assert.throws(
+      () => correctProfileImage(corrected),
+      /Review the profile image/,
+    );
+  }
 });
 
 test("both pinned User definitions omit the same three fields returned by the server", () => {
