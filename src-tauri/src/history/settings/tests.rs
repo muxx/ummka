@@ -25,6 +25,11 @@ fn policy() -> ServerPolicy {
         name_format: NameFormat::FullName,
         lock_name_format: true,
         shared_channel_dms: Some(true),
+        search: Some(SearchSettings {
+            all_teams: true,
+            files: true,
+            archived_channels: false,
+        }),
         unique_reaction_limit: Some("-2".into()),
         mentions: Some(MentionSettings {
             confirm_notifications: true,
@@ -191,14 +196,17 @@ fn accepts_only_known_settings_and_indexes_an_owner_lookup() {
 }
 
 #[test]
-fn upgrades_settings_and_drafts_from_v17_and_v19_and_protects_the_new_policy() {
-    for version in [17, 19] {
+fn upgrades_settings_and_drafts_and_protects_the_new_policy() {
+    for version in [17, 19, 21, 22] {
         let root = tempdir().unwrap();
         let previous = &MIGRATIONS[..version];
         let mut old = HistoryDatabase::open_with(root.path(), URL, previous).unwrap();
         let owner = old.restore(&account()).unwrap();
         let mut legacy = policy();
-        legacy.unique_reaction_limit = None;
+        legacy.search = None;
+        if version < 20 {
+            legacy.unique_reaction_limit = None;
+        }
         if version == 17 {
             legacy.mentions = None;
         }

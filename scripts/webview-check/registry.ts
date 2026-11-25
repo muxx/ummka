@@ -101,6 +101,9 @@ export async function resumeRegistryCheck(): Promise<boolean> {
             settings.server?.collapsedThreads !== "always_on" ||
             settings.server.sharedChannelDMs !== true ||
             settings.server.uniqueReactionLimit !== "-2" ||
+            settings.server.search?.allTeams !== true ||
+            settings.server.search.files !== false ||
+            settings.server.search.archivedChannels !== true ||
             settings.server.mentions?.maxNotificationsPerChannel !==
               "9223372036854775807" ||
             settings.server.mentions.confirmNotifications ||

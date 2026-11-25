@@ -53,6 +53,7 @@ import { checkReactionActions } from "./reaction-actions.ts";
 import { checkReactionLimit } from "./reaction-limit.ts";
 import { checkPostReactions } from "./reactions.ts";
 import { checkRoleReads } from "./role-reads.ts";
+import { checkSearchScopePolicy } from "./search-scope.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
 
@@ -988,6 +989,7 @@ await checkPreviouslyAcceptedPost(
   version,
 );
 
+await checkSearchScopePolicy(base, token, readerToken, version);
 await checkReactionLimit(base, token, user.id, readerToken, channelId);
 console.log(
   `Mattermost ${version} verified the signed reaction limit against adding a new emoji name.`,

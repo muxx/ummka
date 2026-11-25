@@ -68,7 +68,17 @@ impl SidebarPreferences {
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SearchSettings {
+    all_teams: bool,
+    files: bool,
+    archived_channels: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ServerPolicy {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    search: Option<SearchSettings>,
     #[serde(skip_serializing_if = "Option::is_none")]
     unique_reaction_limit: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
