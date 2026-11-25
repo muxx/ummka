@@ -467,11 +467,14 @@ export function webviewServers(
       );
       assert.equal(req.headers.cookie, undefined);
       assert.equal(url.search, "");
-      assert.deepEqual(await json(req), {
+      const command = await json(req);
+      assert(command && typeof command === "object" && "root_id" in command);
+      const saved = command.root_id === "k".repeat(26);
+      assert.deepEqual(command, {
         channel_id: channelId,
         team_id: teamId,
-        root_id: "r".repeat(26),
-        command: "/release --Status",
+        root_id: (saved ? "k" : "r").repeat(26),
+        command: saved ? "/release --Saved" : "/release --Status",
       });
       res.writeHead(200, { "Content-Type": "application/json" }).end(
         JSON.stringify({
@@ -489,7 +492,7 @@ export function webviewServers(
           extra_responses: null,
         }),
       );
-      visits.push("signed-slash-command");
+      visits.push(saved ? "saved-slash-command" : "signed-slash-command");
       return;
     }
     if (
@@ -1009,6 +1012,7 @@ export function webviewServers(
         "bulk-channel-view",
         "single-channel-view",
         "signed-slash-command",
+        "saved-slash-command",
         "channel-stats",
         "channel-stats",
         "broadcast-timezones",

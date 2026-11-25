@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { executeAccountCommand } from "../../../src/mattermost/execute-account-command.ts";
+import { executeSavedCommand } from "../../../src/mattermost/execute-saved-command.ts";
 import {
   CommandsApi,
   type Configuration,
@@ -67,6 +68,54 @@ export async function checkCommands(
   assert.equal(replies.length, 1);
   assert.equal(replies[0]?.message, me.text);
   assert.equal(replies[0]?.type, "me");
+  for (const message of [
+    "/me runs a saved draft",
+    "/ummka-unknown-saved-command",
+  ]) {
+    const finishing = message.startsWith("/me ") ? "complete" : "release";
+    const transitions: string[] = [];
+    const answer = await executeSavedCommand(
+      commands,
+      async (location, action) => {
+        assert.equal(location.channelId, channelId);
+        assert.equal(location.rootId, root.id);
+        transitions.push(action);
+        if (action === "start") {
+          assert.equal(location.revision, "original");
+          return {
+            kind: "saved",
+            draft: { message, revision: "attempt", commandPending: true },
+          };
+        }
+        assert.equal(location.revision, "attempt");
+        assert.equal(action, finishing);
+        return {
+          kind: "saved",
+          draft: {
+            message: action === "complete" ? "" : message,
+            revision: "finished",
+          },
+        };
+      },
+      inThread,
+      "original",
+    );
+    assert.deepEqual(transitions, ["start", finishing]);
+    assert.equal(answer.kind, "answered");
+    assert.equal(answer.settlement, "saved");
+    assert.equal(
+      answer.result.kind,
+      finishing === "complete" ? "executed" : "unknownCommand",
+    );
+  }
+  const finalThread = await posts.getPostThread({ postId: root.id });
+  assert.equal(
+    Object.values(finalThread.posts ?? {}).filter(
+      (post) =>
+        post.rootId === root.id && post.message === "*runs a saved draft*",
+    ).length,
+    1,
+  );
   console.log(
     `Mattermost ${version} verified an in-thread /me, ephemeral /help and an unknown user command.`,
   );

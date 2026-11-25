@@ -39,6 +39,7 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
             rest_ipc::close_rest_connection,
             rest_ipc::drafts::read_composer_draft,
             rest_ipc::drafts::save_composer_draft,
+            rest_ipc::drafts::transition_draft_command,
             rest_ipc::delivery::stage_composer_post,
             rest_ipc::delivery::read_pending_posts,
             rest_ipc::delivery::confirm_post_delivery,

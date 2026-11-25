@@ -1,6 +1,6 @@
 use super::{exchange::ExchangeError, session};
 use crate::{
-    history::{ComposerDraft, DraftSave},
+    history::{ComposerDraft, DraftCommandAction, DraftSave},
     sessions::AccountSessions,
 };
 use tauri::{Manager, ResourceId, Runtime, Webview};
@@ -36,6 +36,22 @@ pub(crate) async fn save_composer_draft<R: Runtime>(
                 expected_revision.as_deref(),
                 &message,
             )
+        })
+        .await
+}
+
+#[tauri::command]
+pub(crate) async fn transition_draft_command<R: Runtime>(
+    webview: Webview<R>,
+    rid: ResourceId,
+    channel_id: String,
+    root_id: Option<String>,
+    revision: String,
+    action: DraftCommandAction,
+) -> Result<DraftSave, ExchangeError> {
+    session(&webview, rid)?
+        .with_history(&webview.state::<AccountSessions>(), move |view| {
+            view.transition_draft_command(&channel_id, root_id.as_deref(), &revision, action)
         })
         .await
 }

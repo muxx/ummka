@@ -22,6 +22,10 @@ import {
 } from "./channel-permissions.ts";
 import type { ChannelProfile } from "./channel-profiles.ts";
 import { executeAccountCommand } from "./execute-account-command.ts";
+import {
+  type CommandIntent,
+  executeSavedCommand,
+} from "./execute-saved-command.ts";
 import { type JoinedTeams, projectJoinedTeams } from "./joined-teams.ts";
 import type {
   ChannelWindowQuery,
@@ -39,6 +43,7 @@ import {
   type MembershipTarget,
 } from "./own-membership.ts";
 import { createPostActivity } from "./post-activity.ts";
+import { readPostDestination } from "./post-destination.ts";
 import { createRestTransport } from "./rest-transport.ts";
 import { canonicalServerUrl } from "./server-url.ts";
 import { projectTeamSidebar, type TeamSidebar } from "./team-sidebar.ts";
@@ -92,6 +97,8 @@ export type ComposerDraft = {
   revision: string | null;
   /** Present only when the cause of this empty revision is known. */
   clearedBySubmission?: boolean;
+  /** The server may already have received the command from this revision. */
+  commandPending?: true;
 };
 export type DraftSave = { kind: "saved" | "conflict"; draft: ComposerDraft };
 
@@ -133,6 +140,8 @@ export async function openAccountRestConnection(
     signal?.throwIfAborted();
     return result;
   }
+  const delivery = accountDelivery(rid, readWhileOpen, posts, userId, activity);
+  const commands = new CommandsApi(config);
   return {
     ...connection,
     ...accountPostReactions(config, userId, readWhileOpen),
@@ -170,6 +179,9 @@ export async function openAccountRestConnection(
       return readWhileOpen(() =>
         changeOwnMembership(config, userId, target, change),
       );
+    },
+    readPostDestination(postId: string, signal?: AbortSignal) {
+      return readWhileOpen(() => readPostDestination(posts, postId, signal));
     },
     readAccountDirectory(signal?: AbortSignal) {
       return readWhileOpen(() => loadAccountDirectory(config, userId, signal));
@@ -214,13 +226,28 @@ export async function openAccountRestConnection(
         ),
       );
     },
-    ...accountDelivery(rid, readWhileOpen, posts, userId, activity),
+    ...delivery,
+    submitDraftCommand(
+      location: DraftLocation & { teamId: string },
+      revision: string,
+      intent?: CommandIntent,
+    ) {
+      return readWhileOpen(() =>
+        executeSavedCommand(
+          commands,
+          delivery.transitionDraftCommand,
+          location,
+          revision,
+          intent,
+        ),
+      );
+    },
     executeServerCommand(
       location: DraftLocation & { teamId: string },
       text: string,
     ) {
       return readWhileOpen(() =>
-        executeAccountCommand(new CommandsApi(config), location, text),
+        executeAccountCommand(commands, location, text),
       );
     },
     readWorkspaceSettings() {
