@@ -29,7 +29,10 @@ import {
   checkBrowserSignIn,
 } from "./browser-sign-in.ts";
 import { checkChannelAudience } from "./channel-audience.ts";
-import { checkChannelNotifications } from "./channel-notifications.ts";
+import {
+  checkChannelNotifications,
+  checkPersonalNotificationUpdate,
+} from "./channel-notifications.ts";
 import { checkCommands } from "./commands.ts";
 import { checkCustomEmojiLookup } from "./custom-emoji.ts";
 import { checkEventStream } from "./event-stream.ts";
@@ -607,6 +610,11 @@ const beforeJoin = await memberApi.getChannelMembersForUser({
   userId: "me",
 });
 assert.ok(!beforeJoin.some((row) => row.channelId === joinable.id));
+await checkPersonalNotificationUpdate(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  channelId,
+  joinable.id,
+);
 const addition = await memberApi.addChannelMemberRaw({
   channelId: joinable.id,
   addChannelMemberRequest: { userId: reader.id },
