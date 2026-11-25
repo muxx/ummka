@@ -40,6 +40,8 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
             rest_ipc::drafts::save_composer_draft,
             rest_ipc::delivery::stage_composer_post,
             rest_ipc::delivery::read_pending_posts,
+            rest_ipc::delivery::confirm_post_delivery,
+            rest_ipc::delivery::retire_delivered_posts,
             rest_ipc::settings::read_workspace_settings,
             rest_ipc::settings::begin_workspace_policy_load,
             rest_ipc::settings::store_workspace_policy,

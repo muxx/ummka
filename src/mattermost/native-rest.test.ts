@@ -257,6 +257,8 @@ test("passes the canonical installation and closes the exact native handle", asy
   expect("readChannelWindow" in connection).toBe(false);
   expect("stagePost" in connection).toBe(false);
   expect("readPendingPosts" in connection).toBe(false);
+  expect("confirmPostDelivery" in connection).toBe(false);
+  expect("retireDeliveredPosts" in connection).toBe(false);
   expect("readAccountDirectory" in connection).toBe(false);
   expect("readTeamDirectory" in connection).toBe(false);
   expect("refreshChannelHistory" in connection).toBe(false);
@@ -284,6 +286,7 @@ test("opens a native account by installation and user ID", async () => {
   expect(Object.keys(connection).sort()).toEqual([
     "basePath",
     "close",
+    "confirmPostDelivery",
     "fetchApi",
     "readAccountDirectory",
     "readChannelWindow",
@@ -300,6 +303,7 @@ test("opens a native account by installation and user ID", async () => {
     "refreshSavedProfiles",
     "refreshTeamSidebar",
     "refreshWorkspaceServerPolicy",
+    "retireDeliveredPosts",
     "rid",
     "saveDraft",
     "selectJoinedTeam",
@@ -374,6 +378,52 @@ test("a closed account cannot publish a delayed stage result or read pending pos
     account.readPendingPosts({ channelId, after: 0, limit: 20 }),
   ).rejects.toBe("unknown_connection");
   expect(ipc).toHaveBeenLastCalledWith("close_rest_connection", { rid: 37 });
+});
+
+test("confirms only the identity of a live server post", async () => {
+  ipc.mockResolvedValueOnce(17);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    "u".repeat(26),
+  );
+  const identity = {
+    id: "p".repeat(26),
+    userId: "u".repeat(26),
+    channelId: "c".repeat(26),
+  };
+  const source = {
+    kind: "response",
+    requestPendingId: "id-from-request",
+  } as const;
+  const post = {
+    ...identity,
+    rootId: "",
+    deleteAt: 0,
+    message: "Message text stays out of the receipt",
+  };
+  for (const invalid of [
+    { ...post, deleteAt: 1 },
+    { ...post, rootId: undefined },
+    { ...post, id: "" },
+  ])
+    await expect(account.confirmPostDelivery(source, invalid)).resolves.toBe(
+      false,
+    );
+  expect(ipc).toHaveBeenCalledTimes(1);
+  ipc.mockResolvedValueOnce(true);
+  await expect(account.confirmPostDelivery(source, post)).resolves.toBe(true);
+  expect(ipc).toHaveBeenLastCalledWith("confirm_post_delivery", {
+    rid: 17,
+    post: { ...identity, rootId: null },
+    source,
+    wirePendingId: null,
+  });
+  ipc.mockResolvedValueOnce(1);
+  await expect(account.retireDeliveredPosts([post.id])).resolves.toBe(1);
+  expect(ipc).toHaveBeenLastCalledWith("retire_delivered_posts", {
+    rid: 17,
+    postIds: [post.id],
+  });
 });
 
 test("a directory delivered after the account signs out is discarded", async () => {

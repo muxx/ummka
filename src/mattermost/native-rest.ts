@@ -1,5 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
-import { Configuration, PostsApi } from "../../vendor/mattermost/index.js";
+import {
+  Configuration,
+  type Post,
+  PostsApi,
+} from "../../vendor/mattermost/index.js";
 import {
   type ChannelRefreshRequest,
   type ChannelRefreshResult,
@@ -78,6 +82,9 @@ type PendingPost = {
 type StagePost =
   | { kind: "created"; post: PendingPost; draft: ComposerDraft }
   | { kind: "notStaged"; draft: ComposerDraft };
+type DeliverySource =
+  | { kind: "posted" }
+  | { kind: "response"; requestPendingId: string };
 
 export type AccountSignOut =
   | { status: "signed_out" }
@@ -214,6 +221,35 @@ export async function openAccountRestConnection(
           after,
           limit,
         }),
+      );
+    },
+    confirmPostDelivery(source: DeliverySource, post: Post) {
+      return readWhileOpen(async () => {
+        // Deleted or incomplete posts cannot identify an accepted send.
+        if (
+          post.deleteAt !== 0 ||
+          !post.id ||
+          !post.userId ||
+          !post.channelId ||
+          typeof post.rootId !== "string"
+        )
+          return false;
+        return invoke<boolean>("confirm_post_delivery", {
+          rid,
+          source,
+          wirePendingId: post.pendingPostId ?? null,
+          post: {
+            id: post.id,
+            userId: post.userId,
+            channelId: post.channelId,
+            rootId: post.rootId || null,
+          },
+        });
+      });
+    },
+    retireDeliveredPosts(postIds: string[]) {
+      return readWhileOpen(() =>
+        invoke<number>("retire_delivered_posts", { rid, postIds }),
       );
     },
     readWorkspaceSettings() {

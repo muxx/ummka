@@ -73,6 +73,11 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
                 "read_pending_posts",
                 json!({"rid":0,"channelId":"a".repeat(26),"rootId":null,"after":0,"limit":20}),
             ),
+            (
+                "confirm_post_delivery",
+                json!({"rid":0,"source":{"kind":"posted"},"wirePendingId":"pending","post":{"id":"a","channelId":"b","userId":"c","rootId":null}}),
+            ),
+            ("retire_delivered_posts", json!({"rid":0,"postIds":[]})),
             ("read_workspace_settings", json!({"rid":0})),
             ("begin_workspace_policy_load", json!({"rid":0})),
             (

@@ -17,6 +17,8 @@
     "allow-save-composer-draft",
     "allow-stage-composer-post",
     "allow-read-pending-posts",
+    "allow-confirm-post-delivery",
+    "allow-retire-delivered-posts",
     "allow-read-workspace-settings",
     "allow-begin-workspace-policy-load",
     "allow-store-workspace-policy",
