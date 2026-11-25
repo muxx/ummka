@@ -39,6 +39,7 @@ import {
   checkChannelNotifications,
   checkPersonalNotificationUpdate,
 } from "./channel-notifications.ts";
+import { checkCollectionActions } from "./collection-actions.ts";
 import { checkCommands } from "./commands.ts";
 import { checkCustomEmojiLookup } from "./custom-emoji.ts";
 import { checkEventStream } from "./event-stream.ts";
@@ -53,6 +54,7 @@ import {
 } from "./memberships.ts";
 import { checkMentionLimit } from "./mention-limit.ts";
 import { checkMentionText } from "./mention-text.ts";
+import { checkPostCollections } from "./post-collections.ts";
 import {
   checkPostMutations,
   checkPreviouslyAcceptedPost,
@@ -805,6 +807,46 @@ await checkPostSearch(
   team.id,
   channelId,
   extraTeam.id,
+  version,
+);
+const otherSaverName = "collection-reader";
+const otherSaverPassword = `${randomBytes(24).toString("hex")}aA7!`;
+const otherSaver = await (
+  await create("users", {
+    username: otherSaverName,
+    email: "collection-reader@example.test",
+    password: otherSaverPassword,
+  })
+).json();
+const otherSaverLogin = await create("users/login", {
+  login_id: otherSaverName,
+  password: otherSaverPassword,
+});
+const otherSaverToken = otherSaverLogin.headers.get("token");
+assert.ok(otherSaverToken);
+assert.equal(otherSaver.roles, "system_user");
+await checkPostCollections(
+  { session, id: user.id },
+  { id: reader.id, token: readerToken },
+  new Configuration({ basePath: base, accessToken: otherSaverToken }),
+  {
+    channel: channelId,
+    privateChannel: closed.id,
+    direct: dm.id,
+    team: team.id,
+    otherTeam: extraTeam.id,
+  },
+  { older: plainPost.id, newer: taggedPost.id, direct: dmPost.id },
+  version,
+);
+await checkCollectionActions(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  session,
+  reader.id,
+  user.id,
+  dm.id,
+  dmPost.id,
+  closedPost.id,
   version,
 );
 await checkFileSearch(

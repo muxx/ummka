@@ -77,6 +77,49 @@ export class PostsApi extends runtime.BaseAPI {
         const response = await this.deletePostRaw(requestParameters, initOverrides);
         return await response.value();
     }
+    async getFlaggedPostsForUserRequestOpts(requestParameters) {
+        if (requestParameters['userId'] == null) {
+            throw new runtime.RequiredError('userId', 'Required parameter "userId" was null or undefined when calling getFlaggedPostsForUser().');
+        }
+        const queryParameters = {};
+        if (requestParameters['teamId'] != null) {
+            queryParameters['team_id'] = requestParameters['teamId'];
+        }
+        if (requestParameters['channelId'] != null) {
+            queryParameters['channel_id'] = requestParameters['channelId'];
+        }
+        if (requestParameters['page'] != null) {
+            queryParameters['page'] = requestParameters['page'];
+        }
+        if (requestParameters['perPage'] != null) {
+            queryParameters['per_page'] = requestParameters['perPage'];
+        }
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/users/{user_id}/posts/flagged`;
+        urlPath = urlPath.replace('{user_id}', encodeURIComponent(String(requestParameters['userId'])));
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async getFlaggedPostsForUserRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.getFlaggedPostsForUserRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => PostListFromJSON(jsonValue));
+    }
+    async getFlaggedPostsForUser(requestParameters, initOverrides) {
+        const response = await this.getFlaggedPostsForUserRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
     async getPostRequestOpts(requestParameters) {
         if (requestParameters['postId'] == null) {
             throw new runtime.RequiredError('postId', 'Required parameter "postId" was null or undefined when calling getPost().');
@@ -294,6 +337,37 @@ export class PostsApi extends runtime.BaseAPI {
         const response = await this.patchPostRaw(requestParameters, initOverrides);
         return await response.value();
     }
+    async pinPostRequestOpts(requestParameters) {
+        if (requestParameters['postId'] == null) {
+            throw new runtime.RequiredError('postId', 'Required parameter "postId" was null or undefined when calling pinPost().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/posts/{post_id}/pin`;
+        urlPath = urlPath.replace('{post_id}', encodeURIComponent(String(requestParameters['postId'])));
+        return {
+            path: urlPath,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async pinPostRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.pinPostRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => StatusOKFromJSON(jsonValue));
+    }
+    async pinPost(requestParameters, initOverrides) {
+        const response = await this.pinPostRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
     async searchPostsRequestOpts(requestParameters) {
         if (requestParameters['teamId'] == null) {
             throw new runtime.RequiredError('teamId', 'Required parameter "teamId" was null or undefined when calling searchPosts().');
@@ -400,6 +474,37 @@ export class PostsApi extends runtime.BaseAPI {
     }
     async setPostUnread(requestParameters, initOverrides) {
         const response = await this.setPostUnreadRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async unpinPostRequestOpts(requestParameters) {
+        if (requestParameters['postId'] == null) {
+            throw new runtime.RequiredError('postId', 'Required parameter "postId" was null or undefined when calling unpinPost().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/posts/{post_id}/unpin`;
+        urlPath = urlPath.replace('{post_id}', encodeURIComponent(String(requestParameters['postId'])));
+        return {
+            path: urlPath,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async unpinPostRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.unpinPostRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => StatusOKFromJSON(jsonValue));
+    }
+    async unpinPost(requestParameters, initOverrides) {
+        const response = await this.unpinPostRaw(requestParameters, initOverrides);
         return await response.value();
     }
 }

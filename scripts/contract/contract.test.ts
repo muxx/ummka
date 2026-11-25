@@ -47,6 +47,7 @@ import {
   correctGroupAudienceResponse,
 } from "./group-audience-correction.ts";
 import {
+  correctFlaggedPosts,
   correctHistoryQuery,
   correctHistorySchema,
 } from "./history-corrections.ts";
@@ -785,6 +786,31 @@ test("requires explicit unread support and detects changed upstream schemas on b
   }
 });
 
+test("flagged and pinned collections return a single PostList and changing either upstream flagged schema requires review", () => {
+  const path = "/api/v4/users/{user_id}/posts/flagged";
+  const output = ["responses", "200", "content", "application/json", "schema"];
+  const list = { $ref: "#/components/schemas/PostList" };
+  for (const route of [path, "/api/v4/channels/{channel_id}/pinned"])
+    assert.deepEqual(at(contract, ["paths", route, "get", ...output]), list);
+  for (const version of ["baseline", "reference"]) {
+    const old = read("posts.yaml"),
+      next = read("posts-12.1.0.yaml");
+    const media = object(
+      at(version === "baseline" ? old : next, [
+        path,
+        "get",
+        ...output.slice(0, -1),
+      ]),
+      path,
+    );
+    media.schema = list;
+    assert.throws(
+      () => correctFlaggedPosts(object(at(old, [path, "get"]), path), next),
+      /Review the GetFlaggedPostsForUser response/,
+    );
+  }
+});
+
 test("retains the catalog operations, security and transitive models", () => {
   for (const { file, path, method } of catalog) {
     const key = [path, method.toLowerCase()];
@@ -806,6 +832,8 @@ test("retains the catalog operations, security and transitive models", () => {
     }
     const source = object(at(read(file), key), path);
     let expected = source;
+    if (source.operationId === "GetFlaggedPostsForUser")
+      expected = correctFlaggedPosts(source, read("posts-12.1.0.yaml"));
     if (source.operationId === "GetPost")
       expected = correctSinglePost(
         source,
