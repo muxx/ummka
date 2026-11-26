@@ -526,6 +526,9 @@ export async function checkGeneratedRequests(ports: string[]) {
         postAnchor.post?.id === postId &&
         postAnchor.post.editAt === 1250 &&
         postAnchor.post.isPinned &&
+        postAnchor.post.attachments?.redactedFileCount === 2 &&
+        postAnchor.post.attachments.fileIds?.length === 0 &&
+        postAnchor.post.attachments.files === undefined &&
         fileAnchor.fileId === fileId &&
         fileAnchor.channelId === channelId &&
         fileAnchor.postId === postId,
