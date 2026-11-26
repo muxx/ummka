@@ -87,6 +87,13 @@
 .channels-account:hover {
   background: #ffffff1c;
 }
+.channels-bar .appearance-trigger {
+  width: 32px;
+  height: 32px;
+}
+.channels-bar .appearance-trigger:hover {
+  background: #ffffff1c;
+}
 .channels-panes {
   display: flex;
   flex: 1;
