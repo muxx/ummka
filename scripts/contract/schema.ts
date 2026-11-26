@@ -91,6 +91,7 @@ import {
   correctThreadListQuery,
 } from "./thread-list-corrections.ts";
 import { correctThreadMutation } from "./thread-mutation-correction.ts";
+import { correctUserStatus } from "./user-status-correction.ts";
 
 const methods = new Set([
   "get",
@@ -170,6 +171,8 @@ export function buildSpecification(
       throw new Error(`Missing component ${kind}/${name}`);
     const source = object(upstream[name], `components/${kind}/${name}`);
     if (kind !== "schemas") group[name] = source;
+    else if (name === "Status")
+      group[name] = correctUserStatus(source, read("definitions-12.1.0.yaml"));
     else if (name === "UserThreads" || name === "UserThread")
       group[name] = correctThreadListModel(
         name,

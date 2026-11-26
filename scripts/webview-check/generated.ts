@@ -17,6 +17,7 @@ import {
   FilesApi,
   type InitOverrideFunction,
   ResponseError,
+  StatusApi,
   SystemApi,
   ThreadsApi,
   UsersApi,
@@ -225,6 +226,22 @@ export async function checkGeneratedRequests(ports: string[]) {
         profiles[0].firstName === "Юлия" &&
         profiles[1]?.id === userId,
       "generated-user-batch",
+    );
+    const statuses = await new StatusApi(signed).getUsersStatusesByIds({
+      requestBody: batch.requestBody,
+    });
+    const [peerStatus, selfStatus] = statuses;
+    check(
+      statuses.length === 2 &&
+        peerStatus?.userId === batch.requestBody[1] &&
+        peerStatus.status === "dnd" &&
+        peerStatus.manual === true &&
+        peerStatus.lastActivityAt === 1700000000123 &&
+        peerStatus.dndEndTime === 1700003600 &&
+        selfStatus?.userId === userId &&
+        selfStatus.status === "offline" &&
+        selfStatus.dndEndTime === 0,
+      "generated-presence-batch",
     );
     const unsignedBatch = await rejected(anonymousUser.getUsersByIdsRaw(batch));
     check(

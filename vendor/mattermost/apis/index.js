@@ -7,6 +7,7 @@ export * from './PostsApi.js';
 export * from './PreferencesApi.js';
 export * from './ReactionsApi.js';
 export * from './RolesApi.js';
+export * from './StatusApi.js';
 export * from './SystemApi.js';
 export * from './TeamsApi.js';
 export * from './ThreadsApi.js';

@@ -1054,6 +1054,31 @@ test("named channel lookup has the same parameters and Channel response in both 
   }
 });
 
+test("presence reads a JSON ID array and returns Status on both supported servers", () => {
+  for (const file of ["status.yaml", "status-12.1.0.yaml"]) {
+    const operation = object(
+      at(read(file), ["/api/v4/users/status/ids", "post"]),
+      "presence",
+    );
+    assert.equal(operation.operationId, "GetUsersStatusesByIds");
+    assert.equal(at(operation, ["requestBody", "required"]), true);
+    assert.deepEqual(
+      at(operation, ["requestBody", "content", "application/json", "schema"]),
+      { type: "array", items: { type: "string" } },
+    );
+    assert.deepEqual(
+      at(operation, [
+        "responses",
+        "200",
+        "content",
+        "application/json",
+        "schema",
+      ]),
+      { type: "array", items: { $ref: "#/components/schemas/Status" } },
+    );
+  }
+});
+
 test("one channel uses the same path, parameter and Channel response in both versions", () => {
   const path = "/api/v4/channels/{channel_id}";
   for (const file of ["channels.yaml", "channels-12.1.0.yaml"]) {
@@ -1318,6 +1343,7 @@ test("retains the catalog operations, security and transitive models", () => {
       "Reaction",
       "Role",
       "SidebarCategoryWithChannels",
+      "Status",
       "StatusOK",
       "SystemStatusResponse",
       "Team",
