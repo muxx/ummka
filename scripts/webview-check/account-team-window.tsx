@@ -44,9 +44,8 @@ export async function checkSavedTeamWindow(
     const saved = () =>
       ui.findByText("Saved fixture room message", {}, { timeout: 7000 });
     await saved();
-    const outgoing = (
-      await ui.findByText("Исходящее после перезапуска")
-    ).closest("article");
+    const outgoingText = "Исходящее после перезапуска";
+    const outgoing = (await ui.findByText(outgoingText)).closest("article");
     if (!outgoing?.textContent?.includes("Доставка не подтверждена"))
       throw Error(
         "Offline startup lost the saved outgoing row or suggested an active send",
@@ -117,24 +116,29 @@ export async function checkSavedTeamWindow(
     if (typeof navigator.clipboard?.writeText !== "function")
       throw Error("The packaged WebView cannot copy text");
     if (removeOutgoing) {
-      const remove = within(outgoing).getByRole<HTMLButtonElement>("button", {
+      const current = ui.getByText(outgoingText).closest("article");
+      if (!current) throw Error("The saved outgoing row is missing");
+      const remove = within(current).getByRole<HTMLButtonElement>("button", {
         name: "Удалить",
       });
       remove.focus();
       flushSync(() => fireEvent.click(remove));
-      await ui.findByText("Строка удалена только с устройства.");
-      await waitFor(() => {
-        if (outgoing.isConnected)
-          throw Error("Removed outgoing row is still visible");
-      });
-      if (
-        document.activeElement !==
-          ui.getByRole("region", { name: "Сообщения канала" }) ||
-        field.value !== edited
-      )
-        throw Error(
-          "Removing a local post lost the conversation focus or draft",
-        );
+      await waitFor(
+        () => {
+          ui.getByText("Строка удалена только с устройства.");
+          if (ui.queryByText(outgoingText))
+            throw Error("Removed outgoing row is still visible");
+          if (
+            document.activeElement !==
+              ui.getByRole("region", { name: "Сообщения канала" }) ||
+            field.value !== edited
+          )
+            throw Error(
+              "Removing a local post lost the conversation focus or draft",
+            );
+        },
+        { container: element, timeout: 7000 },
+      );
     }
     if (!ui.getByRole("heading", { name: "Town Square" }))
       throw Error("offline startup lost the selected room");
