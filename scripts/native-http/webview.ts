@@ -76,6 +76,8 @@ export function webviewServers(
   );
   const teamId = "Team0123456789012345678901";
   const channelId = "c".repeat(26);
+  const groupId = "g".repeat(26);
+  let groupOpenedAt: string | undefined;
   const collections = collectionFixture(channelId, userId);
   const teamReads = new Map<string, { name: string; body: object | null }>([
     [
@@ -314,6 +316,14 @@ export function webviewServers(
             last_root_post_at: 300,
             shared: true,
           },
+          {
+            id: groupId,
+            team_id: "",
+            type: "G",
+            name: "fixture-group",
+            display_name: "",
+            delete_at: 0,
+          },
         ],
       },
     ],
@@ -328,6 +338,7 @@ export function webviewServers(
             roles: "channel_user custom_writer",
             mention_count_root: 2,
           },
+          { channel_id: groupId, user_id: userId, roles: "channel_user" },
         ],
       },
     ],
@@ -496,6 +507,42 @@ export function webviewServers(
           status_code: 503,
         }),
       );
+      return;
+    }
+    if (
+      url.pathname === "/team/chat/api/v4/users/me/preferences" &&
+      req.method === "PUT"
+    ) {
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      assert.equal(url.search, "");
+      const prefs = await json(req);
+      assert.ok(Array.isArray(prefs));
+      const stamp = prefs[1]?.value;
+      assert.equal(typeof stamp, "string");
+      assert.match(stamp, /^[1-9]\d+$/);
+      assert.deepEqual(prefs, [
+        {
+          user_id: userId,
+          category: "group_channel_show",
+          name: groupId,
+          value: "true",
+        },
+        {
+          user_id: userId,
+          category: "channel_open_time",
+          name: groupId,
+          value: stamp,
+        },
+      ]);
+      groupOpenedAt = stamp;
+      visits.push("show-known-group");
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end('{"status":"OK"}');
       return;
     }
     const customCategory = "m".repeat(26);
@@ -868,7 +915,27 @@ export function webviewServers(
       );
       assert.equal(req.headers.cookie, undefined);
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(teamRead.body));
+      const body =
+        teamRead.name === "sidebar-preferences" &&
+        groupOpenedAt &&
+        Array.isArray(teamRead.body)
+          ? [
+              ...teamRead.body,
+              {
+                user_id: userId,
+                category: "group_channel_show",
+                name: groupId,
+                value: "true",
+              },
+              {
+                user_id: userId,
+                category: "channel_open_time",
+                name: groupId,
+                value: groupOpenedAt,
+              },
+            ]
+          : teamRead.body;
+      res.end(JSON.stringify(body));
       return;
     }
     if (url.pathname === "/api/v4/users/me") {
@@ -1154,6 +1221,10 @@ export function webviewServers(
         "account-second",
         "account-denied",
         "account-expired",
+        "show-known-group",
+        "directory-teams",
+        "my-team-members",
+        "sidebar-preferences",
         "workspace-config",
         "workspace-license",
         "account-html",

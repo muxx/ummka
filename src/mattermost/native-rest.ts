@@ -36,6 +36,7 @@ import {
   executeSavedCommand,
 } from "./execute-saved-command.ts";
 import { type JoinedTeams, projectJoinedTeams } from "./joined-teams.ts";
+import { reopenKnownConversation } from "./known-conversation-visibility.ts";
 import type {
   ChannelWindowQuery,
   LocalChannelWindow,
@@ -43,6 +44,7 @@ import type {
 } from "./local-history.ts";
 import { accountMentionGroups } from "./mention-group-reads.ts";
 import { readFileAnchor, readPostAnchor } from "./message-anchors.ts";
+import { isMattermostId } from "./model-fields.ts";
 import { nativeFetch } from "./native-fetch.ts";
 import { loadAccountDirectory, loadTeamDirectory } from "./navigation-data.ts";
 import { refreshNavigation } from "./navigation-refresh.ts";
@@ -160,6 +162,10 @@ export async function openAccountRestConnection(
     signal?.throwIfAborted();
     return result;
   }
+  const readTeamSidebar = (teamId: string) =>
+    invoke<TeamSidebar | null>("read_team_sidebar", { rid, teamId });
+  const readWorkspaceSettings = () =>
+    invoke<SavedWorkspaceSettings>("read_workspace_settings", { rid });
   const delivery = accountDelivery(rid, readWhileOpen, posts, userId, activity);
   const commands = new CommandsApi(config);
   return {
@@ -337,9 +343,7 @@ export async function openAccountRestConnection(
       );
     },
     readWorkspaceSettings() {
-      return readWhileOpen(() =>
-        invoke<SavedWorkspaceSettings>("read_workspace_settings", { rid }),
-      );
+      return readWhileOpen(readWorkspaceSettings);
     },
     refreshWorkspaceServerPolicy(signal?: AbortSignal) {
       return readWhileOpen(() =>
@@ -354,8 +358,31 @@ export async function openAccountRestConnection(
       );
     },
     readTeamSidebar(teamId: string) {
-      return readWhileOpen(() =>
-        invoke<TeamSidebar | null>("read_team_sidebar", { rid, teamId }),
+      return readWhileOpen(() => readTeamSidebar(teamId));
+    },
+    async reopenKnownConversation(
+      teamId: string,
+      channelId: string,
+      signal?: AbortSignal,
+    ) {
+      signal?.throwIfAborted();
+      if (![userId, teamId, channelId].every(isMattermostId))
+        throw new TypeError("Invalid Mattermost conversation identity.");
+      const [sidebar, settings] = await readWhileOpen(
+        () => Promise.all([readTeamSidebar(teamId), readWorkspaceSettings()]),
+        signal,
+      );
+      return readWhileOpen(
+        () =>
+          reopenKnownConversation(
+            config,
+            userId,
+            channelId,
+            sidebar?.data,
+            settings.preferences,
+            signal,
+          ),
+        signal,
       );
     },
     selectSidebarChannel(teamId: string, channelId: string) {
