@@ -1,3 +1,4 @@
+import { openChannelDirectoryList } from "../../src/channels/open-channel-directory.ts";
 import type { openAccountRestConnection } from "../../src/mattermost/native-rest.ts";
 import {
   ChannelsApi,
@@ -124,17 +125,21 @@ export async function checkTeamReads(
     page: 1,
     kind: "public",
   });
-  const archive = await prefixedAccount.readChannelDirectoryPage({
+  const archiveList = openChannelDirectoryList(
+    prefixedAccount,
     teamId,
-    page: 0,
-    kind: "archived",
-  });
+    "archived",
+  );
+  await archiveList.more();
+  const archive = archiveList.getSnapshot();
+  archiveList.close();
   if (
     open.items.length !== 1 ||
     open.hasMore ||
     open.items[0].id !== "o".repeat(26) ||
     open.items[0].displayName !== "Systems" ||
     open.items[0].deleteAt !== 0 ||
+    archive.status !== "ready" ||
     archive.items.length !== 1 ||
     archive.hasMore ||
     archive.items[0].id !== "p".repeat(26) ||
