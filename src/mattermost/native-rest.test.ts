@@ -60,6 +60,44 @@ test("a local read uses only this account's native resource and keeps an unknown
   await expect(account.readChannelWindow(localQuery)).resolves.toEqual(empty);
 });
 
+test("closing the signed account discards historical revisions already in flight", async () => {
+  ipc.mockResolvedValueOnce(41);
+  const userId = "a".repeat(26);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    userId,
+  );
+  const target = {
+    id: "p".repeat(26),
+    channelId: "c".repeat(26),
+    userId,
+    rootId: null,
+  };
+  let finish!: () => void;
+  const fetched = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const request = vi
+    .spyOn(PostsApi.prototype, "getEditHistoryForPost")
+    .mockImplementationOnce(async () => {
+      await fetched;
+      return [];
+    });
+  try {
+    const read = account.readPostEditHistory(target);
+    expect(request).toHaveBeenCalledOnce();
+    await account.close();
+    finish();
+    await expect(read).rejects.toBe("cancelled");
+    await expect(account.readPostEditHistory(target)).rejects.toBe(
+      "unknown_connection",
+    );
+    expect(request).toHaveBeenCalledTimes(1);
+  } finally {
+    request.mockRestore();
+  }
+});
+
 test.each(["close", "signOut", "signOutOnDevice"] as const)(
   "%s discards native results that were already in transit to the renderer",
   async (operation) => {
@@ -347,6 +385,7 @@ test("passes the canonical installation and closes the exact native handle", asy
   expect("signOut" in connection).toBe(false);
   expect("readChannelWindow" in connection).toBe(false);
   expect("stagePost" in connection).toBe(false);
+  expect("readPostEditHistory" in connection).toBe(false);
   expect("readPostReactions" in connection).toBe(false);
   expect("changeOwnMembership" in connection).toBe(false);
   expect("addOwnReaction" in connection).toBe(false);
@@ -409,6 +448,7 @@ test("opens a native account by installation and user ID", async () => {
     "readPinnedChannelPosts",
     "readPostAnchor",
     "readPostDestination",
+    "readPostEditHistory",
     "readPostReactions",
     "readPostSearchPage",
     "readRecentTeamSearches",

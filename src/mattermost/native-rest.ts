@@ -51,6 +51,10 @@ import {
 import { createPostActivity } from "./post-activity.ts";
 import { accountCollectionActions } from "./post-collection-actions.ts";
 import { readPostDestination } from "./post-destination.ts";
+import {
+  type EditHistoryTarget,
+  readPostEditHistory,
+} from "./post-edit-history.ts";
 import { createRestTransport } from "./rest-transport.ts";
 import { readSearchTimezone } from "./search-timezone.ts";
 import { canonicalServerUrl } from "./server-url.ts";
@@ -157,6 +161,12 @@ export async function openAccountRestConnection(
     ...accountCollectionActions(config, userId, readWhileOpen),
     ...accountPostReactions(config, userId, readWhileOpen),
     ...accountSearch(config, readWhileOpen),
+    readPostEditHistory(target: EditHistoryTarget, signal?: AbortSignal) {
+      return readWhileOpen(
+        () => readPostEditHistory(posts, userId, target, signal),
+        signal,
+      );
+    },
     readThreadPage(query: ThreadPageRequest, signal?: AbortSignal) {
       return readWhileOpen(() => readThreadPage(posts, query, signal), signal);
     },
