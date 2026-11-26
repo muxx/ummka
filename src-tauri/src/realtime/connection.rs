@@ -34,7 +34,7 @@ impl std::error::Error for EventConnectionError {}
 
 /// Values from the installation's client configuration. An explicit URL takes
 /// precedence over the port setting in both supported official web clients.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct EventSettings<'a> {
     pub websocket_url: Option<&'a str>,
     pub secure_port: Option<u16>,

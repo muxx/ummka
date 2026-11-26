@@ -1,6 +1,8 @@
 //! Decode a Mattermost message against the last event applied by this account.
 
 mod account;
+mod activity;
+pub use activity::{EventActivity, EventAvailability};
 #[cfg(all(feature = "native-http-check", any(test, target_os = "android")))]
 pub(crate) mod checks;
 pub use account::AccountEvents;

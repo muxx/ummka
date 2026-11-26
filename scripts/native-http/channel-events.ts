@@ -5,6 +5,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
 import { json } from "node:stream/consumers";
 
+import { activityEventsFixture } from "./activity-events.ts";
 import { appliedEventsFixture } from "./applied-events.ts";
 
 const fixtureId = "e".repeat(26);
@@ -20,6 +21,7 @@ function frame(text: string) {
 export function eventFixture() {
   const visits: string[] = [];
   const applied = appliedEventsFixture(frame);
+  const activity = activityEventsFixture(frame);
   const events = new EventEmitter();
   const arrived = once(events, "arrived");
   const closed = once(events, "closed");
@@ -28,6 +30,7 @@ export function eventFixture() {
   return {
     control(request: IncomingMessage, response: ServerResponse) {
       const path = request.url;
+      if (activity.control(path, response)) return true;
       if (path === `${prefix}delivery/api/v4/posts`) {
         assert.equal(request.method, "POST");
         assert.equal(
@@ -84,9 +87,11 @@ export function eventFixture() {
       assert.equal(req.headers.upgrade, "websocket");
       const mode = url.pathname.slice(prefix.length).split("/")[0];
       assert.equal(url.pathname, prefix + mode + "/api/v4/websocket");
-      if (mode !== "applied") visits.push(mode);
+      if (mode.startsWith("activity") && activity.handshake(mode, url, socket))
+        return;
+      if (mode !== "applied" && !mode.startsWith("activity")) visits.push(mode);
       const resumed = url.searchParams.get("connection_id") === fixtureId;
-      if (mode !== "applied")
+      if (mode !== "applied" && !mode.startsWith("activity"))
         assert.equal(
           url.search,
           "?connection_id=" +
@@ -119,6 +124,10 @@ export function eventFixture() {
           "\r\n\r\n",
       );
       socket.on("end", () => socket.end());
+      if (mode.startsWith("activity")) {
+        activity.frames(mode, socket);
+        return;
+      }
       if (mode === "applied") {
         applied.send(socket, url);
         return;
@@ -151,6 +160,7 @@ export function eventFixture() {
     },
     verify() {
       applied.verify();
+      activity.verify();
       assert.equal(accepted, 1);
       assert.deepEqual(visits, [
         "delivery",
