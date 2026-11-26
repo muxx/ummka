@@ -5,20 +5,41 @@ import { EntryWindow } from "./entry/EntryWindow";
 import type { EntryLanguage } from "./entry/language";
 import { ServerSignIn } from "./entry/ServerSignIn";
 import { sessionText } from "./entry/session-text";
+import { useSystemPermalink } from "./entry/use-system-permalink";
 import { getDeviceLaunchContext } from "./mattermost/device-launch";
+import "./entry/system-post-notice.css";
 
 type Launch = Awaited<ReturnType<typeof getDeviceLaunchContext>>;
 export function App({ language }: { language: EntryLanguage }) {
   const [attempt, setAttempt] = useState(0);
   const reopen = useCallback(() => setAttempt((previous) => previous + 1), []);
-  return <EntryRoute key={attempt} language={language} reopen={reopen} />;
+  const inbox = useSystemPermalink(language, reopen);
+  if (!inbox.ready)
+    return (
+      <>
+        <EntryWindow>
+          <p role="status">{sessionText[language].opening}</p>
+        </EntryWindow>
+        {inbox.notice(false, false)}
+      </>
+    );
+  return (
+    <EntryRoute
+      key={attempt}
+      language={language}
+      reopen={reopen}
+      inbox={inbox}
+    />
+  );
 }
 function EntryRoute({
   language,
   reopen,
+  inbox,
 }: {
   language: EntryLanguage;
   reopen: () => void;
+  inbox: ReturnType<typeof useSystemPermalink>;
 }) {
   const [launch, setLaunch] = useState<Launch | "reading" | "failed">(
     "reading",
@@ -38,46 +59,69 @@ function EntryRoute({
     };
   }, []);
   const text = sessionText[language];
-  if (launch === "reading")
+  const address =
+    typeof launch === "object" && "serverUrl" in launch
+      ? launch.serverUrl
+      : null;
+  const request =
+    inbox.request?.target.serverUrl === address ? inbox.request : undefined;
+  const notice = inbox.notice(
+    typeof launch === "object" && launch.status === "sign_in_required",
+    Boolean(inbox.request && address && !request),
+  );
+  function screen() {
+    if (launch === "reading")
+      return (
+        <EntryWindow>
+          <p role="status">{text.opening}</p>
+        </EntryWindow>
+      );
+    if (launch === "failed")
+      return (
+        <EntryWindow>
+          <p role="alert">{text.storage}</p>
+          <button className="entry-primary" type="button" onClick={reopen}>
+            {text.retry}
+          </button>
+        </EntryWindow>
+      );
+    if (launch.status === "ready")
+      return (
+        <AccountTeamWindow
+          serverUrl={launch.serverUrl}
+          userId={launch.userId}
+          language={language}
+          onSessionEnded={reopen}
+          systemPost={request}
+        >
+          {(workspace) => (
+            <ChannelsWorkspace
+              key={JSON.stringify([
+                workspace.connection.rid,
+                workspace.team.id,
+              ])}
+              workspace={workspace}
+              language={language}
+              onEnded={reopen}
+            />
+          )}
+        </AccountTeamWindow>
+      );
     return (
-      <EntryWindow>
-        <p role="status">{text.opening}</p>
-      </EntryWindow>
-    );
-  if (launch === "failed")
-    return (
-      <EntryWindow>
-        <p role="alert">{text.storage}</p>
-        <button className="entry-primary" type="button" onClick={reopen}>
-          {text.retry}
-        </button>
-      </EntryWindow>
-    );
-  if (launch.status === "ready")
-    return (
-      <AccountTeamWindow
-        serverUrl={launch.serverUrl}
-        userId={launch.userId}
+      <ServerSignIn
+        connect={inbox.connect}
         language={language}
-        onSessionEnded={reopen}
-      >
-        {(workspace) => (
-          <ChannelsWorkspace
-            key={JSON.stringify([workspace.connection.rid, workspace.team.id])}
-            workspace={workspace}
-            language={language}
-            onEnded={reopen}
-          />
-        )}
-      </AccountTeamWindow>
+        savedServer={
+          launch.status === "sign_in_required" ? launch.serverUrl : undefined
+        }
+        onAccountChanged={reopen}
+      />
     );
+  }
   return (
-    <ServerSignIn
-      language={language}
-      savedServer={
-        launch.status === "sign_in_required" ? launch.serverUrl : undefined
-      }
-      onAccountChanged={reopen}
-    />
+    <>
+      {screen()}
+      {notice}
+    </>
   );
 }

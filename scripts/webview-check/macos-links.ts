@@ -12,7 +12,7 @@ import {
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
-import { coldLink, warmLink } from "./link-examples.ts";
+import { coldLink, type postLinks, warmLink } from "./link-examples.ts";
 
 const exec = promisify(execFile);
 
@@ -52,9 +52,16 @@ async function stopLinkCheck(bin: string, acknowledgedPid?: number) {
 }
 
 /** LaunchServices explicitly addresses this disposable bundle. It registers no protocol handlers. */
-export async function checkMacSystemLinks(dir: string, env: NodeJS.ProcessEnv) {
+export async function checkMacSystemLinks(
+  dir: string,
+  env: NodeJS.ProcessEnv,
+  posts?: ReturnType<typeof postLinks>,
+) {
   // LaunchServices reports /private/var even when TMPDIR starts with /var.
-  const bundle = join(await realpath(dir), "Link check.app");
+  const bundle = join(
+    await realpath(dir),
+    posts ? "Post link check.app" : "Link check.app",
+  );
   const contents = join(bundle, "Contents");
   const bin = join(contents, "MacOS", "ummka-link-check");
   await mkdir(join(contents, "MacOS"), { recursive: true });
@@ -82,31 +89,43 @@ export async function checkMacSystemLinks(dir: string, env: NodeJS.ProcessEnv) {
     assert(env[key], `missing fixture environment ${key}`);
     return ["--env", `${key}=${env[key]}`];
   });
+  if (posts) extra.push("--env", "UMMKA_CHECK_SYSTEM_POST_WINDOW=1");
+  const background = posts ? [] : ["-g"];
   const interrupted = new AbortController();
   const interrupt = () => interrupted.abort();
-  async function acknowledged(id: number) {
+  async function trace(pattern: RegExp) {
     const deadline = Date.now() + 45_000;
     while (Date.now() < deadline) {
       interrupted.signal.throwIfAborted();
       const text = await readFile(output, "utf8");
-      assert(
-        !text.includes("UMMKA_WEBVIEW_CHECK FAIL"),
-        "the WebView rejected the system link",
-      );
-      const match = new RegExp(`^UMMKA_LINK_ACK ${id} (\\d+)$`, "mu").exec(
-        text,
-      );
-      if (match) return Number(match[1]);
+      if (text.includes("UMMKA_WEBVIEW_CHECK FAIL")) {
+        const failure = (await readFile(stderr, "utf8")).match(
+          /^WebView check stopped at (fail=.+)$/mu,
+        );
+        const detail = failure && new URLSearchParams(failure[1]).get("fail");
+        throw Error(
+          detail?.startsWith("system-post-flow ")
+            ? detail
+            : "The WebView rejected the system link",
+        );
+      }
+      const match = pattern.exec(text);
+      if (match) return match;
       await delay(100);
     }
-    throw Error(`LaunchServices link ${id} was not acknowledged`);
+    throw Error(`LaunchServices did not report ${pattern.source}`);
+  }
+  async function acknowledged(id: number) {
+    return Number(
+      (await trace(new RegExp(`^UMMKA_LINK_ACK ${id} (\\d+)$`, "mu")))[1],
+    );
   }
   let pid: number | undefined;
   process.on("SIGINT", interrupt);
   process.on("SIGTERM", interrupt);
   try {
     await exec("/usr/bin/open", [
-      "-g",
+      ...background,
       "-n",
       "-a",
       bundle,
@@ -115,11 +134,17 @@ export async function checkMacSystemLinks(dir: string, env: NodeJS.ProcessEnv) {
       "--stderr",
       stderr,
       ...extra,
-      coldLink,
+      posts?.cold ?? coldLink,
     ]);
     pid = await acknowledged(1);
-    await exec("/usr/bin/open", ["-g", "-a", bundle, warmLink]);
+    await exec("/usr/bin/open", [
+      ...background,
+      "-a",
+      bundle,
+      posts?.warm ?? warmLink,
+    ]);
     assert.equal(await acknowledged(2), pid);
+    if (posts) await trace(/^UMMKA_WEBVIEW_CHECK system-posts-shown$/mu);
     console.log(
       "LaunchServices delivered both HTTPS links to one WKWebView process.",
     );

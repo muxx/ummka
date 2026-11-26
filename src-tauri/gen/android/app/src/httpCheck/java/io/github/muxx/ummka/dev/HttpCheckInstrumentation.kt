@@ -38,6 +38,11 @@ class HttpCheckInstrumentation : Instrumentation() {
             val phase = arguments.getString("vault")
             if (phase == null) reportStage("activity-idle")
             waitForIdleSync()
+            if (arguments.getString("checkpoint") == "permalink") {
+                result.putString("checkpoint", "permalink")
+                finish(Activity.RESULT_OK, result)
+                return
+            }
             val app = targetContext
             if (phase != null) {
                 val keys = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }

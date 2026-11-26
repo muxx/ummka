@@ -5,7 +5,6 @@ import {
   InstallationAddressError,
   inspectInstallation,
 } from "../mattermost/inspect-installation";
-import { connectInstallation } from "../mattermost/installation-registry";
 import { EntryWindow } from "./EntryWindow";
 import { type EntryLanguage, entryText } from "./language";
 import { SignInMethods } from "./SignInMethods";
@@ -26,10 +25,12 @@ type Step =
 export function ServerSignIn({
   language,
   savedServer,
+  connect,
   onAccountChanged,
 }: {
   language: EntryLanguage;
   savedServer?: string;
+  connect: (serverUrl: string, signal: AbortSignal) => Promise<void>;
   onAccountChanged: () => void;
 }) {
   const text = entryText[language];
@@ -53,7 +54,7 @@ export function ServerSignIn({
         if (request.signal.aborted) return;
         if (explicit) {
           readingDevice = true;
-          await connectInstallation(profile.serverUrl);
+          await connect(profile.serverUrl, request.signal);
           if (request.signal.aborted) return;
           const context = await getDeviceLaunchContext();
           if (request.signal.aborted) return;
@@ -80,7 +81,7 @@ export function ServerSignIn({
         if (active.current === request) active.current = null;
       }
     },
-    [onAccountChanged],
+    [connect, onAccountChanged],
   );
 
   // The saved-server Back button must own the request from the first visible frame.

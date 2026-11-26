@@ -207,16 +207,21 @@ export function ChannelsWorkspace({
   const [thread, setThread] = useState<LocalPost | null>(null);
   const position =
     workspace.messages.position?.request.teamId === team.id &&
-    workspace.messages.position.request.rid === connection.rid
+    workspace.messages.position.request.rid === connection.rid &&
+    !workspace.messages.position.system?.signal.aborted
       ? workspace.messages.position
       : null;
+  const [confirmedThread, setConfirmedThread] =
+    useState<TeamWorkspace["systemPost"]>();
   const [closedRequest, setClosedRequest] = useState<number | null>(null);
   const closeThread = useCallback(() => {
+    position?.system?.stop("paused");
     setThread(null);
     setClosedRequest(position?.request.requestId ?? null);
   }, [position]);
   const [choiceFailed, setChoiceFailed] = useState(false);
-  const writes = useRef(Promise.resolve());
+  const suppressLatest = useRef(Boolean(workspace.systemPost));
+  if (!workspace.systemPost || position?.system) suppressLatest.current = false;
   const choice = useRef(0);
   const active = useRef(false);
   useEffect(() => {
@@ -297,7 +302,7 @@ export function ChannelsWorkspace({
   const timeline = useChannelTimeline(
     connection,
     team.id,
-    chosen,
+    suppressLatest.current ? null : chosen,
     settings?.collapsedThreads ?? null,
     online,
     sessionIssue,
@@ -384,10 +389,10 @@ export function ChannelsWorkspace({
     setSelected(id);
     setPage("conversation");
     setChoiceFailed(false);
-    writes.current = writes.current.then(async () => {
-      if (!active.current || version !== choice.current) return;
+    void workspace.messages.enqueue(async () => {
+      if (!active.current || version !== choice.current) return false;
       try {
-        if (await connection.selectSidebarChannel(team.id, id)) return;
+        if (await connection.selectSidebarChannel(team.id, id)) return true;
       } catch {
         /* The local choice is acknowledged only by SQLite. */
       }
@@ -395,6 +400,7 @@ export function ChannelsWorkspace({
         setSelected(null);
         setChoiceFailed(true);
       }
+      return false;
     });
   }
   const access = channelComposerAccess({
@@ -475,19 +481,7 @@ export function ChannelsWorkspace({
       channelId: chosen,
       clear: workspace.messages.clear,
       open: (source, signal, origin) =>
-        workspace.messages.open(
-          source,
-          signal,
-          (operation) => {
-            const result = writes.current.then(operation);
-            writes.current = result.then(
-              () => {},
-              () => {},
-            );
-            return result;
-          },
-          origin,
-        ),
+        workspace.messages.open(source, signal, origin),
     },
   );
   const notice = (message: string, retry?: () => void, alert = false) => (
@@ -540,7 +534,9 @@ export function ChannelsWorkspace({
       : null;
   if (thread && !activeThread) setThread(null);
   const visibleSearchPanel = position ? null : search.panel;
-  const canReturnToResults = Boolean(position && search.origin);
+  const canReturnToResults = Boolean(
+    position && !position.system && search.origin,
+  );
   function returnToResults() {
     const channelId = search.restoreRow();
     if (channelId) choose(channelId, true);
@@ -554,7 +550,120 @@ export function ChannelsWorkspace({
     if (visibleSearchPanel) return search.back;
     return activeThread ? closeThread : null;
   }
-  useWorkspaceBack(accountOpen, workspaceBack());
+  useWorkspaceBack(
+    accountOpen || workspace.messages.dialogOpen,
+    workspaceBack(),
+  );
+  useEffect(() => {
+    const request = position?.system;
+    if (!request || request !== workspace.systemPost || request.signal.aborted)
+      return;
+    if (
+      ["unavailable", "forbidden", "inaccessible"].includes(timeline.status)
+    ) {
+      request.stop(
+        timeline.status === "inaccessible" ? "archived" : "unavailable",
+        position.membership,
+      );
+      return;
+    }
+    if (
+      ["offline", "network", "storage", "superseded", "positionLost"].includes(
+        timeline.status,
+      )
+    ) {
+      request.stop("failed", position.membership);
+      return;
+    }
+    const scene = host.current;
+    if (
+      !timeline.focus ||
+      !scene ||
+      (timeline.focus.focusedReply && confirmedThread !== request)
+    )
+      return;
+    const paneClass = timeline.focus.focusedReply
+      ? ".thread-feed"
+      : ".timeline-scroll";
+    const check = () => {
+      if (
+        request.signal.aborted ||
+        document.visibilityState !== "visible" ||
+        !document.hasFocus()
+      )
+        return;
+      const row = document.activeElement;
+      if (
+        !(row instanceof HTMLElement) ||
+        row.dataset.postId !== request.target.postId ||
+        !scene.contains(row)
+      )
+        return;
+      if (
+        Boolean(row.closest(".thread-feed")) !==
+        Boolean(timeline.focus?.focusedReply)
+      )
+        return;
+      const pane = row.closest(paneClass)?.getBoundingClientRect();
+      const box = row.getBoundingClientRect();
+      if (
+        pane?.height &&
+        pane.width &&
+        box.height &&
+        box.width &&
+        pane.right > box.left &&
+        box.right > pane.left &&
+        pane.bottom > box.top &&
+        box.bottom > pane.top
+      )
+        request.shown(row.dataset.postId);
+    };
+    let frame: number | null = null;
+    function cancel() {
+      if (frame !== null) {
+        cancelAnimationFrame(frame);
+        frame = null;
+      }
+    }
+    function schedule() {
+      if (
+        document.visibilityState !== "visible" ||
+        !document.hasFocus() ||
+        request?.signal.aborted
+      ) {
+        cancel();
+        return;
+      }
+      if (frame === null)
+        frame = requestAnimationFrame(() => {
+          frame = null;
+          check();
+        });
+    }
+    window.addEventListener("focus", schedule);
+    window.addEventListener("blur", cancel);
+    document.addEventListener("visibilitychange", schedule);
+    scene.addEventListener("focusin", schedule);
+    scene.addEventListener("scroll", schedule, true);
+    const observer = new ResizeObserver(schedule);
+    observer.observe(scene);
+    schedule();
+    return () => {
+      window.removeEventListener("focus", schedule);
+      window.removeEventListener("blur", cancel);
+      document.removeEventListener("visibilitychange", schedule);
+      scene.removeEventListener("focusin", schedule);
+      scene.removeEventListener("scroll", schedule, true);
+      observer.disconnect();
+      cancel();
+    };
+  }, [
+    position,
+    workspace.systemPost,
+    timeline.focus,
+    timeline.status,
+    confirmedThread,
+  ]);
   function composer(rootId?: string, reader?: ReactionThread) {
     if (historyDenied) return null;
     if (access !== "writable" || !channel) {
@@ -614,7 +723,7 @@ export function ChannelsWorkspace({
                   {position.membership}
                 </span>
               )}
-              {search.origin && (
+              {search.origin && !position.system && (
                 <button
                   type="button"
                   className="search-return"
@@ -648,10 +757,12 @@ export function ChannelsWorkspace({
         }
         page={chosen || canReturnToResults ? page : "navigation"}
         onNavigation={() => {
+          workspace.systemPost?.stop("paused");
           search.abortPending();
           setPage("navigation");
         }}
         onAccount={() => {
+          workspace.systemPost?.stop("paused");
           search.abortPending();
           setAccountOpen(true);
         }}
@@ -671,6 +782,7 @@ export function ChannelsWorkspace({
                       connection.rid,
                       activeThread.channelId,
                       activeThread.id,
+                      position?.system ? position.request.requestId : null,
                       settings.collapsedThreads,
                     ])}
                     connection={connection}
@@ -682,6 +794,24 @@ export function ChannelsWorkspace({
                     author={author}
                     online={online}
                     sessionIssue={sessionIssue}
+                    onOpened={
+                      position?.system
+                        ? () => setConfirmedThread(position.system)
+                        : undefined
+                    }
+                    onUnavailable={
+                      position?.system
+                        ? (reason) =>
+                            position.system?.stop(
+                              reason === "limited"
+                                ? "archived"
+                                : reason === "failed"
+                                  ? "failed"
+                                  : "unavailable",
+                              position.membership,
+                            )
+                        : undefined
+                    }
                     renderComposer={composer}
                   />
                 ),

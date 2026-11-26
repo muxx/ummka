@@ -3,6 +3,7 @@ import {
   createRef,
   type ReactNode,
   useEffect,
+  useEffectEvent,
   useMemo,
   useRef,
   useState,
@@ -75,6 +76,8 @@ type Props = {
   author: TimelineAuthor;
   nameFormat: NameFormat;
   sessionIssue: (issue: "session" | "unauthorized") => void;
+  onOpened?: () => void;
+  onUnavailable?: (reason: "forbidden" | "limited" | "failed") => void;
   renderComposer: (rootId: string, reader: Reader) => ReactNode;
 };
 
@@ -109,6 +112,8 @@ function ThreadContent({
   nameFormat,
   sessionIssue,
   renderComposer,
+  onOpened,
+  onUnavailable,
 }: Props & { reader: Reader }) {
   const state = useSyncExternalStore(reader.subscribe, reader.getSnapshot);
   const [savedRoot, setSavedRoot] = useState<LocalPost | null>(null);
@@ -117,8 +122,22 @@ function ThreadContent({
   > | null>(null);
   const text = copy[locale];
   const workspace = workspaceCopy[locale];
+  const reportOpen = useEffectEvent(() => {
+    const opened = reader.getSnapshot();
+    if (opened.unavailable) return;
+    if (opened.up.status === "error" || opened.down.status === "error")
+      onUnavailable?.("failed");
+    else onOpened?.();
+  });
   useEffect(() => {
-    if (online) void reader.open();
+    let active = true;
+    if (online)
+      void reader.open().then(() => {
+        if (active) reportOpen();
+      });
+    return () => {
+      active = false;
+    };
   }, [online, reader]);
   const inaccessible =
     state.unavailable ??
@@ -130,7 +149,9 @@ function ThreadContent({
   useEffect(() => {
     if (inaccessible === "session" || inaccessible === "unauthorized")
       sessionIssue(inaccessible);
-  }, [sessionIssue, inaccessible]);
+    if (inaccessible === "limited" || inaccessible === "forbidden")
+      onUnavailable?.(inaccessible);
+  }, [sessionIssue, inaccessible, onUnavailable]);
   useEffect(() => {
     if (!post.rootId || inaccessible || state.root) return;
     let active = true;

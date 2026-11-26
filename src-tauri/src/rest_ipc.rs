@@ -230,6 +230,7 @@ pub(crate) fn seed_check_sessions(
 ) -> Result<(), TransportError> {
     let root = format!("https://127.0.0.1:{port}");
     let prefixed = format!("{root}/team/chat");
+    let system_post = format!("{root}/system-post-check");
     let secondary = format!("{prefixed}/secondary");
     let confirmed = format!("{prefixed}/confirmed");
     tauri::async_runtime::block_on(async {
@@ -243,6 +244,11 @@ pub(crate) fn seed_check_sessions(
                 prefixed.as_str(),
                 "Abc01234567890123456789012",
                 "fixture-prefixed-session",
+            ),
+            (
+                system_post.as_str(),
+                "ffffffffffffffffffffffffff",
+                "fixture-system-post",
             ),
             (
                 secondary.as_str(),
@@ -291,8 +297,12 @@ pub(crate) fn report_check<R: Runtime>(webview: &Webview<R>, url: &tauri::Url) {
         _ => false,
     };
     if webview.label() == "main" && local && url.path() == "/ipc-result.html" {
-        if let Some(phase @ ("registry-removed" | "registry-confirmed" | "registry-unsupported")) =
-            url.query()
+        if let Some(
+            phase @ ("registry-removed"
+            | "registry-confirmed"
+            | "registry-unsupported"
+            | "system-posts-shown"),
+        ) = url.query()
         {
             println!("UMMKA_WEBVIEW_CHECK {phase}");
             #[cfg(not(target_os = "android"))]

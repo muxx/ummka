@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import {
+  systemReply as townReply,
+  systemRoot as townRoot,
+} from "../webview-check/link-examples.ts";
 
 const team = "Team0123456789012345678901";
 const town = "c".repeat(26);
-const townRoot = "v".repeat(26);
-const townReply = "w".repeat(26);
 const townFile = "h".repeat(26);
 const design = "d".repeat(26);
 const member = "f".repeat(26);
@@ -53,6 +55,7 @@ export async function respondToWorkspace(
   url: URL,
   prefixedUser: string,
   restoredPosting: boolean,
+  systemLinks = false,
 ): Promise<string | undefined> {
   function json(value: unknown, name: string, status = 200) {
     res
@@ -159,8 +162,19 @@ export async function respondToWorkspace(
     [`files/${townFile}/info`, [fileInfo, "live-search-file-anchor"]],
     [`posts/${townRoot}/info`, [destination, "live-search-destination"]],
     [`posts/${townRoot}`, [message, "live-search-post-anchor"]],
-    [`posts/${townReply}/info`, [destination, "live-search-reply-destination"]],
-    [`posts/${townReply}`, [reply, "live-search-reply-anchor"]],
+    [
+      `posts/${townReply}/info`,
+      [
+        destination,
+        systemLinks
+          ? "system-reply-destination"
+          : "live-search-reply-destination",
+      ],
+    ],
+    [
+      `posts/${townReply}`,
+      [reply, systemLinks ? "system-reply-anchor" : "live-search-reply-anchor"],
+    ],
   ]);
   const channelId =
     path === `channels/${town}/posts`
@@ -190,7 +204,12 @@ export async function respondToWorkspace(
     !post
   )
     return;
-  assert.equal(req.headers.authorization, "Bearer fixture-browser-action");
+  assert.equal(
+    req.headers.authorization,
+    systemLinks
+      ? "Bearer fixture-system-post"
+      : "Bearer fixture-browser-action",
+  );
   assert.equal(req.headers.cookie, undefined);
   assert.equal(req.method, post ? "POST" : "GET");
   const anchor = anchors.get(path);
@@ -226,13 +245,19 @@ export async function respondToWorkspace(
       });
       return json(
         { ...page, has_next: false },
-        "live-search-thread-" + query.direction,
+        systemLinks
+          ? "live-window-thread"
+          : "live-search-thread-" + query.direction,
       );
     }
     assert.deepEqual(query, {
       direction: "down",
       perPage: "60",
       collapsedThreads: "true",
+      ...(systemLinks && {
+        skipFetchThreads: "false",
+        collapsedThreadsExtended: "false",
+      }),
     });
     return json(
       {
@@ -245,6 +270,28 @@ export async function respondToWorkspace(
     );
   }
   if (channelId) {
+    if (systemLinks) {
+      const side = url.searchParams.has("before") ? "before" : "after";
+      assert.equal(channelId, town);
+      assert.deepEqual(Object.fromEntries(url.searchParams), {
+        [side]: townRoot,
+        page: "0",
+        per_page: "30",
+        skipFetchThreads: "false",
+        collapsedThreads: "true",
+        collapsedThreadsExtended: "false",
+      });
+      return json(
+        {
+          order: [],
+          posts: {},
+          next_post_id: "",
+          prev_post_id: "",
+          first_inaccessible_post_time: 0,
+        },
+        "system-neighbors-" + side,
+      );
+    }
     latest(url);
     return json(
       postList(
