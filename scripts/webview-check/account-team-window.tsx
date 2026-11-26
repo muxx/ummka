@@ -80,16 +80,18 @@ export async function checkSavedTeamWindow(
     const recent = await search.findByRole("button", {
       name: "from:fixture Привет",
     });
+    flushSync(() => fireEvent.keyDown(terms, { key: "ArrowDown" }));
+    if (document.activeElement !== recent)
+      throw Error("The search field did not focus the saved team query");
     flushSync(() => fireEvent.click(recent));
+    await search.findByText("Нет соединения.");
     if (
       terms.value !== "from:fixture Привет" ||
       document.activeElement !== terms
     )
-      throw Error("The saved team search did not return to the input");
-    flushSync(() =>
-      fireEvent.click(search.getByRole("button", { name: "Найти" })),
-    );
-    await search.findByText("Нет соединения.");
+      throw Error(
+        "The offline recent query did not leave the search text ready to edit",
+      );
     flushSync(() =>
       fireEvent.click(search.getByRole("button", { name: "Закрыть поиск" })),
     );

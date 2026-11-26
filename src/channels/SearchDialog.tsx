@@ -1,4 +1,11 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import {
+  type RefObject,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type { EntryLanguage } from "../entry/language.ts";
 import type { JoinedTeam } from "../mattermost/joined-teams.ts";
 import type { SearchKind } from "./SearchResultsPanel.tsx";
@@ -27,18 +34,22 @@ function RecentTerms({
   language,
   choose,
   focusInput,
+  list,
+  visible,
 }: {
   account: SearchAccount;
   scope: string;
   language: EntryLanguage;
   choose: (term: string) => void;
   focusInput: () => void;
+  list: RefObject<HTMLUListElement | null>;
+  visible: boolean;
 }) {
   const [rows, setRows] = useState<string[]>([]);
   const [error, setError] = useState(false);
   const active = useRef(false);
   const revision = useRef(0);
-  const list = useRef<HTMLUListElement>(null);
+  const [removed, setRemoved] = useState("");
   const restore = useRef<number | null>(null);
   useLayoutEffect(() => {
     const next = restore.current;
@@ -50,7 +61,7 @@ function RecentTerms({
       );
     if (button) button.focus();
     else focusInput();
-  }, [rows, focusInput]);
+  }, [rows, focusInput, list]);
   const text = searchCopy[language];
   useEffect(() => {
     let live = true;
@@ -85,6 +96,7 @@ function RecentTerms({
         )
           restore.current = Array.from(list.current.children).indexOf(focused);
         setRows(latest);
+        setRemoved(term);
         setError(false);
       }
     } catch {
@@ -98,13 +110,43 @@ function RecentTerms({
   return (
     <>
       {error && <p role="alert">{text.recentError}</p>}
-      {rows.length > 0 && (
+      {visible && <span role="status">{removed && text.removed(removed)}</span>}
+      {visible && rows.length > 0 && (
         <section aria-label={text.recent} className="search-recent">
           <h3>{text.recent}</h3>
           <ul ref={list}>
-            {rows.map((term) => (
+            {rows.map((term, index) => (
               <li key={term} data-term={term}>
-                <button type="button" onClick={() => choose(term)}>
+                <button
+                  type="button"
+                  onClick={() => choose(term)}
+                  onKeyDown={(event) => {
+                    if (
+                      event.nativeEvent.isComposing ||
+                      event.keyCode === 229 ||
+                      event.altKey ||
+                      event.metaKey ||
+                      event.ctrlKey ||
+                      event.shiftKey
+                    )
+                      return;
+                    if (event.key === "Delete") {
+                      event.preventDefault();
+                      void forget(term);
+                    } else if (
+                      event.key === "ArrowUp" ||
+                      event.key === "ArrowDown"
+                    ) {
+                      event.preventDefault();
+                      const next = index + (event.key === "ArrowUp" ? -1 : 1);
+                      if (next < 0) focusInput();
+                      else
+                        list.current?.children[next]
+                          ?.querySelector("button")
+                          ?.focus();
+                    }
+                  }}
+                >
                   {term}
                 </button>
                 <button
@@ -148,6 +190,7 @@ export function SearchDialog({
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const input = useRef<HTMLInputElement>(null);
+  const recents = useRef<HTMLUListElement>(null);
   const title = useId();
   const [terms, setTerms] = useState(initial.terms);
   const [chosenScope, setScope] = useState(initial.scope);
@@ -276,7 +319,7 @@ export function SearchDialog({
               enterKeyHint="search"
               aria-label={text.terms}
               value={terms}
-              disabled={pending}
+              readOnly={pending}
               onChange={(e) => setTerms(e.target.value)}
               onKeyDown={(e) => {
                 if (
@@ -284,6 +327,22 @@ export function SearchDialog({
                   (e.nativeEvent.isComposing || e.keyCode === 229)
                 )
                   e.preventDefault();
+                else if (
+                  e.key === "ArrowDown" &&
+                  !terms.trim() &&
+                  !e.nativeEvent.isComposing &&
+                  e.keyCode !== 229 &&
+                  !e.altKey &&
+                  !e.ctrlKey &&
+                  !e.metaKey &&
+                  !e.shiftKey
+                ) {
+                  const first = recents.current?.querySelector("button");
+                  if (first) {
+                    e.preventDefault();
+                    first.focus();
+                  }
+                }
               }}
             />
             <button
@@ -302,10 +361,13 @@ export function SearchDialog({
           account={account}
           scope={selected.id}
           language={language}
+          list={recents}
+          visible={!terms.trim()}
           focusInput={() => input.current?.focus()}
           choose={(term) => {
             setTerms(term);
             input.current?.focus();
+            run(term);
           }}
         />
       )}

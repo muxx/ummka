@@ -7,6 +7,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import type { SearchAccount } from "./SearchDialog.tsx";
 import { useWorkspaceSearch } from "./use-workspace-search.tsx";
@@ -123,7 +124,6 @@ test("searches from the header, switches tabs without losing results and returns
     await within(form).findByRole("button", { name: "from:anya выпуск" }),
   );
   expect(input.value).toBe("from:anya выпуск");
-  fireEvent.click(within(form).getByRole("button", { name: "Найти" }));
   expect(await screen.findByText("Готово к выпуску")).toBeTruthy();
   expect(account.rememberTeamSearch).toHaveBeenCalledWith(
     team.id,
@@ -155,6 +155,172 @@ test("searches from the header, switches tabs without losing results and returns
     screen.getByRole("button", { name: "Поиск" }),
   );
 });
+test.each(["field", "recent row"])(
+  "Enter on the %s starts exactly one team search",
+  async (origin) => {
+    const account = fixture();
+    const user = userEvent.setup();
+    render(<Window account={account} />);
+    const { form, input } = await open();
+    const term = origin === "field" ? "план" : "from:anya выпуск";
+    if (origin === "recent row") {
+      const row = await within(form).findByRole("button", { name: term });
+      await user.keyboard("{ArrowDown}");
+      expect(document.activeElement).toBe(row);
+    } else {
+      await user.type(input, term);
+    }
+    await user.keyboard("{Enter}");
+    await screen.findByText("Готово к выпуску");
+    expect(account.rememberTeamSearch.mock.calls).toEqual([[team.id, term]]);
+    expect(account.readPostSearchPage).toHaveBeenCalledOnce();
+    expect(account.readPostSearchPage.mock.calls[0][0]).toMatchObject({
+      teamId: team.id,
+      terms: term,
+      page: 0,
+    });
+    expect(account.readFileSearchPage).not.toHaveBeenCalled();
+  },
+);
+
+test.each([
+  ["saved", "Нет соединения."],
+  ["missing team", "Не удалось сохранить недавние запросы."],
+  ["storage error", "Не удалось сохранить недавние запросы."],
+])(
+  "an offline recent query stays focused and editable after %s",
+  async (outcome, message) => {
+    const account = fixture();
+    const saving = deferred<boolean>();
+    account.rememberTeamSearch.mockReturnValueOnce(saving.promise);
+    const user = userEvent.setup();
+    render(<Window account={account} online={false} />);
+    const { form, input } = await open();
+    await within(form).findByRole("button", { name: "from:anya выпуск" });
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(account.rememberTeamSearch).toHaveBeenCalledOnce();
+    expect(input.value).toBe("from:anya выпуск");
+    expect(input.disabled).toBe(false);
+    expect(document.activeElement).toBe(input);
+    await user.keyboard("x{Enter}");
+    expect(input.value).toBe("from:anya выпуск");
+    expect(account.rememberTeamSearch).toHaveBeenCalledOnce();
+    await act(async () => {
+      if (outcome === "storage error")
+        saving.reject(new Error("disk unavailable"));
+      else saving.resolve(outcome === "saved");
+    });
+    expect((await within(form).findByRole("alert")).textContent).toBe(message);
+    expect(input.readOnly).toBe(false);
+    expect(document.activeElement).toBe(input);
+    await user.keyboard("!");
+    expect(input.value).toBe("from:anya выпуск!");
+    expect(account.readSearchTimezone).not.toHaveBeenCalled();
+    expect(account.readPostSearchPage).not.toHaveBeenCalled();
+  },
+);
+
+test("a slow first team's history cannot populate the second team's list or take its focus", async () => {
+  const account = fixture();
+  const previous = deferred<string[]>();
+  account.readRecentTeamSearches.mockImplementation((id) =>
+    id === team.id ? previous.promise : Promise.resolve(["обсуждение юга"]),
+  );
+  render(<Window account={account} />);
+  const { form, input } = await open();
+  await within(form).findByRole("option", { name: other.displayName });
+  fireEvent.change(within(form).getByRole("combobox"), {
+    target: { value: other.id },
+  });
+  const current = await within(form).findByRole("button", {
+    name: "обсуждение юга",
+  });
+  fireEvent.keyDown(input, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(current);
+  await act(async () => previous.resolve(["только для севера"]));
+  expect(within(form).queryByText("только для севера")).toBeNull();
+  expect(current.isConnected).toBe(true);
+  expect(document.activeElement).toBe(current);
+  expect(account.readRecentTeamSearches.mock.calls).toEqual([
+    [team.id],
+    [other.id],
+  ]);
+});
+
+test("keyboard navigation removes the selected recent term and restores focus after the last deletion", async () => {
+  const account = fixture();
+  render(<Window account={account} />);
+  const { form, input } = await open();
+  const first = await within(form).findByRole("button", {
+    name: "from:anya выпуск",
+  });
+  const second = within(form).getByRole("button", { name: "ретро" });
+  fireEvent.keyDown(input, { key: "ArrowDown", isComposing: true });
+  expect(document.activeElement).toBe(input);
+  fireEvent.keyDown(input, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(first);
+  fireEvent.keyDown(first, { key: "ArrowUp" });
+  expect(document.activeElement).toBe(input);
+  fireEvent.keyDown(input, { key: "ArrowDown" });
+  fireEvent.keyDown(first, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(second);
+  fireEvent.keyDown(second, { key: "Delete" });
+  await waitFor(() => expect(document.activeElement).toBe(first));
+  expect(
+    await within(form).findByText("Убрали «ретро» из недавних."),
+  ).toBeTruthy();
+  fireEvent.keyDown(first, { key: "Delete" });
+  await waitFor(() => expect(document.activeElement).toBe(input));
+  expect(
+    await within(form).findByText("Убрали «from:anya выпуск» из недавних."),
+  ).toBeTruthy();
+  expect(account.readPostSearchPage).not.toHaveBeenCalled();
+});
+
+test("typing hides past terms and a late deletion does not take focus from another scope", async () => {
+  const account = fixture();
+  account.readRecentTeamSearches.mockImplementation(async (id) =>
+    id === team.id ? ["from:anya выпуск", "ретро"] : ["южная история"],
+  );
+  let finish!: () => void;
+  account.forgetTeamSearch.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  render(<Window account={account} />);
+  const { form, input } = await open();
+  const first = await within(form).findByRole("button", {
+    name: "from:anya выпуск",
+  });
+  fireEvent.change(input, { target: { value: "новый запрос" } });
+  expect(first.isConnected).toBe(false);
+  fireEvent.change(input, { target: { value: "" } });
+  const control = await within(form).findByRole("button", {
+    name: "Удалить запрос, ретро",
+  });
+  control.focus();
+  fireEvent.click(control);
+  fireEvent.change(within(form).getByRole("combobox"), {
+    target: { value: other.id },
+  });
+  const south = await within(form).findByRole("button", {
+    name: "южная история",
+  });
+  fireEvent.keyDown(input, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(south);
+  await act(async () => finish());
+  expect(document.activeElement).toBe(south);
+  expect(within(form).queryByText("ретро")).toBeNull();
+  expect(account.forgetTeamSearch.mock.calls).toEqual([[team.id, "ретро"]]);
+  expect(account.readRecentTeamSearches.mock.calls).toEqual([
+    [team.id],
+    [other.id],
+  ]);
+  expect(within(form).queryByText("Убрали «ретро» из недавних.")).toBeNull();
+});
+
 test("all-team search removes scoped filters, retains the date and skips recent history", async () => {
   const account = fixture();
   render(<Window account={account} />);
@@ -272,10 +438,12 @@ test("retains existing results through a page error and retries the same page", 
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => {
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<T>((done, fail) => {
     resolve = done;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 test("editing a file search keeps the displayed team and submitted scope while the directory is pending", async () => {
