@@ -115,6 +115,13 @@ export function webviewServers(
       },
     ],
     [
+      `/team/chat/api/v4/teams/${teamId}/channels/autocomplete?name=%D1%82%D0%B5%D1%81%D1%82%20%2B%26`,
+      {
+        name: "team-channel-search",
+        body: [{ id: channelId, team_id: teamId }],
+      },
+    ],
+    [
       `/api/v4/posts/${"p".repeat(26)}/reactions`,
       { name: "empty-post-reactions", body: null },
     ],
@@ -1096,6 +1103,7 @@ export function webviewServers(
         "signed-named-channel",
         "signed-named-team",
         "managed-category-mappings",
+        "team-channel-search",
         "bytes",
         "204",
         "205",

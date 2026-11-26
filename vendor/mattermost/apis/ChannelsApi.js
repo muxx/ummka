@@ -49,6 +49,43 @@ export class ChannelsApi extends runtime.BaseAPI {
         const response = await this.addChannelMemberRaw(requestParameters, initOverrides);
         return await response.value();
     }
+    async autocompleteChannelsForTeamRequestOpts(requestParameters) {
+        if (requestParameters['teamId'] == null) {
+            throw new runtime.RequiredError('teamId', 'Required parameter "teamId" was null or undefined when calling autocompleteChannelsForTeam().');
+        }
+        if (requestParameters['name'] == null) {
+            throw new runtime.RequiredError('name', 'Required parameter "name" was null or undefined when calling autocompleteChannelsForTeam().');
+        }
+        const queryParameters = {};
+        if (requestParameters['name'] != null) {
+            queryParameters['name'] = requestParameters['name'];
+        }
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/teams/{team_id}/channels/autocomplete`;
+        urlPath = urlPath.replace('{team_id}', encodeURIComponent(String(requestParameters['teamId'])));
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async autocompleteChannelsForTeamRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.autocompleteChannelsForTeamRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => jsonValue.map(ChannelFromJSON));
+    }
+    async autocompleteChannelsForTeam(requestParameters, initOverrides) {
+        const response = await this.autocompleteChannelsForTeamRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
     async createSidebarCategoryForTeamForUserRequestOpts(requestParameters) {
         if (requestParameters['teamId'] == null) {
             throw new runtime.RequiredError('teamId', 'Required parameter "teamId" was null or undefined when calling createSidebarCategoryForTeamForUser().');
