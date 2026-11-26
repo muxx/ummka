@@ -8,7 +8,7 @@ import { test } from "node:test";
 import { promisify } from "node:util";
 import { waitForAndroidBoot } from "./android.ts";
 import { checkNativeInstrumentation } from "./android-instrumentation.ts";
-import { launchWebview } from "./android-webview.ts";
+import { launchWebview, type SendAndroidKey } from "./android-webview.ts";
 import { startFixture } from "./fixture.ts";
 
 function fixture(logs: string[]) {
@@ -56,14 +56,22 @@ test("waits through an ordinary Chromium error and accepts the actual marker", a
   assert.equal(check.reads(), 2);
 });
 
-test("Android sends one Tab after the reloaded document contacts the fixture", async () => {
+test("Android injects the exact hardware key requested by the running document", async () => {
   const events: string[] = [];
   let logReads = 0;
-  let ready!: () => Promise<void>;
+  let keyboardVisible = true;
+  let ready!: SendAndroidKey;
   async function adb(...args: string[]) {
+    if (args[1] === "dumpsys") {
+      assert.equal(args[2], "input_method");
+      events.push(keyboardVisible ? "IME shown" : "IME hidden");
+      const state = `mInputShown=${keyboardVisible}`;
+      keyboardVisible = false;
+      return state;
+    }
     if (args[1] === "input") {
-      assert.deepEqual(args, ["shell", "input", "keyevent", "KEYCODE_TAB"]);
-      events.push("keyboard");
+      assert.deepEqual(args.slice(0, 3), ["shell", "input", "keyevent"]);
+      events.push(args[3]);
       return "";
     }
     if (args[1] === "am") {
@@ -74,7 +82,10 @@ test("Android sends one Tab after the reloaded document contacts the fixture", a
     assert.equal(args[0], "logcat");
     events.push("log");
     logReads++;
-    if (logReads === 2) await ready();
+    if (logReads === 2) {
+      await ready("KEYCODE_TAB");
+      await ready("KEYCODE_BACK");
+    }
     return logReads === 3 ? "UMMKA_WEBVIEW_CHECK browser-checked" : "";
   }
   await launchWebview(
@@ -82,11 +93,20 @@ test("Android sends one Tab after the reloaded document contacts the fixture", a
     "app",
     "app/.MainActivity",
     "browser-checked",
-    (sendTab) => {
-      ready = sendTab;
+    (send) => {
+      ready = send;
     },
   );
-  assert.deepEqual(events, ["launch", "log", "log", "keyboard", "log"]);
+  assert.deepEqual(events, [
+    "launch",
+    "log",
+    "log",
+    "KEYCODE_TAB",
+    "IME shown",
+    "IME hidden",
+    "KEYCODE_BACK",
+    "log",
+  ]);
 });
 
 test("the new document receives its control response only after the keyboard event is delivered", async () => {
@@ -133,7 +153,8 @@ test("the new document receives its control response only after the keyboard eve
       delivered = resolve;
     });
     let keys = 0;
-    fixture.onKeyboardReady(async () => {
+    fixture.onAndroidInputReady(async (key) => {
+      assert.equal(key, "KEYCODE_TAB");
       keys++;
       entered();
       await delivery;

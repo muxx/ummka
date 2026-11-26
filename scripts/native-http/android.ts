@@ -14,7 +14,7 @@ import {
 } from "./android-instrumentation.ts";
 import {
   checkWebviewProcesses,
-  type OnKeyboardReady,
+  type OnAndroidInputReady,
 } from "./android-webview.ts";
 
 const exec = promisify(execFile);
@@ -72,7 +72,7 @@ export async function checkAndroid(
   webviewPorts: number[],
   ca: Buffer,
   config: string,
-  onKeyboardReady: OnKeyboardReady,
+  onAndroidInputReady: OnAndroidInputReady,
   lastNativeProbe: () => string,
 ) {
   const sdk = process.env.ANDROID_HOME;
@@ -309,7 +309,7 @@ export async function checkAndroid(
       adb,
       `${app}.httpcheck`,
       component,
-      onKeyboardReady,
+      onAndroidInputReady,
     );
   } catch (error) {
     if (!(error instanceof NativeInstrumentationError))

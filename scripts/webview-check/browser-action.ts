@@ -24,7 +24,7 @@ function matches(actual: unknown, fields: Record<string, string>) {
   );
 }
 
-export async function checkBrowserAction(port: string) {
+export async function checkBrowserAction(port: string, controlPort: string) {
   const server = `https://127.0.0.1:${port}/browser-action-check`;
   const unchanged = await signInWithBrowser(server, "gitlab", () => {
     throw Error("a browser opened for an unselected installation");
@@ -74,7 +74,7 @@ export async function checkBrowserAction(port: string) {
   }
   await forgetLocalAccount(server, user);
   await forgetInstallation(server);
-  await checkBrowserApp(server);
+  await checkBrowserApp(server, controlPort);
   if ((await getCurrentAccountId(server)) !== null)
     throw Error("explicit device sign-out retained the account");
   await forgetInstallation(server);

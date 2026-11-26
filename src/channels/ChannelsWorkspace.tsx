@@ -17,6 +17,7 @@ import {
   indexChannelProfiles,
   teammateName,
 } from "../mattermost/channel-profiles.ts";
+import type { LocalPost } from "../mattermost/local-history.ts";
 import { visibleSidebar } from "../mattermost/sidebar-rows.ts";
 import { effectiveWorkspacePreferences } from "../mattermost/workspace-preferences.ts";
 import { ChannelsFrame } from "./ChannelsFrame.tsx";
@@ -26,7 +27,10 @@ import { channelDraftActions } from "./channel-draft-actions.ts";
 import { channelComposerAccess } from "./composer-access.ts";
 import { DraftComposer } from "./DraftComposer.tsx";
 import { draftCopy } from "./draft-copy.ts";
+import type { ReactionThread } from "./submit-channel-reaction.ts";
+import { ThreadPane } from "./ThreadPane.tsx";
 import { useChannelTimeline } from "./use-channel-timeline.ts";
+import { useThreadBack } from "./use-thread-back.ts";
 import { useWorkspaceProfiles } from "./use-workspace-profiles.ts";
 import { useTeamRoles, useWorkspaceRead } from "./use-workspace-read.ts";
 import { useWorkspaceSearch } from "./use-workspace-search.tsx";
@@ -162,6 +166,7 @@ export function ChannelsWorkspace({
   const host = useRef<HTMLDivElement>(null);
   const accountButton = useRef<HTMLButtonElement>(null);
   const draftField = useRef<HTMLTextAreaElement>(null);
+  const replyField = useRef<HTMLTextAreaElement>(null);
   const [accountOpen, setAccountOpen] = useState(false);
   const returnToAccount = useRef(false);
   useLayoutEffect(() => {
@@ -178,6 +183,8 @@ export function ChannelsWorkspace({
     "conversation",
   );
   const [selected, setSelected] = useState<string | null>(null);
+  const [thread, setThread] = useState<LocalPost | null>(null);
+  const closeThread = useCallback(() => setThread(null), []);
   const [choiceFailed, setChoiceFailed] = useState(false);
   const writes = useRef(Promise.resolve());
   const choice = useRef(0);
@@ -322,6 +329,7 @@ export function ChannelsWorkspace({
 
   function choose(id: string) {
     const version = ++choice.current;
+    if (id !== chosen) closeThread();
     setSelected(id);
     setPage("conversation");
     setChoiceFailed(false);
@@ -452,6 +460,55 @@ export function ChannelsWorkspace({
   const historyDenied =
     timeline.notice === "forbidden" ||
     ["forbidden", "session", "unauthorized"].includes(timeline.status);
+  // App keys this workspace by connection and team. Also discard a selection
+  // when the directory refresh removes the channel or revokes access.
+  const activeThread =
+    thread?.channelId === chosen && !historyDenied && settings ? thread : null;
+  if (thread && !activeThread) setThread(null);
+  useThreadBack(
+    Boolean(activeThread) && !accountOpen && !search.dialog && !search.panel,
+    closeThread,
+  );
+  function composer(rootId?: string, reader?: ReactionThread) {
+    if (historyDenied) return null;
+    if (access !== "writable" || !channel) {
+      return (
+        <ComposerAccessNotice
+          access={access}
+          language={language}
+          online={online}
+          statuses={[status, roles.state.status, policy.server.status]}
+          close={rootId ? undefined : closeChannel}
+          retry={retryPostingAccess}
+        />
+      );
+    }
+    return (
+      <DraftComposer
+        connection={connection}
+        channelId={channel.id}
+        rootId={rootId}
+        conversation={{
+          name: selectedLabel || channel.displayName || channel.name,
+          direct: channel.kind === "D" || channel.kind === "G",
+        }}
+        keys={policy.user?.composerKeys}
+        sendContext={channelDraftActions(
+          workspace,
+          channel,
+          permission,
+          settings?.collapsedThreads ?? null,
+          search.fromCommand,
+          reader,
+        )}
+        label={rootId ? draftText.reply : draftLabel()}
+        language={language}
+        online={online}
+        sessionIssue={sessionIssue}
+        fieldRef={rootId ? replyField : draftField}
+      />
+    );
+  }
   return (
     <div ref={host} className="workspace-window">
       <ChannelsFrame
@@ -483,41 +540,40 @@ export function ChannelsWorkspace({
         onAccount={() => setAccountOpen(true)}
         onTeam={workspace.chooseAnotherTeam}
         navigation={nav}
-        composer={
-          !historyDenied &&
-          (access === "writable" && channel ? (
-            <DraftComposer
-              connection={connection}
-              channelId={channel.id}
-              conversation={{
-                name: selectedLabel || channel.displayName || channel.name,
-                direct: channel.kind === "D" || channel.kind === "G",
-              }}
-              keys={policy.user?.composerKeys}
-              sendContext={channelDraftActions(
-                workspace,
-                channel,
-                permission,
-                settings?.collapsedThreads ?? null,
-                search.fromCommand,
-              )}
-              label={draftLabel()}
-              language={language}
-              online={online}
-              sessionIssue={sessionIssue}
-              fieldRef={draftField}
-            />
-          ) : (
-            <ComposerAccessNotice
-              access={access}
-              language={language}
-              online={online}
-              statuses={[status, roles.state.status, policy.server.status]}
-              close={closeChannel}
-              retry={retryPostingAccess}
-            />
-          ))
+        thread={
+          activeThread && settings
+            ? {
+                id: activeThread.id,
+                title: text.thread,
+                close: closeThread,
+                replyRef:
+                  activeThread.rootId || import.meta.env.UMMKA_MOBILE === true
+                    ? undefined
+                    : replyField,
+                content: (
+                  <ThreadPane
+                    key={JSON.stringify([
+                      connection.rid,
+                      activeThread.channelId,
+                      activeThread.id,
+                      settings.collapsedThreads,
+                    ])}
+                    connection={connection}
+                    userId={userId}
+                    post={activeThread}
+                    collapsedThreads={settings.collapsedThreads}
+                    locale={language}
+                    nameFormat={settings.nameFormat}
+                    author={author}
+                    online={online}
+                    sessionIssue={sessionIssue}
+                    renderComposer={composer}
+                  />
+                ),
+              }
+            : undefined
         }
+        composer={composer()}
       >
         {historyIssue &&
           notice(
@@ -545,6 +601,9 @@ export function ChannelsWorkspace({
             locale={language}
             author={author}
             onReadEdge={timeline.loadEdge}
+            onOpenThread={setThread}
+            openThreadPostId={activeThread?.id}
+            collapsedThreads={settings.collapsedThreads}
           />
         )}
       </ChannelsFrame>

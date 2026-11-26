@@ -3,6 +3,7 @@ import {
   cleanup,
   fireEvent,
   render,
+  renderHook,
   screen,
   waitFor,
 } from "@testing-library/react";
@@ -11,8 +12,12 @@ import type { PendingPost } from "../mattermost/account-delivery.ts";
 import type { LocalChannelWindow } from "../mattermost/local-history.ts";
 import { outgoingRowState } from "../mattermost/outgoing-row-state.ts";
 import { ConversationTimeline } from "./ConversationTimeline.tsx";
-import { conversationRows } from "./conversation-rows.ts";
+import {
+  conversationRows,
+  type OutgoingPlacement,
+} from "./conversation-rows.ts";
 import { outgoingDescription } from "./outgoing-copy.ts";
+import { useConversationOutgoing } from "./use-conversation-outgoing.tsx";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
 import { channelPageSize } from "./workspace-data.ts";
 
@@ -152,7 +157,14 @@ test("preserves both tie orders and matches only a confirmed post of the same au
     server("tie-first", 1),
     server("tie-second", 1),
   ];
-  const shown = conversationRows(history, records, "general", null, "me", true);
+  const shown = conversationRows(
+    history,
+    records,
+    "general",
+    null,
+    "me",
+    "timeline",
+  );
   expect(shown.messages.map((p) => p.id)).toEqual([
     "tie-second",
     "tie-first",
@@ -175,7 +187,7 @@ test("preserves both tie orders and matches only a confirmed post of the same au
       "general",
       null,
       "me",
-      false,
+      "hidden",
     ).messages.map((p) => p.id),
   ).toEqual(history.map((p) => p.id).reverse());
   const sameText = conversationRows(
@@ -184,7 +196,7 @@ test("preserves both tie orders and matches only a confirmed post of the same au
     "general",
     null,
     "me",
-    true,
+    "timeline",
   );
   expect(sameText.messages.map((p) => p.id)).toEqual([
     "different",
@@ -498,4 +510,123 @@ test("a late retry completion leaves the new conversation alone", async () => {
   await act(async () => finish());
   expect(sessionIssue).not.toHaveBeenCalled();
   expect(screen.queryByText("The outgoing message has changed.")).toBeNull();
+});
+
+test("keeps own thread attempts beyond the gap until their canonical rows are visible and stored", async () => {
+  const rootId = "thread";
+  const sending = pending(2, { rootId });
+  const other = pending(3, { rootId });
+  const unrelated = pending(1, { rootId: "other" });
+  const store = account([other, sending, unrelated]);
+  const persisted =
+    store.connection.retireDeliveredPosts.getMockImplementation();
+  if (!persisted) throw Error("Expected native receipt fixture");
+  let stored = false;
+  store.connection.retireDeliveredPosts.mockImplementation((ids) =>
+    stored ? persisted(ids) : Promise.resolve(0),
+  );
+  const first = server("before", 1, { rootId });
+  const confirmed = server("delivered", 2, { rootId });
+  const props = {
+    channelId: "general",
+    rootId,
+    connection: store.connection,
+    userId: "me",
+    history: [first],
+    placement: "afterGap" as OutgoingPlacement,
+    locale: "en" as const,
+    sessionIssue: vi.fn(),
+  };
+  const hook = renderHook(useConversationOutgoing, { initialProps: props });
+  const shown = () => ({
+    timeline: hook.result.current.messages.map((p) => p.id),
+    beyond: hook.result.current.afterGap.map((p) => p.id),
+  });
+
+  await waitFor(() =>
+    expect(shown()).toEqual({
+      timeline: ["before"],
+      beyond: ["pending-2", "pending-3"],
+    }),
+  );
+  expect(store.connection.subscribeToPostActivity).toHaveBeenCalledWith(
+    { channelId: "general", rootId },
+    expect.any(Function),
+  );
+  sending.confirmedPostId = confirmed.id;
+  await act(async () => store.changed());
+  expect(shown().beyond).toEqual(["pending-2", "pending-3"]);
+  expect(store.connection.retireDeliveredPosts).not.toHaveBeenCalled();
+
+  // A matching receipt alone does not identify another author's row.
+  hook.rerender({
+    ...props,
+    history: [{ ...confirmed, userId: "peer" }, first],
+  });
+  expect(shown().beyond).toEqual(["pending-2", "pending-3"]);
+  expect(store.connection.retireDeliveredPosts).not.toHaveBeenCalled();
+  hook.rerender({ ...props, history: [confirmed, first] });
+  await waitFor(() =>
+    expect(store.connection.retireDeliveredPosts).toHaveBeenCalledWith([
+      "delivered",
+    ]),
+  );
+  expect(shown()).toEqual({
+    timeline: ["before", "delivered"],
+    beyond: ["pending-3"],
+  });
+  expect(hook.result.current.messages[1]?.localId).toBe("pending-2");
+  expect(store.saved).toContain(sending);
+
+  // Leaving the in-memory page before SQLite has the row restores the local copy.
+  hook.rerender(props);
+  expect(shown().beyond).toEqual(["pending-2", "pending-3"]);
+  stored = true;
+  hook.rerender({
+    ...props,
+    placement: "timeline",
+    history: [confirmed, first],
+  });
+  await waitFor(() => expect(store.saved).not.toContain(sending));
+  expect(shown()).toEqual({
+    timeline: ["before", "delivered", "pending-3"],
+    beyond: [],
+  });
+  expect(store.saved).toEqual([other, unrelated]);
+});
+
+test("disabling thread delivery hides attempts immediately, ignores an old read, and retains the selected canonical reply", async () => {
+  const rootId = "room-thread";
+  const record = pending(1, { rootId });
+  const store = account([record]);
+  const focus = server("focus", 5, { rootId });
+  const props = {
+    channelId: "general",
+    rootId,
+    connection: store.connection,
+    userId: "me",
+    history: [focus],
+    placement: "afterGap" as const,
+    locale: "en" as const,
+    sessionIssue: vi.fn(),
+    enabled: false,
+  };
+  const hook = renderHook(useConversationOutgoing, { initialProps: props });
+  expect(hook.result.current.messages).toEqual([focus]);
+  expect(store.connection.subscribeToPostActivity).not.toHaveBeenCalled();
+  hook.rerender({ ...props, enabled: true });
+  await waitFor(() => expect(hook.result.current.afterGap).toHaveLength(1));
+  let finish!: (rows: PendingPost[]) => void;
+  store.connection.readPendingPosts.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  act(() => store.changed());
+  hook.rerender(props);
+  expect(hook.result.current.messages).toEqual([focus]);
+  expect(hook.result.current.afterGap).toHaveLength(0);
+  await act(async () => finish([record]));
+  expect(hook.result.current.afterGap).toHaveLength(0);
 });

@@ -1185,7 +1185,7 @@ await checkProfileReads(
   version,
 );
 
-await checkPostMutations(base, posts, channelId, user.id, version);
+await checkPostMutations(base, posts, readerPosts, channelId, user.id, version);
 await checkCommands(session, team.id, channelId, version);
 // A self-join avoids the membership notification produced when somebody adds the reader.
 const mentionRoom = await (

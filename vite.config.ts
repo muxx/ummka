@@ -4,6 +4,8 @@ import { defineConfig } from "vite";
 export default defineConfig({
   plugins: [react()],
   define: {
+    "import.meta.env.UMMKA_ANDROID":
+      process.env.TAURI_ENV_PLATFORM === "android",
     "import.meta.env.UMMKA_MOBILE": ["android", "ios"].includes(
       process.env.TAURI_ENV_PLATFORM ?? "",
     ),

@@ -45,6 +45,7 @@ export async function checkPreviouslyAcceptedPost(
 export async function checkPostMutations(
   base: string,
   posts: PostsApi,
+  recipient: PostsApi,
   channelId: string,
   userId: string,
   version: string,
@@ -72,6 +73,13 @@ export async function checkPostMutations(
   assert.ok(reply.id && reply.id !== created.id);
   assert.equal(reply.userId, userId);
   assert.equal(reply.rootId, created.id);
+  const received = await recipient.getPostThread({ postId: created.id });
+  assert.deepEqual(received.order?.sort(), [created.id, reply.id].sort());
+  const receivedReply = received.posts?.[reply.id];
+  assert.equal(receivedReply?.message, "Fixture reply");
+  assert.equal(receivedReply.channelId, channelId);
+  assert.equal(receivedReply.rootId, created.id);
+  assert.equal(receivedReply.userId, userId);
   const props = { fixture_flag: true, fixture_label: "kept on edit" };
   const tagged = await posts.patchPost({
     postId: reply.id,

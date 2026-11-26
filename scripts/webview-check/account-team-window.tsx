@@ -12,6 +12,7 @@ import {
   getCurrentAccountId,
   openAccountRestConnection,
 } from "../../src/mattermost/native-rest.ts";
+import { readRestoredOutgoing } from "./composer-drafts.ts";
 
 export function openChannelNavigation(element: HTMLElement, label: string) {
   const back = within(element).queryByRole("button", {
@@ -26,6 +27,7 @@ export async function checkSavedTeamWindow(
   removeOutgoing: boolean,
 ) {
   const original = await readInstallationSelection();
+  const observer = await openAccountRestConnection(serverUrl, userId);
   const element = document.createElement("div");
   document.body.append(element);
   const root = createRoot(element);
@@ -45,13 +47,34 @@ export async function checkSavedTeamWindow(
       throw Error("offline account changed");
     flushSync(() => root.render(<App language="ru" />));
     const ui = within(element);
+    const nativeWait = { container: element, timeout: 7000 };
     const saved = () =>
-      ui.findByText("Saved fixture room message", {}, { timeout: 7000 });
-    await saved();
-    const outgoing = (
-      await ui.findByText("Исходящее после перезапуска")
-    ).closest("article");
-    if (!outgoing?.textContent?.includes("Доставка не подтверждена"))
+      ui.findByText("Saved fixture room message", {}, nativeWait);
+    const originalDraft = "  Черновик канала\n🐻‍❄️ ";
+    const restoredDraft = (expected: string) =>
+      waitFor(() => {
+        const field = ui.getByRole<HTMLTextAreaElement>("textbox", {
+          name: "Написать в #Town Square…",
+        });
+        if (field.value !== expected)
+          throw Error(
+            "The restored channel draft does not contain the saved text",
+          );
+        return field;
+      }, nativeWait);
+    const stored = await readRestoredOutgoing(observer);
+    const [, outgoing] = await Promise.all([
+      saved(),
+      waitFor(() => {
+        const row = ui.queryByText(stored.message)?.closest("article");
+        if (!row || row.dataset.postId !== stored.pendingId)
+          throw Error(
+            "The restored post is in SQLite but its row is missing from the offline timeline",
+          );
+        return row;
+      }, nativeWait),
+    ]);
+    if (!outgoing.textContent?.includes("Доставка не подтверждена"))
       throw Error(
         "Offline startup lost the saved outgoing row or suggested an active send",
       );
@@ -64,14 +87,8 @@ export async function checkSavedTeamWindow(
       within(outgoing).queryByText("Всё равно отправить")
     )
       throw Error("Offline outgoing retry opened its confirmation");
-    const field = await ui.findByRole<HTMLTextAreaElement>("textbox", {
-      name: "Написать в #Town Square…",
-    });
-    if (
-      field.value !== "  Черновик канала\n🐻‍❄️ " ||
-      !ui.getByText("Черновик · без сети")
-    )
-      throw Error("offline startup lost the exact channel draft");
+    const field = await restoredDraft(originalDraft);
+    ui.getByText("Черновик · без сети");
     const searchTrigger = ui.getByRole("button", { name: "Поиск" });
     searchTrigger.focus();
     flushSync(() => fireEvent.click(searchTrigger));
@@ -81,27 +98,33 @@ export async function checkSavedTeamWindow(
       throw Error(
         "Restored search lost focus or ignored the saved file policy",
       );
-    const recent = await search.findByRole("button", {
-      name: "from:fixture Привет",
-    });
+    const savedTerm = "from:fixture Привет";
+    const recent = await search.findByRole(
+      "button",
+      { name: savedTerm },
+      nativeWait,
+    );
     flushSync(() => fireEvent.keyDown(terms, { key: "ArrowDown" }));
     if (document.activeElement !== recent)
       throw Error("The search field did not focus the saved team query");
     flushSync(() => fireEvent.click(recent));
-    await search.findByText("Нет соединения.");
-    if (
-      terms.value !== "from:fixture Привет" ||
-      document.activeElement !== terms
-    )
-      throw Error(
-        "The offline recent query did not leave the search text ready to edit",
-      );
+    // Selecting a recent term writes its new position to SQLite before reporting offline.
+    await waitFor(() => {
+      if (terms.readOnly)
+        throw Error("The selected recent query is still being saved");
+      if (search.getByRole("alert").textContent !== "Нет соединения.")
+        throw Error("The saved recent query did not report the offline result");
+      if (terms.value !== savedTerm || document.activeElement !== terms)
+        throw Error(
+          "The offline recent query did not leave the search text ready to edit",
+        );
+    }, nativeWait);
     flushSync(() =>
       fireEvent.click(search.getByRole("button", { name: "Закрыть поиск" })),
     );
     if (
       document.activeElement !== searchTrigger ||
-      field.value !== "  Черновик канала\n🐻‍❄️ "
+      field.value !== originalDraft
     )
       throw Error(
         "Closing offline search lost the header focus or channel draft",
@@ -114,27 +137,71 @@ export async function checkSavedTeamWindow(
       throw Error("An offline draft offered sending");
     const edited = field.value + " Ещё строка.";
     flushSync(() => fireEvent.input(field, { target: { value: edited } }));
+    if (import.meta.env.UMMKA_MACOS_OVERLAY && !removeOutgoing) {
+      const post = (await saved()).closest("article");
+      if (!post) throw Error("The saved post is outside its timeline row");
+      const opener = within(post).getByRole("button", { name: "Открыть тред" });
+      opener.focus();
+      flushSync(() => fireEvent.click(opener));
+      const thread = await ui.findByRole("complementary", {
+        name: "Обсуждение",
+      });
+      await within(thread).findByText(
+        "Saved fixture room message",
+        {},
+        nativeWait,
+      );
+      const conversation = ui.getByRole("main", { name: "Town Square" });
+      const channelBox = conversation.getBoundingClientRect();
+      const threadBox = thread.getBoundingClientRect();
+      if (
+        !channelBox.width ||
+        threadBox.width < 300 ||
+        threadBox.left < channelBox.right - 1 ||
+        threadBox.right > innerWidth + 1
+      )
+        throw Error(
+          "The desktop thread panel overlaps or displaces the channel",
+        );
+      flushSync(() =>
+        fireEvent.click(
+          within(thread).getByRole("button", { name: "Закрыть тред" }),
+        ),
+      );
+      if (
+        thread.isConnected ||
+        document.activeElement !== opener ||
+        ui.getByRole("textbox", { name: "Написать в #Town Square…" }) !==
+          field ||
+        field.value !== edited
+      )
+        throw Error(
+          "Closing the desktop thread lost the saved channel row or its draft",
+        );
+    }
     if (typeof navigator.clipboard?.writeText !== "function")
       throw Error("The packaged WebView cannot copy text");
     if (removeOutgoing) {
-      const remove = within(outgoing).getByRole<HTMLButtonElement>("button", {
+      const current = ui.getByText(stored.message).closest("article");
+      if (!current) throw Error("The saved outgoing row is missing");
+      const remove = within(current).getByRole<HTMLButtonElement>("button", {
         name: "Удалить",
       });
       remove.focus();
       flushSync(() => fireEvent.click(remove));
-      await ui.findByText("Строка удалена только с устройства.");
       await waitFor(() => {
-        if (outgoing.isConnected)
+        ui.getByText("Строка удалена только с устройства.");
+        if (ui.queryByText(stored.message))
           throw Error("Removed outgoing row is still visible");
-      });
-      if (
-        document.activeElement !==
-          ui.getByRole("region", { name: "Сообщения канала" }) ||
-        field.value !== edited
-      )
-        throw Error(
-          "Removing a local post lost the conversation focus or draft",
-        );
+        if (
+          document.activeElement !==
+            ui.getByRole("region", { name: "Сообщения канала" }) ||
+          field.value !== edited
+        )
+          throw Error(
+            "Removing a local post lost the conversation focus or draft",
+          );
+      }, nativeWait);
     }
     if (!ui.getByRole("heading", { name: "Town Square" }))
       throw Error("offline startup lost the selected room");
@@ -167,41 +234,29 @@ export async function checkSavedTeamWindow(
       throw Error("team selection does not fit its target window");
     flushSync(() => fireEvent.click(pick));
     await saved();
-    const restored = await ui.findByRole<HTMLTextAreaElement>("textbox", {
-      name: "Написать в #Town Square…",
-    });
-    if (restored.value !== edited)
-      throw Error("returning to the team lost in-progress offline text");
+    const restored = await restoredDraft(edited);
     flushSync(() =>
-      fireEvent.input(restored, {
-        target: { value: "  Черновик канала\n🐻‍❄️ " },
-      }),
+      fireEvent.input(restored, { target: { value: originalDraft } }),
     );
     fireEvent.focusOut(restored);
-    const observer = await openAccountRestConnection(serverUrl, userId);
-    try {
-      const pending = await observer.readPendingPosts({
-        channelId: "c".repeat(26),
-        limit: 50,
-      });
-      const remains = pending.some(
-        (post) => post.pendingId === outgoing.dataset.postId,
+    const pending = await observer.readPendingPosts({
+      channelId: "c".repeat(26),
+      limit: 50,
+    });
+    const remains = pending.some((post) => post.pendingId === stored.pendingId);
+    if (remains === removeOutgoing)
+      throw Error(
+        "The saved outgoing row does not match the choice in the window",
       );
-      if (remains === removeOutgoing)
-        throw Error(
-          "The saved outgoing row does not match the choice in the window",
-        );
-      await waitFor(async () => {
-        const stored = await observer.readDraft({ channelId: "c".repeat(26) });
-        if (stored.message !== restored.value)
-          throw Error("the offline edit was not saved");
-      });
-    } finally {
-      await observer.close();
-    }
+    await waitFor(async () => {
+      const draft = await observer.readDraft({ channelId: "c".repeat(26) });
+      if (draft.message !== originalDraft)
+        throw Error("the offline edit was not saved");
+    }, nativeWait);
   } finally {
     flushSync(() => root.unmount());
     element.remove();
+    await observer.close();
     if (macOS) {
       if (previous) Object.defineProperty(navigator, "onLine", previous);
       else Reflect.deleteProperty(navigator, "onLine");
