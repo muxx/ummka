@@ -1,27 +1,17 @@
 import type { PostsApi } from "../../vendor/mattermost/index.js";
-import type { LocalPost } from "./local-history.ts";
 import { isMattermostId, isMattermostTime } from "./model-fields.ts";
 
-export type EditHistoryTarget = Pick<
-  LocalPost,
-  "id" | "userId" | "channelId" | "rootId"
->;
+import { assertOwnPostTarget, type OwnPostTarget } from "./own-post.ts";
 
 export async function readPostEditHistory(
   posts: PostsApi,
   accountId: string,
-  { id, userId, channelId, rootId }: EditHistoryTarget,
+  target: OwnPostTarget,
   signal?: AbortSignal,
 ) {
   signal?.throwIfAborted();
-  if (
-    !isMattermostId(id) ||
-    !isMattermostId(channelId) ||
-    !isMattermostId(userId) ||
-    userId !== accountId ||
-    (rootId !== null && (!isMattermostId(rootId) || rootId === id))
-  )
-    throw new TypeError("Invalid edit history target for this account.");
+  assertOwnPostTarget(accountId, target);
+  const { id, userId, channelId, rootId } = target;
 
   const rows = await posts.getEditHistoryForPost({ postId: id }, { signal });
   signal?.throwIfAborted();

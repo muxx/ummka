@@ -1013,6 +1013,7 @@ export function webviewServers(
         "patch-post",
         "post-edit-history",
         "post-edit-history",
+        "signed-patch-post",
         "delete-post",
         "bulk-channel-view",
         "single-channel-view",

@@ -417,3 +417,31 @@ test("search posts normal JSON on the native account resource and closing the ac
     ipc.mock.calls.filter(([operation]) => operation === "send_rest_request"),
   ).toHaveLength(1);
 });
+
+test.each(["edit", "delete"] as const)(
+  "releases the exchange when %s gets HTTP 202",
+  async (action) => {
+    setup({ send_rest_request: () => ({ ...head, status: 202 }) });
+    const owner = "u".repeat(26);
+    const target = {
+      id: "p".repeat(26),
+      userId: owner,
+      channelId: "c".repeat(26),
+      rootId: null,
+    };
+    const account = await openAccountRestConnection(
+      "https://fixture.example.test/team",
+      owner,
+    );
+    const result =
+      action === "edit"
+        ? account.editOwnPostMessage(target, "Revised text")
+        : account.deleteOwnPost(target);
+    await expect(result).rejects.toThrow(TypeError);
+    expect(calls("cancel_rest_request")).toEqual([
+      ["cancel_rest_request", ids],
+    ]);
+    expect(calls("read_rest_body")).toHaveLength(0);
+    expect(calls("send_rest_request")).toHaveLength(1);
+  },
+);

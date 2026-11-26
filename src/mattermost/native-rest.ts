@@ -47,12 +47,14 @@ import {
   type MembershipChange,
   type MembershipTarget,
 } from "./own-membership.ts";
+import {
+  deleteOwnPost,
+  editOwnPostMessage,
+  type OwnPostTarget,
+} from "./own-post.ts";
 import { createPostActivity } from "./post-activity.ts";
 import { readPostDestination } from "./post-destination.ts";
-import {
-  type EditHistoryTarget,
-  readPostEditHistory,
-} from "./post-edit-history.ts";
+import { readPostEditHistory } from "./post-edit-history.ts";
 import { createRestTransport } from "./rest-transport.ts";
 import { canonicalServerUrl } from "./server-url.ts";
 import { projectTeamSidebar, type TeamSidebar } from "./team-sidebar.ts";
@@ -156,7 +158,23 @@ export async function openAccountRestConnection(
     ...connection,
     ...accountPostReactions(config, userId, readWhileOpen),
     ...accountSearch(config, readWhileOpen),
-    readPostEditHistory(target: EditHistoryTarget, signal?: AbortSignal) {
+    editOwnPostMessage(
+      target: OwnPostTarget,
+      message: string,
+      signal?: AbortSignal,
+    ) {
+      return readWhileOpen(
+        () => editOwnPostMessage(posts, userId, target, message, signal),
+        signal,
+      );
+    },
+    deleteOwnPost(target: OwnPostTarget, signal?: AbortSignal) {
+      return readWhileOpen(
+        () => deleteOwnPost(posts, userId, target, signal),
+        signal,
+      );
+    },
+    readPostEditHistory(target: OwnPostTarget, signal?: AbortSignal) {
       return readWhileOpen(
         () => readPostEditHistory(posts, userId, target, signal),
         signal,
