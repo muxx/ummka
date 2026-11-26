@@ -11,6 +11,7 @@ import {
 } from "../../src/mattermost/native-rest.ts";
 import { sidebarPreferences } from "../../src/mattermost/workspace-preferences.ts";
 import {
+  ChannelsApi,
   Configuration,
   FetchError,
   type InitOverrideFunction,
@@ -603,6 +604,34 @@ export async function checkGeneratedRequests(ports: string[]) {
         "thread-mutation-denied-before-dispatch",
       );
     }
+    const categoryApi = new ChannelsApi(signed);
+    const categoryOwner = "Abc01234567890123456789012";
+    const categoryId = `direct_messages_${categoryOwner.toLowerCase()}_${teamId.toLowerCase()}`;
+    const categoryScope = { userId: "me", teamId };
+    const collapsedCategory =
+      await categoryApi.updateSidebarCategoryForTeamForUser({
+        ...categoryScope,
+        categoryId,
+        sidebarCategoryWithChannels: {
+          id: categoryId,
+          userId: categoryOwner,
+          teamId,
+          type: "direct_messages",
+          channelIds: [channelId],
+          collapsed: true,
+        },
+      });
+    check(
+      collapsedCategory.id === categoryId &&
+        collapsedCategory.collapsed === true &&
+        collapsedCategory.channelIds?.[0] === channelId,
+      "signed sidebar category with channels",
+    );
+    const deletion = await categoryApi.removeSidebarCategoryForTeamForUser({
+      ...categoryScope,
+      categoryId: "m".repeat(26),
+    });
+    check(deletion.status === "OK", "signed sidebar category removal");
     for (const request of [
       () => guestThreads.getUserThreads({ userId: "me", teamId }),
       () => threads.getUserThreads({ userId: "b".repeat(26), teamId }),
@@ -616,7 +645,13 @@ export async function checkGeneratedRequests(ports: string[]) {
         "thread-list-denied-before-dispatch",
       );
     }
-    await checkPostMutations(rootSession, signed, channelId);
+    await checkPostMutations(
+      rootSession,
+      signed,
+      channelId,
+      accountPrefix,
+      userId,
+    );
     await checkConnectServer(origin);
     const profile = await inspectInstallation(
       `${prefixed.basePath.slice("https://".length)}/`,

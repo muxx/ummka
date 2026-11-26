@@ -75,6 +75,8 @@ import {
   correctDirectoryFlags,
   correctSidebarResponse,
   correctSidebarSchema,
+  correctSidebarWrite,
+  sidebarWriteCorrections,
 } from "./sidebar-corrections.ts";
 import { correctSinglePost } from "./single-post-correction.ts";
 import { correctTeamMemberRequest } from "./team-member-correction.ts";
@@ -437,6 +439,12 @@ export function buildSpecification(
         id,
         operation,
         read(file.replace(".yaml", "-12.1.0.yaml")),
+      );
+    else if (sidebarWriteCorrections.has(id))
+      paths[path][method] = correctSidebarWrite(
+        id,
+        operation,
+        object(object(read("channels-12.1.0.yaml")[path], path)[method], id),
       );
     else if (id === "GetSidebarCategoriesForTeamForUser")
       paths[path][method] = correctSidebarResponse(operation);

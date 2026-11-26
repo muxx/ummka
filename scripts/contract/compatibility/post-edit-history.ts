@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readPostEditHistory } from "../../../src/mattermost/post-edit-history.ts";
 import {
   type PostsApi,
   ResponseError,
@@ -67,6 +68,21 @@ export async function checkPostEditHistory(
   }
   assert.ok(previous[0].editAt && previous[0].editAt > 0);
   assert.equal(previous[1].editAt, 0);
+  const revisions = await readPostEditHistory(author, authorId, {
+    id: reply.id,
+    userId: authorId,
+    channelId,
+    rootId: root.id,
+  });
+  assert.deepEqual(
+    revisions,
+    previous.map((row) => ({
+      id: row.id,
+      message: row.message,
+      timestamp: row.editAt || row.createAt,
+      fileIds: row.fileIds ?? [],
+    })),
+  );
   assert.equal((await peer.getPost(query)).message, current.message);
   await expectUnavailable(peer, 403);
   await expectUnavailable(anonymous, 401);

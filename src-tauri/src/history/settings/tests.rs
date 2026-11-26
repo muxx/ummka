@@ -31,6 +31,7 @@ fn policy() -> ServerPolicy {
             archived_channels: false,
         }),
         unique_reaction_limit: Some("-2".into()),
+        post_edit_limit_seconds: Some("30".into()),
         mentions: Some(MentionSettings {
             confirm_notifications: true,
             max_notifications_per_channel: i64::MAX.to_string(),
@@ -197,13 +198,16 @@ fn accepts_only_known_settings_and_indexes_an_owner_lookup() {
 
 #[test]
 fn upgrades_settings_and_drafts_and_protects_the_new_policy() {
-    for version in [17, 19, 21, 22] {
+    for version in [17, 19, 21, 22, 24] {
         let root = tempdir().unwrap();
         let previous = &MIGRATIONS[..version];
         let mut old = HistoryDatabase::open_with(root.path(), URL, previous).unwrap();
         let owner = old.restore(&account()).unwrap();
         let mut legacy = policy();
-        legacy.search = None;
+        legacy.post_edit_limit_seconds = None;
+        if version < 23 {
+            legacy.search = None;
+        }
         if version < 20 {
             legacy.unique_reaction_limit = None;
         }
@@ -240,6 +244,36 @@ fn upgrades_settings_and_drafts_and_protects_the_new_policy() {
             "preserved"
         );
     }
+}
+
+#[test]
+fn invalid_edit_limit_preserves_the_last_policy_after_restart() {
+    let root = tempdir().unwrap();
+    let mut db = open(root.path());
+    let mut value = policy();
+    value.post_edit_limit_seconds = Some(i64::MAX.to_string());
+    let load = db.begin_server_policy_load().unwrap();
+    assert!(db.store_server_policy(load, &value).unwrap());
+    for raw in [
+        "-0",
+        "+7",
+        "12.5",
+        "9223372036854775808",
+        "-9223372036854775809",
+    ] {
+        let mut bad = policy();
+        bad.post_edit_limit_seconds = Some(raw.into());
+        let load = db.begin_server_policy_load().unwrap();
+        assert_eq!(
+            db.store_server_policy(load, &bad),
+            Err(HistoryError::InvalidDirectory)
+        );
+    }
+    drop(db);
+    assert_eq!(
+        open(root.path()).read_workspace_settings().unwrap().server,
+        Some(value)
+    );
 }
 
 #[test]

@@ -236,5 +236,5 @@ pub(super) async fn check(
         Err(HistoryError::StaleOwner)
     );
     assert!(second.account_ids(&client.base).await?.is_empty());
-    Ok(())
+    crate::realtime::checks::posted_delivery(&client.http, &first, base).await
 }
