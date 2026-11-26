@@ -24,6 +24,11 @@ export interface CreateSidebarCategoryForTeamForUserRequest {
 export interface GetChannelRequest {
     channelId: string;
 }
+export interface GetChannelByNameForTeamNameRequest {
+    teamName: string;
+    channelName: string;
+    includeDeleted?: boolean;
+}
 export interface GetChannelMemberRequest {
     channelId: string;
     userId: string;
@@ -116,6 +121,9 @@ export declare class ChannelsApi extends runtime.BaseAPI {
     getChannelRequestOpts(requestParameters: GetChannelRequest): Promise<runtime.RequestOpts>;
     getChannelRaw(requestParameters: GetChannelRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Channel>>;
     getChannel(requestParameters: GetChannelRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Channel>;
+    getChannelByNameForTeamNameRequestOpts(requestParameters: GetChannelByNameForTeamNameRequest): Promise<runtime.RequestOpts>;
+    getChannelByNameForTeamNameRaw(requestParameters: GetChannelByNameForTeamNameRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Channel>>;
+    getChannelByNameForTeamName(requestParameters: GetChannelByNameForTeamNameRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Channel>;
     getChannelMemberRequestOpts(requestParameters: GetChannelMemberRequest): Promise<runtime.RequestOpts>;
     getChannelMemberRaw(requestParameters: GetChannelMemberRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<ChannelMember>>;
     getChannelMember(requestParameters: GetChannelMemberRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<ChannelMember>;

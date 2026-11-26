@@ -57,6 +57,7 @@ import {
 import { checkMentionLimit } from "./mention-limit.ts";
 import { checkMentionText } from "./mention-text.ts";
 import { checkMobileFilePolicy } from "./mobile-file-policy.ts";
+import { checkNamedRoutes } from "./named-channel.ts";
 import {
   checkPostCollections,
   checkSavedPageBoundary,
@@ -1459,6 +1460,23 @@ await checkPostEditHistory(
   version,
 );
 await checkPublishedPostDocument(readerPosts, base, channelId, version);
+await checkNamedRoutes(
+  session,
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  reader.id,
+  team,
+  extraTeam,
+  joinable,
+  (route, body) => create(route, body, token),
+  (id) =>
+    fetch(`${base}/api/v4/channels/${id}`, {
+      method: "DELETE",
+      headers: authorization,
+    }),
+);
+console.log(
+  `Mattermost ${version} verified team and channel names before and after invitation and archive.`,
+);
 await allowFixtureBrowserSignIn(base, token);
 const logout = await fetch(`${base}/api/v4/users/logout`, {
   method: "POST",

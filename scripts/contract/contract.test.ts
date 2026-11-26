@@ -983,6 +983,72 @@ test("both thread read operations expose their actual response and guard the tim
   }
 });
 
+test("both team-name parameters address the same route and return Team", () => {
+  for (const [file, name] of [
+    ["teams.yaml", "name"],
+    ["teams-12.1.0.yaml", "team_name"],
+  ]) {
+    const path = `/api/v4/teams/name/{${name}}`;
+    const op = object(at(read(file), [path, "get"]), path);
+    assert.equal(op.operationId, "GetTeamByName");
+    assert.ok(Array.isArray(op.parameters));
+    assert.deepEqual(
+      op.parameters.map((entry) => {
+        const p = object(entry, "team name");
+        return [p.in, p.name, p.required, p.schema];
+      }),
+      [["path", name, true, { type: "string" }]],
+    );
+    assert.equal(
+      at(op, [
+        "responses",
+        "200",
+        "content",
+        "application/json",
+        "schema",
+        "$ref",
+      ]),
+      "#/components/schemas/Team",
+    );
+  }
+});
+
+test("named channel lookup has the same parameters and Channel response in both versions", () => {
+  const path = "/api/v4/teams/name/{team_name}/channels/name/{channel_name}";
+  for (const file of ["channels.yaml", "channels-12.1.0.yaml"]) {
+    const operation = object(at(read(file), [path, "get"]), path);
+    assert.equal(operation.operationId, "GetChannelByNameForTeamName");
+    assert.ok(Array.isArray(operation.parameters));
+    assert.deepEqual(
+      operation.parameters.map((item) => {
+        const p = object(item, "named channel parameter");
+        return [p.in, p.name, p.required, p.schema];
+      }),
+      [
+        ["path", "team_name", true, { type: "string" }],
+        ["path", "channel_name", true, { type: "string" }],
+        [
+          "query",
+          "include_deleted",
+          undefined,
+          { type: "boolean", default: false },
+        ],
+      ],
+    );
+    assert.equal(
+      at(operation, [
+        "responses",
+        "200",
+        "content",
+        "application/json",
+        "schema",
+        "$ref",
+      ]),
+      "#/components/schemas/Channel",
+    );
+  }
+});
+
 test("one channel uses the same path, parameter and Channel response in both versions", () => {
   const path = "/api/v4/channels/{channel_id}";
   for (const file of ["channels.yaml", "channels-12.1.0.yaml"]) {

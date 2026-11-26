@@ -73,6 +73,32 @@ export function webviewServers(
   const channelId = "c".repeat(26);
   const teamReads = new Map<string, { name: string; body: object | null }>([
     [
+      "/team/chat/api/v4/teams/name/fixture-team",
+      {
+        name: "signed-named-team",
+        body: {
+          id: teamId,
+          name: "fixture-team",
+          type: "O",
+          allow_open_invite: true,
+          delete_at: 0,
+        },
+      },
+    ],
+    [
+      "/team/chat/api/v4/teams/name/fixture-team/channels/name/old_room?include_deleted=true",
+      {
+        name: "signed-named-channel",
+        body: {
+          id: channelId,
+          team_id: teamId,
+          name: "old_room",
+          type: "O",
+          delete_at: 41,
+        },
+      },
+    ],
+    [
       `/team/chat/api/v4/channels/${"j".repeat(26)}`,
       {
         name: "signed-single-channel",
@@ -1059,6 +1085,8 @@ export function webviewServers(
       assert.equal(untrustedRequests, 0);
       const expected = [
         "signed-single-channel",
+        "signed-named-channel",
+        "signed-named-team",
         "managed-category-mappings",
         "bytes",
         "204",
