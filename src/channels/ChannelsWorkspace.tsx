@@ -31,7 +31,12 @@ import { collectionCopy } from "./collection-copy.ts";
 import { channelComposerAccess } from "./composer-access.ts";
 import { DraftComposer } from "./DraftComposer.tsx";
 import { draftCopy } from "./draft-copy.ts";
+import {
+  channelDirectoryCopy,
+  JoinedChannelDirectory,
+} from "./JoinedChannelDirectory.tsx";
 import { CollectionMark, PostCollectionPane } from "./PostCollectionPane.tsx";
+import { PrivateChannelIcon } from "./PrivateChannelIcon.tsx";
 import type { ReactionThread } from "./submit-channel-reaction.ts";
 import { ThreadPane } from "./ThreadPane.tsx";
 import { useChannelTimeline } from "./use-channel-timeline.ts";
@@ -83,22 +88,7 @@ function Sidebar({
                   >
                     <span className="workspace-kind" aria-hidden="true">
                       {row.kind === "P" ? (
-                        <svg
-                          className="workspace-lock"
-                          aria-hidden="true"
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.65"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <rect x="5" y="11" width="14" height="10" rx="2" />
-                          <circle cx="12" cy="16" r="1" />
-                          <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-                        </svg>
+                        <PrivateChannelIcon />
                       ) : row.kind === "D" ? (
                         "@"
                       ) : row.kind === "G" ? (
@@ -197,6 +187,16 @@ export function ChannelsWorkspace({
   const collections = useWorkspaceCollections(connection, online);
   const collectionLabels = collectionCopy[language];
   const channelMenuButton = useRef<HTMLButtonElement>(null);
+  const directoryButton = useRef<HTMLButtonElement>(null);
+  const restoreDirectoryFocus = useRef(false);
+  const [directoryOpen, setDirectoryOpen] = useState(false);
+  const directoryTitle = channelDirectoryCopy[language].title;
+  useLayoutEffect(() => {
+    if (!directoryOpen && restoreDirectoryFocus.current) {
+      restoreDirectoryFocus.current = false;
+      directoryButton.current?.focus();
+    }
+  }, [directoryOpen]);
   const [channelMenuOpen, setChannelMenuOpen] = useState(false);
   const [knownSaves, setKnownSaves] = useState<{
     ids: ReadonlySet<string>;
@@ -330,8 +330,11 @@ export function ChannelsWorkspace({
     position?.request,
   );
   const current = useMemo(
-    () => (snapshot ? { ...snapshot, selectedChannel: chosen } : null),
-    [snapshot, chosen],
+    () =>
+      snapshot
+        ? { ...snapshot, selectedChannel: directoryOpen ? null : chosen }
+        : null,
+    [snapshot, chosen, directoryOpen],
   );
   const savedChannelIds = useMemo(
     () => new Set(savedItems?.map((post) => post.channelId)),
@@ -446,6 +449,7 @@ export function ChannelsWorkspace({
   ]);
 
   function choose(id: string, returning = false) {
+    setDirectoryOpen(false);
     search.abortPending();
     if (!returning) collections.close(false);
     setChannelMenuOpen(false);
@@ -567,6 +571,7 @@ export function ChannelsWorkspace({
       clear: workspace.messages.clear,
       open: openResult,
       beforeOpen: () => {
+        setDirectoryOpen(false);
         collections.close(false);
         setChannelMenuOpen(false);
       },
@@ -579,6 +584,7 @@ export function ChannelsWorkspace({
     setChannelMenuOpen(false);
     if (search.back || search.origin) search.dismiss();
     workspace.messages.clear();
+    setDirectoryOpen(false);
     collections.open(source, opener);
   }
   const collectionDestination =
@@ -596,6 +602,36 @@ export function ChannelsWorkspace({
   );
   const nav = (
     <>
+      <button
+        type="button"
+        className="workspace-row directory-trigger"
+        ref={directoryButton}
+        aria-current={directoryOpen ? "page" : undefined}
+        onClick={() => {
+          search.dismiss();
+          workspace.messages.clear();
+          collections.close(false);
+          setChannelMenuOpen(false);
+          closeThread();
+          setDirectoryOpen(true);
+          setPage("conversation");
+        }}
+      >
+        <svg
+          aria-hidden="true"
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.7"
+          strokeLinejoin="round"
+        >
+          <circle cx="12" cy="12" r="9" />
+          <path d="m16 8-2.5 5.5L8 16l2.5-5.5z" />
+        </svg>
+        {directoryTitle}
+      </button>
       {directoryIssue && notice(directoryIssue, directory.retry, true)}
       {status === "offline" && notice(snapshot ? text.offline : text.noCache)}
       {!snapshot &&
@@ -670,6 +706,12 @@ export function ChannelsWorkspace({
         channelMenuButton.current?.focus();
       };
     if (search.dialog) return search.back;
+    if (directoryOpen)
+      return () => {
+        restoreDirectoryFocus.current = true;
+        setDirectoryOpen(false);
+        if (compact || !chosen) setPage("navigation");
+      };
     if (manualThread) return closeThread;
     if (collectionDestination) return returnToCollection;
     if (collections.view && !position) return () => collections.close();
@@ -750,7 +792,7 @@ export function ChannelsWorkspace({
           </>
         }
         channelHeading={
-          channel && !historyDenied
+          !directoryOpen && channel && !historyDenied
             ? (id, ref) => (
                 <CollectionChannelMenu
                   headingId={id}
@@ -844,26 +886,32 @@ export function ChannelsWorkspace({
         }
         returnInThread={compact && Boolean(activeThread)}
         accountRef={accountButton}
-        draftRef={draftField}
+        draftRef={directoryOpen ? undefined : draftField}
         accountName={
           own && settings ? teammateName(own, settings.nameFormat) : ""
         }
         teamName={team.displayName || team.name}
         channel={
-          channel
-            ? {
-                id: channel.id,
-                title: channelTitle,
-              }
-            : null
+          directoryOpen
+            ? { id: "team-directory", title: directoryTitle }
+            : channel
+              ? {
+                  id: channel.id,
+                  title: channelTitle,
+                }
+              : null
         }
         emptyTitle={
           canReturnToResults
             ? (directoryIssue ?? (snapshot ? text.forbidden : text.noCache))
             : text.choose
         }
-        page={chosen || canReturnToResults ? page : "navigation"}
+        page={
+          chosen || directoryOpen || canReturnToResults ? page : "navigation"
+        }
         onNavigation={() => {
+          restoreDirectoryFocus.current = directoryOpen;
+          setDirectoryOpen(false);
           search.abortPending();
           collections.close(false);
           setPage("navigation");
@@ -906,59 +954,73 @@ export function ChannelsWorkspace({
               }
             : undefined
         }
-        composer={composer()}
+        composer={
+          <div className="workspace-conversation-route" hidden={directoryOpen}>
+            {composer()}
+          </div>
+        }
       >
-        {timeline.status === "positionLost" && (
-          <Notice
-            message={text.positionLost}
-            label={text.latest}
-            retry={timeline.showLatest}
+        {directoryOpen && (
+          <JoinedChannelDirectory
+            state={directory.state}
+            language={language}
+            choose={choose}
+            retry={directory.retry}
           />
         )}
-        {historyIssue &&
-          notice(
-            historyIssue,
-            timeline.canRetry ? timeline.retry : undefined,
-            true,
-          )}
-        {chosen &&
-          settings &&
-          !historyDenied &&
-          timeline.status !== "positionLost" && (
-            <ConversationTimeline
-              viewport={timeline.viewport}
-              channelId={chosen}
-              connection={connection}
-              latest={timeline.latest}
-              userId={userId}
-              sessionIssue={sessionIssue}
-              page={timeline.page}
-              inaccessibleBefore={timeline.firstInaccessiblePostTime}
-              waitingMessage={
-                !timeline.page &&
-                (timeline.status === "loading" ||
-                  timeline.status === "refreshing")
-                  ? text.loadingHistory
-                  : undefined
-              }
-              offline={!online}
-              locale={language}
-              author={author}
-              onReadEdge={timeline.loadEdge}
-              address={
-                timeline.focus && !timeline.focus.focusedReply
-                  ? timeline.focus
-                  : undefined
-              }
-              onOpenThread={(post) => {
-                setClosedRequest(position?.request.requestId ?? null);
-                collections.close(false);
-                setThread(post);
-              }}
-              openThreadPostId={activeThread?.id}
-              collapsedThreads={settings.collapsedThreads}
+        <div className="workspace-conversation-route" hidden={directoryOpen}>
+          {timeline.status === "positionLost" && (
+            <Notice
+              message={text.positionLost}
+              label={text.latest}
+              retry={timeline.showLatest}
             />
           )}
+          {historyIssue &&
+            notice(
+              historyIssue,
+              timeline.canRetry ? timeline.retry : undefined,
+              true,
+            )}
+          {chosen &&
+            settings &&
+            !historyDenied &&
+            timeline.status !== "positionLost" && (
+              <ConversationTimeline
+                viewport={timeline.viewport}
+                channelId={chosen}
+                connection={connection}
+                latest={timeline.latest}
+                userId={userId}
+                sessionIssue={sessionIssue}
+                page={timeline.page}
+                inaccessibleBefore={timeline.firstInaccessiblePostTime}
+                waitingMessage={
+                  !timeline.page &&
+                  (timeline.status === "loading" ||
+                    timeline.status === "refreshing")
+                    ? text.loadingHistory
+                    : undefined
+                }
+                offline={!online}
+                locale={language}
+                author={author}
+                onReadEdge={timeline.loadEdge}
+                address={
+                  timeline.focus && !timeline.focus.focusedReply
+                    ? timeline.focus
+                    : undefined
+                }
+                onOpenThread={(post) => {
+                  setClosedRequest(position?.request.requestId ?? null);
+                  collections.close(false);
+                  setThread(post);
+                }}
+                openThreadPostId={activeThread?.id}
+                collapsedThreads={settings.collapsedThreads}
+              />
+            )}
+        </div>
       </ChannelsFrame>
       {search.dialog}
       {accountOpen && (

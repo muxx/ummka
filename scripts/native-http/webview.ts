@@ -65,7 +65,7 @@ export function webviewServers(
     | undefined;
   let sendRight: (() => Promise<void>) | undefined;
   let prepareKeyboard: (() => Promise<void>) | undefined;
-  const backSteps = ["dialog", "results", "thread", "reopened"];
+  const backSteps = ["dialog", "results", "thread", "reopened", "directory"];
   let stepIndex = 0;
   let pressWorkspaceBack: (() => Promise<void>) | undefined;
   let disconnect: Socket | undefined;
