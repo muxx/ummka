@@ -15,6 +15,7 @@ export function channelDraftActions(
   channel: TeamSidebar["data"]["channels"][number],
   permission: ReturnType<typeof savedChannelPermissions>,
   collapsedThreads: boolean | null,
+  openSearch: (terms: string, origin: AbortSignal) => Promise<boolean>,
   thread?: ReactionThread,
 ): DraftSendContext {
   return {
@@ -67,6 +68,7 @@ export function channelDraftActions(
         draft,
         signal,
         () => sessionIssue("unauthorized"),
+        openSearch,
       );
     },
   };

@@ -167,6 +167,7 @@ test("Enter on a quick emoji in a thread reacts to its latest reply and clears o
       channel,
       () => "allowed",
       true,
+      vi.fn(),
       reader,
     );
     const message = "+:eyes:";

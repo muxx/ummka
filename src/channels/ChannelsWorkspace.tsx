@@ -29,6 +29,7 @@ import { draftCopy } from "./draft-copy.ts";
 import { useChannelTimeline } from "./use-channel-timeline.ts";
 import { useWorkspaceProfiles } from "./use-workspace-profiles.ts";
 import { useTeamRoles, useWorkspaceRead } from "./use-workspace-read.ts";
+import { useWorkspaceSearch } from "./use-workspace-search.tsx";
 import { workspaceCopy } from "./workspace-copy.ts";
 import { openingChannel, workspaceProfileQuery } from "./workspace-data.ts";
 import "./workspace.css";
@@ -405,6 +406,14 @@ export function ChannelsWorkspace({
       ? { name: teammateName(profile, settings.nameFormat) }
       : undefined;
   }
+  const search = useWorkspaceSearch(
+    workspace,
+    language,
+    (id) =>
+      snapshot?.data.channels.find((row) => row.id === id)?.displayName ||
+      undefined,
+    (id) => author(id)?.name,
+  );
   const notice = (message: string, retry?: () => void, alert = false) => (
     <Notice message={message} label={text.retry} retry={retry} alert={alert} />
   );
@@ -452,6 +461,8 @@ export function ChannelsWorkspace({
           chooseTeam: text.switchTeam,
           closeThread: text.closeThread,
         }}
+        searchTrigger={search.trigger}
+        searchPanel={search.panel}
         accountRef={accountButton}
         draftRef={draftField}
         accountName={
@@ -488,6 +499,7 @@ export function ChannelsWorkspace({
                 channel,
                 permission,
                 settings?.collapsedThreads ?? null,
+                search.fromCommand,
               )}
               label={draftLabel()}
               language={language}
@@ -536,6 +548,7 @@ export function ChannelsWorkspace({
           />
         )}
       </ChannelsFrame>
+      {search.dialog}
       {accountOpen && (
         <AccountSessionWindow
           workspace={workspace}

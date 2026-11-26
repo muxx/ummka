@@ -5,6 +5,7 @@ import type { WorkspaceConnection } from "./use-workspace-read.ts";
 type Command = Awaited<ReturnType<WorkspaceConnection["submitDraftCommand"]>>;
 type Reaction = Awaited<ReturnType<typeof submitChannelReaction>>;
 export type ActionFeedback =
+  | { kind: "search" }
   | { kind: "command"; answer: Command }
   | { kind: "changedPendingCommand"; action: "edit" | "clear" }
   | { kind: "reaction"; answer: Reaction; emoji: string }
@@ -33,6 +34,8 @@ export function draftActionFeedback(
 ): string {
   const ru = lang === "ru";
   switch (action.kind) {
+    case "search":
+      return "";
     case "changedPendingCommand":
       if (action.action === "clear")
         return ru ? "Поле очищено." : "Draft cleared.";
