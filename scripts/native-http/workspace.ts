@@ -11,6 +11,17 @@ const townFile = "h".repeat(26);
 const design = "d".repeat(26);
 const member = "f".repeat(26);
 
+const publicRoom = {
+  id: "z".repeat(26),
+  team_id: team,
+  name: "release-notes",
+  display_name: "Release Notes",
+  type: "O",
+  header: "Upcoming releases",
+  purpose: "Release announcements",
+  delete_at: 0,
+};
+
 const category = "k".repeat(26);
 
 function latest(url: URL) {
@@ -23,8 +34,12 @@ function latest(url: URL) {
   });
   assert.equal(url.searchParams.size, 5);
 }
-function postList(channelId: string, userId: string, message: string) {
-  const id = channelId === town ? townRoot : "y".repeat(26);
+function postList(
+  channelId: string,
+  userId: string,
+  message: string,
+  id = channelId === town ? townRoot : "y".repeat(26),
+) {
   return {
     order: [id],
     posts: {
@@ -55,7 +70,7 @@ export async function respondToWorkspace(
   url: URL,
   prefixedUser: string,
   restoredPosting: boolean,
-  systemLinks = false,
+  { joinedPublicRoom = false, systemLinks = false } = {},
 ): Promise<string | undefined> {
   function json(value: unknown, name: string, status = 200) {
     res
@@ -79,6 +94,9 @@ export async function respondToWorkspace(
   const base = "/browser-action-check/api/v4/";
   if (!url.pathname.startsWith(base)) return;
   const path = url.pathname.slice(base.length);
+  const joinedIds = joinedPublicRoom
+    ? [town, design, publicRoom.id]
+    : [town, design];
   const routes = new Map<string, unknown>([
     [
       `users/me/teams/${team}/channels`,
@@ -99,14 +117,15 @@ export async function respondToWorkspace(
           display_name: "Design",
           delete_at: 0,
         },
+        ...(joinedPublicRoom ? [publicRoom] : []),
       ],
     ],
     [
       `users/me/teams/${team}/channels/members`,
-      [town, design].map((channel_id) => ({
+      joinedIds.map((channel_id) => ({
         channel_id,
         user_id: member,
-        roles: channel_id === town ? "channel_user" : "fixture_reader",
+        roles: channel_id === design ? "fixture_reader" : "channel_user",
       })),
     ],
     [
@@ -124,7 +143,7 @@ export async function respondToWorkspace(
             sort_order: 0,
             muted: false,
             collapsed: false,
-            channel_ids: [town, design],
+            channel_ids: joinedIds,
           },
         ],
       },
@@ -182,6 +201,10 @@ export async function respondToWorkspace(
       : path === `channels/${design}/posts`
         ? design
         : null;
+  const listRooms = path === `teams/${team}/channels`;
+  const queryRooms = path === `teams/${team}/channels/autocomplete`;
+  const joinRoom = path === `channels/${publicRoom.id}/members`;
+  const joinedPosts = path === `channels/${publicRoom.id}/posts`;
   const thread = path === `posts/${townRoot}/thread`;
   const policy =
     (path === "config/client" || path === "license/client") &&
@@ -189,6 +212,7 @@ export async function respondToWorkspace(
   const searchPosts = path === `teams/${team}/posts/search`;
   const searchFiles = path === `teams/${team}/files/search`;
   const post =
+    joinRoom ||
     searchPosts ||
     searchFiles ||
     path === "users/ids" ||
@@ -199,6 +223,9 @@ export async function respondToWorkspace(
     !routes.has(path) &&
     !anchors.has(path) &&
     !channelId &&
+    !listRooms &&
+    !queryRooms &&
+    !joinedPosts &&
     !thread &&
     !policy &&
     !post
@@ -212,6 +239,29 @@ export async function respondToWorkspace(
   );
   assert.equal(req.headers.cookie, undefined);
   assert.equal(req.method, post ? "POST" : "GET");
+  if (listRooms || queryRooms) {
+    assert.deepEqual(
+      Object.fromEntries(url.searchParams),
+      listRooms ? { page: "0", per_page: "50" } : { name: "release" },
+    );
+    return json([publicRoom], listRooms ? "directory-page" : "directory-query");
+  }
+  if (joinedPosts) {
+    assert.ok(
+      joinedPublicRoom,
+      "Directory details requested posts before joining",
+    );
+    latest(url);
+    return json(
+      postList(
+        publicRoom.id,
+        member,
+        "Welcome to Release Notes",
+        "j".repeat(26),
+      ),
+      "directory-posts",
+    );
+  }
   const anchor = anchors.get(path);
   if (anchor) {
     assert.equal(url.search, "");
@@ -307,6 +357,19 @@ export async function respondToWorkspace(
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk);
     const body = JSON.parse(Buffer.concat(chunks).toString());
+    if (joinRoom) {
+      assert.equal(
+        joinedPublicRoom,
+        false,
+        "Directory sent the membership request twice",
+      );
+      assert.deepEqual(body, { user_id: member });
+      return json(
+        { channel_id: publicRoom.id, user_id: member },
+        "directory-join",
+        201,
+      );
+    }
     if (searchPosts || searchFiles) {
       assert.deepEqual(body, {
         terms: "window fixture",
@@ -403,10 +466,12 @@ export async function respondToWorkspace(
         names.map((name) => ({
           name,
           permissions:
-            name === "channel_user" ||
-            (name === "fixture_reader" && restoredPosting)
-              ? ["create_post"]
-              : [],
+            name === "team_user"
+              ? ["list_team_channels", "join_public_channels"]
+              : name === "channel_user" ||
+                  (name === "fixture_reader" && restoredPosting)
+                ? ["create_post"]
+                : [],
         })),
         "live-roles",
       );

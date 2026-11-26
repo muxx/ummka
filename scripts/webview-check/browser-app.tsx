@@ -8,6 +8,7 @@ import {
   openNativeRestConnection,
 } from "../../src/mattermost/native-rest.ts";
 import { openChannelNavigation } from "./account-team-window.tsx";
+import { checkAvailableDirectoryWindow } from "./available-directory-window.ts";
 import { checkModalScroll } from "./modal-scroll.ts";
 import { checkPendingCommandActions } from "./pending-command-actions.ts";
 import { findThreadDraft, verifyWorkspaceBack } from "./workspace-back.tsx";
@@ -450,6 +451,7 @@ export async function checkBrowserApp(server: string, controlPort: string) {
     await within(savedDesignPost).findByText("fixture-author");
     if ((await getCurrentAccountId(server)) !== "f".repeat(26))
       throw Error("entry did not retain the signed-in account");
+    await checkAvailableDirectoryWindow(host, controlPort);
     flushSync(() =>
       fireEvent.click(ui.getByRole("button", { name: "Account" })),
     );
