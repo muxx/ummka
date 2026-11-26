@@ -362,6 +362,7 @@ export async function startFixture(dir: string) {
           header: "scoped",
         };
         const reads = [
+          "channels/Channel0123456789012345678",
           "config/client?format=old",
           "license/client?format=old",
           "users/me",
