@@ -11,6 +11,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ResponseError } from "../../vendor/mattermost/index.js";
 import type { TeamWorkspace } from "../entry/AccountTeamWindow.tsx";
 import type { PendingPost } from "../mattermost/account-delivery.ts";
+import { createChannelHistoryChanges } from "../mattermost/channel-history-changes.ts";
 import type { LocalPost } from "../mattermost/local-history.ts";
 import type {
   ComposerDraft,
@@ -138,7 +139,10 @@ function mount(
   const draftKey = ({ channelId, rootId }: DraftLocation) =>
     JSON.stringify([channelId, rootId]);
   let revision = 0;
+  const changes = createChannelHistoryChanges();
   const connection = {
+    subscribeToChannelHistory: changes.subscribe,
+    notifyChannelHistoryChanged: changes.notify,
     readRecentTeamSearches: vi.fn(async () => []),
     rememberTeamSearch: vi.fn(async () => true),
     readSearchTimezone: vi.fn(async () => "UTC"),
@@ -753,4 +757,44 @@ test("retrying an earlier page keeps focus at the earlier edge while the other p
       .getAllByRole("article")
       .map((row) => row.getAttribute("data-post-id")),
   ).toEqual([root.id, older.id, reply.id, newer.id]);
+});
+
+test("the workspace offers an explicit return after the last visible message is removed and preserves the channel draft", async () => {
+  const account = mount(true);
+  const open = await screen.findByRole("button", {
+    name: /Open thread, 1 reply/,
+  });
+  const pane = screen.getByRole("region", { name: "Channel messages" });
+  const row = open.closest("article");
+  if (!row) throw Error("Missing message");
+  Object.defineProperties(pane, {
+    clientHeight: { value: 100 },
+    scrollHeight: { value: 500 },
+  });
+  pane.scrollTop = 100;
+  pane.getBoundingClientRect = () => new DOMRect(0, 0, 100, 100);
+  row.getBoundingClientRect = () => new DOMRect(0, -8, 100, 36);
+  const draft = screen.getByRole<HTMLTextAreaElement>("textbox", {
+    name: "Message #General…",
+  });
+  fireEvent.change(draft, { target: { value: "Keep my draft" } });
+  draft.focus();
+  const networkCalls = account.refreshChannelHistory.mock.calls.length;
+  account.readChannelWindow.mockResolvedValueOnce(null);
+  await act(async () => account.notifyChannelHistoryChanged(general));
+  expect(
+    await screen.findByText(
+      "The messages you were reading are no longer available here.",
+    ),
+  ).toBeTruthy();
+  expect(screen.queryByRole("region", { name: "Channel messages" })).toBeNull();
+  expect(document.activeElement).toBe(draft);
+  expect(draft.value).toBe("Keep my draft");
+  expect(account.refreshChannelHistory).toHaveBeenCalledTimes(networkCalls);
+  fireEvent.click(
+    screen.getByRole("button", { name: "Go to latest messages" }),
+  );
+  expect(
+    await screen.findByRole("button", { name: /Open thread, 1 reply/ }),
+  ).toBeTruthy();
 });

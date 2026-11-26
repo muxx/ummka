@@ -50,6 +50,7 @@ export function useChannelTimeline(
   const { reader } = current;
   const state = useSyncExternalStore(reader.subscribe, reader.getSnapshot);
   useLayoutEffect(() => () => reader.stop(), [reader]);
+  useLayoutEffect(() => reader.watchChanges(), [reader]);
   useLayoutEffect(() => reader.setOnline(online), [online, reader]);
   const report = useEffectEvent(sessionIssue);
   useEffect(() => {
@@ -59,5 +60,11 @@ export function useChannelTimeline(
     )
       report(state.status);
   }, [state.status, reader]);
-  return { ...state, retry: reader.retry, loadEdge: reader.loadEdge };
+  return {
+    ...state,
+    viewport: reader.viewport,
+    retry: reader.retry,
+    loadEdge: reader.loadEdge,
+    showLatest: reader.showLatest,
+  };
 }

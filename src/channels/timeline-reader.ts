@@ -3,6 +3,12 @@ import type {
   LocalPost,
 } from "../mattermost/local-history.ts";
 import { prepareFocusedConversation } from "./prepare-focused-conversation.ts";
+import { readCommittedTimeline } from "./timeline-reprojection.ts";
+import {
+  type ReadingPosition,
+  readingPosition,
+  type TimelineViewport,
+} from "./timeline-viewport.ts";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
 import {
   channelPageSize,
@@ -23,7 +29,10 @@ export type TimelineRequest =
   | { kind: "latest"; requestId: number };
 export type TimelineAccount = Pick<
   WorkspaceConnection,
-  "rid" | "readChannelWindow" | "refreshChannelHistory"
+  | "rid"
+  | "readChannelWindow"
+  | "refreshChannelHistory"
+  | "subscribeToChannelHistory"
 >;
 
 type Direction = "older" | "newer";
@@ -32,6 +41,7 @@ type Status =
   | WorkspaceRead<LocalChannelWindow>["status"]
   | "unavailable"
   | "inaccessible"
+  | "positionLost"
   | "superseded";
 type Snapshot = {
   status: Status;
@@ -67,7 +77,7 @@ export function createTimelineReader(
   collapsedThreads: boolean | null,
   request?: TimelineRequest,
 ) {
-  const target = request?.kind === "focus" ? request : undefined;
+  let target = request?.kind === "focus" ? request : undefined;
   const eligible =
     !target ||
     (target.rid === account.rid &&
@@ -83,6 +93,113 @@ export function createTimelineReader(
   let pending: AbortController | undefined;
   let edge: Edge | undefined;
   let paged = false;
+  let pane: HTMLElement | null = null;
+  let resize: ResizeObserver | undefined;
+  const viewport: TimelineViewport = {
+    get current() {
+      return pane;
+    },
+    set current(next) {
+      resize?.disconnect();
+      resize = undefined;
+      pane = next;
+      if (changed && next) queueMicrotask(readChanges);
+    },
+  };
+  let projection: AbortController | undefined;
+  let changed = false;
+  let retryChange = false;
+
+  function position(visible: HTMLElement): ReadingPosition {
+    return readingPosition(
+      visible,
+      !state.page || state.page.newer.kind === "end",
+    );
+  }
+
+  async function readChanges() {
+    if (
+      !changed ||
+      projection ||
+      pending ||
+      online === undefined ||
+      !channelId ||
+      collapsedThreads === null ||
+      !state.canRetry ||
+      !pane
+    )
+      return;
+    if (!pane.clientHeight) {
+      if (!resize) {
+        resize = new ResizeObserver(() => {
+          if (pane?.clientHeight) {
+            resize?.disconnect();
+            resize = undefined;
+            void readChanges();
+          }
+        });
+        resize.observe(pane);
+      }
+      return;
+    }
+    changed = false;
+    const operation = new AbortController();
+    projection = operation;
+    const before = position(pane);
+    try {
+      const result = await readCommittedTimeline(
+        account,
+        { channelId, collapsedThreads },
+        before,
+        operation.signal,
+      );
+      if (operation.signal.aborted || changed) return;
+      if (!pane?.clientHeight) {
+        changed = true;
+        return;
+      }
+      const after = position(pane);
+      if (
+        before === "latest"
+          ? after !== "latest"
+          : after === "latest" ||
+            before.length !== after.length ||
+            before.some((id, index) => after[index] !== id)
+      ) {
+        changed = true;
+        return;
+      }
+      if (result.positionLost) {
+        clearPage("positionLost");
+      } else {
+        const { page } = result;
+        paged = before !== "latest";
+        publish({
+          ...state,
+          page,
+          status: online ? "ready" : "offline",
+          notice: null,
+          focus: page?.posts.some((post) => post.id === state.focus?.anchorId)
+            ? state.focus
+            : null,
+          latest: page?.newer.kind === "end",
+          firstInaccessiblePostTime: page?.firstInaccessiblePostTime ?? 0,
+        });
+      }
+      retryChange = false;
+    } catch (error) {
+      if (!operation.signal.aborted && !changed) {
+        const failure = workspaceFailure(error, "storage");
+        if (failure === "storage") {
+          retryChange = true;
+          publish({ ...state, notice: failure });
+        } else clearPage(failure);
+      }
+    } finally {
+      if (projection === operation) projection = undefined;
+      if (changed) void readChanges();
+    }
+  }
 
   function publish(next: Snapshot) {
     state = next;
@@ -118,6 +235,8 @@ export function createTimelineReader(
     )
       return;
     pending?.abort();
+    retryChange = false;
+    projection?.abort();
     const operation = new AbortController();
     pending = operation;
     const { signal } = operation;
@@ -221,10 +340,20 @@ export function createTimelineReader(
       else clearPage(failure);
     } finally {
       if (pending === operation) pending = undefined;
+      if (changed) void readChanges();
     }
   }
 
   return {
+    viewport,
+    watchChanges() {
+      if (!channelId || !eligible || collapsedThreads === null) return;
+      return account.subscribeToChannelHistory(channelId, (source) => {
+        if (source && pending?.signal === source) return;
+        changed = true;
+        void readChanges();
+      });
+    },
     getSnapshot: () => state,
     subscribe(listener: () => void) {
       listeners.add(listener);
@@ -234,6 +363,18 @@ export function createTimelineReader(
       const first = online === undefined;
       if (online === next) return;
       online = next;
+      if (
+        !first &&
+        next &&
+        !pending &&
+        !edge &&
+        paged &&
+        state.page &&
+        state.status === "offline"
+      ) {
+        publish({ ...state, status: "ready" });
+        return;
+      }
       if (
         first ||
         pending ||
@@ -252,10 +393,25 @@ export function createTimelineReader(
     },
     stop() {
       online = undefined;
+      changed = false;
+      resize?.disconnect();
+      resize = undefined;
+      projection?.abort();
       pending?.abort();
       pending = undefined;
     },
-    retry: read,
+    retry() {
+      if (!retryChange) return read();
+      changed = true;
+      return readChanges();
+    },
+    showLatest() {
+      if (state.status !== "positionLost") return;
+      target = undefined;
+      paged = false;
+      publish(empty("loading", true));
+      return read();
+    },
     async loadEdge(direction: Direction, postId: string) {
       const boundary = state.page?.[direction];
       if (

@@ -83,42 +83,52 @@ export async function checkChannelRefresh(
         "Stored reply did not resolve to its exact channel or thread position.",
       );
   }
-  const error = await account
-    .refreshChannelHistory({ ...scoped, kind: "since", since: 3 })
-    .catch((e: unknown) => e);
-  if (!(error instanceof ResponseError) || error.response.status !== 503)
-    throw Error("failed refresh lost its server error");
-  const before = await account.readChannelWindow({
-    ...scoped,
-    kind: "latest",
-    limit: 10,
+  let commits = 0;
+  const stop = account.subscribeToChannelHistory(channelId, () => {
+    commits++;
   });
-  if (before?.posts.length !== 3)
-    throw Error("failed refresh changed the existing timeline");
-  const pending = account.refreshChannelHistory({
-    ...scoped,
-    kind: "before",
-    postId: "x".repeat(26),
-  });
-  await Promise.race([
-    observe("received", "refresh-late"),
-    pending.then(() => {
-      throw Error("late page finished before the server released it");
-    }),
-  ]);
   try {
-    const deletion = await account.refreshChannelHistory({
+    const error = await account
+      .refreshChannelHistory({ ...scoped, kind: "since", since: 3 })
+      .catch((e: unknown) => e);
+    if (!(error instanceof ResponseError) || error.response.status !== 503)
+      throw Error("failed refresh lost its server error");
+    const before = await account.readChannelWindow({
       ...scoped,
-      kind: "since",
-      since: 2,
+      kind: "latest",
+      limit: 10,
     });
-    if (deletion.kind !== "applied")
-      throw Error("concurrent removal not committed");
+    if (before?.posts.length !== 3)
+      throw Error("failed refresh changed the existing timeline");
+    const pending = account.refreshChannelHistory({
+      ...scoped,
+      kind: "before",
+      postId: "x".repeat(26),
+    });
+    await Promise.race([
+      observe("received", "refresh-late"),
+      pending.then(() => {
+        throw Error("late page finished before the server released it");
+      }),
+    ]);
+    try {
+      const deletion = await account.refreshChannelHistory({
+        ...scoped,
+        kind: "since",
+        since: 2,
+      });
+      if (deletion.kind !== "applied")
+        throw Error("concurrent removal not committed");
+    } finally {
+      await observe("release-history", "refresh-late");
+    }
+    if ((await pending).kind !== "superseded")
+      throw Error("delayed HTTP response restored the removed post");
+    if (commits !== 1)
+      throw Error(`Expected one committed channel update, received ${commits}`);
   } finally {
-    await observe("release-history", "refresh-late");
+    stop();
   }
-  if ((await pending).kind !== "superseded")
-    throw Error("delayed HTTP response restored the removed post");
 }
 
 export async function checkRefreshedAfterRestart(origin: string) {

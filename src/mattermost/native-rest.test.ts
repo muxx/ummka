@@ -33,6 +33,32 @@ const localQuery = {
   limit: 20,
 } as const;
 
+test("an open account owns and releases its channel commit listeners", async () => {
+  ipc.mockResolvedValueOnce(27).mockResolvedValueOnce(28);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    "u".repeat(26),
+  );
+  const other = await openAccountRestConnection(
+    "https://chat.example.test",
+    "u".repeat(26),
+  );
+  const first = vi.fn();
+  const second = vi.fn();
+  const stop = account.subscribeToChannelHistory(localQuery.channelId, first);
+  other.subscribeToChannelHistory(localQuery.channelId, second);
+  account.notifyChannelHistoryChanged(localQuery.channelId);
+  expect(first).toHaveBeenCalledTimes(1);
+  expect(second).not.toHaveBeenCalled();
+  stop();
+  account.notifyChannelHistoryChanged(localQuery.channelId);
+  expect(first).toHaveBeenCalledTimes(1);
+  await other.close();
+  other.notifyChannelHistoryChanged(localQuery.channelId);
+  expect(second).not.toHaveBeenCalled();
+  await account.close();
+});
+
 test("a local read uses only this account's native resource and keeps an unknown window distinct", async () => {
   ipc.mockResolvedValueOnce(27);
   const account = await openAccountRestConnection(
@@ -504,6 +530,7 @@ test("opens a native account by installation and user ID", async () => {
     "isPostSending",
     "markChannelsRead",
     "markPostUnread",
+    "notifyChannelHistoryChanged",
     "readAccountDirectory",
     "readAssociatedMentionGroups",
     "readChannelMemberCount",
@@ -560,6 +587,7 @@ test("opens a native account by installation and user ID", async () => {
     "stagePost",
     "submitDraft",
     "submitDraftCommand",
+    "subscribeToChannelHistory",
     "subscribeToPostActivity",
     "transitionDraftCommand",
     "updateChannelNotifications",

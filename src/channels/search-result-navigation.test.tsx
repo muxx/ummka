@@ -10,6 +10,7 @@ import {
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ResponseError } from "../../vendor/mattermost/index.js";
 import { App } from "../App.tsx";
+import { createChannelHistoryChanges } from "../mattermost/channel-history-changes.ts";
 import { getDeviceLaunchContext } from "../mattermost/device-launch.ts";
 import type { LocalPost } from "../mattermost/local-history.ts";
 import { openAccountRestConnection } from "../mattermost/native-rest.ts";
@@ -169,7 +170,10 @@ function fixture({
     [design, "Target draft"],
     [root.id, "Unfinished reply"],
   ]);
+  const changes = createChannelHistoryChanges();
   const account = {
+    subscribeToChannelHistory: changes.subscribe,
+    notifyChannelHistoryChanged: changes.notify,
     rid: 9,
     close: vi.fn().mockResolvedValue(undefined),
     signOutOnDevice: vi.fn().mockResolvedValue("removed"),
