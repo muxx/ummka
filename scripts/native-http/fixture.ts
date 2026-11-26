@@ -351,6 +351,7 @@ export async function startFixture(dir: string) {
       webviewPorts: ports.slice(native.length),
       onAndroidInputReady: webview.onAndroidInputReady,
       onMacInputReady: webview.onMacInputReady,
+      webviewProgress: webview.progress,
       ca: certs.ca,
       close,
       verify(android: boolean) {

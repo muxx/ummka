@@ -66,6 +66,8 @@ export function webviewServers(
     | { width: number; first: number; unchanged: number }[]
     | undefined;
   const formatKeyWidths: number[] = [];
+  let controlProgress = "not started";
+  let controlRequests = 0;
   let sendRight: (() => Promise<void>) | undefined;
   let prepareKeyboard: (() => Promise<void>) | undefined;
   const backSteps = [
@@ -1438,6 +1440,22 @@ export function webviewServers(
     const url = new URL(req.url ?? "/", "https://localhost");
     assert.equal(url.pathname, "/api/v4/system/ping");
     const step = url.searchParams.get("step");
+    const controlId = ++controlRequests;
+    const knownStep =
+      step &&
+      (backSteps.some((label) => step === `back-${label}`) ||
+        [
+          "format-right",
+          "format-times",
+          "received",
+          "closed",
+          "before",
+          "release-history",
+          "release-submission",
+          "disconnect",
+        ].includes(step));
+    const marker = knownStep ? step : "other";
+    controlProgress = `${controlId} ${marker} received`;
     if (step === "before") {
       assert.equal(
         connections,
@@ -1514,6 +1532,7 @@ export function webviewServers(
         await sendTab();
       }
     }
+    controlProgress = `${controlId} ${marker} replied`;
     res.writeHead(204).end();
   });
   let untrustedRequests = 0;
@@ -1523,6 +1542,8 @@ export function webviewServers(
   });
   return {
     servers: [data, control, foreign],
+    progress: () =>
+      `control=${controlProgress}, data visits=${visits.length}, completed Back steps=${stepIndex}`,
     onMacInputReady(send: SendMacKey) {
       pressWorkspaceBack = () => send("escape");
       sendRight = () => send("right");
