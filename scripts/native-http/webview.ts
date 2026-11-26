@@ -12,6 +12,7 @@ import { respondToGroupAssociations } from "./group-associations.ts";
 import { respondToGroupAudience } from "./group-audience.ts";
 import { respondToHistory } from "./history.ts";
 import { historyRefreshFixture } from "./history-refresh.ts";
+import { collectionFixture } from "./post-collections.ts";
 import { respondToPostContext } from "./post-context.ts";
 import { respondToPostMutation } from "./post-mutations.ts";
 import { submissionFixture } from "./submit-post.ts";
@@ -68,6 +69,7 @@ export function webviewServers(
   );
   const teamId = "Team0123456789012345678901";
   const channelId = "c".repeat(26);
+  const collections = collectionFixture(channelId, userId);
   const teamReads = new Map<string, { name: string; body: object | null }>([
     [
       `/team/chat/api/v4/teams/${teamId}/channels/managed_categories`,
@@ -332,6 +334,11 @@ export function webviewServers(
       res
         .writeHead(200, { "Content-Type": "application/json" })
         .end(JSON.stringify({ status: "OK" }));
+      return;
+    }
+    const collection = await collections(req, res, url);
+    if (collection) {
+      visits.push(collection);
       return;
     }
     if (url.pathname === "/team/chat/api/v4/users/usernames") {
@@ -1083,6 +1090,13 @@ export function webviewServers(
         "create-post-reply",
         "save-post-reaction",
         "delete-post-reaction",
+        "list-pins",
+        "list-pins",
+        "list-pins",
+        "list-saved",
+        "list-saved",
+        "remove-pin",
+        "remove-saved",
         "custom-emoji-by-name",
         "custom-emoji-by-name",
         "custom-emoji-by-name",
