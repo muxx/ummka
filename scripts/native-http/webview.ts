@@ -1609,6 +1609,8 @@ export function webviewServers(
         "account-thread-page",
         "account-thread-empty",
         "account-thread-totals",
+        "follow-thread",
+        "unfollow-thread",
         "patch-post",
         "post-edit-history",
         "post-edit-history",

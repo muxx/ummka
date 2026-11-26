@@ -510,6 +510,7 @@ test("passes the canonical installation and closes the exact native handle", asy
   expect("readPostEditHistory" in connection).toBe(false);
   expect("editOwnPostMessage" in connection).toBe(false);
   expect("deleteOwnPost" in connection).toBe(false);
+  expect("setThreadFollowing" in connection).toBe(false);
   expect("readPostReactions" in connection).toBe(false);
   expect("markFollowedThreadRead" in connection).toBe(false);
   expect("markTeamThreadsRead" in connection).toBe(false);
@@ -625,6 +626,7 @@ test("opens a native account by installation and user ID", async () => {
     "selectSidebarChannel",
     "setPostPinned",
     "setPostSaved",
+    "setThreadFollowing",
     "signOut",
     "signOutOnDevice",
     "stagePost",

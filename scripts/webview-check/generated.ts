@@ -677,6 +677,16 @@ export async function checkGeneratedRequests(ports: string[]) {
     );
     await checkThreadList(threads, teamId, channelId, userId);
     await checkAccountThreadList(accountPrefix, teamId, channelId, userId);
+    await accountPrefix.setThreadFollowing(
+      teamId,
+      { id: postId, rootId: null },
+      true,
+    );
+    await accountPrefix.setThreadFollowing(
+      teamId,
+      { id: "r".repeat(26), rootId: postId },
+      false,
+    );
     const guestThreads = new ThreadsApi(new Configuration(prefixed));
     const timestamp = 1700000000123;
     await checkAccountThreadReadState(accountPrefix, teamId, postId, timestamp);

@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { channelPostChange } from "../../../src/mattermost/channel-post-records.ts";
+import { setThreadFollowing } from "../../../src/mattermost/thread-following.ts";
 import {
   type Configuration,
   PostsApi,
@@ -38,7 +40,7 @@ export async function checkThreadFollow(
     });
     assert.ok(root.id);
     const threadId = root.id;
-    await author.posts.createPost({
+    const reply = await author.posts.createPost({
       createPostRequest: {
         channelId,
         rootId: threadId,
@@ -67,6 +69,30 @@ export async function checkThreadFollow(
       assert.equal(await readFollowing(readerPosts), follow);
       assert.equal(await readFollowing(author.posts), authorState);
     }
+    assert.ok(reply.id && reply.rootId === threadId);
+    const rootRow = channelPostChange(channelId, threadId, root);
+    const replyRow = channelPostChange(channelId, reply.id, reply);
+    assert.ok(rootRow.kind === "save" && replyRow.kind === "save");
+    assert.equal(rootRow.rootId, null);
+    for (const [row, following] of [
+      [replyRow, true],
+      [rootRow, true],
+      [rootRow, false],
+      [replyRow, false],
+    ] as const) {
+      await setThreadFollowing(threads, teamId, row, following);
+      assert.equal(await readFollowing(readerPosts), following);
+      assert.equal(await readFollowing(author.posts), authorState);
+    }
+    await assert.rejects(
+      setThreadFollowing(
+        threads,
+        teamId,
+        { id: privatePostId, rootId: null },
+        true,
+      ),
+      failedWith(403),
+    );
     for (const forbidden of [
       { ...query, userId: author.userId },
       { ...query, threadId: privatePostId },
