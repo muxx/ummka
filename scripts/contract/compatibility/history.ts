@@ -55,7 +55,10 @@ import {
 } from "./memberships.ts";
 import { checkMentionLimit } from "./mention-limit.ts";
 import { checkMentionText } from "./mention-text.ts";
-import { checkPostCollections } from "./post-collections.ts";
+import {
+  checkPostCollections,
+  checkSavedPageBoundary,
+} from "./post-collections.ts";
 import {
   checkPostMutations,
   checkPreviouslyAcceptedPost,
@@ -67,6 +70,7 @@ import { checkReactionLimit } from "./reaction-limit.ts";
 import { checkPostReactions } from "./reactions.ts";
 import { checkRoleReads } from "./role-reads.ts";
 import { checkSearchScopePolicy } from "./search-scope.ts";
+import { expectedNavigationPost } from "./search-target.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
 import { checkThreadSummary } from "./thread-summary.ts";
@@ -462,6 +466,7 @@ for (const [id, rootId] of [
     postId: id,
     channelId,
     rootId: rootId || null,
+    post: expectedNavigationPost(row),
   });
 }
 await assert.rejects(
@@ -1211,6 +1216,13 @@ console.log(
 await checkEventStream(base, token, session, team.id, channelId);
 console.log(
   `Mattermost ${version} verified sequenced posts, command replies and replay of a post after reconnect.`,
+);
+
+await checkSavedPageBoundary(
+  base,
+  { id: reader.id, token: readerToken },
+  dm.id,
+  version,
 );
 
 await checkFocusedConversation(memberPosts, readerPosts, closed.id, () =>

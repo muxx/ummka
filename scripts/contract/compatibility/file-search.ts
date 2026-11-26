@@ -29,7 +29,7 @@ export async function checkFileSearch(
   assert.ok(other?.id);
   const posts = new PostsApi(session);
   const owner = new FilesApi(session);
-  async function attach(channel: string, number: number) {
+  async function attach(channel: string, number: number, rootId?: string) {
     const data = new FormData();
     const name = `${terms}-${number}.txt`;
     data.set("channel_id", channel);
@@ -60,6 +60,7 @@ export async function checkFileSearch(
     const post = await posts.createPost({
       createPostRequest: {
         channelId: channel,
+        rootId,
         message: `Search fixture ${terms}`,
         fileIds: [id],
       },
@@ -74,9 +75,14 @@ export async function checkFileSearch(
       channelId: channel,
       postId: post.id,
     });
-    return { id, postId: post.id, name };
+    return { id, postId: post.id, post, name };
   }
-  const first = await attach(channelId, 1);
+  const root = await posts.createPost({
+    createPostRequest: { channelId, message: "File discussion" },
+  });
+  assert.ok(root.id);
+  const first = await attach(channelId, 1, root.id);
+  assert.equal(first.post.rootId, root.id);
   const second = await attach(other.id, 2);
   const reader = new FilesApi(readerSession);
   const anonymous = new FilesApi(
@@ -161,7 +167,13 @@ export async function checkFileSearch(
   await results.more();
   assert.equal(results.getSnapshot().posts.isEnd, true);
   results.close();
-  await checkMessageTarget(session, first.id, first.postId, channelId, teamId);
+  await checkMessageTarget(
+    readerSession,
+    first.id,
+    postTab.items[0].id,
+    first.post,
+    teamId,
+  );
   console.log(
     `Mattermost ${version} file search verified two attached files, team scopes, viewer access and empty results.`,
   );
