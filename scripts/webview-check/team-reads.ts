@@ -15,6 +15,17 @@ export async function checkTeamReads(
   rootAccount: Awaited<ReturnType<typeof openAccountRestConnection>>,
   prefixedAccount: Awaited<ReturnType<typeof openAccountRestConnection>>,
 ) {
+  const roster = await prefixedAccount.readChannelMemberDirectory(
+    "r".repeat(26),
+    { kind: "page", page: 0 },
+  );
+  if (
+    roster.nextPage !== null ||
+    roster.members.length !== 1 ||
+    roster.members[0].profile.username !== "roster-reader" ||
+    !roster.members[0].schemeAdmin
+  )
+    throw Error("Native account returned the wrong channel roster");
   const root = new Configuration(rootAccount);
   const prefixed = new Configuration(prefixedAccount);
   const entry = await new EmojiApi(prefixed).getEmojiByName({

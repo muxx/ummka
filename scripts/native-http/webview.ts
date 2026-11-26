@@ -357,6 +357,47 @@ export function webviewServers(
   }
   const data = https.createServer(trusted, async (req, res) => {
     const url = new URL(req.url ?? "/", "https://localhost");
+    const rosterChannel = "r".repeat(26);
+    const rosterUser = "n".repeat(26);
+    const rosterProfiles =
+      url.pathname === "/team/chat/api/v4/users" &&
+      url.searchParams.get("in_channel") === rosterChannel;
+    if (
+      rosterProfiles ||
+      url.pathname === `/team/chat/api/v4/channels/${rosterChannel}/members/ids`
+    ) {
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      let rows: object[];
+      if (rosterProfiles) {
+        assert.equal(req.method, "GET");
+        assert.deepEqual(Object.fromEntries(url.searchParams), {
+          in_channel: rosterChannel,
+          page: "0",
+          per_page: "100",
+          sort: "admin",
+        });
+        rows = [{ id: rosterUser, username: "roster-reader" }];
+      } else {
+        assert.equal(req.method, "POST");
+        assert.deepEqual(await json(req), [rosterUser]);
+        rows = [
+          {
+            user_id: rosterUser,
+            channel_id: rosterChannel,
+            roles: "channel_user channel_admin",
+            scheme_admin: true,
+          },
+        ];
+      }
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end(JSON.stringify(rows));
+      return;
+    }
     if (url.pathname === "/team/chat/api/v4/reactions") {
       assert.equal(req.method, "POST");
       assert.equal(
