@@ -619,6 +619,7 @@ test("opens a native account by installation and user ID", async () => {
     "retryPendingPost",
     "rid",
     "saveDraft",
+    "searchChannelDirectory",
     "searchMentionGroups",
     "selectJoinedTeam",
     "selectSidebarChannel",

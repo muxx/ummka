@@ -155,6 +155,18 @@ export async function checkTeamReads(
         throw error;
     }
   }
+  const found = await prefixedAccount.searchChannelDirectory(
+    teamId,
+    "  Northern lights  ",
+  );
+  if (
+    found.length !== 1 ||
+    found[0].id !== "p".repeat(26) ||
+    found[0].kind !== "P" ||
+    found[0].deleteAt !== 42 ||
+    found[0].displayName !== "Northern lights"
+  )
+    throw Error("signed account channel directory search");
   const managed = await api.getManagedCategories({ teamId });
   if (
     Object.keys(managed).length !== 2 ||
@@ -277,6 +289,8 @@ export async function checkTeamReads(
     bulk[other] !== 126
   )
     throw Error("generated channel read timestamps");
+  if (open.items[0].header !== "Current systems")
+    throw Error("signed public channel directory topic");
   const userId = "Abc01234567890123456789012";
   const notification = await api.updateChannelNotifyProps({
     channelId,
