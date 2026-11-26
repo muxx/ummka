@@ -37,6 +37,7 @@ import {
   checkBrowserSignIn,
 } from "./browser-sign-in.ts";
 import { checkChannelAudience } from "./channel-audience.ts";
+import { checkChannelDirectoryPages } from "./channel-directory-pages.ts";
 import {
   checkChannelMemberDirectory,
   checkChannelMemberRoles,
@@ -314,6 +315,13 @@ const readerToken = (await create("users/login", readerLogin)).headers.get(
   "token",
 );
 assert.ok(readerToken);
+await checkChannelDirectoryPages(
+  base,
+  create,
+  token,
+  { token: readerToken, userId: reader.id },
+  version,
+);
 await checkRoleReads(base, readerToken, reader.id, version);
 const readerPosts = new PostsApi(
   new Configuration({ basePath: base, accessToken: readerToken }),
