@@ -14,6 +14,7 @@ import {
   ChannelsApi,
   Configuration,
   FetchError,
+  FilesApi,
   type InitOverrideFunction,
   ResponseError,
   SystemApi,
@@ -559,6 +560,22 @@ export async function checkGeneratedRequests(ports: string[]) {
         target.post.message === "Later reply",
       "inspect-file-post-destination",
     );
+    const contentFiles = new FilesApi(signed);
+    for (const method of [
+      "getFileRaw",
+      "getFileThumbnailRaw",
+      "getFilePreviewRaw",
+    ] as const) {
+      const denied = await rejected(
+        contentFiles[method]({ fileId: "f".repeat(26) }),
+      );
+      check(
+        denied instanceof FetchError &&
+          denied.cause instanceof TypeError &&
+          denied.cause.cause === "operation_denied",
+        `native-only-${method}`,
+      );
+    }
     const threads = new ThreadsApi(signed);
     const follow = { userId: "me", teamId, threadId: postId };
     check(

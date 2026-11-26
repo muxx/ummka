@@ -376,6 +376,24 @@ mod tests {
     }
 
     #[test]
+    fn attachment_content_routes_are_reserved_for_native_delivery() {
+        let base = "https://fixture.test/team/chat";
+        let connection = RestConnection::new(base).unwrap();
+        let routes: Vec<Operation<'_>> =
+            serde_json::from_str(include_str!("../../contracts/mattermost/native-files.json"))
+                .unwrap();
+        for route in routes {
+            let path = route.path.replace("{file_id}", &"f".repeat(26));
+            let url = Url::parse(&format!("{base}{path}")).unwrap();
+            let request = Request::new(route.method.parse().unwrap(), url);
+            assert_eq!(
+                connection.check_request(&request),
+                Err(TransportError::OperationDenied)
+            );
+        }
+    }
+
+    #[test]
     fn reaction_deletion_requires_one_valid_decoded_name() {
         let base = "https://fixture.test/sub";
         let connection = RestConnection::new(base).unwrap();
