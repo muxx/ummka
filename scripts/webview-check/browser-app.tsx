@@ -45,16 +45,20 @@ async function checkThreadReply(
 ) {
   const ui = within(host);
   flushSync(() => fireEvent.click(opener));
-  const pane = await ui.findByRole("complementary", { name: "Thread" });
-  const thread = within(pane);
-  await thread.findByText(
-    "Reply visible only inside Town’s thread",
-    {},
+  // History and the native draft store finish independently. Wait for the
+  // loaded reply and its editor in the same currently mounted thread.
+  const { pane, thread, field } = await waitFor(
+    () => {
+      const pane = ui.getByRole("complementary", { name: "Thread" });
+      const thread = within(pane);
+      thread.getByText("Reply visible only inside Town’s thread");
+      const field = thread.getByRole<HTMLTextAreaElement>("textbox", {
+        name: "Reply in thread…",
+      });
+      return { pane, thread, field };
+    },
     { timeout: 10_000 },
   );
-  const field = await thread.findByRole<HTMLTextAreaElement>("textbox", {
-    name: "Reply in thread…",
-  });
   if (document.activeElement === field || field.value)
     throw Error("Opening the compact thread focused or populated its editor");
   const message = "Posted from the thread window";
