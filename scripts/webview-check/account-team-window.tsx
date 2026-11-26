@@ -93,7 +93,9 @@ export async function checkSavedTeamWindow(
     const searchTrigger = ui.getByRole("button", { name: "Поиск" });
     searchTrigger.focus();
     flushSync(() => fireEvent.click(searchTrigger));
-    const search = within(await ui.findByRole("dialog"));
+    const search = within(
+      await ui.findByRole("dialog", { name: "Что вы ищете?" }, nativeWait),
+    );
     const terms = search.getByRole<HTMLInputElement>("searchbox");
     if (document.activeElement !== terms || search.queryByText("Файлы"))
       throw Error(
@@ -209,7 +211,7 @@ export async function checkSavedTeamWindow(
     flushSync(() =>
       fireEvent.click(ui.getByRole("button", { name: "Аккаунт" })),
     );
-    const menu = await ui.findByRole("dialog");
+    const menu = ui.getByRole("dialog", { name: "Fixture Team" });
     flushSync(() =>
       fireEvent.click(
         within(menu).getByRole("button", { name: "Закрыть меню аккаунта" }),
