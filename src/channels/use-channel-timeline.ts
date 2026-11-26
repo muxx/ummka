@@ -1,132 +1,63 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { LocalChannelWindow } from "../mattermost/local-history.ts";
 import {
-  useWorkspaceRead,
-  type WorkspaceConnection,
-} from "./use-workspace-read.ts";
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import {
-  channelPageSize,
-  readTimelineEdge,
-  workspaceFailure,
-} from "./workspace-data.ts";
+  createTimelineReader,
+  type TimelineAccount,
+  type TimelineRequest,
+} from "./timeline-reader.ts";
 
-type Position = { scope: string; page: LocalChannelWindow };
 export function useChannelTimeline(
-  connection: WorkspaceConnection,
+  connection: TimelineAccount,
+  teamId: string,
   channelId: string | null,
   collapsed: boolean | null,
   online: boolean,
   sessionIssue: (issue: "session" | "unauthorized") => void,
+  request?: TimelineRequest,
 ) {
-  const scope =
-    channelId !== null && collapsed !== null
-      ? JSON.stringify([connection.rid, channelId, collapsed])
-      : null;
-  const [position, setPosition] = useState<Position | null>(null);
-  const [boundary, setBoundary] = useState<{
-    scope: string;
-    notice:
-      | "offline"
-      | "unavailable"
-      | "forbidden"
-      | "storage"
-      | "network"
-      | null;
-  } | null>(null);
-  const pending = useRef<AbortController | null>(null);
+  const focus = request?.kind === "focus" ? request : undefined;
+  const key = JSON.stringify([
+    connection.rid,
+    teamId,
+    channelId,
+    collapsed,
+    request?.kind,
+    request?.requestId,
+    focus?.rid,
+    focus?.teamId,
+    focus?.post.channelId,
+    focus?.post.id,
+  ]);
+  const owner = () => ({
+    key,
+    connection,
+    reader: createTimelineReader(
+      connection,
+      teamId,
+      channelId,
+      collapsed,
+      request,
+    ),
+  });
+  const [current, setCurrent] = useState(owner);
+  if (current.key !== key || current.connection !== connection)
+    setCurrent(owner);
+  const { reader } = current;
+  const state = useSyncExternalStore(reader.subscribe, reader.getSnapshot);
+  useLayoutEffect(() => () => reader.stop(), [reader]);
+  useLayoutEffect(() => reader.setOnline(online), [online, reader]);
+  const report = useEffectEvent(sessionIssue);
   useEffect(() => {
-    setPosition((previous) => (previous?.scope === scope ? previous : null));
-    setBoundary((previous) => (previous?.scope === scope ? previous : null));
-    return () => {
-      pending.current?.abort();
-      pending.current = null;
-    };
-  }, [scope]);
-  const read = useCallback(
-    () =>
-      channelId && collapsed !== null
-        ? connection.readChannelWindow({
-            kind: "latest",
-            channelId,
-            collapsedThreads: collapsed,
-            limit: channelPageSize,
-          })
-        : Promise.resolve(null),
-    [channelId, collapsed, connection],
-  );
-  const refresh = useCallback(
-    async (signal: AbortSignal) => {
-      if (!channelId || collapsed === null || !scope) return;
-      await connection.refreshChannelHistory(
-        {
-          kind: "latest",
-          channelId,
-          collapsedThreads: collapsed,
-          perPage: channelPageSize,
-        },
-        signal,
-      );
-    },
-    [channelId, collapsed, scope, connection],
-  );
-  const { state, retry } = useWorkspaceRead(scope, online, read, refresh);
-  const restricted =
-    scope !== null && boundary?.scope === scope ? boundary : null;
-  const denied =
-    state.status === "forbidden" ||
-    restricted?.notice === "forbidden" ||
-    state.status === "session" ||
-    state.status === "unauthorized";
-  const page = denied
-    ? null
-    : scope && position?.scope === scope
-      ? position.page
-      : state.value;
-  useEffect(() => {
-    if (state.status === "session" || state.status === "unauthorized")
-      sessionIssue(state.status);
-  }, [state.status, sessionIssue]);
-  async function loadEdge(direction: "older" | "newer", postId: string) {
-    if (!scope || !channelId || collapsed === null || !page || pending.current)
-      return;
-    const task = new AbortController();
-    pending.current = task;
-    try {
-      const result = await readTimelineEdge(
-        connection,
-        channelId,
-        collapsed,
-        page,
-        direction,
-        postId,
-        online,
-        task.signal,
-      );
-      if (task.signal.aborted) return;
-      if (result.status === "ready") {
-        setPosition({ scope, page: result.page });
-        setBoundary(null);
-      } else setBoundary({ scope, notice: result.status });
-    } catch (error) {
-      if (task.signal.aborted) return;
-      const problem = workspaceFailure(error, "network");
-      if (problem === "unauthorized" || problem === "session")
-        sessionIssue(problem);
-      else setBoundary({ scope, notice: problem });
-    } finally {
-      if (pending.current === task) pending.current = null;
-    }
-  }
-  return {
-    page,
-    latest: position?.scope !== scope || page?.newer.kind === "end",
-    status: state.status,
-    notice: restricted?.notice ?? null,
-    loadEdge,
-    retry: () => {
-      setBoundary(null);
-      setPosition(null);
-      retry();
-    },
-  };
+    if (
+      reader.getSnapshot().status === state.status &&
+      (state.status === "session" || state.status === "unauthorized")
+    )
+      report(state.status);
+  }, [state.status, reader]);
+  return { ...state, retry: reader.retry, loadEdge: reader.loadEdge };
 }

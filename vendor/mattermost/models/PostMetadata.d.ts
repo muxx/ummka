@@ -15,6 +15,7 @@ export interface PostMetadata {
     reactions?: Array<Reaction>;
     priority?: PostMetadataPriority;
     acknowledgements?: Array<PostAcknowledgement>;
+    redactedFileCount?: number;
 }
 export declare function instanceOfPostMetadata(value: object): value is PostMetadata;
 export declare function PostMetadataFromJSON(json: any): PostMetadata;

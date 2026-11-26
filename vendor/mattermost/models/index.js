@@ -50,5 +50,7 @@ export * from './TeamMember.js';
 export * from './Timezone.js';
 export * from './User.js';
 export * from './UserNotifyProps.js';
+export * from './UserThread.js';
+export * from './UserThreads.js';
 export * from './ViewChannel200Response.js';
 export * from './ViewChannelRequest.js';

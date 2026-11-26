@@ -38,6 +38,7 @@ impl Operation<'_> {
                 "{team_id}" | "{channel_id}" | "{post_id}" | "{thread_id}" | "{file_id}" => {
                     is_mattermost_id(actual)
                 }
+                "{category_id}" => valid_category_id(actual),
                 "{emoji_name}" => valid_emoji_name(actual),
                 literal => actual == literal,
             };
@@ -54,6 +55,17 @@ impl Operation<'_> {
             Some(BodyKind::Json) => request.body().is_some() && has_json_content_type(request),
         }
     }
+}
+
+// Built-in categories use {kind}_{userID}_{teamID}. Custom categories use a regular ID.
+fn valid_category_id(id: &str) -> bool {
+    if is_mattermost_id(id) {
+        return true;
+    }
+    let mut parts = id.rsplitn(3, '_');
+    matches!((parts.next(), parts.next(), parts.next()),
+        (Some(team), Some(user), Some("favorites" | "channels" | "direct_messages"))
+        if is_mattermost_id(team) && is_mattermost_id(user) && !id.bytes().any(|b| b.is_ascii_uppercase()))
 }
 
 // Mattermost emoji names are 1–64 ASCII bytes. A plus is encoded as %2B by the SDK.
@@ -263,6 +275,49 @@ impl RestConnection {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn personal_category_writes_accept_custom_and_builtin_ids() {
+        let team = "t".repeat(26);
+        let user = "u".repeat(26);
+        let path = format!("/api/v4/users/me/teams/{team}/channels/categories");
+        for category in [
+            &team,
+            &format!("direct_messages_{user}_{team}"),
+            &format!("favorites_{user}_{team}"),
+            &format!("channels_{user}_{team}"),
+        ] {
+            assert!(
+                OPERATIONS
+                    .iter()
+                    .any(|op| op.allows(&reqwest::Method::PUT, &format!("{path}/{category}")))
+            );
+            assert!(
+                OPERATIONS
+                    .iter()
+                    .any(|op| op.allows(&reqwest::Method::DELETE, &format!("{path}/{category}")))
+            );
+        }
+        for category in [
+            "short",
+            "order",
+            &format!("favorites_{user}_short"),
+            &format!("prefix_channels_{user}_{team}"),
+            &format!("direct_messages_{}_{team}", user.to_uppercase()),
+        ] {
+            assert!(
+                !OPERATIONS
+                    .iter()
+                    .any(|op| op.allows(&reqwest::Method::DELETE, &format!("{path}/{category}")))
+            );
+        }
+        for op in OPERATIONS
+            .iter()
+            .filter(|op| op.path.contains("/channels/categories") && op.method != "GET")
+        {
+            assert!(op.self_only);
+        }
+    }
 
     #[test]
     fn file_metadata_requires_a_concrete_file_id_and_exact_route() {

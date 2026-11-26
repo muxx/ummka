@@ -101,6 +101,7 @@ export async function resumeRegistryCheck(): Promise<boolean> {
             settings.server?.collapsedThreads !== "always_on" ||
             settings.server.sharedChannelDMs !== true ||
             settings.server.uniqueReactionLimit !== "-2" ||
+            settings.server.postEditLimitSeconds !== "9007199254740993" ||
             settings.server.search?.allTeams !== true ||
             settings.server.search.files !== false ||
             settings.server.search.archivedChannels !== true ||

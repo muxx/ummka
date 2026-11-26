@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
 import {
+  deleteOwnPost,
+  editOwnPostMessage,
+} from "../../../src/mattermost/own-post.ts";
+import { readPostEditHistory } from "../../../src/mattermost/post-edit-history.ts";
+import {
   type PostsApi,
   ResponseError,
 } from "../../../vendor/mattermost/index.js";
@@ -26,6 +31,23 @@ export async function checkPostEditHistory(
   });
   assert.ok(reply.id);
   const query = { postId: reply.id };
+  const target = { id: reply.id, channelId, userId: authorId, rootId: root.id };
+  const rootTarget = { ...target, id: root.id, rootId: null };
+  const rootMessage = "  **Edited root**\nSecond line  ";
+  await author.patchPost({
+    postId: root.id,
+    patchPostRequest: { props: { fixture_label: true } },
+  });
+  const editedRoot = await editOwnPostMessage(
+    author,
+    authorId,
+    rootTarget,
+    rootMessage,
+  );
+  const seenRoot = await peer.getPost({ postId: root.id });
+  assert.equal(editedRoot.message, rootMessage);
+  assert.equal(seenRoot.message, editedRoot.message);
+  assert.deepEqual(seenRoot.props, { fixture_label: true });
   async function expectUnavailable(client: PostsApi, status: number) {
     const response = await client.getEditHistoryForPostRaw(query).then(
       () => assert.fail("Expected an unavailable edit history"),
@@ -41,10 +63,7 @@ export async function checkPostEditHistory(
   }
   await expectUnavailable(author, 404);
   for (const message of texts.slice(1)) {
-    const edited = await author.patchPost({
-      ...query,
-      patchPostRequest: { message },
-    });
+    const edited = await editOwnPostMessage(author, authorId, target, message);
     assert.equal(edited.message, message);
   }
   const current = await author.getPost(query);
@@ -67,10 +86,33 @@ export async function checkPostEditHistory(
   }
   assert.ok(previous[0].editAt && previous[0].editAt > 0);
   assert.equal(previous[1].editAt, 0);
+  const revisions = await readPostEditHistory(author, authorId, {
+    id: reply.id,
+    userId: authorId,
+    channelId,
+    rootId: root.id,
+  });
+  assert.deepEqual(
+    revisions,
+    previous.map((row) => ({
+      id: row.id,
+      message: row.message,
+      timestamp: row.editAt || row.createAt,
+      fileIds: row.fileIds ?? [],
+    })),
+  );
   assert.equal((await peer.getPost(query)).message, current.message);
   await expectUnavailable(peer, 403);
   await expectUnavailable(anonymous, 401);
-  assert.equal((await author.deletePost(query)).status, "OK");
+  await assert.rejects(
+    peer.patchPost({ ...query, patchPostRequest: { message: "Peer edit" } }),
+    (error) => error instanceof ResponseError && error.response.status === 403,
+  );
+  assert.equal((await peer.getPost(query)).message, current.message);
+  await deleteOwnPost(author, authorId, target);
+  const thread = await peer.getPostThread({ postId: root.id });
+  assert.ok(!thread.posts?.[reply.id]);
+  assert.equal(thread.posts?.[root.id]?.message, rootMessage);
   await expectUnavailable(author, 403);
   console.log(
     `Mattermost ${version} verified the author's edit history, version order, no-history response and reader permissions.`,

@@ -9,6 +9,7 @@ import {
   PostsApi,
   ResponseError,
 } from "../../../vendor/mattermost/index.js";
+import { checkPostAttachments } from "./post-attachments.ts";
 import { checkMessageTarget } from "./search-target.ts";
 
 export async function checkFileSearch(
@@ -29,15 +30,10 @@ export async function checkFileSearch(
   assert.ok(other?.id);
   const posts = new PostsApi(session);
   const owner = new FilesApi(session);
-  async function attach(channel: string, number: number, rootId?: string) {
+  async function uploadFile(channel: string, name: string, contents: string) {
     const data = new FormData();
-    const name = `${terms}-${number}.txt`;
     data.set("channel_id", channel);
-    data.set(
-      "files",
-      new Blob(["Synthetic file search fixture."], { type: "text/plain" }),
-      name,
-    );
+    data.set("files", new Blob([contents], { type: "text/plain" }), name);
     const upload = await fetch(`${session.basePath}/api/v4/files`, {
       method: "POST",
       headers: authorization,
@@ -46,6 +42,15 @@ export async function checkFileSearch(
     assert.equal(upload.status, 201, "Upload fixture attachment");
     const id: unknown = (await upload.json()).file_infos[0].id;
     assert.ok(typeof id === "string" && id.length === 26);
+    return id;
+  }
+  async function attach(channel: string, number: number, rootId?: string) {
+    const name = `${terms}-${number}.txt`;
+    const id = await uploadFile(
+      channel,
+      name,
+      "Synthetic file search fixture.",
+    );
     const uploaded = await owner.getFileInfoRaw({ fileId: id });
     assert.equal(uploaded.raw.status, 200);
     const unattached = await uploaded.value();
@@ -81,7 +86,25 @@ export async function checkFileSearch(
     createPostRequest: { channelId, message: "File discussion" },
   });
   assert.ok(root.id);
+  await checkPostAttachments(
+    posts,
+    new PostsApi(readerSession),
+    (name, contents) => uploadFile(channelId, name, contents),
+    channelId,
+    root.id,
+    version,
+  );
   const first = await attach(channelId, 1, root.id);
+  const attachedPost = await new PostsApi(readerSession).getPostRaw({
+    postId: first.postId,
+  });
+  const wire = await attachedPost.raw.clone().json();
+  const displayed = await attachedPost.value();
+  assert.ok(!Object.hasOwn(wire.metadata, "redacted_file_count"));
+  assert.equal(displayed.metadata?.redactedFileCount, undefined);
+  assert.deepEqual(displayed.fileIds, [first.id]);
+  assert.equal(wire.metadata.files[0].id, first.id);
+  assert.equal(displayed.metadata?.files?.[0]?.name, first.name);
   assert.equal(first.post.rootId, root.id);
   const second = await attach(other.id, 2);
   const reader = new FilesApi(readerSession);

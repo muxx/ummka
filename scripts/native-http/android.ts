@@ -9,6 +9,10 @@ import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 
 import {
+  checkNativeInstrumentation,
+  NativeInstrumentationError,
+} from "./android-instrumentation.ts";
+import {
   checkWebviewProcesses,
   type OnAndroidInputReady,
 } from "./android-webview.ts";
@@ -69,6 +73,7 @@ export async function checkAndroid(
   ca: Buffer,
   config: string,
   onAndroidInputReady: OnAndroidInputReady,
+  lastNativeProbe: () => string,
 ) {
   const sdk = process.env.ANDROID_HOME;
   assert(sdk, "ANDROID_HOME is required");
@@ -265,25 +270,41 @@ export async function checkAndroid(
       );
     }
     assert.equal(vaultProcesses.size, 4);
-    const result = await adb(
-      "shell",
-      "am",
-      "instrument",
-      "-w",
-      "-r",
-      "-e",
-      "ca",
-      ca.toString("base64"),
-      "-e",
-      "ports",
-      ports.join(","),
-      "-e",
-      "accountPort",
-      String(webviewPorts[0]),
-      `${component}HttpCheckInstrumentation`,
+    await checkNativeInstrumentation(
+      () =>
+        adb(
+          "shell",
+          "am",
+          "instrument",
+          "-w",
+          "-r",
+          "-e",
+          "ca",
+          ca.toString("base64"),
+          "-e",
+          "ports",
+          ports.join(","),
+          "-e",
+          "accountPort",
+          String(webviewPorts[0]),
+          `${component}HttpCheckInstrumentation`,
+        ),
+      async () =>
+        (
+          await exec(
+            join(sdk, "platform-tools/adb"),
+            [
+              "-s",
+              `emulator-${reported}`,
+              "shell",
+              "pidof",
+              `${app}.httpcheck`,
+            ],
+            { timeout: 2000 },
+          )
+        ).stdout,
+      lastNativeProbe,
     );
-    assert.match(result, /^INSTRUMENTATION_RESULT: result=PASS\r?$/m);
-    assert.match(result, /^INSTRUMENTATION_CODE: -1\r?$/m);
     await checkWebviewProcesses(
       adb,
       `${app}.httpcheck`,
@@ -291,7 +312,8 @@ export async function checkAndroid(
       onAndroidInputReady,
     );
   } catch (error) {
-    console.error((await readFile(log, "utf8")).slice(-1500));
+    if (!(error instanceof NativeInstrumentationError))
+      console.error((await readFile(log, "utf8")).slice(-1500));
     throw error;
   } finally {
     control.close();

@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
+import { accountChannelReadState } from "../../../src/mattermost/account-channel-read-state.ts";
 import { loadTeamDirectory } from "../../../src/mattermost/navigation-data.ts";
 import { projectTeamSidebar } from "../../../src/mattermost/team-sidebar.ts";
 import {
   ChannelsApi,
   Configuration,
-  PostsApi,
   ResponseError,
 } from "../../../vendor/mattermost/index.js";
 
@@ -93,9 +93,10 @@ export async function checkSidebarCounters(
     userId: "me",
     viewChannelRequest: { channelId, collapsedThreadsSupported: true },
   };
-  const result = await api.viewChannel(single);
-  assert.equal(result.status, "OK");
-  const viewedTime = result.lastViewedAtTimes?.[channelId];
+  const views = accountChannelReadState(session, userId, (run) => run());
+  const result = await views.viewChannel(channelId);
+  const viewedTime = result[channelId];
+  assert.deepEqual(await views.viewChannel(null), {});
   assert.ok(
     typeof viewedTime === "number" &&
       Number.isSafeInteger(viewedTime) &&
@@ -111,11 +112,7 @@ export async function checkSidebarCounters(
     rootMentions: 0,
     urgent: 0,
   });
-  const unread = await new PostsApi(session).setPostUnread({
-    userId: "me",
-    postId: root.id,
-    setPostUnreadRequest: { collapsedThreadsSupported: true },
-  });
+  const unread = await views.markPostUnread(channelId, root.id);
   const marked = await counts();
   const markedMember = await getOwn();
   assert.equal(markedMember.lastViewedAt, unread.lastViewedAt);
@@ -139,10 +136,11 @@ export async function checkSidebarCounters(
   assert.ok(marked.seen < marked.total && marked.rootMentions > 0);
   await prepareBulkRead();
   const batch = { userId: "me", requestBody: [channelId, otherChannelId] };
-  const bulk = await api.markChannelsReadForUser(batch);
-  assert.equal(bulk.status, "OK");
+  const missing = "z".repeat(26);
+  const bulk = await views.markChannelsRead([...batch.requestBody, missing]);
+  assert.deepEqual(new Set(Object.keys(bulk)), new Set(batch.requestBody));
   for (const id of batch.requestBody) {
-    const time = bulk.lastViewedAtTimes?.[id];
+    const time = bulk[id];
     assert.ok(
       typeof time === "number" && Number.isSafeInteger(time) && time > 0,
     );

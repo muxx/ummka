@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { get } from "node:https";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { promisify } from "node:util";
 import { waitForAndroidBoot } from "./android.ts";
+import { checkNativeInstrumentation } from "./android-instrumentation.ts";
 import { launchWebview, type SendAndroidKey } from "./android-webview.ts";
 import { startFixture } from "./fixture.ts";
 
@@ -250,5 +253,76 @@ test("boot does not accept a missing policy signal or another device profile", a
       { exitCode: 1 },
     ),
     /hardware profile.*other.profile/,
+  );
+});
+
+test("native instrumentation reports the last safe stage, local probe and PID on command failure", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "ummka-instrumentation-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const fixture = await startFixture(dir);
+  t.after(() => fixture.close());
+  await new Promise<void>((resolve, reject) => {
+    get(
+      {
+        host: "127.0.0.1",
+        port: fixture.ports[0],
+        ca: fixture.ca,
+        path: "/team/chat/one?sensitive=fixture-secret",
+      },
+      (res) => {
+        res.resume();
+        res.on("end", resolve);
+      },
+    ).on("error", reject);
+  });
+  // execFile includes argv, stderr and all stdout on the rejected Error.
+  // The failing process deliberately puts a sentinel in each of these fields.
+  const run = () =>
+    promisify(execFile)(process.execPath, [
+      "-e",
+      'console.log("INSTRUMENTATION_STATUS: ummka_stage=sqlite\\nINSTRUMENTATION_STATUS: ummka_stage=transport\\nfixture-secret"); console.error("fixture-secret"); process.kill(process.pid, "SIGTERM");',
+      "fixture-secret",
+    ]).then(({ stdout }) => stdout);
+  let pidReads = 0;
+  await assert.rejects(
+    checkNativeInstrumentation(
+      run,
+      async () => {
+        pidReads++;
+        return "1357\n";
+      },
+      fixture.lastNativeProbe,
+    ),
+    {
+      message:
+        "Android native HTTP check failed (SIGTERM). Stage: transport. Last local probe: 1 https/one. App process: PID 1357.",
+    },
+  );
+  assert.equal(pidReads, 1);
+});
+
+test("a successful native run skips diagnostics; a non-passing result reports an absent process", async () => {
+  const unused = (): never => {
+    throw new Error("unexpected diagnostic read");
+  };
+  await checkNativeInstrumentation(
+    async () =>
+      "INSTRUMENTATION_RESULT: result=PASS\r\nINSTRUMENTATION_CODE: -1\r\n",
+    unused,
+    unused,
+  );
+  await assert.rejects(
+    checkNativeInstrumentation(
+      async () =>
+        "INSTRUMENTATION_RESULT: result=PASS\nINSTRUMENTATION_CODE: 0\n",
+      async () => {
+        throw Object.assign(new Error("pidof"), { code: 1, stderr: "" });
+      },
+      () => "none",
+    ),
+    {
+      message:
+        "Android native HTTP check failed (invalid instrumentation result). Stage: not reported. Last local probe: none. App process: absent.",
+    },
   );
 });

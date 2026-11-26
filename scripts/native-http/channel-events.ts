@@ -97,7 +97,10 @@ export function eventFixture() {
         return;
       }
       if (mode === "denied") {
-        socket.end("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n");
+        // Node detached this socket for Upgrade. It cannot serve another HTTP request.
+        socket.end(
+          "HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+        );
         return;
       }
       const key = req.headers["sec-websocket-key"];

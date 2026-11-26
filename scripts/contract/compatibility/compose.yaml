@@ -38,6 +38,8 @@ services:
       database:
         condition: service_healthy
     environment:
+      # Only v12.1.0 offers this read. Team Edition returns its license error.
+      MM_FEATUREFLAGS_MANAGEDCHANNELCATEGORIES: "true"
       MM_SQLSETTINGS_DRIVERNAME: postgres
       MM_SQLSETTINGS_DATASOURCE: postgres://ummka:${UMMKA_FIXTURE_DB_PASSWORD:?}@database:5432/mattermost?sslmode=disable
       MM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION: "true"

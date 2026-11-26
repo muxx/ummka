@@ -51,6 +51,7 @@ import {
   correctFlaggedPosts,
   correctHistoryQuery,
   correctHistorySchema,
+  correctRedactedFileCount,
 } from "./history-corrections.ts";
 import { correctMentionGroup } from "./mention-group-correction.ts";
 import { correctNotificationProps } from "./notification-props.ts";
@@ -85,10 +86,17 @@ import {
   correctSidebarCategory,
   correctSidebarResponse,
   correctSidebarSchema,
+  correctSidebarWrite,
+  sidebarWriteCorrections,
 } from "./sidebar-corrections.ts";
 import { correctSinglePost } from "./single-post-correction.ts";
 import { correctTeamMemberRequest } from "./team-member-correction.ts";
 import { correctThreadFollow } from "./thread-follow-correction.ts";
+import {
+  correctThreadListModel,
+  correctThreadListQuery,
+  threadListPath,
+} from "./thread-list-corrections.ts";
 
 const sources = process.env.UMMKA_CONTRACT_SOURCES;
 const work = process.env.UMMKA_CONTRACT_WORK;
@@ -813,6 +821,77 @@ test("flagged and pinned collections return a single PostList and changing eithe
   }
 });
 
+test("thread list corrections track the actual cursors, counters, null pages and user participants", () => {
+  const original = object(
+    at(read("users.yaml"), [threadListPath, "get"]),
+    "operation",
+  );
+  const newer = object(
+    at(read("users-12.1.0.yaml"), [threadListPath, "get"]),
+    "operation",
+  );
+  const params = at(contract, ["paths", threadListPath, "get", "parameters"]);
+  assert.ok(Array.isArray(params));
+  assert.deepEqual(
+    params.map((p) => p.name),
+    [
+      "user_id",
+      "team_id",
+      "since",
+      "deleted",
+      "extended",
+      "per_page",
+      "totalsOnly",
+      "threadsOnly",
+      "before",
+      "after",
+      "unread",
+      "excludeDirect",
+    ],
+  );
+  const changed = { ...original, parameters: [...params] };
+  assert.throws(() => correctThreadListQuery(changed, newer), /Review both/);
+  assert.throws(() => correctThreadListQuery(changed, changed), /Review both/);
+  for (const name of ["UserThreads", "UserThread"] as const) {
+    const path = ["components", "schemas", name];
+    const source = object(at(definitions, path), name);
+    const next = object(at(read("definitions-12.1.0.yaml"), path), name);
+    const fields = object(at(contract, [...path, "properties"]), "properties");
+    const unexpected = {
+      ...source,
+      properties: {
+        ...object(source.properties, name),
+        unexpected: { type: "string" },
+      },
+    };
+    assert.throws(
+      () => correctThreadListModel(name, unexpected, next),
+      /Review both/,
+    );
+    assert.throws(
+      () => correctThreadListModel(name, unexpected, unexpected),
+      /Review both/,
+    );
+    if (name === "UserThreads") {
+      assert.equal(at(fields, ["threads", "nullable"]), true);
+      for (const key of [
+        "total_unread_threads",
+        "total_unread_mentions",
+        "total_unread_urgent_mentions",
+      ])
+        assert.deepEqual(fields[key], { type: "integer", format: "int64" });
+    } else {
+      assert.equal(
+        at(fields, ["participants", "items", "$ref"]),
+        "#/components/schemas/User",
+      );
+      assert.deepEqual(fields.is_urgent, { type: "boolean" });
+      for (const key of ["unread_replies", "unread_mentions", "delete_at"])
+        assert.deepEqual(fields[key], { type: "integer", format: "int64" });
+    }
+  }
+});
+
 test("both thread follow verbs return StatusOK and stop on upstream response changes", () => {
   const path =
     "/api/v4/users/{user_id}/teams/{team_id}/threads/{thread_id}/following";
@@ -872,6 +951,11 @@ test("retains the catalog operations, security and transitive models", () => {
         source,
         object(at(read("users-12.1.0.yaml"), key), path),
       );
+    if (source.operationId === "GetUserThreads")
+      expected = correctThreadListQuery(
+        source,
+        object(at(read("users-12.1.0.yaml"), key), path),
+      );
     if (source.operationId === "GetFlaggedPostsForUser")
       expected = correctFlaggedPosts(source, read("posts-12.1.0.yaml"));
     if (source.operationId === "GetPost")
@@ -927,7 +1011,15 @@ test("retains the catalog operations, security and transitive models", () => {
       expected = correctBulkChannelView(source, read("channels.yaml"), path);
     if (source.operationId === "SetPostUnread")
       expected = correctSetPostUnread(source, read("posts-12.1.0.yaml"), path);
-    if (path === sidebar) expected = correctSidebarResponse(source);
+    if (source.operationId === "GetSidebarCategoriesForTeamForUser")
+      expected = correctSidebarResponse(source);
+    const id = String(source.operationId);
+    if (sidebarWriteCorrections.has(id))
+      expected = correctSidebarWrite(
+        id,
+        source,
+        object(at(read("channels-12.1.0.yaml"), key), id),
+      );
     if (
       source.operationId === "GetGroupsByTeam" ||
       source.operationId === "GetGroupsAssociatedToChannelsByTeam"
@@ -1002,6 +1094,12 @@ test("retains the catalog operations, security and transitive models", () => {
         object(source, name),
         read("definitions-12.1.0.yaml"),
       );
+    if (name === "UserThread" || name === "UserThreads")
+      expected = correctThreadListModel(
+        name,
+        object(source, name),
+        object(at(read("definitions-12.1.0.yaml"), path), name),
+      );
     if (name === "User") expected = correctUserProfile(object(source, name));
     if (["Channel", "ChannelMember", "TeamMember"].includes(name))
       expected = correctSidebarSchema(name, object(source, name));
@@ -1056,6 +1154,8 @@ test("retains the catalog operations, security and transitive models", () => {
       "Timezone",
       "User",
       "UserNotifyProps",
+      "UserThread",
+      "UserThreads",
     ],
   );
 });
@@ -1113,6 +1213,31 @@ test("both pinned User definitions omit the same three fields returned by the se
           }),
         /Review the User profile/,
       );
+    }
+  }
+});
+
+test("category writes detect changed request and response shapes in either pinned version", () => {
+  for (const { id, file, path, method } of catalog.filter(({ id }) =>
+    sidebarWriteCorrections.has(id),
+  )) {
+    const key = [path, method.toLowerCase()];
+    for (const slot of [0, 1]) {
+      for (const half of ["requestBody", "responses"]) {
+        const operations = [read(file), read("channels-12.1.0.yaml")].map(
+          (doc) => structuredClone(object(at(doc, key), id)),
+        );
+        const changed = operations[slot];
+        const body = {
+          content: { "application/json": { schema: { type: "string" } } },
+          required: true,
+        };
+        changed[half] = half === "responses" ? { "200": body } : body;
+        assert.throws(
+          () => correctSidebarWrite(id, operations[0], operations[1]),
+          /Review the pinned sidebar/,
+        );
+      }
     }
   }
 });
@@ -1259,7 +1384,7 @@ test("changes only the confirmed history fields in the selected models", () => {
       "is_following",
     ],
     PostList: ["first_inaccessible_post_time"],
-    PostMetadata: ["images"],
+    PostMetadata: ["images", "redacted_file_count"],
   };
   for (const [name, fields] of Object.entries(additions)) {
     const path = ["components", "schemas", name];
@@ -1354,6 +1479,51 @@ test("a correction stops when either pinned history contract changes", () => {
   const images = object(at(metadata, ["properties", "images"]), "images");
   images.additionalProperties = images.items;
   assert.throws(() => correctHistorySchema("PostMetadata", metadata), /Review/);
+});
+
+test("applies the optional attachment count only while both pinned definitions omit it", () => {
+  const newer = read("definitions-12.1.0.yaml");
+  const baseline = object(
+    at(definitions, ["components", "schemas", "PostMetadata"]),
+    "PostMetadata",
+  );
+  const latest = object(
+    at(newer, ["components", "schemas", "PostMetadata"]),
+    "PostMetadata",
+  );
+  const added = { type: "integer", format: "int64", minimum: 0 };
+  const original = structuredClone(baseline);
+  assert.deepEqual(correctRedactedFileCount(baseline, newer), {
+    ...baseline,
+    properties: {
+      ...object(baseline.properties, "properties"),
+      redacted_file_count: added,
+    },
+  });
+  assert.deepEqual(baseline, original);
+  for (const replacement of [
+    { redacted_file_count: added },
+    { files: { type: "array", items: { type: "string" } } },
+  ]) {
+    const changed = (schema: Fields) => ({
+      ...schema,
+      properties: {
+        ...object(schema.properties, "properties"),
+        ...replacement,
+      },
+    });
+    assert.throws(
+      () => correctRedactedFileCount(changed(baseline), newer),
+      /Review the PostMetadata attachment count/,
+    );
+    assert.throws(
+      () =>
+        correctRedactedFileCount(baseline, {
+          components: { schemas: { PostMetadata: changed(latest) } },
+        }),
+      /Review the PostMetadata attachment count/,
+    );
+  }
 });
 
 const removals = [
@@ -1784,6 +1954,8 @@ const {
   FilesApi,
   FileInfoListToJSON,
   PostsApi,
+  PostFromJSON,
+  PostToJSON,
   PostListWithSearchMatchesFromJSON,
   PostListWithSearchMatchesToJSON,
   PostListFromJSON,
@@ -2008,6 +2180,25 @@ test("keeps scheme roles separate from explicit membership roles and detects ups
       assert.deepEqual(JSON.parse(JSON.stringify(encode(decode(wire)))), wire);
   }
 });
+test("round trips the attachment count independently of available files", () => {
+  for (const count of [undefined, 0, 2]) {
+    const metadata = count === undefined ? {} : { redacted_file_count: count };
+    const wire = { id: "p".repeat(26), file_ids: [], metadata };
+    const parsed = PostFromJSON(wire);
+    assert.equal(parsed.metadata.redactedFileCount, count);
+    assert.deepEqual(JSON.parse(JSON.stringify(PostToJSON(parsed))), wire);
+  }
+  const file = "f".repeat(26);
+  const visible = {
+    file_ids: [file],
+    metadata: { files: [{ id: file, name: "notes.txt" }] },
+  };
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(PostToJSON(PostFromJSON(visible)))),
+    visible,
+  );
+});
+
 test("the generated reader preserves a nonzero history boundary and thread values", () => {
   const page = PostListFromJSON({
     order: ["root"],
@@ -2380,4 +2571,20 @@ test("requires the team and user IDs and detects drift in either AddTeamMember i
       /Review the pinned AddTeamMember/,
     );
   }
+});
+
+test("takes managed category assignments from the server version that exposes them", () => {
+  const path = "/api/v4/teams/{team_id}/channels/managed_categories";
+  assert.equal(Object.hasOwn(read("channels.yaml"), path), false);
+  const current = at(read("channels-12.1.0.yaml"), [path, "get"]);
+  assert.deepEqual(at(contract, ["paths", path, "get"]), current);
+  const schema = at(current, [
+    "responses",
+    "200",
+    "content",
+    "application/json",
+    "schema",
+  ]);
+  assert.equal(at(schema, ["type"]), "object");
+  assert.deepEqual(at(schema, ["additionalProperties"]), { type: "string" });
 });

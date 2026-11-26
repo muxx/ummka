@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, expect, expectTypeOf, test, vi } from "vitest";
 import {
+  ChannelsApi,
   type PostInfo,
   PostsApi,
   type Reaction,
@@ -58,6 +59,107 @@ test("a local read uses only this account's native resource and keeps an unknown
   };
   ipc.mockResolvedValueOnce(empty);
   await expect(account.readChannelWindow(localQuery)).resolves.toEqual(empty);
+});
+
+test.each(["edit", "delete"])(
+  "closing the account drops a late %s confirmation",
+  async (action) => {
+    ipc.mockResolvedValueOnce(41);
+    const userId = "a".repeat(26);
+    const account = await openAccountRestConnection(
+      "https://chat.example.test",
+      userId,
+    );
+    const target = {
+      id: "p".repeat(26),
+      channelId: "c".repeat(26),
+      userId,
+      rootId: null,
+    };
+    const response =
+      action === "edit"
+        ? {
+            id: target.id,
+            userId,
+            channelId: target.channelId,
+            rootId: "",
+            createAt: 1,
+            updateAt: 2,
+            editAt: 2,
+            deleteAt: 0,
+            type: "",
+            hashtags: "",
+            isPinned: false,
+            message: "server",
+          }
+        : { status: "OK" };
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const request = vi
+      .spyOn(
+        PostsApi.prototype,
+        action === "edit" ? "patchPostRaw" : "deletePostRaw",
+      )
+      .mockImplementationOnce(async () => {
+        await pending;
+        return { raw: Response.json(response), value: async () => response };
+      });
+    const run = () =>
+      action === "edit"
+        ? account.editOwnPostMessage(target, "changed")
+        : account.deleteOwnPost(target);
+    try {
+      const operation = run();
+      expect(request).toHaveBeenCalledOnce();
+      await account.close();
+      finish();
+      await expect(operation).rejects.toBe("cancelled");
+      await expect(run()).rejects.toBe("unknown_connection");
+      expect(request).toHaveBeenCalledTimes(1);
+    } finally {
+      request.mockRestore();
+    }
+  },
+);
+
+test("closing the signed account discards historical revisions already in flight", async () => {
+  ipc.mockResolvedValueOnce(41);
+  const userId = "a".repeat(26);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    userId,
+  );
+  const target = {
+    id: "p".repeat(26),
+    channelId: "c".repeat(26),
+    userId,
+    rootId: null,
+  };
+  let finish!: () => void;
+  const fetched = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const request = vi
+    .spyOn(PostsApi.prototype, "getEditHistoryForPost")
+    .mockImplementationOnce(async () => {
+      await fetched;
+      return [];
+    });
+  try {
+    const read = account.readPostEditHistory(target);
+    expect(request).toHaveBeenCalledOnce();
+    await account.close();
+    finish();
+    await expect(read).rejects.toBe("cancelled");
+    await expect(account.readPostEditHistory(target)).rejects.toBe(
+      "unknown_connection",
+    );
+    expect(request).toHaveBeenCalledTimes(1);
+  } finally {
+    request.mockRestore();
+  }
 });
 
 test.each(["close", "signOut", "signOutOnDevice"] as const)(
@@ -347,6 +449,9 @@ test("passes the canonical installation and closes the exact native handle", asy
   expect("signOut" in connection).toBe(false);
   expect("readChannelWindow" in connection).toBe(false);
   expect("stagePost" in connection).toBe(false);
+  expect("readPostEditHistory" in connection).toBe(false);
+  expect("editOwnPostMessage" in connection).toBe(false);
+  expect("deleteOwnPost" in connection).toBe(false);
   expect("readPostReactions" in connection).toBe(false);
   expect("changeOwnMembership" in connection).toBe(false);
   expect("addOwnReaction" in connection).toBe(false);
@@ -387,12 +492,16 @@ test("opens a native account by installation and user ID", async () => {
     "changeOwnMembership",
     "close",
     "confirmPostDelivery",
+    "deleteOwnPost",
     "dismissPendingPost",
+    "editOwnPostMessage",
     "executeServerCommand",
     "fetchApi",
     "forgetTeamSearch",
     "getOutgoingPostState",
     "isPostSending",
+    "markChannelsRead",
+    "markPostUnread",
     "readAccountDirectory",
     "readAssociatedMentionGroups",
     "readChannelMemberCount",
@@ -409,6 +518,7 @@ test("opens a native account by installation and user ID", async () => {
     "readPinnedChannelPosts",
     "readPostAnchor",
     "readPostDestination",
+    "readPostEditHistory",
     "readPostReactions",
     "readPostSearchPage",
     "readRecentTeamSearches",
@@ -449,6 +559,7 @@ test("opens a native account by installation and user ID", async () => {
     "subscribeToPostActivity",
     "transitionDraftCommand",
     "updateChannelNotifications",
+    "viewChannel",
   ]);
 });
 
@@ -1043,3 +1154,72 @@ test("retiring an account hides its in-flight timezone", async () => {
     read.mockRestore();
   }
 });
+
+test.each([
+  ["view", "close"],
+  ["view", "abort"],
+  ["unread", "close"],
+  ["unread", "abort"],
+] as const)(
+  "discards signed %s confirmations after %s",
+  async (operation, action) => {
+    ipc.mockResolvedValueOnce(41);
+    const channel = "c".repeat(26);
+    const account = await openAccountRestConnection(
+      "https://example.test/prefix",
+      "u".repeat(26),
+    );
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const controller = new AbortController();
+    const request = vi
+      .spyOn(ChannelsApi.prototype, "viewChannelRaw")
+      .mockImplementation(async () => {
+        await gate;
+        return {
+          raw: new Response(null),
+          value: async () => ({
+            status: "OK",
+            lastViewedAtTimes: { [channel]: 10 },
+          }),
+        };
+      });
+    const unread = vi
+      .spyOn(PostsApi.prototype, "setPostUnreadRaw")
+      .mockImplementation(async () => {
+        await gate;
+        return {
+          raw: new Response(null),
+          value: async () => ({
+            userId: "u".repeat(26),
+            channelId: channel,
+            teamId: "",
+            msgCount: 0,
+            msgCountRoot: 0,
+            mentionCount: 0,
+            mentionCountRoot: 0,
+            urgentMentionCount: 0,
+            lastViewedAt: 0,
+          }),
+        };
+      });
+    try {
+      const pending =
+        operation === "view"
+          ? account.viewChannel(channel, controller.signal)
+          : account.markPostUnread(channel, "p".repeat(26), controller.signal);
+      if (action === "close") await account.close();
+      else controller.abort();
+      release();
+      if (action === "close") await expect(pending).rejects.toBe("cancelled");
+      else await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+      expect(request).toHaveBeenCalledTimes(operation === "view" ? 1 : 0);
+      expect(unread).toHaveBeenCalledTimes(operation === "unread" ? 1 : 0);
+    } finally {
+      request.mockRestore();
+      unread.mockRestore();
+    }
+  },
+);

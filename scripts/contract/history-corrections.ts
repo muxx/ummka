@@ -122,6 +122,40 @@ function addProperties(
   return { ...schema, properties: { ...properties, ...additions } };
 }
 
+// https://github.com/mattermost/mattermost/blob/v12.1.0/server/public/model/post_metadata.go#L20-L25
+// https://github.com/mattermost/mattermost/blob/v12.1.0/server/channels/app/post_metadata.go#L568-L579
+export function correctRedactedFileCount(
+  baseline: Fields,
+  newer: Fields,
+): Fields {
+  const name = "PostMetadata";
+  const schemas = object(
+    object(newer.components, "components").schemas,
+    "schemas",
+  );
+  for (const schema of [baseline, object(schemas[name], name)]) {
+    const properties = object(schema.properties, name);
+    const { description: _description, ...files } = object(
+      properties.files,
+      "PostMetadata.files",
+    );
+    if (
+      schema.type !== "object" ||
+      Object.hasOwn(properties, "redacted_file_count") ||
+      (Array.isArray(schema.required) &&
+        schema.required.includes("redacted_file_count")) ||
+      !isDeepStrictEqual(files, {
+        type: "array",
+        items: { $ref: "#/components/schemas/FileInfo" },
+      })
+    )
+      throw Error("Review the PostMetadata attachment count against both tags");
+  }
+  return addProperties(name, baseline, {
+    redacted_file_count: { ...integer64, minimum: 0 },
+  });
+}
+
 export function correctHistorySchema(name: string, schema: Fields): Fields {
   // https://github.com/mattermost/mattermost/blob/v10.10.1/server/public/model/post_list.go#L12-L22
   if (name === "PostList")

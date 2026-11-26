@@ -135,7 +135,11 @@ export async function respondToWorkspace(
   const policy =
     (path === "config/client" || path === "license/client") &&
     req.headers.authorization !== undefined;
+  const searchPosts = path === `teams/${team}/posts/search`;
+  const searchFiles = path === `teams/${team}/files/search`;
   const post =
+    searchPosts ||
+    searchFiles ||
     path === "users/ids" ||
     path === "roles/names" ||
     path === "posts" ||
@@ -148,7 +152,12 @@ export async function respondToWorkspace(
     assert.equal(url.search, "?format=old");
     return json(
       path === "config/client"
-        ? { CollapsedThreads: "always_on", TeammateNameDisplay: "username" }
+        ? {
+            CollapsedThreads: "always_on",
+            TeammateNameDisplay: "username",
+            EnableFileAttachments: "true",
+            EnableFileSearch: "true",
+          }
         : {},
       "live-" + path,
     );
@@ -195,6 +204,42 @@ export async function respondToWorkspace(
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk);
     const body = JSON.parse(Buffer.concat(chunks).toString());
+    if (searchPosts || searchFiles) {
+      assert.deepEqual(body, {
+        terms: "window fixture",
+        page: 0,
+        per_page: 20,
+        time_zone_offset: 20700,
+        include_deleted_channels: true,
+        is_or_search: false,
+      });
+      if (searchPosts)
+        return json(
+          {
+            ...postList(town, member, "Search found this fixture post"),
+            matches: {},
+          },
+          "live-search-posts",
+        );
+      const file = "h".repeat(26);
+      return json(
+        {
+          order: [file],
+          file_infos: {
+            [file]: {
+              id: file,
+              channel_id: town,
+              user_id: member,
+              name: "window-fixture.pdf",
+            },
+          },
+          first_inaccessible_file_time: 0,
+          prev_file_info_id: "",
+          next_file_info_id: "",
+        },
+        "live-search-files",
+      );
+    }
     if (path === "commands/execute") {
       assert.deepEqual(body, {
         channel_id: town,

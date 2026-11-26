@@ -41,6 +41,7 @@ import {
   correctFlaggedPosts,
   correctHistoryQuery,
   correctHistorySchema,
+  correctRedactedFileCount,
 } from "./history-corrections.ts";
 import { correctMentionGroup } from "./mention-group-correction.ts";
 import { correctNotificationProps } from "./notification-props.ts";
@@ -75,10 +76,16 @@ import {
   correctDirectoryFlags,
   correctSidebarResponse,
   correctSidebarSchema,
+  correctSidebarWrite,
+  sidebarWriteCorrections,
 } from "./sidebar-corrections.ts";
 import { correctSinglePost } from "./single-post-correction.ts";
 import { correctTeamMemberRequest } from "./team-member-correction.ts";
 import { correctThreadFollow } from "./thread-follow-correction.ts";
+import {
+  correctThreadListModel,
+  correctThreadListQuery,
+} from "./thread-list-corrections.ts";
 
 const methods = new Set([
   "get",
@@ -158,6 +165,24 @@ export function buildSpecification(
       throw new Error(`Missing component ${kind}/${name}`);
     const source = object(upstream[name], `components/${kind}/${name}`);
     if (kind !== "schemas") group[name] = source;
+    else if (name === "UserThreads" || name === "UserThread")
+      group[name] = correctThreadListModel(
+        name,
+        source,
+        object(
+          object(
+            object(read("definitions-12.1.0.yaml").components, "components")
+              .schemas,
+            "schemas",
+          )[name],
+          name,
+        ),
+      );
+    else if (name === "PostMetadata")
+      group[name] = correctHistorySchema(
+        name,
+        correctRedactedFileCount(source, read("definitions-12.1.0.yaml")),
+      );
     else if (name === "Timezone")
       group[name] = correctProfileTimezone(
         source,
@@ -324,6 +349,11 @@ export function buildSpecification(
         read("posts-12.1.0.yaml"),
         definitions,
       );
+    else if (id === "GetUserThreads")
+      paths[path][method] = correctThreadListQuery(
+        operation,
+        object(object(read("users-12.1.0.yaml")[path], path)[method], id),
+      );
     else if (id === "StartFollowingThread" || id === "StopFollowingThread")
       paths[path][method] = correctThreadFollow(
         operation,
@@ -410,6 +440,12 @@ export function buildSpecification(
         id,
         operation,
         read(file.replace(".yaml", "-12.1.0.yaml")),
+      );
+    else if (sidebarWriteCorrections.has(id))
+      paths[path][method] = correctSidebarWrite(
+        id,
+        operation,
+        object(object(read("channels-12.1.0.yaml")[path], path)[method], id),
       );
     else if (id === "GetSidebarCategoriesForTeamForUser")
       paths[path][method] = correctSidebarResponse(operation);

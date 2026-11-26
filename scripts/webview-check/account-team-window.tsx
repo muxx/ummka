@@ -31,11 +31,15 @@ export async function checkSavedTeamWindow(
   const root = createRoot(element);
   // The macOS test host retains loopback while exercising the application's offline route.
   const previous = Object.getOwnPropertyDescriptor(navigator, "onLine");
-  Object.defineProperty(navigator, "onLine", {
-    configurable: true,
-    value: false,
-  });
+  const macOS = import.meta.env.UMMKA_MACOS_OVERLAY;
+  if (macOS)
+    Object.defineProperty(navigator, "onLine", {
+      configurable: true,
+      value: false,
+    });
   try {
+    if (navigator.onLine)
+      throw Error("The offline system WebView reported an active network");
     await connectInstallation(serverUrl);
     if ((await getCurrentAccountId(serverUrl)) !== userId)
       throw Error("offline account changed");
@@ -67,6 +71,40 @@ export async function checkSavedTeamWindow(
       !ui.getByText("Черновик · без сети")
     )
       throw Error("offline startup lost the exact channel draft");
+    const searchTrigger = ui.getByRole("button", { name: "Поиск" });
+    searchTrigger.focus();
+    flushSync(() => fireEvent.click(searchTrigger));
+    const search = within(await ui.findByRole("dialog"));
+    const terms = search.getByRole<HTMLInputElement>("searchbox");
+    if (document.activeElement !== terms || search.queryByText("Файлы"))
+      throw Error(
+        "Restored search lost focus or ignored the saved file policy",
+      );
+    const recent = await search.findByRole("button", {
+      name: "from:fixture Привет",
+    });
+    flushSync(() => fireEvent.keyDown(terms, { key: "ArrowDown" }));
+    if (document.activeElement !== recent)
+      throw Error("The search field did not focus the saved team query");
+    flushSync(() => fireEvent.click(recent));
+    await search.findByText("Нет соединения.");
+    if (
+      terms.value !== "from:fixture Привет" ||
+      document.activeElement !== terms
+    )
+      throw Error(
+        "The offline recent query did not leave the search text ready to edit",
+      );
+    flushSync(() =>
+      fireEvent.click(search.getByRole("button", { name: "Закрыть поиск" })),
+    );
+    if (
+      document.activeElement !== searchTrigger ||
+      field.value !== "  Черновик канала\n🐻‍❄️ "
+    )
+      throw Error(
+        "Closing offline search lost the header focus or channel draft",
+      );
     if (
       !ui.getByRole<HTMLButtonElement>("button", {
         name: "Отправить сообщение",
@@ -206,8 +244,10 @@ export async function checkSavedTeamWindow(
   } finally {
     flushSync(() => root.unmount());
     element.remove();
-    if (previous) Object.defineProperty(navigator, "onLine", previous);
-    else Reflect.deleteProperty(navigator, "onLine");
+    if (macOS) {
+      if (previous) Object.defineProperty(navigator, "onLine", previous);
+      else Reflect.deleteProperty(navigator, "onLine");
+    }
     if (!original.installations.includes(serverUrl))
       await forgetInstallation(serverUrl);
     if (original.selected && original.selected !== serverUrl)

@@ -23,6 +23,7 @@ import {
   workspaceServerPolicy,
 } from "../mattermost/workspace-preferences.ts";
 import { ChannelsWorkspace } from "./ChannelsWorkspace.tsx";
+import * as workspaceSearch from "./use-workspace-search.tsx";
 import "./workspace-dom.test-utils.ts";
 
 beforeEach(() => {
@@ -138,6 +139,22 @@ function mount(
     JSON.stringify([channelId, rootId]);
   let revision = 0;
   const connection = {
+    readRecentTeamSearches: vi.fn(async () => []),
+    rememberTeamSearch: vi.fn(async () => true),
+    readSearchTimezone: vi.fn(async () => "UTC"),
+    readPostSearchPage: vi.fn(async () => ({
+      items: [
+        {
+          id: reply.id,
+          channelId: general,
+          userId,
+          message: "Found in search",
+        },
+      ],
+      isEnd: true,
+      firstInaccessiblePostTime: 0,
+      matches: null,
+    })),
     rid: 1,
     readTeamSidebar: vi
       .fn()
@@ -264,6 +281,98 @@ test("opens a root by its reply count and returns focus to the same message with
     draft,
   );
   expect(draft.value).toBe("Unsent channel draft");
+});
+
+test("search results keep the underlying thread selected until the user returns to it", async () => {
+  mount(true);
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Open thread, 1 reply/ }),
+  );
+  const pane = await screen.findByRole("complementary", { name: "Thread" });
+  expect(await within(pane).findByText(reply.message)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Search" }));
+  const dialog = within(await screen.findByRole("dialog"));
+  fireEvent.change(dialog.getByRole("searchbox"), {
+    target: { value: "fixture" },
+  });
+  fireEvent.click(dialog.getByRole("button", { name: "Search" }));
+  const results = within(
+    await screen.findByRole("complementary", { name: "Search results" }),
+  );
+  expect(await results.findByText("Found in search")).toBeTruthy();
+  expect(screen.queryByRole("complementary", { name: "Thread" })).toBeNull();
+  fireEvent.keyDown(window, { key: "Escape" });
+  const close = screen.queryByRole("button", { name: "Close search" });
+  if (close) fireEvent.click(close);
+  const restored = await screen.findByRole("complementary", { name: "Thread" });
+  expect(await within(restored).findByText(reply.message)).toBeTruthy();
+});
+
+test("a search accepted from a reply clears only that draft when the results replace its editor", async () => {
+  // Let React commit the results before the caller awaiting the search resumes.
+  let finishSearch!: () => void;
+  const accepted = new Promise<void>((resolve) => {
+    finishSearch = resolve;
+  });
+  const useSearch = workspaceSearch.useWorkspaceSearch;
+  const search = vi
+    .spyOn(workspaceSearch, "useWorkspaceSearch")
+    .mockImplementation((...args) => {
+      const result = useSearch(...args);
+      return {
+        ...result,
+        async fromCommand(...input) {
+          const opened = await result.fromCommand(...input);
+          await accepted;
+          return opened;
+        },
+      };
+    });
+  try {
+    const account = mount(true);
+    const channel = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+      name: "Message #General…",
+    });
+    fireEvent.change(channel, { target: { value: "Unsent in the channel" } });
+    await waitFor(() =>
+      expect(account.saveDraft).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "Unsent in the channel" }),
+      ),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Open thread, 1 reply/ }),
+    );
+    const pane = await screen.findByRole("complementary", { name: "Thread" });
+    const replyBox = await within(pane).findByRole("textbox", {
+      name: "Reply in thread…",
+    });
+    fireEvent.change(replyBox, { target: { value: "/search fixture" } });
+    fireEvent.keyDown(replyBox, { key: "Enter" });
+    const results = await screen.findByRole("complementary", {
+      name: "Search results",
+    });
+    expect(await within(results).findByText("Found in search")).toBeTruthy();
+    expect(screen.queryByRole("complementary", { name: "Thread" })).toBeNull();
+    await act(async () => {
+      finishSearch();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Close search" }));
+    const restored = await screen.findByRole("complementary", {
+      name: "Thread",
+    });
+    expect(
+      (
+        await within(restored).findByRole<HTMLTextAreaElement>("textbox", {
+          name: "Reply in thread…",
+        })
+      ).value,
+    ).toBe("");
+    expect(channel.value).toBe("Unsent in the channel");
+    expect(account.submitDraft).not.toHaveBeenCalled();
+  } finally {
+    finishSearch();
+    search.mockRestore();
+  }
 });
 
 test("opens a flat reply around its timestamp and ID, then discards both responses when the channel changes", async () => {

@@ -11,6 +11,7 @@ import {
 } from "../../src/mattermost/native-rest.ts";
 import { sidebarPreferences } from "../../src/mattermost/workspace-preferences.ts";
 import {
+  ChannelsApi,
   Configuration,
   FetchError,
   type InitOverrideFunction,
@@ -32,6 +33,7 @@ import { checkPostReactions } from "./post-reactions.ts";
 import { checkSubmissions } from "./submission.ts";
 import { checkTeamReads } from "./team-reads.ts";
 import { checkRoleStorage } from "./team-role-storage.ts";
+import { checkThreadList } from "./thread-list.ts";
 import { checkWorkspaceSettings } from "./workspace-settings.ts";
 
 function check(value: unknown, message: string): asserts value {
@@ -237,7 +239,7 @@ export async function checkGeneratedRequests(ports: string[]) {
     await checkAccountResponses(accountPrefix, userId, observed);
     await checkChannelRefresh(accountPrefix, observed);
     await checkPostReactions(accountRoot, accountPrefix);
-    await checkTeamReads(rootSession, signed);
+    await checkTeamReads(accountRoot, accountPrefix);
     const prepared = await resolveComposerSubmission(
       { message: "-:fixture+wave:", hasAttachments: false, scheduled: false },
       accountPrefix,
@@ -526,6 +528,9 @@ export async function checkGeneratedRequests(ports: string[]) {
         postAnchor.post?.id === postId &&
         postAnchor.post.editAt === 1250 &&
         postAnchor.post.isPinned &&
+        postAnchor.post.attachments?.redactedFileCount === 2 &&
+        postAnchor.post.attachments.fileIds?.length === 0 &&
+        postAnchor.post.attachments.files === undefined &&
         fileAnchor.fileId === fileId &&
         fileAnchor.channelId === channelId &&
         fileAnchor.postId === postId,
@@ -564,6 +569,7 @@ export async function checkGeneratedRequests(ports: string[]) {
       (await threads.stopFollowingThread(follow)).status === "OK",
       "signed thread unfollow",
     );
+    await checkThreadList(threads, teamId, channelId, userId);
     const guestThreads = new ThreadsApi(new Configuration(prefixed));
     for (const request of [
       () => guestThreads.startFollowingThread(follow),
@@ -578,7 +584,54 @@ export async function checkGeneratedRequests(ports: string[]) {
         "thread-follow-denied-before-dispatch",
       );
     }
-    await checkPostMutations(rootSession, signed, channelId);
+    const categoryApi = new ChannelsApi(signed);
+    const categoryOwner = "Abc01234567890123456789012";
+    const categoryId = `direct_messages_${categoryOwner.toLowerCase()}_${teamId.toLowerCase()}`;
+    const categoryScope = { userId: "me", teamId };
+    const collapsedCategory =
+      await categoryApi.updateSidebarCategoryForTeamForUser({
+        ...categoryScope,
+        categoryId,
+        sidebarCategoryWithChannels: {
+          id: categoryId,
+          userId: categoryOwner,
+          teamId,
+          type: "direct_messages",
+          channelIds: [channelId],
+          collapsed: true,
+        },
+      });
+    check(
+      collapsedCategory.id === categoryId &&
+        collapsedCategory.collapsed === true &&
+        collapsedCategory.channelIds?.[0] === channelId,
+      "signed sidebar category with channels",
+    );
+    const deletion = await categoryApi.removeSidebarCategoryForTeamForUser({
+      ...categoryScope,
+      categoryId: "m".repeat(26),
+    });
+    check(deletion.status === "OK", "signed sidebar category removal");
+    for (const request of [
+      () => guestThreads.getUserThreads({ userId: "me", teamId }),
+      () => threads.getUserThreads({ userId: "b".repeat(26), teamId }),
+      () => threads.getUserThreads({ userId: "me", teamId: "short" }),
+    ]) {
+      const denied = await rejected(request());
+      check(
+        denied instanceof FetchError &&
+          denied.cause instanceof TypeError &&
+          denied.cause.cause === "operation_denied",
+        "thread-list-denied-before-dispatch",
+      );
+    }
+    await checkPostMutations(
+      rootSession,
+      signed,
+      channelId,
+      accountPrefix,
+      userId,
+    );
     await checkConnectServer(origin);
     const profile = await inspectInstallation(
       `${prefixed.basePath.slice("https://".length)}/`,
