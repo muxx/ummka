@@ -116,8 +116,7 @@
   background: var(--canvas);
   color: var(--text);
   box-shadow: 0 10px 34px #06183938;
-  max-height: 80dvh;
-  overflow: auto;
+  max-height: min(80dvh, calc(100dvh - 54px - env(safe-area-inset-top)));
 }
 .workspace-composer-note {
   flex: none;

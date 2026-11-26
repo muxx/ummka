@@ -87,6 +87,9 @@ test("an unconfirmed server response leaves the saved account available until ex
   f.signOut.mockResolvedValue({ status: "unconfirmed" });
   fireEvent.click(button("Sign out"));
   const stay = await screen.findByRole("button", { name: "Stay signed in" });
+  const explanation = screen.getByRole("region");
+  expect(explanation.tabIndex).toBe(0);
+  expect(explanation.contains(stay)).toBe(false);
   expect(f.signOutOnDevice).not.toHaveBeenCalled();
   fireEvent.click(stay);
   expect(document.activeElement).toBe(button("Sign out"));

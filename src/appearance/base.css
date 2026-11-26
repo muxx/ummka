@@ -47,3 +47,22 @@ a:any-link {
   outline: 2px solid var(--keyboard-focus);
   outline-offset: var(--focus-offset);
 }
+
+.modal-layout[open],
+.modal-layout .modal-form {
+  display: flex;
+  flex-direction: column;
+  overflow: clip;
+}
+.modal-layout .modal-form,
+.modal-scroll {
+  min-width: 0;
+  min-height: 0;
+}
+.modal-layout :is(header, footer) {
+  flex: none;
+}
+.modal-scroll {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}

@@ -1,3 +1,14 @@
+.message-destination-dialog :is(h2, footer) {
+  flex: none;
+  overflow-wrap: anywhere;
+}
+.message-destination-dialog p {
+  overflow-wrap: anywhere;
+}
+.search-recent button {
+  min-width: 0;
+}
+
 .channels-bar .channels-search-trigger {
   display: flex;
   align-items: center;
