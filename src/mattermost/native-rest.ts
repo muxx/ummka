@@ -9,6 +9,7 @@ import {
 import { readCustomEmoji } from "./account-custom-emoji.ts";
 import { accountDelivery } from "./account-delivery.ts";
 import { atDirectoryStep } from "./account-directory-error.ts";
+import { accountFollowedThreads } from "./account-followed-threads.ts";
 import { accountPostCollections } from "./account-post-collections.ts";
 import { accountPostReactions } from "./account-post-reactions.ts";
 import { accountSearch } from "./account-search.ts";
@@ -153,6 +154,7 @@ export async function openAccountRestConnection(
   const commands = new CommandsApi(config);
   return {
     ...connection,
+    ...accountFollowedThreads(config, readWhileOpen),
     ...accountPostCollections(config, readWhileOpen),
     ...accountCollectionActions(config, userId, readWhileOpen),
     ...accountPostReactions(config, userId, readWhileOpen),

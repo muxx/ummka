@@ -75,6 +75,7 @@ import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
 import { checkThreadFollow } from "./thread-follow.ts";
 import { checkThreadList } from "./thread-list.ts";
+import { checkThreadPageTies } from "./thread-page-ties.ts";
 import { checkThreadSummary } from "./thread-summary.ts";
 import { checkThreadWindow } from "./thread-window.ts";
 import { checkUserNotifications } from "./user-notifications.ts";
@@ -1257,6 +1258,12 @@ await checkThreadList(
   emptyTeam.id,
   threadRoom.id,
   threadDirect.id,
+  version,
+);
+await checkThreadPageTies(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  team.id,
+  message,
   version,
 );
 
