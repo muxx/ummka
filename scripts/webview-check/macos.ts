@@ -11,7 +11,24 @@ import { checkMacSystemLinks } from "./macos-links.ts";
 const exec = promisify(execFile);
 
 export type SendMacKey = (key: "right" | "escape") => Promise<void>;
-type KeyDriver = (send: SendMacKey) => void;
+type KeyDriver = (send: SendMacKey, completed: (stage: string) => void) => void;
+
+export function watchWebviewSteps(expire: () => void, timeoutMs: number) {
+  const steps = new Set<string>();
+  let timer: NodeJS.Timeout | undefined = setTimeout(expire, timeoutMs);
+  return {
+    completed(stage: string) {
+      if (!timer || steps.has(stage)) return;
+      steps.add(stage);
+      clearTimeout(timer);
+      timer = setTimeout(expire, timeoutMs);
+    },
+    close() {
+      clearTimeout(timer);
+      timer = undefined;
+    },
+  };
+}
 
 async function launch(
   expected: string,
@@ -19,38 +36,47 @@ async function launch(
   register?: KeyDriver,
 ) {
   const processRun = exec("src-tauri/target/release/ummka", [], {
-    // PASS runs the full signed HTTP, storage and interactive UI suite in one process.
-    timeout: expected === "PASS" ? 120_000 : 45_000,
+    // The interactive suite also has a deadline for each distinct fixture step.
+    timeout: register ? 300_000 : 45_000,
     env,
   });
-  if (register) {
-    const input = processRun.child.stdin;
-    const output = processRun.child.stdout;
-    assert(input && output);
-    const lines = createInterface({ input: output })[Symbol.asyncIterator]();
-    register(async (key) => {
-      await new Promise<void>((resolve, reject) => {
-        input.write(`${key}\n`, (error) => (error ? reject(error) : resolve()));
-      });
-      // Each serial fixture step waits for AppKit to dispatch both physical phases.
-      // A successful pipe write only means that Node queued bytes for the child.
-      for (;;) {
-        const line = await lines.next();
-        assert(!line.done, `Fixture exited before dispatching ${key}`);
-        if (!line.value.startsWith("UMMKA_KEY_DISPATCHED ")) continue;
-        assert.equal(line.value, `UMMKA_KEY_DISPATCHED ${key}`);
-        return;
-      }
-    });
+  const watchdog = register
+    ? watchWebviewSteps(() => processRun.child.kill(), 120_000)
+    : undefined;
+  try {
+    if (register && watchdog) {
+      const input = processRun.child.stdin;
+      const output = processRun.child.stdout;
+      assert(input && output);
+      const lines = createInterface({ input: output })[Symbol.asyncIterator]();
+      register(async (key) => {
+        await new Promise<void>((resolve, reject) => {
+          input.write(`${key}\n`, (error) =>
+            error ? reject(error) : resolve(),
+          );
+        });
+        // Each serial fixture step waits for AppKit to dispatch both physical phases.
+        // A successful pipe write only means that Node queued bytes for the child.
+        for (;;) {
+          const line = await lines.next();
+          assert(!line.done, `Fixture exited before dispatching ${key}`);
+          if (!line.value.startsWith("UMMKA_KEY_DISPATCHED ")) continue;
+          assert.equal(line.value, `UMMKA_KEY_DISPATCHED ${key}`);
+          return;
+        }
+      }, watchdog.completed);
+    }
+    const { stdout } = await processRun;
+    assert(
+      stdout.split(/\r?\n/u).includes(`UMMKA_WEBVIEW_CHECK ${expected}`),
+      stdout,
+    );
+    console.log(
+      `WKWebView process ${processRun.child.pid} verified ${expected}.`,
+    );
+  } finally {
+    watchdog?.close();
   }
-  const { stdout } = await processRun;
-  assert(
-    stdout.split(/\r?\n/u).includes(`UMMKA_WEBVIEW_CHECK ${expected}`),
-    stdout,
-  );
-  console.log(
-    `WKWebView process ${processRun.child.pid} verified ${expected}.`,
-  );
 }
 
 async function checkRestartsAndLinks(dir: string, env = process.env) {
