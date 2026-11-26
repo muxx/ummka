@@ -1047,6 +1047,7 @@ export function webviewServers(
         "thread-list-totals",
         "thread-list-empty",
         "patch-post",
+        "post-edit-history",
         "delete-post",
         "bulk-channel-view",
         "single-channel-view",

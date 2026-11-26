@@ -37,6 +37,7 @@ import {
   correctGroupAudienceResponse,
 } from "./group-audience-correction.ts";
 import {
+  checkEditHistoryOperation,
   correctFlaggedPosts,
   correctHistoryQuery,
   correctHistorySchema,
@@ -314,6 +315,8 @@ export function buildSpecification(
         components,
       );
     }
+    if (id === "GetEditHistoryForPost")
+      checkEditHistoryOperation(read("posts.yaml"), path, sourcePath);
     if (id === "GetPostInfo")
       checkPostInfoOperation(read("posts.yaml"), path, operation);
     checkPathParameters(path, sourcePath, operation, original);

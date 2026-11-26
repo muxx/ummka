@@ -66,7 +66,15 @@ export function respondToPostContext(
           id: post,
           root_id: "r".repeat(26),
           channel_id: channelId,
+          user_id: "u".repeat(26),
+          create_at: 1100,
+          update_at: 1250,
+          edit_at: 1250,
+          delete_at: 0,
+          type: "",
           message: "Later reply",
+          hashtags: "",
+          is_pinned: true,
         }),
       );
       return "single-post-reply";

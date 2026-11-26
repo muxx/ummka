@@ -54,7 +54,11 @@ import {
 } from "./memberships.ts";
 import { checkMentionLimit } from "./mention-limit.ts";
 import { checkMentionText } from "./mention-text.ts";
-import { checkPostCollections } from "./post-collections.ts";
+import {
+  checkPostCollections,
+  checkSavedPageBoundary,
+} from "./post-collections.ts";
+import { checkPostEditHistory } from "./post-edit-history.ts";
 import {
   checkPostMutations,
   checkPreviouslyAcceptedPost,
@@ -66,6 +70,7 @@ import { checkReactionLimit } from "./reaction-limit.ts";
 import { checkPostReactions } from "./reactions.ts";
 import { checkRoleReads } from "./role-reads.ts";
 import { checkSearchScopePolicy } from "./search-scope.ts";
+import { expectedNavigationPost } from "./search-target.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
 import { checkThreadFollow } from "./thread-follow.ts";
@@ -463,6 +468,7 @@ for (const [id, rootId] of [
     postId: id,
     channelId,
     rootId: rootId || null,
+    post: expectedNavigationPost(row),
   });
 }
 await assert.rejects(
@@ -1254,6 +1260,13 @@ await checkThreadList(
   version,
 );
 
+await checkSavedPageBoundary(
+  base,
+  { id: reader.id, token: readerToken },
+  dm.id,
+  version,
+);
+
 const secondLogin = await create("users/login", {
   login_id: username,
   password,
@@ -1279,6 +1292,22 @@ const previous = await fetch(`${base}/api/v4/users/me`, {
 });
 assert.equal(previous.status, 200);
 assert.equal((await previous.json()).id, user.id);
+// The earlier membership, saved-post, and mention-count checks rely on their original readers.
+await create(
+  `teams/${team.id}/members`,
+  { team_id: team.id, user_id: otherSaver.id },
+  token,
+);
+await checkPostEditHistory(
+  readerPosts,
+  new PostsApi(
+    new Configuration({ basePath: base, accessToken: otherSaverToken }),
+  ),
+  anonymous,
+  reader.id,
+  channelId,
+  version,
+);
 await allowFixtureBrowserSignIn(base, token);
 const logout = await fetch(`${base}/api/v4/users/logout`, {
   method: "POST",

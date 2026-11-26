@@ -77,6 +77,37 @@ export class PostsApi extends runtime.BaseAPI {
         const response = await this.deletePostRaw(requestParameters, initOverrides);
         return await response.value();
     }
+    async getEditHistoryForPostRequestOpts(requestParameters) {
+        if (requestParameters['postId'] == null) {
+            throw new runtime.RequiredError('postId', 'Required parameter "postId" was null or undefined when calling getEditHistoryForPost().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/posts/{post_id}/edit_history`;
+        urlPath = urlPath.replace('{post_id}', encodeURIComponent(String(requestParameters['postId'])));
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async getEditHistoryForPostRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.getEditHistoryForPostRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => jsonValue.map(PostFromJSON));
+    }
+    async getEditHistoryForPost(requestParameters, initOverrides) {
+        const response = await this.getEditHistoryForPostRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
     async getFlaggedPostsForUserRequestOpts(requestParameters) {
         if (requestParameters['userId'] == null) {
             throw new runtime.RequiredError('userId', 'Required parameter "userId" was null or undefined when calling getFlaggedPostsForUser().');

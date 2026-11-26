@@ -9,6 +9,7 @@ import {
 import { readCustomEmoji } from "./account-custom-emoji.ts";
 import { accountDelivery } from "./account-delivery.ts";
 import { atDirectoryStep } from "./account-directory-error.ts";
+import { accountPostCollections } from "./account-post-collections.ts";
 import { accountPostReactions } from "./account-post-reactions.ts";
 import { accountSearch } from "./account-search.ts";
 import { accountChannelAudience } from "./channel-audience.ts";
@@ -48,6 +49,7 @@ import {
   type MembershipTarget,
 } from "./own-membership.ts";
 import { createPostActivity } from "./post-activity.ts";
+import { accountCollectionActions } from "./post-collection-actions.ts";
 import { readPostDestination } from "./post-destination.ts";
 import { createRestTransport } from "./rest-transport.ts";
 import { readSearchTimezone } from "./search-timezone.ts";
@@ -151,6 +153,8 @@ export async function openAccountRestConnection(
   const commands = new CommandsApi(config);
   return {
     ...connection,
+    ...accountPostCollections(config, readWhileOpen),
+    ...accountCollectionActions(config, userId, readWhileOpen),
     ...accountPostReactions(config, userId, readWhileOpen),
     ...accountSearch(config, readWhileOpen),
     readThreadPage(query: ThreadPageRequest, signal?: AbortSignal) {
