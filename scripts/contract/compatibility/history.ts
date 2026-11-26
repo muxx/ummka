@@ -43,6 +43,7 @@ import {
 import { checkCollectionActions } from "./collection-actions.ts";
 import { checkCommands } from "./commands.ts";
 import { checkCustomEmojiLookup } from "./custom-emoji.ts";
+import { checkEventActions } from "./event-actions.ts";
 import { checkEventStream } from "./event-stream.ts";
 import { checkFileSearch } from "./file-search.ts";
 import { checkFocusedConversation } from "./focused-conversation.ts";
@@ -1349,6 +1350,15 @@ await checkThreadPageTies(
   new Configuration({ basePath: base, accessToken: readerToken }),
   team.id,
   message,
+  version,
+);
+await checkEventActions(
+  base,
+  emptyTeam.id,
+  threadRoom.id,
+  { token: otherSaverToken, id: otherSaver.id },
+  { token: readerToken, id: reader.id },
+  create,
   version,
 );
 
