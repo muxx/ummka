@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import {
+  availableDirectoryChannels,
+  openChannelDirectoryList,
+} from "../../../src/channels/open-channel-directory.ts";
 import { readChannelDirectoryPage } from "../../../src/mattermost/channel-directory-page.ts";
 import {
   ChannelsApi,
@@ -120,6 +124,49 @@ export async function checkChannelDirectoryPages(
         error instanceof ResponseError && error.response.status === 403,
     );
   }
+  const account = {
+    readChannelDirectoryPage: (
+      query: Parameters<typeof readChannelDirectoryPage>[1],
+      signal?: AbortSignal,
+    ) => readChannelDirectoryPage(api, query, signal),
+  };
+  // The first full page belongs to the reader. The available tab must still offer the next page.
+  for (let i = 0; i < 50; i++) {
+    const name = `000-joined-${String(i).padStart(2, "0")}`;
+    const created = await create(
+      "channels",
+      { team_id: teamId, name, display_name: name, type: "O" },
+      reader.token,
+    );
+    await created.body?.cancel();
+  }
+  const joined = await api.getChannelsForTeamForUser({ userId: "me", teamId });
+  const members = new Set(joined.flatMap((c) => (c.id ? [c.id] : [])));
+  const list = openChannelDirectoryList(account, teamId, "public");
+  await list.more();
+  const head = list.getSnapshot();
+  assert.equal(head.status, "ready");
+  assert.equal(head.items.length, 50);
+  assert.equal(head.hasMore, true);
+  assert.deepEqual(availableDirectoryChannels(head.items, members), []);
+  await list.more();
+  const tail = list.getSnapshot();
+  assert.equal(tail.status, "ready");
+  assert.equal(tail.hasMore, false);
+  const complete = await page(0, 100);
+  assert.deepEqual(
+    tail.items.map((row) => row.id),
+    complete.map((row) => row.id),
+  );
+  assert.deepEqual(
+    availableDirectoryChannels(tail.items, members).map((row) => row.id),
+    [first, second],
+  );
+  list.close();
+  assert.deepEqual(list.getSnapshot().items, []);
+  console.log(
+    `Mattermost ${version} verified directory list order, completion and exclusion of joined channels.`,
+  );
   const anonymous = new ChannelsApi(new Configuration({ basePath: base }));
   for (const op of [
     "getPublicChannelsForTeam",

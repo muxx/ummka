@@ -93,12 +93,13 @@ async function checkResources() {
     );
     if (invalid !== "invalid_url")
       throw Error("External URL validation failed");
-    const externalHref = navigator.userAgent.includes("Android")
-      ? "https://external.ummka.invalid/post/@bear?value=a%2Fb#anchor"
-      : import.meta.env.VITE_UMMKA_CHECK_EXTERNAL_HREF;
-    if (externalHref) await openExternalPostLink(externalHref);
+    const android = navigator.userAgent.includes("Android");
+    if (android)
+      await openExternalPostLink(
+        "https://external.ummka.invalid/post/@bear?value=a%2Fb#anchor",
+      );
     await checkBrowserAction(ports[0], ports[1]);
-    if (navigator.userAgent.includes("Android")) {
+    if (android) {
       await openExternalPostLink("mailto:probe@ummka.invalid");
       const missing = await openExternalPostLink(
         "mailto:unhandled@ummka.invalid",
@@ -107,6 +108,10 @@ async function checkResources() {
         throw Error("Missing Android mail handler was not reported");
     }
     await seedRegistry();
+    // LaunchServices activates the default browser. Finish work that needs the
+    // fixture window and keyboard focus before handing it the foreground.
+    const browserHref = import.meta.env.VITE_UMMKA_CHECK_EXTERNAL_HREF;
+    if (!android && browserHref) await openExternalPostLink(browserHref);
     location.replace("/ipc-result.html?pass");
     return;
   }
