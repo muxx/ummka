@@ -2637,3 +2637,47 @@ test("describes distinct conversation membership separately from raw array lengt
     }
   }
 });
+
+test("preserves directory scopes, paging and search fields used by the recipient picker in both releases", () => {
+  const list = ["/api/v4/users", "get"];
+  const search = ["/api/v4/users/search", "post"];
+  const json = ["content", "application/json", "schema"];
+  for (const file of ["users.yaml", "users-12.1.0.yaml"]) {
+    const source = read(file);
+    for (const route of [list, search]) {
+      const success = [...route, "responses", "200", ...json];
+      assert.deepEqual(
+        at(contract, ["paths", ...success]),
+        at(source, success),
+      );
+    }
+    const sourceParams = at(source, [...list, "parameters"]);
+    const publishedParams = at(contract, ["paths", ...list, "parameters"]);
+    assert.ok(Array.isArray(sourceParams) && Array.isArray(publishedParams));
+    for (const [key, type] of [
+      ["page", "integer"],
+      ["per_page", "integer"],
+      ["in_team", "string"],
+      ["active", "boolean"],
+    ]) {
+      const param = object(
+        sourceParams.find((p) => p.name === key),
+        key,
+      );
+      assert.equal(param.in, "query");
+      assert.equal(object(param.schema, key).type, type);
+      assert.deepEqual(
+        publishedParams.find((p) => p.name === key),
+        param,
+      );
+    }
+    const body = [...search, "requestBody", ...json];
+    assert.deepEqual(at(source, [...body, "required"]), ["term"]);
+    for (const field of ["term", "team_id", "allow_inactive", "limit"]) {
+      assert.deepEqual(
+        at(contract, ["paths", ...body, "properties", field]),
+        at(source, [...body, "properties", field]),
+      );
+    }
+  }
+});

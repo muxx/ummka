@@ -304,6 +304,41 @@ export async function checkGeneratedRequests(ports: string[]) {
       "team-navigation-directory",
     );
     const teamId = "Team0123456789012345678901";
+    const recipientPage = await users.getUsers({
+      page: 1,
+      perPage: 20,
+      inTeam: teamId,
+      active: true,
+    });
+    const recipientSearch = await users.searchUsers({
+      searchUsersRequest: {
+        term: "ан",
+        teamId,
+        allowInactive: false,
+        limit: 12,
+      },
+    });
+    for (const profiles of [recipientPage, recipientSearch]) {
+      check(
+        profiles.length === 1 &&
+          profiles[0].id === userId &&
+          profiles[0].username === "anna" &&
+          profiles[0].firstName === "Анна",
+        "signed visible recipients",
+      );
+    }
+    for (const request of [
+      () => anonymousUser.getUsers({ page: 0 }),
+      () => anonymousUser.searchUsers({ searchUsersRequest: { term: "ан" } }),
+    ]) {
+      const denied = await rejected(request());
+      check(
+        denied instanceof FetchError &&
+          denied.cause instanceof TypeError &&
+          denied.cause.cause === "operation_denied",
+        "recipient-directory-denied-before-dispatch",
+      );
+    }
     const teamMembership = { kind: "team" as const, id: teamId };
     for (const change of ["join", "leave"] as const) {
       const result = await accountPrefix.changeOwnMembership(

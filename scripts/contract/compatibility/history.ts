@@ -73,6 +73,7 @@ import { checkPublishedPostDocument } from "./published-post-document.ts";
 import { checkReactionActions } from "./reaction-actions.ts";
 import { checkReactionLimit } from "./reaction-limit.ts";
 import { checkPostReactions } from "./reactions.ts";
+import { checkRecipientDirectory } from "./recipient-directory.ts";
 import { checkRoleReads } from "./role-reads.ts";
 import { checkSearchScopePolicy } from "./search-scope.ts";
 import { expectedNavigationPost } from "./search-target.ts";
@@ -1427,6 +1428,38 @@ await checkConversationCreation(
   readerToken,
   reader.id,
   conversationPeers,
+  version,
+);
+const closedDirectoryTeam = await (
+  await create(
+    "teams",
+    {
+      name: "private-directory",
+      display_name: "Private recipient directory",
+      type: "I",
+    },
+    token,
+  )
+).json();
+const outsideDirectoryUserId = conversationPeers[3];
+await checkRecipientDirectory(
+  base,
+  readerToken,
+  team.id,
+  closedDirectoryTeam.id,
+  reader,
+  { id: outsideDirectoryUserId, username: "conversation-peer-3" },
+  async () => {
+    const result = await fetch(
+      `${base}/api/v4/users/${outsideDirectoryUserId}/active`,
+      {
+        method: "PUT",
+        headers: { ...authorization, "Content-Type": "application/json" },
+        body: JSON.stringify({ active: false }),
+      },
+    );
+    assert.equal(result.status, 200);
+  },
   version,
 );
 await allowFixtureBrowserSignIn(base, token);

@@ -200,6 +200,21 @@
   },
   {
     "file": "users.yaml",
+    "method": "GET",
+    "path": "/api/v4/users",
+    "id": "GetUsers",
+    "selfOnly": true
+  },
+  {
+    "file": "users.yaml",
+    "method": "POST",
+    "path": "/api/v4/users/search",
+    "id": "SearchUsers",
+    "body": "json",
+    "selfOnly": true
+  },
+  {
+    "file": "users.yaml",
     "method": "POST",
     "path": "/api/v4/users/ids",
     "id": "GetUsersByIds",

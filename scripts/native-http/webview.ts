@@ -334,6 +334,45 @@ export function webviewServers(
         .end(JSON.stringify({ status: "OK" }));
       return;
     }
+    if (
+      url.pathname === "/team/chat/api/v4/users" ||
+      url.pathname === "/team/chat/api/v4/users/search"
+    ) {
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      if (url.pathname.endsWith("/search")) {
+        assert.equal(req.method, "POST");
+        assert.equal(url.search, "");
+        assert.deepEqual(await json(req), {
+          term: "ан",
+          team_id: teamId,
+          allow_inactive: false,
+          limit: 12,
+        });
+        visits.push("recipient-search");
+      } else {
+        assert.equal(req.method, "GET");
+        assert.deepEqual(Object.fromEntries(url.searchParams), {
+          in_team: teamId,
+          active: "true",
+          page: "1",
+          per_page: "20",
+        });
+        assert.equal(await text(req), "");
+        visits.push("recipient-page");
+      }
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end(
+          JSON.stringify([
+            { id: userId, username: "anna", first_name: "Анна" },
+          ]),
+        );
+      return;
+    }
     if (url.pathname === "/team/chat/api/v4/users/usernames") {
       assert.equal(req.method, "POST");
       assert.equal(
@@ -1071,6 +1110,8 @@ export function webviewServers(
         "user-me",
         "user-profile",
         "profiles-by-name",
+        "recipient-page",
+        "recipient-search",
         "profile-image",
         "account-logout-confirmed",
         "account-logout-unconfirmed",
