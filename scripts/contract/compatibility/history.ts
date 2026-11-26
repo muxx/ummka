@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { latestReactionTarget } from "../../../src/channels/latest-reaction-target.ts";
 import { nextPostDestinationStep } from "../../../src/channels/post-destination-step.ts";
 import { accountChannelReadState } from "../../../src/mattermost/account-channel-read-state.ts";
+import { readChannelBookmarks } from "../../../src/mattermost/channel-bookmarks.ts";
 import { channelHistoryPage } from "../../../src/mattermost/channel-history-page.ts";
 import { channelPostChanges } from "../../../src/mattermost/channel-post-records.ts";
 import {
@@ -37,6 +38,7 @@ import {
   checkBrowserSignIn,
 } from "./browser-sign-in.ts";
 import { checkChannelAudience } from "./channel-audience.ts";
+import { checkChannelDirectoryPages } from "./channel-directory-pages.ts";
 import {
   checkChannelMemberDirectory,
   checkChannelMemberRoles,
@@ -314,6 +316,13 @@ const readerToken = (await create("users/login", readerLogin)).headers.get(
   "token",
 );
 assert.ok(readerToken);
+await checkChannelDirectoryPages(
+  base,
+  create,
+  token,
+  { token: readerToken, userId: reader.id },
+  version,
+);
 await checkRoleReads(base, readerToken, reader.id, version);
 const readerPosts = new PostsApi(
   new Configuration({ basePath: base, accessToken: readerToken }),
@@ -423,6 +432,13 @@ assert.equal(bookmarkFailure.response.status, 501);
 assert.equal(
   (await bookmarkFailure.response.json()).id,
   "api.channel.bookmark.channel_bookmark.license.error",
+);
+assert.deepEqual(
+  await readChannelBookmarks(
+    new Configuration({ basePath: base, accessToken: readerToken }),
+    dm.id,
+  ),
+  { kind: "unlicensed" },
 );
 await checkChannelMemberDirectory(
   base,

@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, expect, expectTypeOf, test, vi } from "vitest";
 import {
+  BookmarksApi,
+  type ChannelBookmarkWithFileInfo,
   ChannelsApi,
   type PostInfo,
   PostsApi,
@@ -538,6 +540,7 @@ test("opens a native account by installation and user ID", async () => {
     "notifyChannelHistoryChanged",
     "readAccountDirectory",
     "readAssociatedMentionGroups",
+    "readChannelBookmarks",
     "readChannelMemberCount",
     "readChannelMemberDirectory",
     "readChannelNotifications",
@@ -1127,6 +1130,35 @@ test("the signed connection supplies its own user and discards a late membership
     expect(mutate).toHaveBeenCalledTimes(1);
   } finally {
     mutate.mockRestore();
+  }
+});
+
+test("closing an account discards its pending bookmark list", async () => {
+  ipc.mockResolvedValueOnce(42);
+  const account = await openAccountRestConnection(
+    "https://fixture.test",
+    "u".repeat(26),
+  );
+  let finish!: (rows: ChannelBookmarkWithFileInfo[]) => void;
+  const response = new Promise<ChannelBookmarkWithFileInfo[]>((resolve) => {
+    finish = resolve;
+  });
+  const call = vi
+    .spyOn(BookmarksApi.prototype, "listChannelBookmarksForChannel")
+    .mockReturnValueOnce(response);
+  try {
+    const channelId = "c".repeat(26);
+    const pending = account.readChannelBookmarks(channelId);
+    expect(call).toHaveBeenCalledOnce();
+    await account.close();
+    finish([]);
+    await expect(pending).rejects.toBe("cancelled");
+    await expect(account.readChannelBookmarks(channelId)).rejects.toBe(
+      "unknown_connection",
+    );
+    expect(call).toHaveBeenCalledOnce();
+  } finally {
+    call.mockRestore();
   }
 });
 
