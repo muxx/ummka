@@ -69,7 +69,7 @@ async function checkResources() {
     if (findStandardEmoji("thumbsup")?.glyph !== "👍")
       throw Error("standard-emoji-directory");
     await checkChannelsFrame();
-    checkChannelTimeline();
+    await checkChannelTimeline();
     const ports = String(import.meta.env.VITE_UMMKA_CHECK_PORTS).split(",");
     await checkGeneratedRequests(ports);
     const invalid = await openExternalPostLink("/relative").catch(
