@@ -1,0 +1,225 @@
+.post-collection-pane {
+  display: flex;
+  flex: 0 0 clamp(300px, 32cqi, 420px);
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+  border-inline-start: 1px solid var(--divider);
+  padding-inline-end: env(safe-area-inset-right);
+  padding-block-end: env(safe-area-inset-bottom);
+  color: var(--text);
+  background: var(--canvas);
+}
+.collection-open,
+.collection-channel-trigger,
+.collection-channel-action,
+.collection-page-action {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: start;
+  cursor: pointer;
+  min-height: 44px;
+}
+.collection-channel-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+}
+.collection-channel-trigger span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.collection-channel-trigger svg {
+  flex: none;
+}
+.collection-channel-menu {
+  position: relative;
+  min-width: 0;
+}
+.collection-channel-action {
+  position: absolute;
+  top: 100%;
+  inset-inline-start: 0;
+  z-index: 2;
+  font-weight: 500;
+  font-size: 0.9375rem;
+  width: max-content;
+  max-width: 70cqi;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--divider);
+  border-radius: 8px;
+  background: var(--canvas);
+  box-shadow: 0 6px 16px #08152c26;
+}
+.collection-rows {
+  padding: 0.35rem 0.8rem 0.8rem;
+}
+.collection-rows ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.collection-rows li {
+  position: relative;
+  border-block-end: 1px solid var(--divider);
+}
+.collection-open {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 6px;
+}
+.collection-rows li:has(.collection-remove) .collection-open {
+  padding-inline-end: 44px;
+}
+.collection-open:not([aria-disabled="true"]):hover,
+.collection-channel-action:hover,
+.collection-page-action:hover {
+  background: var(--row-hover);
+}
+.collection-open[aria-current="true"] {
+  background: var(--row-selected);
+}
+.collection-author {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.87rem;
+  font-weight: 620;
+}
+.collection-meta,
+.collection-badges,
+.collection-date {
+  color: var(--muted);
+}
+.collection-meta,
+.collection-badges {
+  overflow-wrap: anywhere;
+  font-size: 0.72rem;
+}
+.collection-date {
+  white-space: nowrap;
+  font-size: 0.7rem;
+}
+.collection-excerpt {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: 0.76rem;
+  line-height: 1.42;
+}
+.collection-badges {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-block-start: 4px;
+  color: var(--accent);
+  font-weight: 650;
+}
+.collection-badges svg {
+  width: 14px;
+  height: 14px;
+}
+.collection-remove {
+  position: absolute;
+  inset-block-start: 4px;
+  inset-inline-end: 0;
+}
+.collection-remove svg {
+  fill: currentColor;
+}
+.collection-remove[aria-disabled="true"] {
+  opacity: 0.6;
+}
+.collection-page-action {
+  padding-inline: 0.75rem;
+  color: var(--accent);
+  border-radius: 6px;
+}
+@container (width <= 740px) {
+  .post-collection-pane {
+    flex: 1;
+    border: 0;
+    padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
+  }
+}
+.collection-saved-trigger {
+  position: relative;
+  margin-inline-start: auto;
+}
+.collection-saved-trigger:hover {
+  background: #ffffff1c;
+}
+.collection-saved-trigger small {
+  position: absolute;
+  inset-inline-end: 0;
+  inset-block-start: 2px;
+  border-radius: 1rem;
+  padding-inline: 4px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  line-height: 1.45;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.collection-heading {
+  min-width: 0;
+  flex: 1;
+  padding-block: 0.45rem;
+}
+.collection-heading span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.collection-mobile-close {
+  display: none;
+}
+@container (width <= 740px) {
+  .collection-close {
+    order: -1;
+  }
+  .collection-desktop-close {
+    display: none;
+  }
+  .collection-mobile-close {
+    display: initial;
+  }
+}
+.collection-edge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  min-height: 44px;
+  padding: 0.5rem;
+  text-align: center;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.collection-content {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.collection-announcement {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
