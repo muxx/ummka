@@ -16,12 +16,14 @@ export function loadWorkspaceServerPolicy(
     const [settings, license] = await Promise.all([
       request((options) =>
         readStringFields(api.getClientConfigRaw(format, options), [
+          "EnableUserStatuses",
           "MaxNotificationsPerChannel",
           "UniqueEmojiReactionLimitPerPost",
           "PostEditTimeLimit",
           "EnableConfirmNotificationsToChannel",
           "EnableCustomGroups",
           "CollapsedThreads",
+          "RestrictDirectMessage",
           "EnableCrossTeamSearch",
           "EnableFileAttachments",
           "EnableFileSearch",

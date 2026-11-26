@@ -75,8 +75,24 @@ struct SearchSettings {
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum RecipientScope {
+    Any,
+    Team,
+}
+
+// This matches Mattermost's client behavior when the configuration key is absent.
+fn user_statuses_enabled_by_default() -> bool {
+    true
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ServerPolicy {
+    #[serde(default = "user_statuses_enabled_by_default")]
+    user_statuses_enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dm_recipient_scope: Option<RecipientScope>,
     #[serde(skip_serializing_if = "Option::is_none")]
     search: Option<SearchSettings>,
     #[serde(skip_serializing_if = "Option::is_none")]

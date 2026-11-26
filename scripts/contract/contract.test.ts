@@ -16,6 +16,9 @@ import { stringify } from "yaml";
 import nativeAuth from "../../contracts/mattermost/native-auth.json" with {
   type: "json",
 };
+import nativeFiles from "../../contracts/mattermost/native-files.json" with {
+  type: "json",
+};
 import catalog from "../../contracts/mattermost/operations.json" with {
   type: "json",
 };
@@ -34,6 +37,7 @@ import {
   correctExecuteCommand,
 } from "./command-corrections.ts";
 import { correctCustomEmoji } from "./custom-emoji-correction.ts";
+import { correctFileContent } from "./file-content-correction.ts";
 import {
   correctFileModel,
   correctFileSearch,
@@ -91,12 +95,12 @@ import {
 } from "./sidebar-corrections.ts";
 import { correctSinglePost } from "./single-post-correction.ts";
 import { correctTeamMemberRequest } from "./team-member-correction.ts";
-import { correctThreadFollow } from "./thread-follow-correction.ts";
 import {
   correctThreadListModel,
   correctThreadListQuery,
   threadListPath,
 } from "./thread-list-corrections.ts";
+import { correctThreadMutation } from "./thread-mutation-correction.ts";
 
 const sources = process.env.UMMKA_CONTRACT_SOURCES;
 const work = process.env.UMMKA_CONTRACT_WORK;
@@ -917,9 +921,162 @@ test("both thread follow verbs return StatusOK and stop on upstream response cha
       ...source,
       responses: { "200": { description: "changed" } },
     };
-    assert.throws(() => correctThreadFollow(source, changed), /Review both/);
-    assert.throws(() => correctThreadFollow(changed, newer), /Review both/);
-    assert.throws(() => correctThreadFollow(changed, changed), /Review both/);
+    assert.throws(() => correctThreadMutation(source, changed), /Review both/);
+    assert.throws(() => correctThreadMutation(changed, newer), /Review both/);
+    assert.throws(() => correctThreadMutation(changed, changed), /Review both/);
+  }
+});
+
+test("both thread read operations expose their actual response and guard the timestamp on both pins", () => {
+  for (const [suffix, model] of [
+    ["/read", "StatusOK"],
+    ["/{thread_id}/read/{timestamp}", "UserThread"],
+  ]) {
+    const path = threadListPath + suffix;
+    const key = [path, "put"];
+    assert.equal(
+      at(contract, [
+        "paths",
+        ...key,
+        "responses",
+        "200",
+        "content",
+        "application/json",
+        "schema",
+        "$ref",
+      ]),
+      `#/components/schemas/${model}`,
+    );
+    const source = object(at(read("users.yaml"), key), path);
+    const newer = object(at(read("users-12.1.0.yaml"), key), path);
+    const changed = {
+      ...source,
+      responses: { "200": { description: "upstream changed" } },
+    };
+    assert.throws(() => correctThreadMutation(changed, newer), /Review both/);
+    assert.throws(() => correctThreadMutation(source, changed), /Review both/);
+    assert.throws(() => correctThreadMutation(changed, changed), /Review both/);
+    if (model === "UserThread") {
+      const params = at(contract, ["paths", ...key, "parameters"]);
+      assert.ok(Array.isArray(params) && Array.isArray(source.parameters));
+      assert.deepEqual(params.find((p) => p.name === "timestamp")?.schema, {
+        type: "integer",
+        format: "int64",
+        minimum: 1,
+        maximum: Number.MAX_SAFE_INTEGER,
+      });
+      const newTimestamp = {
+        ...source,
+        parameters: source.parameters.map((p) =>
+          p.name === "timestamp" ? { ...p, schema: { type: "integer" } } : p,
+        ),
+      };
+      assert.throws(
+        () => correctThreadMutation(source, newTimestamp),
+        /Review both/,
+      );
+      assert.throws(
+        () => correctThreadMutation(newTimestamp, newer),
+        /Review both/,
+      );
+      assert.throws(
+        () => correctThreadMutation(newTimestamp, newTimestamp),
+        /timestamp/,
+      );
+    }
+  }
+});
+
+test("both team-name parameters address the same route and return Team", () => {
+  for (const [file, name] of [
+    ["teams.yaml", "name"],
+    ["teams-12.1.0.yaml", "team_name"],
+  ]) {
+    const path = `/api/v4/teams/name/{${name}}`;
+    const op = object(at(read(file), [path, "get"]), path);
+    assert.equal(op.operationId, "GetTeamByName");
+    assert.ok(Array.isArray(op.parameters));
+    assert.deepEqual(
+      op.parameters.map((entry) => {
+        const p = object(entry, "team name");
+        return [p.in, p.name, p.required, p.schema];
+      }),
+      [["path", name, true, { type: "string" }]],
+    );
+    assert.equal(
+      at(op, [
+        "responses",
+        "200",
+        "content",
+        "application/json",
+        "schema",
+        "$ref",
+      ]),
+      "#/components/schemas/Team",
+    );
+  }
+});
+
+test("named channel lookup has the same parameters and Channel response in both versions", () => {
+  const path = "/api/v4/teams/name/{team_name}/channels/name/{channel_name}";
+  for (const file of ["channels.yaml", "channels-12.1.0.yaml"]) {
+    const operation = object(at(read(file), [path, "get"]), path);
+    assert.equal(operation.operationId, "GetChannelByNameForTeamName");
+    assert.ok(Array.isArray(operation.parameters));
+    assert.deepEqual(
+      operation.parameters.map((item) => {
+        const p = object(item, "named channel parameter");
+        return [p.in, p.name, p.required, p.schema];
+      }),
+      [
+        ["path", "team_name", true, { type: "string" }],
+        ["path", "channel_name", true, { type: "string" }],
+        [
+          "query",
+          "include_deleted",
+          undefined,
+          { type: "boolean", default: false },
+        ],
+      ],
+    );
+    assert.equal(
+      at(operation, [
+        "responses",
+        "200",
+        "content",
+        "application/json",
+        "schema",
+        "$ref",
+      ]),
+      "#/components/schemas/Channel",
+    );
+  }
+});
+
+test("one channel uses the same path, parameter and Channel response in both versions", () => {
+  const path = "/api/v4/channels/{channel_id}";
+  for (const file of ["channels.yaml", "channels-12.1.0.yaml"]) {
+    const operation = object(at(read(file), [path, "get"]), path);
+    assert.equal(operation.operationId, "GetChannel");
+    assert.ok(Array.isArray(operation.parameters));
+    assert.deepEqual(
+      operation.parameters.map((item) => {
+        const parameter = object(item, "channel id");
+        return [parameter.in, parameter.name, parameter.required];
+      }),
+      [["path", "channel_id", true]],
+    );
+    assert.equal(
+      at(operation, [
+        "responses",
+        "200",
+        "content",
+        "application/json",
+        "schema",
+        "$ref",
+      ]),
+      "#/components/schemas/Channel",
+    );
   }
 });
 
@@ -945,10 +1102,12 @@ test("retains the catalog operations, security and transitive models", () => {
     const source = object(at(read(file), key), path);
     let expected = source;
     if (
+      source.operationId === "UpdateThreadReadForUser" ||
+      source.operationId === "UpdateThreadsReadForUser" ||
       source.operationId === "StartFollowingThread" ||
       source.operationId === "StopFollowingThread"
     )
-      expected = correctThreadFollow(
+      expected = correctThreadMutation(
         source,
         object(at(read("users-12.1.0.yaml"), key), path),
       );
@@ -1115,7 +1274,7 @@ test("retains the catalog operations, security and transitive models", () => {
   }
   assert.deepEqual(
     Object.keys(object(contract.paths, "paths")).sort(),
-    [...new Set(catalog.map(({ path }) => path))].sort(),
+    [...new Set([...catalog, ...nativeFiles].map(({ path }) => path))].sort(),
   );
   assert.deepEqual(
     Object.keys(
@@ -1529,7 +1688,7 @@ test("applies the optional attachment count only while both pinned definitions o
 });
 
 const removals = [
-  ...catalog.map(({ file, path, method }) => ({
+  ...[...catalog, ...nativeFiles].map(({ file, path, method }) => ({
     file,
     path: [path, method.toLowerCase()],
     error: `Expected OpenAPI object ${method.toLowerCase()} ${path}`,
@@ -2590,3 +2749,62 @@ test("takes managed category assignments from the server version that exposes th
   assert.equal(at(schema, ["type"]), "object");
   assert.deepEqual(at(schema, ["additionalProperties"]), { type: "string" });
 });
+
+for (const { path, id } of nativeFiles) {
+  test(`describes complete and ranged binary ${id} outside the WebView permission list`, () => {
+    const source = object(at(read("files.yaml"), [path, "get"]), id);
+    const newer = read("files-12.1.0.yaml");
+    const actual = object(at(contract, ["paths", path, "get"]), id);
+    const media = id === "GetFile" ? "*/*" : "image/jpeg";
+    for (const status of ["200", "206"])
+      assert.deepEqual(
+        at(actual, ["responses", status, "content", media, "schema"]),
+        { type: "string", format: "binary" },
+      );
+    assert.deepEqual(at(actual, ["parameters"]), [
+      ...(source.parameters as Fields[]),
+      {
+        name: "Range",
+        in: "header",
+        required: false,
+        schema: { type: "string", pattern: "^bytes=([0-9]+-[0-9]*|-[0-9]+)$" },
+      },
+    ]);
+    assert.deepEqual(
+      at(actual, ["responses", "403"]),
+      at(source, ["responses", "403"]),
+    );
+    for (const status of ["206", "416"])
+      assert.deepEqual(
+        at(actual, ["responses", status, "headers", "Content-Range", "schema"]),
+        { type: "string" },
+      );
+    assert.equal(
+      catalog.some((op) => op.path === path && op.method === "GET"),
+      false,
+    );
+    assert.equal(
+      Object.hasOwn(object(at(contract, ["paths", path]), path), "head"),
+      false,
+    );
+    const changed = {
+      ...source,
+      responses: {
+        ...object(source.responses, "responses"),
+        "200": { description: "upstream now declares a body" },
+      },
+    };
+    assert.throws(
+      () => correctFileContent(changed, newer, path),
+      /Review both/,
+    );
+    assert.throws(
+      () => correctFileContent(source, { [path]: { get: changed } }, path),
+      /Review both/,
+    );
+    assert.throws(
+      () => correctFileContent(changed, { [path]: { get: changed } }, path),
+      /Review both/,
+    );
+  });
+}

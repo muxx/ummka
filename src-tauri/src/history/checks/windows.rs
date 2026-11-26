@@ -34,6 +34,7 @@ fn save(id: &str, stamp: i64) -> PostChange {
         hashtags: String::new(),
         is_pinned: false,
         thread_summary: None,
+        attachments: None,
     })
 }
 
@@ -420,6 +421,7 @@ pub(crate) fn round_trip(root: &Path) -> Result<(), HistoryError> {
     delayed_tie_edges(&root.join("delayed"))?;
     sparse_and_removal(&root.join("removal"))?;
     super::thread_summaries::run(&root.join("summaries"))?;
+    super::attachments::run(&root.join("attachments"))?;
     upgrade_and_plans(&root.join("upgrade"))
 }
 

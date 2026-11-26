@@ -3,17 +3,33 @@ import { setTimeout as delay } from "node:timers/promises";
 import { coldLink, warmLink } from "../webview-check/link-examples.ts";
 
 type Adb = (...args: string[]) => Promise<string>;
-export type OnKeyboardReady = (sendTab: () => Promise<void>) => void;
+export type SendAndroidKey = (
+  key: "KEYCODE_TAB" | "KEYCODE_BACK",
+) => Promise<void>;
+export type OnAndroidInputReady = (send: SendAndroidKey) => void;
 
 export async function launchWebview(
   adb: Adb,
   app: string,
   activity: string,
   expected: string,
-  onKeyboardReady?: OnKeyboardReady,
+  onAndroidInputReady?: OnAndroidInputReady,
 ) {
-  onKeyboardReady?.(async () => {
-    await adb("shell", "input", "keyevent", "KEYCODE_TAB");
+  onAndroidInputReady?.(async (key) => {
+    if (key === "KEYCODE_BACK") {
+      // This case exercises app navigation. Android gives a visible IME the first Back.
+      const deadline = Date.now() + 5_000;
+      while (true) {
+        const input = await adb("shell", "dumpsys", "input_method");
+        if (/\bmInputShown=false\b/u.test(input)) break;
+        assert(
+          Date.now() < deadline,
+          "Thread navigation requires a hidden IME",
+        );
+        await delay(50);
+      }
+    }
+    await adb("shell", "input", "keyevent", key);
   });
   assert.match(
     await adb("shell", "am", "start", "-W", "-n", activity),
@@ -112,7 +128,7 @@ export async function checkWebviewProcesses(
   adb: Adb,
   app: string,
   component: string,
-  onKeyboardReady: OnKeyboardReady,
+  onAndroidInputReady: OnAndroidInputReady,
 ) {
   const activity = `${component}MainActivity`;
   await adb(
@@ -125,6 +141,31 @@ export async function checkWebviewProcesses(
     "android.app.role.BROWSER",
     app,
   );
+  // These synthetic addresses may only reach the test activity or have no receiver.
+  const resolve = (href: string) =>
+    adb(
+      "shell",
+      "cmd",
+      "package",
+      "resolve-activity",
+      "--brief",
+      "-a",
+      "android.intent.action.VIEW",
+      "-d",
+      href,
+    );
+  for (const href of [
+    "https://external.ummka.invalid",
+    "mailto:probe@ummka.invalid",
+  ])
+    assert(
+      (await resolve(href)).trim().endsWith(`${component}BrowserCheckActivity`),
+      "Fixture is not the selected external link handler",
+    );
+  assert.match(
+    await resolve("mailto:unhandled@ummka.invalid"),
+    /No activity found/u,
+  );
   // Instrumentation may outlast the screen timeout on the disposable emulator.
   await adb("shell", "svc", "power", "stayon", "true");
   await adb("shell", "input", "keyevent", "KEYCODE_WAKEUP");
@@ -134,7 +175,24 @@ export async function checkWebviewProcesses(
     app,
     activity,
     "browser-checked",
-    onKeyboardReady,
+    onAndroidInputReady,
+  );
+  const external = await adb(
+    "logcat",
+    "-d",
+    `--pid=${seeded}`,
+    "-s",
+    "UmmkaPostLink:I",
+  );
+  assert.equal(
+    external.match(/received external web/gu)?.length,
+    1,
+    "Android did not deliver exactly one external link to the fixture handler",
+  );
+  assert.equal(
+    external.match(/received external mail/gu)?.length,
+    1,
+    "Android did not deliver exactly one mail link to the fixture handler",
   );
   // Android protects the device owner from force-stop. TLS checks have finished
   // using its test CA, so release ownership before testing process restarts.

@@ -33,6 +33,32 @@ const localQuery = {
   limit: 20,
 } as const;
 
+test("an open account owns and releases its channel commit listeners", async () => {
+  ipc.mockResolvedValueOnce(27).mockResolvedValueOnce(28);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    "u".repeat(26),
+  );
+  const other = await openAccountRestConnection(
+    "https://chat.example.test",
+    "u".repeat(26),
+  );
+  const first = vi.fn();
+  const second = vi.fn();
+  const stop = account.subscribeToChannelHistory(localQuery.channelId, first);
+  other.subscribeToChannelHistory(localQuery.channelId, second);
+  account.notifyChannelHistoryChanged(localQuery.channelId);
+  expect(first).toHaveBeenCalledTimes(1);
+  expect(second).not.toHaveBeenCalled();
+  stop();
+  account.notifyChannelHistoryChanged(localQuery.channelId);
+  expect(first).toHaveBeenCalledTimes(1);
+  await other.close();
+  other.notifyChannelHistoryChanged(localQuery.channelId);
+  expect(second).not.toHaveBeenCalled();
+  await account.close();
+});
+
 test("a local read uses only this account's native resource and keeps an unknown window distinct", async () => {
   ipc.mockResolvedValueOnce(27);
   const account = await openAccountRestConnection(
@@ -453,6 +479,10 @@ test("passes the canonical installation and closes the exact native handle", asy
   expect("editOwnPostMessage" in connection).toBe(false);
   expect("deleteOwnPost" in connection).toBe(false);
   expect("readPostReactions" in connection).toBe(false);
+  expect("markFollowedThreadRead" in connection).toBe(false);
+  expect("markTeamThreadsRead" in connection).toBe(false);
+  expect("readFollowedThreads" in connection).toBe(false);
+  expect("readFollowedThreadTotals" in connection).toBe(false);
   expect("changeOwnMembership" in connection).toBe(false);
   expect("addOwnReaction" in connection).toBe(false);
   expect("removeOwnReaction" in connection).toBe(false);
@@ -501,7 +531,10 @@ test("opens a native account by installation and user ID", async () => {
     "getOutgoingPostState",
     "isPostSending",
     "markChannelsRead",
+    "markFollowedThreadRead",
     "markPostUnread",
+    "markTeamThreadsRead",
+    "notifyChannelHistoryChanged",
     "readAccountDirectory",
     "readAssociatedMentionGroups",
     "readChannelMemberCount",
@@ -512,6 +545,8 @@ test("opens a native account by installation and user ID", async () => {
     "readDraft",
     "readFileAnchor",
     "readFileSearchPage",
+    "readFollowedThreadTotals",
+    "readFollowedThreads",
     "readJoinedTeams",
     "readMentionGroupCounts",
     "readPendingPosts",
@@ -557,6 +592,7 @@ test("opens a native account by installation and user ID", async () => {
     "stagePost",
     "submitDraft",
     "submitDraftCommand",
+    "subscribeToChannelHistory",
     "subscribeToPostActivity",
     "transitionDraftCommand",
     "updateChannelNotifications",

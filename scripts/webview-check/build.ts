@@ -6,14 +6,19 @@ export async function buildWebviewFixture(
   dir: string,
   ports: number[],
   platform: "macos" | "android",
+  externalHref?: string,
 ) {
   const frontendDist = join(dir, "ui");
   await build({
     configFile: false,
     root: "scripts/webview-check",
     define: {
+      "import.meta.env.UMMKA_ANDROID": platform === "android",
       "import.meta.env.UMMKA_MOBILE": platform === "android",
       "import.meta.env.UMMKA_MACOS_OVERLAY": platform === "macos",
+      "import.meta.env.VITE_UMMKA_CHECK_EXTERNAL_HREF": JSON.stringify(
+        externalHref ?? "",
+      ),
       "import.meta.env.VITE_UMMKA_CHECK_PORTS": JSON.stringify(ports.join(",")),
     },
     build: { outDir: frontendDist },

@@ -615,9 +615,28 @@ pub(super) const MIGRATIONS: &[Migration] = &[
         statements: &[],
         objects: THREAD_OBJECTS,
     },
+    // Older readers reject the recipient scope in the server policy JSON.
+    Migration {
+        statements: &[],
+        objects: THREAD_OBJECTS,
+    },
+    Migration {
+        statements: &[POST_ATTACHMENT],
+        objects: &directory_objects!(
+            JOINED_TEAM_V19,
+            SIDEBAR_CHANNEL_V19,
+            COMPOSER_DRAFT_V21,
+            TEAM_SEARCH,
+            TEAM_SEARCH_ORDER,
+            THREAD_SUMMARY,
+            POST_ATTACHMENT
+        ),
+    },
 ];
 
 const THREAD_SUMMARY: &str = include_str!("migrations/0024_thread_summary.sql");
+
+const POST_ATTACHMENT: &str = include_str!("migrations/0027_post_attachment.sql");
 
 const THREAD_OBJECTS: &[&str] = &directory_objects!(
     JOINED_TEAM_V19,

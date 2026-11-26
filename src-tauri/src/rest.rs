@@ -1,3 +1,5 @@
+pub mod mobile_file_policy;
+
 use crate::installation_url::{has_credentials, parse_canonical};
 use crate::native_http::NativeHttp;
 pub use crate::native_http::TransportError;
@@ -38,7 +40,21 @@ impl Operation<'_> {
                 "{team_id}" | "{channel_id}" | "{post_id}" | "{thread_id}" | "{file_id}" => {
                     is_mattermost_id(actual)
                 }
+                "{name}" | "{team_name}" | "{channel_name}" => {
+                    (1..=64).contains(&actual.len())
+                        && actual
+                            .bytes()
+                            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_'))
+                }
                 "{category_id}" => valid_category_id(actual),
+                "{timestamp}" => {
+                    // The generated SDK passes Unix milliseconds as a JavaScript number.
+                    const JS_MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
+                    actual.starts_with(|c: char| matches!(c, '1'..='9'))
+                        && actual
+                            .parse::<u64>()
+                            .is_ok_and(|ms| ms <= JS_MAX_SAFE_INTEGER)
+                }
                 "{emoji_name}" => valid_emoji_name(actual),
                 literal => actual == literal,
             };
@@ -184,6 +200,16 @@ impl RestConnection {
         sessions.forget_current(session).await
     }
 
+    /// Start a new event consumer bound to this login and an empty confirmed position.
+    pub fn account_events(
+        &self,
+    ) -> Result<crate::realtime::AccountEvents<'_>, crate::realtime::EventConnectionError> {
+        if self.account.is_none() {
+            return Err(crate::realtime::EventConnectionError::SessionUnavailable);
+        }
+        Ok(crate::realtime::AccountEvents::new(self))
+    }
+
     /// Run one native event connection for the signed account. Dropping the caller's
     /// future or retiring this login closes the socket, including during the handshake.
     pub async fn with_event_stream<T>(
@@ -320,6 +346,33 @@ mod tests {
     }
 
     #[test]
+    fn named_channel_requires_two_bounded_name_segments() {
+        let get = reqwest::Method::GET;
+        let route = |team: &str, channel: &str| {
+            format!("/api/v4/teams/name/{team}/channels/name/{channel}")
+        };
+        let operation = OPERATIONS
+            .iter()
+            .find(|op| op.allows(&get, &route("team-a", "room_1")))
+            .unwrap();
+        let team_route = |team: &str| format!("/api/v4/teams/name/{team}");
+        let team_operation = OPERATIONS
+            .iter()
+            .find(|op| op.allows(&get, &team_route("team-a")))
+            .unwrap();
+        let limit = "r".repeat(64);
+        assert!(team_operation.allows(&get, &team_route(&limit)));
+        assert!(!team_operation.allows(&reqwest::Method::POST, &team_route("team-a")));
+        assert!(operation.allows(&get, &route(&limit, &limit)));
+        assert!(!operation.allows(&reqwest::Method::POST, &route("team-a", "room_1")));
+        for bad in ["", "two/names", "a%2Fb", "with.dot", "☃", &"a".repeat(65)] {
+            assert!(!team_operation.allows(&get, &team_route(bad)), "{bad}");
+            assert!(!operation.allows(&get, &route(bad, "room_1")), "{bad}");
+            assert!(!operation.allows(&get, &route("team-a", bad)), "{bad}");
+        }
+    }
+
+    #[test]
     fn file_metadata_requires_a_concrete_file_id_and_exact_route() {
         let base = "https://chat.example.test/team/chat";
         let connection = RestConnection::new(base).unwrap();
@@ -351,6 +404,24 @@ mod tests {
                 connection.check_request(&request).is_ok(),
                 allowed,
                 "{route}"
+            );
+        }
+    }
+
+    #[test]
+    fn attachment_content_routes_are_reserved_for_native_delivery() {
+        let base = "https://fixture.test/team/chat";
+        let connection = RestConnection::new(base).unwrap();
+        let routes: Vec<Operation<'_>> =
+            serde_json::from_str(include_str!("../../contracts/mattermost/native-files.json"))
+                .unwrap();
+        for route in routes {
+            let path = route.path.replace("{file_id}", &"f".repeat(26));
+            let url = Url::parse(&format!("{base}{path}")).unwrap();
+            let request = Request::new(route.method.parse().unwrap(), url);
+            assert_eq!(
+                connection.check_request(&request),
+                Err(TransportError::OperationDenied)
             );
         }
     }
@@ -419,6 +490,52 @@ mod tests {
             *request.body_mut() = Some("{}".into());
             assert!(!operation.accepts_body(&request));
         }
+    }
+
+    #[test]
+    fn thread_read_accepts_only_positive_exact_milliseconds_and_own_bodyless_puts() {
+        let team = "t".repeat(26);
+        let root = "r".repeat(26);
+        let prefix = format!("/api/v4/users/me/teams/{team}/threads");
+        let single = format!("{prefix}/{root}/read");
+        let put = reqwest::Method::PUT;
+        let supported = |route: &str| OPERATIONS.iter().find(|op| op.allows(&put, route));
+        for time in ["1", "1700000000123", "9007199254740991"] {
+            assert!(supported(&format!("{single}/{time}")).is_some(), "{time}");
+        }
+        for time in [
+            "",
+            "0",
+            "-1",
+            "+1",
+            "01",
+            "1.5",
+            "1e3",
+            "%31",
+            "9007199254740992",
+            "18446744073709551616",
+        ] {
+            assert!(supported(&format!("{single}/{time}")).is_none(), "{time}");
+        }
+        let connection = RestConnection::new("https://fixture.test/sub").unwrap();
+        for route in [format!("{single}/1"), format!("{prefix}/read")] {
+            let operation = supported(&route).unwrap();
+            assert!(operation.self_only);
+            assert!(!operation.allows(&reqwest::Method::POST, &route));
+            assert!(!operation.allows(&put, &route.replace("/me/", &format!("/{root}/"))));
+            assert!(!operation.allows(&put, &route.replace(&team, "short")));
+            assert!(!operation.allows(&put, &format!("{route}/extra")));
+            let url = Url::parse(&format!("https://fixture.test/sub{route}")).unwrap();
+            let mut request = Request::new(put.clone(), url);
+            assert!(operation.accepts_body(&request));
+            assert_eq!(
+                connection.check_request(&request),
+                Err(TransportError::OperationDenied)
+            );
+            *request.body_mut() = Some("{}".into());
+            assert!(!operation.accepts_body(&request));
+        }
+        assert!(supported(&format!("{prefix}/short/read/1")).is_none());
     }
 
     #[test]

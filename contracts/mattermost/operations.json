@@ -33,6 +33,12 @@
   {
     "file": "teams.yaml",
     "method": "GET",
+    "path": "/api/v4/teams/name/{name}",
+    "id": "GetTeamByName"
+  },
+  {
+    "file": "teams.yaml",
+    "method": "GET",
     "path": "/api/v4/users/{user_id}/teams",
     "id": "GetTeamsForUser"
   },
@@ -70,8 +76,26 @@
   {
     "file": "channels.yaml",
     "method": "GET",
+    "path": "/api/v4/teams/{team_id}/channels/autocomplete",
+    "id": "AutocompleteChannelsForTeam"
+  },
+  {
+    "file": "channels.yaml",
+    "method": "GET",
     "path": "/api/v4/users/{user_id}/teams/{team_id}/channels/members",
     "id": "GetChannelMembersForUser"
+  },
+  {
+    "file": "channels.yaml",
+    "method": "GET",
+    "path": "/api/v4/channels/{channel_id}",
+    "id": "GetChannel"
+  },
+  {
+    "file": "channels.yaml",
+    "method": "GET",
+    "path": "/api/v4/teams/name/{team_name}/channels/name/{channel_name}",
+    "id": "GetChannelByNameForTeamName"
   },
   {
     "file": "channels.yaml",
@@ -249,6 +273,20 @@
     "method": "GET",
     "path": "/api/v4/users/{user_id}/teams/{team_id}/threads",
     "id": "GetUserThreads",
+    "selfOnly": true
+  },
+  {
+    "file": "users.yaml",
+    "method": "PUT",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/threads/{thread_id}/read/{timestamp}",
+    "id": "UpdateThreadReadForUser",
+    "selfOnly": true
+  },
+  {
+    "file": "users.yaml",
+    "method": "PUT",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/threads/read",
+    "id": "UpdateThreadsReadForUser",
     "selfOnly": true
   },
   {

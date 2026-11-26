@@ -169,7 +169,9 @@ fn verify_query_plans(first: &mut AccountHistory) -> Result<(), HistoryError> {
          INSERT INTO history_post(id,channel_id,user_id,create_at,update_at,edit_at,type,message,hashtags,is_pinned)
          SELECT printf('%026d',n),'cccccccccccccccccccccccccc','aaaaaaaaaaaaaaaaaaaaaaaaaa',1,1,0,'','','',0 FROM roots;
          INSERT INTO history_thread_summary(post_id,root_version,reply_count,last_reply_at)
-         SELECT id,1,0,0 FROM history_post WHERE id GLOB '0*'; ANALYZE;")?;
+         SELECT id,1,0,0 FROM history_post WHERE id GLOB '0*';
+         INSERT INTO history_post_attachment(post_id,payload)
+         SELECT id,NULL FROM history_post WHERE id GLOB '0*'; ANALYZE;")?;
         let mut query=tx.prepare(&format!("EXPLAIN QUERY PLAN {READ}"))?;
         let steps=query.query_map([ROOT],|row|row.get::<_,String>(3))?.collect::<rusqlite::Result<Vec<_>>>()?.join(" ");
         assert!(steps.contains("USING PRIMARY KEY") && steps.contains("sqlite_autoindex_history_thread_summary") && !steps.contains("SCAN"),"{steps}");

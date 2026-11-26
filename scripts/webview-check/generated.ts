@@ -14,6 +14,7 @@ import {
   ChannelsApi,
   Configuration,
   FetchError,
+  FilesApi,
   type InitOverrideFunction,
   ResponseError,
   SystemApi,
@@ -21,19 +22,23 @@ import {
   UsersApi,
 } from "../../vendor/mattermost/index.js";
 import { checkAccountResponses } from "./account.ts";
+import { checkAccountThreadReadState } from "./account-thread-read-state.ts";
 import { checkChannelRefresh } from "./channel-refresh.ts";
 import { checkDraftWrites } from "./composer-drafts.ts";
 import { checkConnectServer } from "./connect-server.tsx";
 import { checkChannelHistory } from "./history.ts";
 import { prepareHistoryLoads } from "./history-loads.ts";
 import { checkUnavailableHistoryServer } from "./local-history.ts";
+import { checkOpenTimelineCommits } from "./open-timeline-commits.tsx";
+import { checkCollectionRemoval } from "./post-collections.ts";
 import { checkPostContext } from "./post-context.ts";
 import { checkPostMutations } from "./post-mutations.ts";
 import { checkPostReactions } from "./post-reactions.ts";
 import { checkSubmissions } from "./submission.ts";
 import { checkTeamReads } from "./team-reads.ts";
 import { checkRoleStorage } from "./team-role-storage.ts";
-import { checkThreadList } from "./thread-list.ts";
+import { checkAccountThreadList, checkThreadList } from "./thread-list.ts";
+import { checkUnreadThread } from "./unread-thread.ts";
 import { checkWorkspaceSettings } from "./workspace-settings.ts";
 
 function check(value: unknown, message: string): asserts value {
@@ -238,6 +243,8 @@ export async function checkGeneratedRequests(ports: string[]) {
     const rootSession = new Configuration(accountRoot);
     await checkAccountResponses(accountPrefix, userId, observed);
     await checkChannelRefresh(accountPrefix, observed);
+    await checkOpenTimelineCommits(accountPrefix);
+    await checkUnreadThread(accountPrefix, userId);
     await checkPostReactions(accountRoot, accountPrefix);
     await checkTeamReads(accountRoot, accountPrefix);
     const prepared = await resolveComposerSubmission(
@@ -314,6 +321,7 @@ export async function checkGeneratedRequests(ports: string[]) {
     }
 
     const channelId = "c".repeat(26);
+    await checkCollectionRemoval(accountPrefix, channelId);
     const term = "from:fixture Привет";
     check(
       await accountPrefix.rememberTeamSearch(teamId, term),
@@ -578,6 +586,22 @@ export async function checkGeneratedRequests(ports: string[]) {
         target.post.message === "Later reply",
       "inspect-file-post-destination",
     );
+    const contentFiles = new FilesApi(signed);
+    for (const method of [
+      "getFileRaw",
+      "getFileThumbnailRaw",
+      "getFilePreviewRaw",
+    ] as const) {
+      const denied = await rejected(
+        contentFiles[method]({ fileId: "f".repeat(26) }),
+      );
+      check(
+        denied instanceof FetchError &&
+          denied.cause instanceof TypeError &&
+          denied.cause.cause === "operation_denied",
+        `native-only-${method}`,
+      );
+    }
     const threads = new ThreadsApi(signed);
     const follow = { userId: "me", teamId, threadId: postId };
     check(
@@ -589,8 +613,33 @@ export async function checkGeneratedRequests(ports: string[]) {
       "signed thread unfollow",
     );
     await checkThreadList(threads, teamId, channelId, userId);
+    await checkAccountThreadList(accountPrefix, teamId, channelId, userId);
     const guestThreads = new ThreadsApi(new Configuration(prefixed));
+    const timestamp = 1700000000123;
+    await checkAccountThreadReadState(accountPrefix, teamId, postId, timestamp);
+    const readThread = await threads.updateThreadReadForUser({
+      ...follow,
+      timestamp,
+    });
+    check(
+      readThread.id === postId &&
+        readThread.post?.id === postId &&
+        readThread.lastViewedAt === timestamp &&
+        readThread.unreadReplies === 3 &&
+        readThread.unreadMentions === 2,
+      "signed single thread read",
+    );
+    check(
+      (await threads.updateThreadsReadForUser({ userId: "me", teamId }))
+        .status === "OK",
+      "signed team thread read",
+    );
     for (const request of [
+      () => guestThreads.updateThreadReadForUser({ ...follow, timestamp }),
+      () => guestThreads.updateThreadsReadForUser({ userId: "me", teamId }),
+      () => threads.updateThreadReadForUser({ ...follow, timestamp: 1.5 }),
+      () =>
+        threads.updateThreadsReadForUser({ userId: "b".repeat(26), teamId }),
       () => guestThreads.startFollowingThread(follow),
       () => threads.stopFollowingThread({ ...follow, userId: "b".repeat(26) }),
       () => threads.startFollowingThread({ ...follow, threadId: "short" }),
@@ -600,7 +649,7 @@ export async function checkGeneratedRequests(ports: string[]) {
         denied instanceof FetchError &&
           denied.cause instanceof TypeError &&
           denied.cause.cause === "operation_denied",
-        "thread-follow-denied-before-dispatch",
+        "thread-mutation-denied-before-dispatch",
       );
     }
     const categoryApi = new ChannelsApi(signed);

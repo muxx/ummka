@@ -19,6 +19,7 @@ function fixture() {
   const chooseAnotherTeam = vi.fn();
   const onEnded = vi.fn();
   const workspace: TeamWorkspace = {
+    messages: { open: vi.fn(), clear: vi.fn(), position: null },
     serverUrl: "https://work.example.test/mattermost",
     userId: "a".repeat(26),
     directoryNotice: null,

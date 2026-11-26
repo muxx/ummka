@@ -1,5 +1,7 @@
 export const searchCopy = {
   en: {
+    back: "Back to results",
+    filePost: (name: string) => `Show message with file ${name}`,
     open: "Search",
     title: "What are you looking for?",
     posts: "Messages",
@@ -30,6 +32,8 @@ export const searchCopy = {
     attachment: "Message with an attachment",
   },
   ru: {
+    back: "К результатам",
+    filePost: (name: string) => `Показать сообщение с файлом ${name}`,
     open: "Поиск",
     title: "Что вы ищете?",
     posts: "Сообщения",

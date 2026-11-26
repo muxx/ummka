@@ -8,7 +8,7 @@ import { test } from "node:test";
 import { promisify } from "node:util";
 import { waitForAndroidBoot } from "./android.ts";
 import { checkNativeInstrumentation } from "./android-instrumentation.ts";
-import { launchWebview } from "./android-webview.ts";
+import { launchWebview, type SendAndroidKey } from "./android-webview.ts";
 import { startFixture } from "./fixture.ts";
 
 function fixture(logs: string[]) {
@@ -56,14 +56,22 @@ test("waits through an ordinary Chromium error and accepts the actual marker", a
   assert.equal(check.reads(), 2);
 });
 
-test("Android sends one Tab after the reloaded document contacts the fixture", async () => {
+test("Android injects the exact hardware key requested by the running document", async () => {
   const events: string[] = [];
   let logReads = 0;
-  let ready!: () => Promise<void>;
+  let keyboardVisible = true;
+  let ready!: SendAndroidKey;
   async function adb(...args: string[]) {
+    if (args[1] === "dumpsys") {
+      assert.equal(args[2], "input_method");
+      events.push(keyboardVisible ? "IME shown" : "IME hidden");
+      const state = `mInputShown=${keyboardVisible}`;
+      keyboardVisible = false;
+      return state;
+    }
     if (args[1] === "input") {
-      assert.deepEqual(args, ["shell", "input", "keyevent", "KEYCODE_TAB"]);
-      events.push("keyboard");
+      assert.deepEqual(args.slice(0, 3), ["shell", "input", "keyevent"]);
+      events.push(args[3]);
       return "";
     }
     if (args[1] === "am") {
@@ -74,7 +82,10 @@ test("Android sends one Tab after the reloaded document contacts the fixture", a
     assert.equal(args[0], "logcat");
     events.push("log");
     logReads++;
-    if (logReads === 2) await ready();
+    if (logReads === 2) {
+      await ready("KEYCODE_TAB");
+      await ready("KEYCODE_BACK");
+    }
     return logReads === 3 ? "UMMKA_WEBVIEW_CHECK browser-checked" : "";
   }
   await launchWebview(
@@ -82,11 +93,20 @@ test("Android sends one Tab after the reloaded document contacts the fixture", a
     "app",
     "app/.MainActivity",
     "browser-checked",
-    (sendTab) => {
-      ready = sendTab;
+    (send) => {
+      ready = send;
     },
   );
-  assert.deepEqual(events, ["launch", "log", "log", "keyboard", "log"]);
+  assert.deepEqual(events, [
+    "launch",
+    "log",
+    "log",
+    "KEYCODE_TAB",
+    "IME shown",
+    "IME hidden",
+    "KEYCODE_BACK",
+    "log",
+  ]);
 });
 
 test("the new document receives its control response only after the keyboard event is delivered", async () => {
@@ -133,7 +153,8 @@ test("the new document receives its control response only after the keyboard eve
       delivered = resolve;
     });
     let keys = 0;
-    fixture.onKeyboardReady(async () => {
+    fixture.onAndroidInputReady(async (key) => {
+      assert.equal(key, "KEYCODE_TAB");
       keys++;
       entered();
       await delivery;
@@ -176,34 +197,31 @@ test("a wrong terminal marker fails immediately", async () => {
   assert.equal(run.reads(), 1);
 });
 
-test("a cold boot consumes the policy signal once before the hardware overlay is ready", async () => {
-  const marker = "Finished calculating hasIncompatibleAccountsTask";
-  const overlay = "com.android.internal.emulation.pixel_6";
+const policyMarker = "Finished calculating hasIncompatibleAccountsTask";
+const pixelOverlay = "com.android.internal.emulation.pixel_6";
+
+test("a boot receipt captured before ADB connects survives a delayed overlay", async () => {
   const commands: string[][] = [];
   let overlayReads = 0;
+  let policyReads = 0;
   await waitForAndroidBoot(
     async (...args) => {
       commands.push(args);
-      if (args[0] === "wait-for-device")
-        return commands.length === 1 ? marker : "";
+      if (args[0] === "wait-for-device") return "";
       if (args[1] === "getprop") return "1";
-      return ++overlayReads === 1 ? `[ ] ${overlay}` : `[x] ${overlay}`;
+      return ++overlayReads === 1
+        ? `[ ] ${pixelOverlay}`
+        : `[x] ${pixelOverlay}`;
     },
     { exitCode: null },
+    async () => {
+      policyReads++;
+      return policyMarker;
+    },
   );
+  assert.equal(policyReads, 1);
   assert.deepEqual(commands, [
-    [
-      "wait-for-device",
-      "logcat",
-      "-b",
-      "system",
-      "-m",
-      "1",
-      "-e",
-      marker,
-      "-s",
-      "DevicePolicyManager:I",
-    ],
+    ["wait-for-device"],
     ["shell", "getprop", "sys.boot_completed"],
     ...Array.from({ length: 2 }, () => [
       "shell",
@@ -212,24 +230,41 @@ test("a cold boot consumes the policy signal once before the hardware overlay is
       "list",
       "--user",
       "0",
-      overlay,
+      pixelOverlay,
     ]),
   ]);
 });
 
-test("boot does not accept a missing policy signal or another device profile", async () => {
+test("boot waits until the emulator records the policy event", async () => {
+  let policyReads = 0;
+  await waitForAndroidBoot(
+    async (...args) => {
+      if (args[0] === "wait-for-device") return "";
+      assert.equal(policyReads, 2);
+      return args[1] === "getprop" ? "1" : `[x] ${pixelOverlay}`;
+    },
+    { exitCode: null },
+    async () => (++policyReads === 1 ? "" : policyMarker),
+  );
+});
+
+test("boot rejects a missing policy event or a different device profile", async () => {
   await assert.rejects(
-    waitForAndroidBoot(async () => "", { exitCode: null }),
+    waitForAndroidBoot(
+      async (...args) => {
+        assert.deepEqual(args, ["wait-for-device"]);
+        return "";
+      },
+      { exitCode: 1 },
+      async () => "DevicePolicyManager: starting",
+    ),
     /device policy/,
   );
   await assert.rejects(
     waitForAndroidBoot(
-      async (...args) => {
-        if (args[0] === "wait-for-device")
-          return "Finished calculating hasIncompatibleAccountsTask";
-        return args[1] === "getprop" ? "1" : "[x] other.profile";
-      },
+      async (...args) => (args[1] === "getprop" ? "1" : "[x] other.profile"),
       { exitCode: 1 },
+      async () => policyMarker,
     ),
     /hardware profile.*other.profile/,
   );

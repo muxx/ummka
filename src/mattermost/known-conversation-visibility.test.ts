@@ -89,6 +89,7 @@ function fixture(
         new Uint8Array(buffer).set(encoded);
         return buffer;
       }
+      case "cancel_rest_request":
       case "close_rest_connection":
         return;
       default:
@@ -171,6 +172,14 @@ test.each([
     fixture("G", "group", { status, response, selected });
     const account = await openAccountRestConnection(server, userId);
     await expect(account.reopenKnownConversation(team, id)).rejects.toThrow();
+    if (status === 201) {
+      expect(
+        ipc.mock.calls.filter(([command]) => command === "cancel_rest_request"),
+      ).toEqual([["cancel_rest_request", { connection: 17, exchange: 18 }]]);
+      expect(
+        ipc.mock.calls.some(([command]) => command === "read_rest_body"),
+      ).toBe(false);
+    }
     expect((await account.readTeamSidebar(team))?.selectedChannel).toBe(
       selected,
     );

@@ -4,6 +4,9 @@ import { parse } from "yaml";
 import nativeAuth from "../../contracts/mattermost/native-auth.json" with {
   type: "json",
 };
+import nativeFiles from "../../contracts/mattermost/native-files.json" with {
+  type: "json",
+};
 import catalog from "../../contracts/mattermost/operations.json" with {
   type: "json",
 };
@@ -23,6 +26,7 @@ import {
   correctExecuteCommand,
 } from "./command-corrections.ts";
 import { correctCustomEmoji } from "./custom-emoji-correction.ts";
+import { correctFileContent } from "./file-content-correction.ts";
 import {
   correctFileModel,
   correctFileSearch,
@@ -81,11 +85,11 @@ import {
 } from "./sidebar-corrections.ts";
 import { correctSinglePost } from "./single-post-correction.ts";
 import { correctTeamMemberRequest } from "./team-member-correction.ts";
-import { correctThreadFollow } from "./thread-follow-correction.ts";
 import {
   correctThreadListModel,
   correctThreadListQuery,
 } from "./thread-list-corrections.ts";
+import { correctThreadMutation } from "./thread-mutation-correction.ts";
 
 const methods = new Set([
   "get",
@@ -136,7 +140,7 @@ export function buildSpecification(
     method: string;
     id: string;
     body?: string;
-  }> = catalog,
+  }> = [...catalog, ...nativeFiles],
 ) {
   const introduction = read("introduction.yaml");
   const definitions = read("definitions.yaml");
@@ -308,6 +312,12 @@ export function buildSpecification(
         originalOperation,
         read("files-12.1.0.yaml"),
       );
+    else if (nativeFiles.some((file) => file.id === id))
+      operation = correctFileContent(
+        originalOperation,
+        read("files-12.1.0.yaml"),
+        path,
+      );
     if (operation.operationId !== id)
       throw new Error(`Expected operation ${id} at ${method} ${path}`);
     if (id === "GetReactions" || id === "DeleteReaction") {
@@ -354,8 +364,13 @@ export function buildSpecification(
         operation,
         object(object(read("users-12.1.0.yaml")[path], path)[method], id),
       );
-    else if (id === "StartFollowingThread" || id === "StopFollowingThread")
-      paths[path][method] = correctThreadFollow(
+    else if (
+      id === "UpdateThreadReadForUser" ||
+      id === "UpdateThreadsReadForUser" ||
+      id === "StartFollowingThread" ||
+      id === "StopFollowingThread"
+    )
+      paths[path][method] = correctThreadMutation(
         operation,
         object(object(read("users-12.1.0.yaml")[path], path)[method], id),
       );

@@ -45,9 +45,12 @@ export async function reopenKnownConversation(
     },
     { signal },
   );
-  if (response.raw.status !== 200 || (await response.value())?.status !== "OK")
-    throw new TypeError(
-      "Mattermost did not confirm the conversation visibility change.",
-    );
-  return "confirmed" as const;
+  if (response.raw.status !== 200) {
+    void response.raw.body?.cancel().catch(() => {});
+  } else if ((await response.value())?.status === "OK") {
+    return "confirmed" as const;
+  }
+  throw new TypeError(
+    "Mattermost did not confirm the conversation visibility change.",
+  );
 }
