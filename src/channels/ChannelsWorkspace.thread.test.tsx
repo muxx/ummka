@@ -28,8 +28,16 @@ import { ChannelsWorkspace } from "./ChannelsWorkspace.tsx";
 import * as workspaceSearch from "./use-workspace-search.tsx";
 import "./workspace-dom.test-utils.ts";
 
+let androidBack: (() => void) | undefined;
 vi.mock("@tauri-apps/api/app", () => ({
-  onBackButtonPress: vi.fn(async () => ({ unregister: vi.fn() })),
+  onBackButtonPress: vi.fn(async (pressed: () => void) => {
+    androidBack = pressed;
+    return {
+      unregister: vi.fn(() => {
+        if (androidBack === pressed) androidBack = undefined;
+      }),
+    };
+  }),
 }));
 
 beforeEach(() => {
@@ -211,6 +219,10 @@ function mount(
       drafts.set(key, draft);
       return { kind: "saved", draft };
     }),
+    readJoinedTeams: vi.fn(async () => ({
+      teams: [team],
+      selectedTeam: team.id,
+    })),
     submitDraft: vi.fn(),
     readPendingPosts: vi
       .fn<Connection["readPendingPosts"]>()
@@ -250,6 +262,7 @@ function mount(
   );
   return {
     ...connection,
+    unmount: view.unmount,
     setOnline(next: boolean) {
       view.rerender(
         <ChannelsWorkspace
@@ -825,6 +838,141 @@ test("the workspace offers an explicit return after the last visible message is 
   expect(
     await screen.findByRole("button", { name: /Open thread, 1 reply/ }),
   ).toBeTruthy();
+});
+
+function handleEscape() {
+  const target = document.activeElement;
+  if (!target) throw Error("No focused control");
+  const unhandled = fireEvent.keyDown(target, { key: "Escape" });
+  // jsdom does not implement Escape's HTML dialog cancellation.
+  const modal = target.closest<HTMLDialogElement>("dialog[open]");
+  if (unhandled && modal)
+    fireEvent(modal, new Event("cancel", { cancelable: true }));
+}
+async function enterSearch() {
+  const trigger = screen.getByRole("button", { name: "Search" });
+  fireEvent.click(trigger);
+  const dialog = within(await screen.findByRole("dialog"));
+  fireEvent.change(dialog.getByRole("searchbox"), {
+    target: { value: "winter" },
+  });
+  fireEvent.click(dialog.getByRole("button", { name: "Search" }));
+  return {
+    trigger,
+    panel: await screen.findByRole("complementary", { name: "Search results" }),
+  };
+}
+test("one return at a time preserves search, thread and channel, including each draft", async () => {
+  const { readSearchTimezone, unmount } = mount(true);
+  const channelDraft = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Message #General…",
+  });
+  fireEvent.change(channelDraft, { target: { value: "Unsent channel text" } });
+  const opener = await screen.findByRole("button", {
+    name: /Open thread, 1 reply/,
+  });
+  fireEvent.click(opener);
+  const before = await screen.findByRole("complementary", { name: "Thread" });
+  const replyDraft = await within(before).findByRole("textbox", {
+    name: "Reply in thread…",
+  });
+  fireEvent.change(replyDraft, { target: { value: "Unsent thread reply" } });
+  const { trigger, panel } = await enterSearch();
+  await within(panel).findByText("Found in search");
+  const activeBack = androidBack;
+  if (process.env.TAURI_ENV_PLATFORM === "android")
+    expect(activeBack).toBeTypeOf("function");
+  fireEvent.keyDown(trigger, { key: "Escape", isComposing: true });
+  trigger.addEventListener("keydown", (event) => event.preventDefault(), {
+    once: true,
+  });
+  fireEvent.keyDown(trigger, { key: "Escape" });
+  expect(panel.isConnected).toBe(true);
+  const step = () => (activeBack ? act(() => activeBack()) : handleEscape());
+  fireEvent.click(within(panel).getByRole("button", { name: /Edit.*winter/i }));
+  const form = within(await screen.findByRole("dialog"));
+  fireEvent.change(form.getByRole("searchbox"), {
+    target: { value: "unsubmitted" },
+  });
+  expect(androidBack).toBe(activeBack);
+  step();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.getByRole("complementary", { name: "Search results" })).toBe(
+    panel,
+  );
+  expect(readSearchTimezone).toHaveBeenCalledOnce();
+  expect(document.activeElement).toBe(trigger);
+  step();
+  const restored = await screen.findByRole("complementary", { name: "Thread" });
+  expect(
+    (
+      await within(restored).findByRole<HTMLTextAreaElement>("textbox", {
+        name: "Reply in thread…",
+      })
+    ).value,
+  ).toBe("Unsent thread reply");
+  expect(document.activeElement).toBe(trigger);
+  step();
+  expect(screen.queryByRole("complementary", { name: "Thread" })).toBeNull();
+  expect(document.activeElement).toBe(opener);
+  expect(channelDraft.value).toBe("Unsent channel text");
+  fireEvent.click(opener);
+  expect(
+    (
+      await screen.findByRole<HTMLTextAreaElement>("textbox", {
+        name: "Reply in thread…",
+      })
+    ).value,
+  ).toBe("Unsent thread reply");
+  unmount();
+  if (activeBack) {
+    mount(true);
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Open thread, 1 reply/ }),
+    );
+    const next = await screen.findByRole("complementary", { name: "Thread" });
+    act(() => activeBack());
+    expect(next.isConnected).toBe(true);
+    expect(androidBack).not.toBe(activeBack);
+  }
+});
+
+test("canceling a pending search edit and the account dialog leaves the channel search results intact", async () => {
+  const { readSearchTimezone } = mount(true);
+  await screen.findByRole("textbox", { name: "Message #General…" });
+  const { trigger, panel } = await enterSearch();
+  const step = () =>
+    androidBack ? act(() => androidBack?.()) : handleEscape();
+  await within(panel).findByText("Found in search");
+  fireEvent.click(screen.getByRole("button", { name: /account/i }));
+  await screen.findByRole("dialog");
+  step();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.getByRole("complementary", { name: "Search results" })).toBe(
+    panel,
+  );
+  fireEvent.click(within(panel).getByRole("button", { name: /Edit.*winter/i }));
+  const form = within(await screen.findByRole("dialog"));
+  let finish!: (tz: string) => void;
+  readSearchTimezone.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  fireEvent.change(form.getByRole("searchbox"), {
+    target: { value: "pending" },
+  });
+  fireEvent.click(form.getByRole("button", { name: "Search" }));
+  await waitFor(() => expect(finish).toBeTypeOf("function"));
+  step();
+  await act(async () => finish("UTC"));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(within(panel).getByText("winter")).toBeTruthy();
+  step();
+  expect(panel.isConnected).toBe(false);
+  expect(document.activeElement).toBe(trigger);
+  expect(screen.queryByRole("complementary", { name: "Thread" })).toBeNull();
 });
 
 test("the selected platform owns Back only while its thread is open", async () => {

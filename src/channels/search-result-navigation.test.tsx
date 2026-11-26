@@ -21,14 +21,22 @@ import {
 } from "../mattermost/workspace-preferences.ts";
 import "./workspace-dom.test-utils.ts";
 
-vi.mock("@tauri-apps/api/app", () => ({
-  onBackButtonPress: vi.fn(async () => ({ unregister: vi.fn() })),
-}));
 vi.mock("../mattermost/device-launch.ts", () => ({
   getDeviceLaunchContext: vi.fn(),
 }));
 vi.mock("../mattermost/native-rest.ts", () => ({
   openAccountRestConnection: vi.fn(),
+}));
+let nativeBack: (() => void) | undefined;
+vi.mock("@tauri-apps/api/app", () => ({
+  onBackButtonPress: vi.fn(async (pressed: () => void) => {
+    nativeBack = pressed;
+    return {
+      unregister() {
+        if (nativeBack === pressed) nativeBack = undefined;
+      },
+    };
+  }),
 }));
 type Account = Awaited<ReturnType<typeof openAccountRestConnection>>;
 const id = (key: string) => key.repeat(26);
@@ -769,4 +777,43 @@ test("manually switching teams while a result is being verified keeps the new te
   expect(screen.getByRole("heading", { name: "Other" })).toBeTruthy();
   expect(account.signOutOnDevice).not.toHaveBeenCalled();
   expect(account.selectSidebarChannel).not.toHaveBeenCalled();
+});
+
+test("Back while joining keeps ownership with the waiting dialog after the submit button disappears", async () => {
+  const { account, targetInfo } = fixture();
+  account.readPostDestination.mockResolvedValue({
+    ...targetInfo,
+    channel: { ...targetInfo.channel, kind: "P", joined: false },
+  });
+  let finish!: (value: { kind: "applied" }) => void;
+  const joining = new Promise<{ kind: "applied" }>((resolve) => {
+    finish = resolve;
+  });
+  account.changeOwnMembership.mockReturnValueOnce(joining);
+  const results = await search();
+  fireEvent.click(
+    await results.findByRole("button", { name: "Search root snippet" }),
+  );
+  const button = within(await screen.findByRole("dialog")).getByRole("button", {
+    name: "Join and open",
+  });
+  button.focus();
+  fireEvent.click(button);
+  const waiting = await screen.findByRole("dialog", { name: "Joining…" });
+  await waitFor(() =>
+    expect(account.changeOwnMembership).toHaveBeenCalledTimes(1),
+  );
+  expect(waiting.contains(document.activeElement)).toBe(false);
+  if (process.env.TAURI_ENV_PLATFORM === "android") {
+    expect(nativeBack).toBeTypeOf("function");
+    act(() => nativeBack?.());
+  } else fireEvent.keyDown(document.body, { key: "Escape" });
+  expect(screen.getByRole("dialog", { name: "Joining…" })).toBe(waiting);
+  expect(
+    screen.getByRole("complementary", { name: "Search results" }),
+  ).toBeTruthy();
+  account.readPostDestination.mockResolvedValue(targetInfo);
+  await act(async () => finish({ kind: "applied" }));
+  await screen.findByText(root.message);
+  expect(account.changeOwnMembership).toHaveBeenCalledTimes(1);
 });
