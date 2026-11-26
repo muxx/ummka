@@ -8,6 +8,7 @@ import { ChannelStatsFromJSON, } from '../models/ChannelStats.js';
 import { MarkChannelsReadForUser200ResponseFromJSON, } from '../models/MarkChannelsReadForUser200Response.js';
 import { OrderedSidebarCategoriesFromJSON, } from '../models/OrderedSidebarCategories.js';
 import { PostListFromJSON, } from '../models/PostList.js';
+import { SidebarCategoryWithChannelsFromJSON, SidebarCategoryWithChannelsToJSON, } from '../models/SidebarCategoryWithChannels.js';
 import { StatusOKFromJSON, } from '../models/StatusOK.js';
 import { ViewChannel200ResponseFromJSON, } from '../models/ViewChannel200Response.js';
 import { ViewChannelRequestToJSON, } from '../models/ViewChannelRequest.js';
@@ -46,6 +47,77 @@ export class ChannelsApi extends runtime.BaseAPI {
     }
     async addChannelMember(requestParameters, initOverrides) {
         const response = await this.addChannelMemberRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async createSidebarCategoryForTeamForUserRequestOpts(requestParameters) {
+        if (requestParameters['teamId'] == null) {
+            throw new runtime.RequiredError('teamId', 'Required parameter "teamId" was null or undefined when calling createSidebarCategoryForTeamForUser().');
+        }
+        if (requestParameters['userId'] == null) {
+            throw new runtime.RequiredError('userId', 'Required parameter "userId" was null or undefined when calling createSidebarCategoryForTeamForUser().');
+        }
+        if (requestParameters['sidebarCategoryWithChannels'] == null) {
+            throw new runtime.RequiredError('sidebarCategoryWithChannels', 'Required parameter "sidebarCategoryWithChannels" was null or undefined when calling createSidebarCategoryForTeamForUser().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        headerParameters['Content-Type'] = 'application/json';
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/users/{user_id}/teams/{team_id}/channels/categories`;
+        urlPath = urlPath.replace('{team_id}', encodeURIComponent(String(requestParameters['teamId'])));
+        urlPath = urlPath.replace('{user_id}', encodeURIComponent(String(requestParameters['userId'])));
+        return {
+            path: urlPath,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+            body: SidebarCategoryWithChannelsToJSON(requestParameters['sidebarCategoryWithChannels']),
+        };
+    }
+    async createSidebarCategoryForTeamForUserRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.createSidebarCategoryForTeamForUserRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => SidebarCategoryWithChannelsFromJSON(jsonValue));
+    }
+    async createSidebarCategoryForTeamForUser(requestParameters, initOverrides) {
+        const response = await this.createSidebarCategoryForTeamForUserRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async getChannelRequestOpts(requestParameters) {
+        if (requestParameters['channelId'] == null) {
+            throw new runtime.RequiredError('channelId', 'Required parameter "channelId" was null or undefined when calling getChannel().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/channels/{channel_id}`;
+        urlPath = urlPath.replace('{channel_id}', encodeURIComponent(String(requestParameters['channelId'])));
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async getChannelRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.getChannelRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => ChannelFromJSON(jsonValue));
+    }
+    async getChannel(requestParameters, initOverrides) {
+        const response = await this.getChannelRaw(requestParameters, initOverrides);
         return await response.value();
     }
     async getChannelMemberRequestOpts(requestParameters) {
@@ -464,6 +536,45 @@ export class ChannelsApi extends runtime.BaseAPI {
         const response = await this.markChannelsReadForUserRaw(requestParameters, initOverrides);
         return await response.value();
     }
+    async removeSidebarCategoryForTeamForUserRequestOpts(requestParameters) {
+        if (requestParameters['teamId'] == null) {
+            throw new runtime.RequiredError('teamId', 'Required parameter "teamId" was null or undefined when calling removeSidebarCategoryForTeamForUser().');
+        }
+        if (requestParameters['userId'] == null) {
+            throw new runtime.RequiredError('userId', 'Required parameter "userId" was null or undefined when calling removeSidebarCategoryForTeamForUser().');
+        }
+        if (requestParameters['categoryId'] == null) {
+            throw new runtime.RequiredError('categoryId', 'Required parameter "categoryId" was null or undefined when calling removeSidebarCategoryForTeamForUser().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/users/{user_id}/teams/{team_id}/channels/categories/{category_id}`;
+        urlPath = urlPath.replace('{team_id}', encodeURIComponent(String(requestParameters['teamId'])));
+        urlPath = urlPath.replace('{user_id}', encodeURIComponent(String(requestParameters['userId'])));
+        urlPath = urlPath.replace('{category_id}', encodeURIComponent(String(requestParameters['categoryId'])));
+        return {
+            path: urlPath,
+            method: 'DELETE',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async removeSidebarCategoryForTeamForUserRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.removeSidebarCategoryForTeamForUserRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => StatusOKFromJSON(jsonValue));
+    }
+    async removeSidebarCategoryForTeamForUser(requestParameters, initOverrides) {
+        const response = await this.removeSidebarCategoryForTeamForUserRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
     async removeUserFromChannelRequestOpts(requestParameters) {
         if (requestParameters['channelId'] == null) {
             throw new runtime.RequiredError('channelId', 'Required parameter "channelId" was null or undefined when calling removeUserFromChannel().');
@@ -537,6 +648,130 @@ export class ChannelsApi extends runtime.BaseAPI {
     }
     async updateChannelNotifyProps(requestParameters, initOverrides) {
         const response = await this.updateChannelNotifyPropsRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async updateSidebarCategoriesForTeamForUserRequestOpts(requestParameters) {
+        if (requestParameters['teamId'] == null) {
+            throw new runtime.RequiredError('teamId', 'Required parameter "teamId" was null or undefined when calling updateSidebarCategoriesForTeamForUser().');
+        }
+        if (requestParameters['userId'] == null) {
+            throw new runtime.RequiredError('userId', 'Required parameter "userId" was null or undefined when calling updateSidebarCategoriesForTeamForUser().');
+        }
+        if (requestParameters['sidebarCategoryWithChannels'] == null) {
+            throw new runtime.RequiredError('sidebarCategoryWithChannels', 'Required parameter "sidebarCategoryWithChannels" was null or undefined when calling updateSidebarCategoriesForTeamForUser().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        headerParameters['Content-Type'] = 'application/json';
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/users/{user_id}/teams/{team_id}/channels/categories`;
+        urlPath = urlPath.replace('{team_id}', encodeURIComponent(String(requestParameters['teamId'])));
+        urlPath = urlPath.replace('{user_id}', encodeURIComponent(String(requestParameters['userId'])));
+        return {
+            path: urlPath,
+            method: 'PUT',
+            headers: headerParameters,
+            query: queryParameters,
+            body: requestParameters['sidebarCategoryWithChannels'].map(SidebarCategoryWithChannelsToJSON),
+        };
+    }
+    async updateSidebarCategoriesForTeamForUserRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.updateSidebarCategoriesForTeamForUserRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => jsonValue.map(SidebarCategoryWithChannelsFromJSON));
+    }
+    async updateSidebarCategoriesForTeamForUser(requestParameters, initOverrides) {
+        const response = await this.updateSidebarCategoriesForTeamForUserRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async updateSidebarCategoryForTeamForUserRequestOpts(requestParameters) {
+        if (requestParameters['teamId'] == null) {
+            throw new runtime.RequiredError('teamId', 'Required parameter "teamId" was null or undefined when calling updateSidebarCategoryForTeamForUser().');
+        }
+        if (requestParameters['userId'] == null) {
+            throw new runtime.RequiredError('userId', 'Required parameter "userId" was null or undefined when calling updateSidebarCategoryForTeamForUser().');
+        }
+        if (requestParameters['categoryId'] == null) {
+            throw new runtime.RequiredError('categoryId', 'Required parameter "categoryId" was null or undefined when calling updateSidebarCategoryForTeamForUser().');
+        }
+        if (requestParameters['sidebarCategoryWithChannels'] == null) {
+            throw new runtime.RequiredError('sidebarCategoryWithChannels', 'Required parameter "sidebarCategoryWithChannels" was null or undefined when calling updateSidebarCategoryForTeamForUser().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        headerParameters['Content-Type'] = 'application/json';
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/users/{user_id}/teams/{team_id}/channels/categories/{category_id}`;
+        urlPath = urlPath.replace('{team_id}', encodeURIComponent(String(requestParameters['teamId'])));
+        urlPath = urlPath.replace('{user_id}', encodeURIComponent(String(requestParameters['userId'])));
+        urlPath = urlPath.replace('{category_id}', encodeURIComponent(String(requestParameters['categoryId'])));
+        return {
+            path: urlPath,
+            method: 'PUT',
+            headers: headerParameters,
+            query: queryParameters,
+            body: SidebarCategoryWithChannelsToJSON(requestParameters['sidebarCategoryWithChannels']),
+        };
+    }
+    async updateSidebarCategoryForTeamForUserRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.updateSidebarCategoryForTeamForUserRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => SidebarCategoryWithChannelsFromJSON(jsonValue));
+    }
+    async updateSidebarCategoryForTeamForUser(requestParameters, initOverrides) {
+        const response = await this.updateSidebarCategoryForTeamForUserRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async updateSidebarCategoryOrderForTeamForUserRequestOpts(requestParameters) {
+        if (requestParameters['teamId'] == null) {
+            throw new runtime.RequiredError('teamId', 'Required parameter "teamId" was null or undefined when calling updateSidebarCategoryOrderForTeamForUser().');
+        }
+        if (requestParameters['userId'] == null) {
+            throw new runtime.RequiredError('userId', 'Required parameter "userId" was null or undefined when calling updateSidebarCategoryOrderForTeamForUser().');
+        }
+        if (requestParameters['requestBody'] == null) {
+            throw new runtime.RequiredError('requestBody', 'Required parameter "requestBody" was null or undefined when calling updateSidebarCategoryOrderForTeamForUser().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        headerParameters['Content-Type'] = 'application/json';
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/users/{user_id}/teams/{team_id}/channels/categories/order`;
+        urlPath = urlPath.replace('{team_id}', encodeURIComponent(String(requestParameters['teamId'])));
+        urlPath = urlPath.replace('{user_id}', encodeURIComponent(String(requestParameters['userId'])));
+        return {
+            path: urlPath,
+            method: 'PUT',
+            headers: headerParameters,
+            query: queryParameters,
+            body: requestParameters['requestBody'],
+        };
+    }
+    async updateSidebarCategoryOrderForTeamForUserRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.updateSidebarCategoryOrderForTeamForUserRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response);
+    }
+    async updateSidebarCategoryOrderForTeamForUser(requestParameters, initOverrides) {
+        const response = await this.updateSidebarCategoryOrderForTeamForUserRaw(requestParameters, initOverrides);
         return await response.value();
     }
     async viewChannelRequestOpts(requestParameters) {

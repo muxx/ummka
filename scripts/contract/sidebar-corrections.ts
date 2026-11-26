@@ -1,6 +1,60 @@
 import { isDeepStrictEqual } from "node:util";
 import { type Fields, object } from "./objects.ts";
 
+export const sidebarWriteCorrections = new Set([
+  "CreateSidebarCategoryForTeamForUser",
+  "UpdateSidebarCategoriesForTeamForUser",
+  "UpdateSidebarCategoryForTeamForUser",
+  "RemoveSidebarCategoryForTeamForUser",
+]);
+
+// Both handlers accept categories with channels. The bulk writer returns a list,
+// and the delete handler returns StatusOK.
+// https://github.com/mattermost/mattermost/blob/v10.10.1/server/channels/api4/channel_category.go
+// https://github.com/mattermost/mattermost/blob/v12.1.0/server/channels/api4/channel_category.go
+export function correctSidebarWrite(
+  id: string,
+  source: Fields,
+  newer: Fields,
+): Fields {
+  const bulk = id === "UpdateSidebarCategoriesForTeamForUser";
+  const remove = id === "RemoveSidebarCategoryForTeamForUser";
+  const category = { $ref: "#/components/schemas/SidebarCategory" };
+  const withChannels = {
+    $ref: "#/components/schemas/SidebarCategoryWithChannels",
+  };
+  const list = (items: Fields) => ({ type: "array", items });
+  function json(part: Fields) {
+    return object(object(part.content, id)["application/json"], id);
+  }
+  function success(op: Fields) {
+    return json(object(object(op.responses, id)["200"], id));
+  }
+  for (const op of [source, newer]) {
+    const body = op.requestBody;
+    if (
+      !sidebarWriteCorrections.has(id) ||
+      op.operationId !== id ||
+      !isDeepStrictEqual(success(op).schema, category) ||
+      (remove
+        ? body !== undefined
+        : object(body, id).required !== true ||
+          !isDeepStrictEqual(
+            json(object(body, id)).schema,
+            bulk ? list(category) : category,
+          ))
+    )
+      throw Error(`Review the pinned sidebar category operation ${id}`);
+  }
+  const result = structuredClone(source);
+  const payload = bulk ? list(withChannels) : withChannels;
+  if (!remove) json(object(result.requestBody, id)).schema = payload;
+  success(result).schema = remove
+    ? { $ref: "#/components/schemas/StatusOK" }
+    : payload;
+  return result;
+}
+
 // Both tagged API handlers marshal a single OrderedSidebarCategories.
 // https://github.com/mattermost/mattermost/blob/v10.10.1/server/channels/api4/channel_category.go#L15-L40
 export function correctSidebarResponse(source: Fields): Fields {

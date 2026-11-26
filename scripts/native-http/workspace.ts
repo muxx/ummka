@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 const team = "Team0123456789012345678901";
 const town = "c".repeat(26);
+const townRoot = "v".repeat(26);
 const design = "d".repeat(26);
 const member = "f".repeat(26);
 
@@ -19,7 +20,7 @@ function latest(url: URL) {
   assert.equal(url.searchParams.size, 5);
 }
 function postList(channelId: string, userId: string, message: string) {
-  const id = (channelId === town ? "v" : "y").repeat(26);
+  const id = channelId === town ? townRoot : "y".repeat(26);
   return {
     order: [id],
     posts: {
@@ -130,15 +131,20 @@ export async function respondToWorkspace(
       : path === `channels/${design}/posts`
         ? design
         : null;
+  const thread = path === `posts/${townRoot}/thread`;
   const policy =
     (path === "config/client" || path === "license/client") &&
     req.headers.authorization !== undefined;
+  const searchPosts = path === `teams/${team}/posts/search`;
+  const searchFiles = path === `teams/${team}/files/search`;
   const post =
+    searchPosts ||
+    searchFiles ||
     path === "users/ids" ||
     path === "roles/names" ||
     path === "posts" ||
     path === "commands/execute";
-  if (!routes.has(path) && !channelId && !policy && !post) return;
+  if (!routes.has(path) && !channelId && !thread && !policy && !post) return;
   assert.equal(req.headers.authorization, "Bearer fixture-browser-action");
   assert.equal(req.headers.cookie, undefined);
   assert.equal(req.method, post ? "POST" : "GET");
@@ -146,9 +152,40 @@ export async function respondToWorkspace(
     assert.equal(url.search, "?format=old");
     return json(
       path === "config/client"
-        ? { CollapsedThreads: "always_on", TeammateNameDisplay: "username" }
+        ? {
+            CollapsedThreads: "always_on",
+            TeammateNameDisplay: "username",
+            EnableFileAttachments: "true",
+            EnableFileSearch: "true",
+          }
         : {},
       "live-" + path,
+    );
+  }
+  if (thread) {
+    assert.deepEqual(Object.fromEntries(url.searchParams), {
+      direction: "down",
+      perPage: "60",
+      collapsedThreads: "true",
+    });
+    const page = postList(town, member, "Town fixture message");
+    const replyId = "w".repeat(26);
+    const reply = {
+      ...page.posts[townRoot],
+      id: replyId,
+      root_id: townRoot,
+      create_at: 561,
+      update_at: 561,
+      message: "Reply visible only inside Town’s thread",
+    };
+    return json(
+      {
+        ...page,
+        order: [townRoot, replyId],
+        posts: { ...page.posts, [replyId]: reply },
+        has_next: false,
+      },
+      "live-window-thread",
     );
   }
   if (channelId) {
@@ -167,6 +204,42 @@ export async function respondToWorkspace(
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk);
     const body = JSON.parse(Buffer.concat(chunks).toString());
+    if (searchPosts || searchFiles) {
+      assert.deepEqual(body, {
+        terms: "window fixture",
+        page: 0,
+        per_page: 20,
+        time_zone_offset: 20700,
+        include_deleted_channels: true,
+        is_or_search: false,
+      });
+      if (searchPosts)
+        return json(
+          {
+            ...postList(town, member, "Search found this fixture post"),
+            matches: {},
+          },
+          "live-search-posts",
+        );
+      const file = "h".repeat(26);
+      return json(
+        {
+          order: [file],
+          file_infos: {
+            [file]: {
+              id: file,
+              channel_id: town,
+              user_id: member,
+              name: "window-fixture.pdf",
+            },
+          },
+          first_inaccessible_file_time: 0,
+          prev_file_info_id: "",
+          next_file_info_id: "",
+        },
+        "live-search-files",
+      );
+    }
     if (path === "commands/execute") {
       assert.deepEqual(body, {
         channel_id: town,
@@ -195,20 +268,24 @@ export async function respondToWorkspace(
       const pending = body.pending_post_id;
       assert.equal(typeof pending, "string");
       assert.ok(pending.startsWith(member + ":"));
+      const reply = body.message === "Posted from the thread window";
       assert.deepEqual(body, {
         channel_id: town,
-        message: "Posted from the channel window",
+        message: reply
+          ? "Posted from the thread window"
+          : "Posted from the channel window",
+        ...(reply && { root_id: townRoot }),
         pending_post_id: pending,
       });
       return json(
         {
-          id: "windowpost".padEnd(26, "0"),
+          id: (reply ? "windowreply" : "windowpost").padEnd(26, "0"),
           user_id: member,
           ...body,
-          root_id: "",
+          root_id: reply ? townRoot : "",
           delete_at: 0,
         },
-        "live-window-send",
+        reply ? "live-window-send-reply" : "live-window-send",
         201,
       );
     }

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { accountFollowedThreads } from "../../../src/mattermost/account-followed-threads.ts";
 import {
   type Configuration,
   type PostsApi,
@@ -151,6 +152,45 @@ export async function checkThreadList(
   assert.equal(counts.totalUnreadThreads, 1);
   assert.equal(counts.totalUnreadMentions, 1);
   assert.equal(counts.totalUnreadUrgentMentions, 0);
+
+  const account = accountFollowedThreads(reader.session, (read) => read());
+  const single = { teamId, unread: false, perPage: 1 };
+  const directPage = await account.readFollowedThreads(single);
+  const [item] = directPage.items;
+  assert.equal(item.id, direct.id);
+  assert.equal(item.post?.channelId, directId);
+  assert.equal(item.post?.message, "Followed private discussion");
+  assert.equal(item.post?.rootId, null);
+  assert.ok(item.participantIds.includes(writer.id));
+  assert.equal(item.unreadReplies, 1);
+  assert.equal(item.unreadMentions, 1);
+  assert.equal(directPage.nextBefore, direct.id);
+  const olderPage = await account.readFollowedThreads({
+    ...single,
+    before: direct.id,
+  });
+  assert.equal(olderPage.items[0].id, room.id);
+  assert.equal(olderPage.items[0].post?.channelId, channelId);
+  assert.equal(olderPage.nextBefore, room.id);
+  assert.deepEqual(
+    await account.readFollowedThreads({ ...single, before: room.id }),
+    { items: [], nextBefore: null },
+  );
+  const unreadPage = await account.readFollowedThreads({
+    teamId,
+    unread: true,
+  });
+  assert.deepEqual(
+    unreadPage.items.map((row) => row.id),
+    [direct.id],
+  );
+  assert.equal(unreadPage.nextBefore, null);
+  assert.deepEqual(await account.readFollowedThreadTotals(teamId), {
+    total: 2,
+    totalUnreadThreads: 1,
+    totalUnreadMentions: 1,
+    totalUnreadUrgentMentions: 0,
+  });
 
   const failedWith = (status: number) => (error: unknown) =>
     error instanceof ResponseError && error.response.status === status;

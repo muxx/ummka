@@ -22,6 +22,7 @@ test("projects display and mention policy from the old config and license endpoi
           EnableCrossTeamSearch: "true",
           EnableFileAttachments: "true",
           ExperimentalViewArchivedChannels: "false",
+          RestrictDirectMessage: "team",
           FeatureFlagEnableSharedChannelsDMs: "true",
           ExperimentalGroupUnreadChannels: "default_on",
           TeammateNameDisplay: "full_name",
@@ -50,6 +51,7 @@ test("projects display and mention policy from the old config and license endpoi
     nameFormat: "full_name",
     lockNameFormat: false,
     sharedChannelDMs: true,
+    dmRecipientScope: "team",
     search: { allTeams: true, files: true, archivedChannels: false },
     uniqueReactionLimit: "-2",
     postEditLimitSeconds: "9007199254740993",
@@ -340,3 +342,19 @@ test("compares integer milliseconds with the creation time and expires at the cu
   expect(() => postEditWindow(policy("1"), NaN, 0)).toThrow(TypeError);
   expect(() => postEditWindow(policy("1"), 0, 0.5)).toThrow(TypeError);
 });
+
+test.each([
+  ["any", "any"],
+  ["team", "team"],
+  ["ANY", "team"],
+  ["unrecognized", "team"],
+  [undefined, undefined],
+] as const)(
+  "projects the visible recipient scope for %s",
+  (input, expected) => {
+    expect(
+      workspaceServerPolicy({ RestrictDirectMessage: input }, {})
+        .dmRecipientScope,
+    ).toBe(expected);
+  },
+);

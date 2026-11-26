@@ -1,3 +1,4 @@
+import { indexChannelProfiles } from "../../src/mattermost/channel-profiles.ts";
 import { getDeviceLaunchContext } from "../../src/mattermost/device-launch.ts";
 import {
   connectInstallation,
@@ -7,6 +8,7 @@ import {
   rememberInstallation,
   selectInstallation,
 } from "../../src/mattermost/installation-registry.ts";
+import { prepareKnownConversationSearch } from "../../src/mattermost/known-conversation-search.ts";
 import {
   getCurrentAccountId,
   listAccountIds,
@@ -17,6 +19,7 @@ import {
   resumeChannelsLink,
   routeChannelsLink,
 } from "../../src/mattermost/route-channels-link.ts";
+import { effectiveWorkspacePreferences } from "../../src/mattermost/workspace-preferences.ts";
 import { checkSavedTeamWindow } from "./account-team-window.tsx";
 import { checkRefreshedAfterRestart } from "./channel-refresh.ts";
 import { checkDraftRestore } from "./composer-drafts.ts";
@@ -100,6 +103,7 @@ export async function resumeRegistryCheck(): Promise<boolean> {
             settings.preferences.composerKeys.codeBlockOnCtrlEnter !== false ||
             settings.server?.collapsedThreads !== "always_on" ||
             settings.server.sharedChannelDMs !== true ||
+            settings.server.dmRecipientScope !== "team" ||
             settings.server.uniqueReactionLimit !== "-2" ||
             settings.server.postEditLimitSeconds !== "9007199254740993" ||
             settings.server.search?.allTeams !== true ||
@@ -142,6 +146,32 @@ export async function resumeRegistryCheck(): Promise<boolean> {
         throw Error(
           "offline channel catalog lost its account, order or selection",
         );
+      }
+      if (catalog && settings.preferences && settings.server) {
+        const find = prepareKnownConversationSearch(
+          catalog,
+          {
+            userId: current,
+            preferences: effectiveWorkspacePreferences(
+              settings.preferences,
+              settings.server,
+            ),
+            profiles: indexChannelProfiles(
+              Object.values(saved.profiles),
+              saved.usernames,
+            ),
+            locale: "en",
+          },
+          [],
+        );
+        if (
+          find("")[0]?.id !== catalog.selectedChannel ||
+          find("~TOWN-SQUARE")[0]?.title !== "Town Square" ||
+          find("unknown conversation").length
+        )
+          throw Error(
+            "Offline conversation switcher lost the saved team or channel title",
+          );
       }
       if (
         base === root

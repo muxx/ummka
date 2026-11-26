@@ -30,7 +30,8 @@ try {
         fixture.webviewPorts,
         fixture.ca,
         config,
-        fixture.onKeyboardReady,
+        fixture.onAndroidInputReady,
+        fixture.lastNativeProbe,
       );
     else {
       const result = await promisify(execFile)(

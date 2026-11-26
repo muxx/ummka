@@ -5,6 +5,7 @@ import { App } from "../../src/App.tsx";
 import {
   getCurrentAccountId,
   openAccountRestConnection,
+  openNativeRestConnection,
 } from "../../src/mattermost/native-rest.ts";
 import { openChannelNavigation } from "./account-team-window.tsx";
 import { checkPendingCommandActions } from "./pending-command-actions.ts";
@@ -21,7 +22,69 @@ export async function waitForAppForeground() {
   );
 }
 
-export async function checkBrowserApp(server: string) {
+async function checkThreadReply(
+  host: HTMLElement,
+  opener: HTMLElement,
+  townDraft: HTMLTextAreaElement,
+) {
+  const ui = within(host);
+  flushSync(() => fireEvent.click(opener));
+  const pane = await ui.findByRole("complementary", { name: "Thread" });
+  const thread = within(pane);
+  await thread.findByText(
+    "Reply visible only inside Town’s thread",
+    {},
+    { timeout: 10_000 },
+  );
+  const field = await thread.findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Reply in thread…",
+  });
+  if (document.activeElement === field || field.value)
+    throw Error("Opening the compact thread focused or populated its editor");
+  const message = "Posted from the thread window";
+  field.focus();
+  flushSync(() => fireEvent.input(field, { target: { value: message } }));
+  flushSync(() =>
+    fireEvent.click(thread.getByRole("button", { name: "Send message" })),
+  );
+  await waitFor(
+    () => {
+      const row = thread.getByText(message).closest("article");
+      const rect = row?.getBoundingClientRect();
+      const feed = row?.closest(".thread-feed")?.getBoundingClientRect();
+      if (
+        !rect?.height ||
+        !feed ||
+        rect.bottom <= feed.top ||
+        rect.top >= feed.bottom ||
+        row?.querySelector(".timeline-delivery") ||
+        field.value ||
+        townDraft.value !== "Draft from the channel window"
+      )
+        throw Error(
+          "The phone did not show one confirmed reply and preserve the channel draft",
+        );
+    },
+    { timeout: 10_000 },
+  );
+  flushSync(() =>
+    fireEvent.click(thread.getByRole("button", { name: "Close thread" })),
+  );
+  await waitFor(() => {
+    if (
+      pane.isConnected ||
+      ui.queryByText(message) ||
+      ui.getByRole("textbox", { name: "Message #Town Square…" }) !==
+        townDraft ||
+      townDraft.value !== "Draft from the channel window"
+    )
+      throw Error(
+        "Closing the thread showed the reply in the collapsed channel or changed its draft",
+      );
+  });
+}
+
+export async function checkBrowserApp(server: string, controlPort: string) {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -117,6 +180,138 @@ export async function checkBrowserApp(server: string) {
     } finally {
       await delivery.close();
     }
+    flushSync(() =>
+      fireEvent.input(townDraft, {
+        target: { value: "Draft from the channel window" },
+      }),
+    );
+    const town = ui.getByText("Town fixture message").closest("article");
+    if (!town) throw Error("Town post is outside its timeline row");
+    const opener = within(town).getByRole("button", { name: "Open thread" });
+    opener.focus();
+    flushSync(() => fireEvent.click(opener));
+    const thread = await ui.findByRole("complementary", { name: "Thread" });
+    await within(thread).findByText(
+      "Reply visible only inside Town’s thread",
+      {},
+      { timeout: 10_000 },
+    );
+    if (town.getClientRects().length || document.activeElement === townDraft)
+      throw Error("The compact thread did not take over the conversation");
+    const control = await openNativeRestConnection(
+      `https://127.0.0.1:${controlPort}`,
+    );
+    try {
+      const response = await control.fetchApi(
+        `${control.basePath}/api/v4/system/ping?step=thread-back`,
+      );
+      if (response.status !== 204)
+        throw Error("Android did not inject the Back key");
+    } finally {
+      await control.close();
+    }
+    await waitFor(
+      () => {
+        if (thread.isConnected)
+          throw Error("Android Back left the thread open");
+        if (!document.hasFocus()) throw Error("Android Back left the Activity");
+        if (document.activeElement !== opener || !town.getClientRects().length)
+          throw Error(
+            "Android Back did not restore the channel and its opener",
+          );
+        if (
+          ui.getByRole("textbox", { name: "Message #Town Square…" }) !==
+            townDraft ||
+          townDraft.value !== "Draft from the channel window"
+        )
+          throw Error("Android Back lost the channel draft");
+      },
+      { timeout: 10_000 },
+    );
+    await checkThreadReply(host, opener, townDraft);
+    const searchTrigger = ui.getByRole("button", { name: "Search" });
+    searchTrigger.focus();
+    flushSync(() => fireEvent.click(searchTrigger));
+    const dialog = within(await ui.findByRole("dialog"));
+    const terms = dialog.getByRole<HTMLInputElement>("searchbox");
+    if (document.activeElement !== terms)
+      throw Error("The online search dialog did not focus the query");
+    flushSync(() =>
+      fireEvent.input(terms, { target: { value: "window fixture" } }),
+    );
+    flushSync(() =>
+      fireEvent.click(dialog.getByRole("button", { name: "Search" })),
+    );
+    const results = within(
+      await ui.findByRole(
+        "complementary",
+        { name: "Search results" },
+        { timeout: 10_000 },
+      ),
+    );
+    await results.findByText("Search found this fixture post");
+    flushSync(() =>
+      fireEvent.click(results.getByRole("button", { name: "Files" })),
+    );
+    await results.findByText("window-fixture.pdf");
+    flushSync(() =>
+      fireEvent.click(results.getByRole("button", { name: /Messages/ })),
+    );
+    await results.findByText("Search found this fixture post");
+    flushSync(() =>
+      fireEvent.click(results.getByRole("button", { name: "Close search" })),
+    );
+    if (
+      document.activeElement !== searchTrigger ||
+      townDraft.value !== "Draft from the channel window"
+    )
+      throw Error("Leaving native search lost the header or draft");
+    flushSync(() =>
+      fireEvent.input(townDraft, {
+        target: { value: "/SeArCh window fixture" },
+      }),
+    );
+    flushSync(() =>
+      fireEvent.click(ui.getByRole("button", { name: "Run command" })),
+    );
+    const commandResults = within(
+      await ui.findByRole(
+        "complementary",
+        { name: "Search results" },
+        { timeout: 10_000 },
+      ),
+    );
+    await commandResults.findByText("Search found this fixture post");
+    await waitFor(() => {
+      if (townDraft.value !== "")
+        throw Error("The local search command is still in the channel draft");
+    });
+    flushSync(() =>
+      fireEvent.click(
+        commandResults.getByRole("button", { name: "Close search" }),
+      ),
+    );
+    flushSync(() =>
+      fireEvent.input(townDraft, { target: { value: "/search" } }),
+    );
+    flushSync(() =>
+      fireEvent.click(ui.getByRole("button", { name: "Run command" })),
+    );
+    const emptySearch = within(await ui.findByRole("dialog"));
+    const emptyQuery = emptySearch.getByRole<HTMLInputElement>("searchbox");
+    if (emptyQuery.value || document.activeElement !== emptyQuery)
+      throw Error(
+        "A search command without arguments did not open the empty input",
+      );
+    await waitFor(() => {
+      if (townDraft.value !== "")
+        throw Error("The bare command was not cleared");
+    });
+    flushSync(() =>
+      fireEvent.click(
+        emptySearch.getByRole("button", { name: "Close search" }),
+      ),
+    );
     flushSync(() =>
       fireEvent.input(townDraft, {
         target: { value: "Draft from the channel window" },

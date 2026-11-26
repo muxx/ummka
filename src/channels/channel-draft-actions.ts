@@ -7,7 +7,10 @@ import {
   type ReactionThread,
   submitChannelReaction,
 } from "./submit-channel-reaction.ts";
-import { submitVisibleCommand } from "./submit-visible-command.ts";
+import {
+  type OpenCommandSearch,
+  submitVisibleCommand,
+} from "./submit-visible-command.ts";
 import type { DraftSendContext } from "./use-draft-send.ts";
 
 export function channelDraftActions(
@@ -15,6 +18,7 @@ export function channelDraftActions(
   channel: TeamSidebar["data"]["channels"][number],
   permission: ReturnType<typeof savedChannelPermissions>,
   collapsedThreads: boolean | null,
+  openSearch: OpenCommandSearch,
   thread?: ReactionThread,
 ): DraftSendContext {
   return {
@@ -67,6 +71,7 @@ export function channelDraftActions(
         draft,
         signal,
         () => sessionIssue("unauthorized"),
+        openSearch,
       );
     },
   };

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { inspectPostTarget } from "../../../src/channels/inspect-post-target.ts";
+import type { LocalPost } from "../../../src/mattermost/local-history.ts";
 import {
   readFileAnchor,
   readPostAnchor,
@@ -12,8 +13,12 @@ import {
   PostsApi,
 } from "../../../vendor/mattermost/index.js";
 
-export function expectedNavigationPost(row: Post) {
+export function expectedNavigationPost(
+  row: Post,
+  attachments: LocalPost["attachments"] = { fileIds: [] },
+) {
   return {
+    attachments,
     id: row.id,
     channelId: row.channelId,
     rootId: row.rootId || null,
@@ -44,13 +49,19 @@ export async function checkMessageTarget(
     readPostDestination: (id: string) => readPostDestination(posts, id),
   };
   assert.ok(created.rootId && created.userId && created.createAt);
+  const { name, extension, mimeType, size, archived } = await files.getFileInfo(
+    { fileId },
+  );
   const expected = {
     kind: "ready",
     teamId,
     channelId: created.channelId,
     postId,
     rootId: created.rootId,
-    post: expectedNavigationPost(created),
+    post: expectedNavigationPost(created, {
+      fileIds: [fileId],
+      files: [{ id: fileId, name, extension, mimeType, size, archived }],
+    }),
   };
   assert.deepEqual(
     await inspectPostTarget(account, { kind: "file", id: fileId }, null),

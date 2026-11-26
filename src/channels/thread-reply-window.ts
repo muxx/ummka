@@ -7,6 +7,7 @@ import {
 } from "../mattermost/model-fields.ts";
 import type { openAccountRestConnection } from "../mattermost/native-rest.ts";
 import type { ThreadPageRequest } from "../mattermost/thread-page.ts";
+import { workspaceFailure } from "./workspace-data.ts";
 
 type Account = Pick<
   Awaited<ReturnType<typeof openAccountRestConnection>>,
@@ -19,10 +20,11 @@ type Scope = Pick<
 type Direction = ThreadPageRequest["direction"];
 type Edge =
   | { status: "ready" | "end" | "loading" }
-  | { status: "error"; error: unknown }
-  | { status: "inaccessible"; since: number };
+  | { status: "error"; error: unknown };
 
 interface ReplyWindow {
+  unavailable?: "forbidden" | "unauthorized" | "session" | "limited";
+  firstInaccessiblePostTime?: number;
   root: LocalPost | null;
   replies: readonly LocalPost[];
   up: Edge;
@@ -81,6 +83,23 @@ export function openThreadReplyWindow(
     delete requests[direction];
     publish(next);
   }
+  function stop(
+    unavailable?: ReplyWindow["unavailable"],
+    firstInaccessiblePostTime?: number,
+  ) {
+    if (lifetime.signal.aborted) return;
+    lifetime.abort();
+    seen.clear();
+    publish({
+      unavailable,
+      ...(firstInaccessiblePostTime && { firstInaccessiblePostTime }),
+      root: null,
+      replies: [],
+      up: { status: "end" },
+      down: { status: "end" },
+    });
+    listeners.clear();
+  }
   async function read(direction: Direction) {
     try {
       const { signal } = lifetime;
@@ -97,13 +116,8 @@ export function openThreadReplyWindow(
       );
       if (signal.aborted) return;
       if (page.kind === "inaccessible") {
-        finish(direction, {
-          ...state,
-          [direction]: {
-            status: "inaccessible",
-            since: page.firstInaccessiblePostTime,
-          },
-        });
+        // getPostThread omits all posts when the thread is outside the history limit.
+        stop("limited", page.firstInaccessiblePostTime);
         return;
       }
       const root = visibleRow(channelId, page.root);
@@ -137,11 +151,20 @@ export function openThreadReplyWindow(
         [direction]: { status: page.next ? "ready" : "end" },
       });
     } catch (error) {
-      if (!lifetime.signal.aborted)
-        finish(direction, {
-          ...state,
-          [direction]: { status: "error", error },
-        });
+      if (lifetime.signal.aborted) return;
+      const failure = workspaceFailure(error, "network");
+      if (
+        failure === "forbidden" ||
+        failure === "unauthorized" ||
+        failure === "session"
+      ) {
+        stop(failure);
+        return;
+      }
+      finish(direction, {
+        ...state,
+        [direction]: { status: "error", error },
+      });
     }
   }
   function load(direction: Direction, status: "ready" | "error") {
@@ -170,16 +193,7 @@ export function openThreadReplyWindow(
     more: (direction: Direction) => load(direction, "ready"),
     retry: (direction: Direction) => load(direction, "error"),
     close() {
-      if (lifetime.signal.aborted) return;
-      lifetime.abort();
-      seen.clear();
-      publish({
-        root: null,
-        replies: [],
-        up: { status: "end" },
-        down: { status: "end" },
-      });
-      listeners.clear();
+      stop();
     },
   };
 }

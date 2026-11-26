@@ -6,6 +6,8 @@ import {
   ThreadsApi,
 } from "../../../vendor/mattermost/index.js";
 
+import { checkThreadFollowState } from "./thread-follow-state.ts";
+
 export async function checkThreadFollow(
   reader: Configuration,
   anonymous: Configuration,
@@ -21,6 +23,15 @@ export async function checkThreadFollow(
   const failedWith = (status: number) => (error: unknown) =>
     error instanceof ResponseError && error.response.status === status;
 
+  await checkThreadFollowState(
+    threads,
+    readerPosts,
+    author.posts,
+    teamId,
+    channelIds,
+    privatePostId,
+    version,
+  );
   for (const channelId of channelIds) {
     const root = await author.posts.createPost({
       createPostRequest: { channelId, message: "Thread subscription" },

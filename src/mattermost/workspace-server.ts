@@ -22,6 +22,7 @@ export function loadWorkspaceServerPolicy(
           "EnableConfirmNotificationsToChannel",
           "EnableCustomGroups",
           "CollapsedThreads",
+          "RestrictDirectMessage",
           "EnableCrossTeamSearch",
           "EnableFileAttachments",
           "EnableFileSearch",

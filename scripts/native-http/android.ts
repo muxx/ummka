@@ -2,15 +2,19 @@ import assert from "node:assert/strict";
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import { closeSync, openSync } from "node:fs";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 
 import {
+  checkNativeInstrumentation,
+  NativeInstrumentationError,
+} from "./android-instrumentation.ts";
+import {
   checkWebviewProcesses,
-  type OnKeyboardReady,
+  type OnAndroidInputReady,
 } from "./android-webview.ts";
 
 const exec = promisify(execFile);
@@ -20,25 +24,21 @@ const deviceProfile = "pixel_6";
 export async function waitForAndroidBoot(
   adb: (...args: string[]) => Promise<string>,
   emulator: { exitCode: number | null },
+  readPolicyLog: () => Promise<string>,
 ) {
-  // Register for the one-time policy signal before installing the fixture or waiting on overlays.
-  const policyReady = "Finished calculating hasIncompatibleAccountsTask";
-  const readiness = await adb(
-    "wait-for-device",
-    "logcat",
-    "-b",
-    "system",
-    "-m",
-    "1",
-    "-e",
-    policyReady,
-    "-s",
-    "DevicePolicyManager:I",
-  );
-  assert.ok(
-    readiness.includes(policyReady),
-    "Android device policy did not report account readiness",
-  );
+  const policyDeadline = Date.now() + 180_000;
+  await adb("wait-for-device");
+  while (
+    !(await readPolicyLog()).includes(
+      "Finished calculating hasIncompatibleAccountsTask",
+    )
+  ) {
+    assert(
+      Date.now() < policyDeadline && emulator.exitCode === null,
+      "Android device policy did not report account readiness",
+    );
+    await delay(500);
+  }
 
   const deadline = Date.now() + 90_000;
   while ((await adb("shell", "getprop", "sys.boot_completed")).trim() !== "1") {
@@ -68,7 +68,8 @@ export async function checkAndroid(
   webviewPorts: number[],
   ca: Buffer,
   config: string,
-  onKeyboardReady: OnKeyboardReady,
+  onAndroidInputReady: OnAndroidInputReady,
+  lastNativeProbe: () => string,
 ) {
   const sdk = process.env.ANDROID_HOME;
   assert(sdk, "ANDROID_HOME is required");
@@ -172,6 +173,9 @@ export async function checkAndroid(
   await once(control, "listening");
   const address = control.address();
   assert(address && typeof address !== "string");
+  // Capture the boot event from launch, before a late ADB reader can miss it.
+  const policyLog = join(dir, "device-policy.log");
+  await writeFile(policyLog, "", { flag: "wx" });
   const log = join(dir, "emulator.log");
   const fd = openSync(log, "w");
   const emulator = spawn(
@@ -188,6 +192,10 @@ export async function checkAndroid(
       "none",
       "-camera-front",
       "none",
+      "-logcat",
+      "*:s DevicePolicyManager:i",
+      "-logcat-output",
+      policyLog,
       "-report-console",
       `tcp:${address.port},max=30`,
     ],
@@ -225,7 +233,7 @@ export async function checkAndroid(
           },
         )
       ).stdout;
-    await waitForAndroidBoot(adb, emulator);
+    await waitForAndroidBoot(adb, emulator, () => readFile(policyLog, "utf8"));
     assert.equal((await adb("emu", "avd", "name")).split(/\r?\n/)[0], name);
     await adb("shell", "wm", "dismiss-keyguard");
     for (const port of [...ports, ...webviewPorts])
@@ -265,33 +273,50 @@ export async function checkAndroid(
       );
     }
     assert.equal(vaultProcesses.size, 4);
-    const result = await adb(
-      "shell",
-      "am",
-      "instrument",
-      "-w",
-      "-r",
-      "-e",
-      "ca",
-      ca.toString("base64"),
-      "-e",
-      "ports",
-      ports.join(","),
-      "-e",
-      "accountPort",
-      String(webviewPorts[0]),
-      `${component}HttpCheckInstrumentation`,
+    await checkNativeInstrumentation(
+      () =>
+        adb(
+          "shell",
+          "am",
+          "instrument",
+          "-w",
+          "-r",
+          "-e",
+          "ca",
+          ca.toString("base64"),
+          "-e",
+          "ports",
+          ports.join(","),
+          "-e",
+          "accountPort",
+          String(webviewPorts[0]),
+          `${component}HttpCheckInstrumentation`,
+        ),
+      async () =>
+        (
+          await exec(
+            join(sdk, "platform-tools/adb"),
+            [
+              "-s",
+              `emulator-${reported}`,
+              "shell",
+              "pidof",
+              `${app}.httpcheck`,
+            ],
+            { timeout: 2000 },
+          )
+        ).stdout,
+      lastNativeProbe,
     );
-    assert.match(result, /^INSTRUMENTATION_RESULT: result=PASS\r?$/m);
-    assert.match(result, /^INSTRUMENTATION_CODE: -1\r?$/m);
     await checkWebviewProcesses(
       adb,
       `${app}.httpcheck`,
       component,
-      onKeyboardReady,
+      onAndroidInputReady,
     );
   } catch (error) {
-    console.error((await readFile(log, "utf8")).slice(-1500));
+    if (!(error instanceof NativeInstrumentationError))
+      console.error((await readFile(log, "utf8")).slice(-1500));
     throw error;
   } finally {
     control.close();

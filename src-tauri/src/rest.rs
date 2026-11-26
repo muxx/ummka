@@ -1,3 +1,5 @@
+pub mod mobile_file_policy;
+
 use crate::installation_url::{has_credentials, parse_canonical};
 use crate::native_http::NativeHttp;
 pub use crate::native_http::TransportError;
@@ -38,6 +40,15 @@ impl Operation<'_> {
                 "{team_id}" | "{channel_id}" | "{post_id}" | "{thread_id}" | "{file_id}" => {
                     is_mattermost_id(actual)
                 }
+                "{category_id}" => valid_category_id(actual),
+                "{timestamp}" => {
+                    // The generated SDK passes Unix milliseconds as a JavaScript number.
+                    const JS_MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
+                    actual.starts_with(|c: char| matches!(c, '1'..='9'))
+                        && actual
+                            .parse::<u64>()
+                            .is_ok_and(|ms| ms <= JS_MAX_SAFE_INTEGER)
+                }
                 "{emoji_name}" => valid_emoji_name(actual),
                 literal => actual == literal,
             };
@@ -54,6 +65,17 @@ impl Operation<'_> {
             Some(BodyKind::Json) => request.body().is_some() && has_json_content_type(request),
         }
     }
+}
+
+// Built-in categories use {kind}_{userID}_{teamID}. Custom categories use a regular ID.
+fn valid_category_id(id: &str) -> bool {
+    if is_mattermost_id(id) {
+        return true;
+    }
+    let mut parts = id.rsplitn(3, '_');
+    matches!((parts.next(), parts.next(), parts.next()),
+        (Some(team), Some(user), Some("favorites" | "channels" | "direct_messages"))
+        if is_mattermost_id(team) && is_mattermost_id(user) && !id.bytes().any(|b| b.is_ascii_uppercase()))
 }
 
 // Mattermost emoji names are 1–64 ASCII bytes. A plus is encoded as %2B by the SDK.
@@ -265,6 +287,49 @@ mod tests {
     use super::*;
 
     #[test]
+    fn personal_category_writes_accept_custom_and_builtin_ids() {
+        let team = "t".repeat(26);
+        let user = "u".repeat(26);
+        let path = format!("/api/v4/users/me/teams/{team}/channels/categories");
+        for category in [
+            &team,
+            &format!("direct_messages_{user}_{team}"),
+            &format!("favorites_{user}_{team}"),
+            &format!("channels_{user}_{team}"),
+        ] {
+            assert!(
+                OPERATIONS
+                    .iter()
+                    .any(|op| op.allows(&reqwest::Method::PUT, &format!("{path}/{category}")))
+            );
+            assert!(
+                OPERATIONS
+                    .iter()
+                    .any(|op| op.allows(&reqwest::Method::DELETE, &format!("{path}/{category}")))
+            );
+        }
+        for category in [
+            "short",
+            "order",
+            &format!("favorites_{user}_short"),
+            &format!("prefix_channels_{user}_{team}"),
+            &format!("direct_messages_{}_{team}", user.to_uppercase()),
+        ] {
+            assert!(
+                !OPERATIONS
+                    .iter()
+                    .any(|op| op.allows(&reqwest::Method::DELETE, &format!("{path}/{category}")))
+            );
+        }
+        for op in OPERATIONS
+            .iter()
+            .filter(|op| op.path.contains("/channels/categories") && op.method != "GET")
+        {
+            assert!(op.self_only);
+        }
+    }
+
+    #[test]
     fn file_metadata_requires_a_concrete_file_id_and_exact_route() {
         let base = "https://chat.example.test/team/chat";
         let connection = RestConnection::new(base).unwrap();
@@ -382,6 +447,52 @@ mod tests {
             *request.body_mut() = Some("{}".into());
             assert!(!operation.accepts_body(&request));
         }
+    }
+
+    #[test]
+    fn thread_read_accepts_only_positive_exact_milliseconds_and_own_bodyless_puts() {
+        let team = "t".repeat(26);
+        let root = "r".repeat(26);
+        let prefix = format!("/api/v4/users/me/teams/{team}/threads");
+        let single = format!("{prefix}/{root}/read");
+        let put = reqwest::Method::PUT;
+        let supported = |route: &str| OPERATIONS.iter().find(|op| op.allows(&put, route));
+        for time in ["1", "1700000000123", "9007199254740991"] {
+            assert!(supported(&format!("{single}/{time}")).is_some(), "{time}");
+        }
+        for time in [
+            "",
+            "0",
+            "-1",
+            "+1",
+            "01",
+            "1.5",
+            "1e3",
+            "%31",
+            "9007199254740992",
+            "18446744073709551616",
+        ] {
+            assert!(supported(&format!("{single}/{time}")).is_none(), "{time}");
+        }
+        let connection = RestConnection::new("https://fixture.test/sub").unwrap();
+        for route in [format!("{single}/1"), format!("{prefix}/read")] {
+            let operation = supported(&route).unwrap();
+            assert!(operation.self_only);
+            assert!(!operation.allows(&reqwest::Method::POST, &route));
+            assert!(!operation.allows(&put, &route.replace("/me/", &format!("/{root}/"))));
+            assert!(!operation.allows(&put, &route.replace(&team, "short")));
+            assert!(!operation.allows(&put, &format!("{route}/extra")));
+            let url = Url::parse(&format!("https://fixture.test/sub{route}")).unwrap();
+            let mut request = Request::new(put.clone(), url);
+            assert!(operation.accepts_body(&request));
+            assert_eq!(
+                connection.check_request(&request),
+                Err(TransportError::OperationDenied)
+            );
+            *request.body_mut() = Some("{}".into());
+            assert!(!operation.accepts_body(&request));
+        }
+        assert!(supported(&format!("{prefix}/short/read/1")).is_none());
     }
 
     #[test]

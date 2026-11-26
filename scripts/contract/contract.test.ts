@@ -55,6 +55,7 @@ import {
   correctFlaggedPosts,
   correctHistoryQuery,
   correctHistorySchema,
+  correctRedactedFileCount,
 } from "./history-corrections.ts";
 import { correctMentionGroup } from "./mention-group-correction.ts";
 import { correctNotificationProps } from "./notification-props.ts";
@@ -89,15 +90,17 @@ import {
   correctSidebarCategory,
   correctSidebarResponse,
   correctSidebarSchema,
+  correctSidebarWrite,
+  sidebarWriteCorrections,
 } from "./sidebar-corrections.ts";
 import { correctSinglePost } from "./single-post-correction.ts";
 import { correctTeamMemberRequest } from "./team-member-correction.ts";
-import { correctThreadFollow } from "./thread-follow-correction.ts";
 import {
   correctThreadListModel,
   correctThreadListQuery,
   threadListPath,
 } from "./thread-list-corrections.ts";
+import { correctThreadMutation } from "./thread-mutation-correction.ts";
 
 const sources = process.env.UMMKA_CONTRACT_SOURCES;
 const work = process.env.UMMKA_CONTRACT_WORK;
@@ -365,6 +368,7 @@ for (const [id, file, path, method] of [
     "/api/v4/channels/{channel_id}/timezones",
     "get",
   ],
+  ["GetFileInfosForPost", "posts", "/api/v4/posts/{post_id}/files/info", "get"],
   ["GetRolesByNames", "roles", "/api/v4/roles/names", "post"],
   [
     "GetPreferences",
@@ -917,9 +921,96 @@ test("both thread follow verbs return StatusOK and stop on upstream response cha
       ...source,
       responses: { "200": { description: "changed" } },
     };
-    assert.throws(() => correctThreadFollow(source, changed), /Review both/);
-    assert.throws(() => correctThreadFollow(changed, newer), /Review both/);
-    assert.throws(() => correctThreadFollow(changed, changed), /Review both/);
+    assert.throws(() => correctThreadMutation(source, changed), /Review both/);
+    assert.throws(() => correctThreadMutation(changed, newer), /Review both/);
+    assert.throws(() => correctThreadMutation(changed, changed), /Review both/);
+  }
+});
+
+test("both thread read operations expose their actual response and guard the timestamp on both pins", () => {
+  for (const [suffix, model] of [
+    ["/read", "StatusOK"],
+    ["/{thread_id}/read/{timestamp}", "UserThread"],
+  ]) {
+    const path = threadListPath + suffix;
+    const key = [path, "put"];
+    assert.equal(
+      at(contract, [
+        "paths",
+        ...key,
+        "responses",
+        "200",
+        "content",
+        "application/json",
+        "schema",
+        "$ref",
+      ]),
+      `#/components/schemas/${model}`,
+    );
+    const source = object(at(read("users.yaml"), key), path);
+    const newer = object(at(read("users-12.1.0.yaml"), key), path);
+    const changed = {
+      ...source,
+      responses: { "200": { description: "upstream changed" } },
+    };
+    assert.throws(() => correctThreadMutation(changed, newer), /Review both/);
+    assert.throws(() => correctThreadMutation(source, changed), /Review both/);
+    assert.throws(() => correctThreadMutation(changed, changed), /Review both/);
+    if (model === "UserThread") {
+      const params = at(contract, ["paths", ...key, "parameters"]);
+      assert.ok(Array.isArray(params) && Array.isArray(source.parameters));
+      assert.deepEqual(params.find((p) => p.name === "timestamp")?.schema, {
+        type: "integer",
+        format: "int64",
+        minimum: 1,
+        maximum: Number.MAX_SAFE_INTEGER,
+      });
+      const newTimestamp = {
+        ...source,
+        parameters: source.parameters.map((p) =>
+          p.name === "timestamp" ? { ...p, schema: { type: "integer" } } : p,
+        ),
+      };
+      assert.throws(
+        () => correctThreadMutation(source, newTimestamp),
+        /Review both/,
+      );
+      assert.throws(
+        () => correctThreadMutation(newTimestamp, newer),
+        /Review both/,
+      );
+      assert.throws(
+        () => correctThreadMutation(newTimestamp, newTimestamp),
+        /timestamp/,
+      );
+    }
+  }
+});
+
+test("one channel uses the same path, parameter and Channel response in both versions", () => {
+  const path = "/api/v4/channels/{channel_id}";
+  for (const file of ["channels.yaml", "channels-12.1.0.yaml"]) {
+    const operation = object(at(read(file), [path, "get"]), path);
+    assert.equal(operation.operationId, "GetChannel");
+    assert.ok(Array.isArray(operation.parameters));
+    assert.deepEqual(
+      operation.parameters.map((item) => {
+        const parameter = object(item, "channel id");
+        return [parameter.in, parameter.name, parameter.required];
+      }),
+      [["path", "channel_id", true]],
+    );
+    assert.equal(
+      at(operation, [
+        "responses",
+        "200",
+        "content",
+        "application/json",
+        "schema",
+        "$ref",
+      ]),
+      "#/components/schemas/Channel",
+    );
   }
 });
 
@@ -945,10 +1036,12 @@ test("retains the catalog operations, security and transitive models", () => {
     const source = object(at(read(file), key), path);
     let expected = source;
     if (
+      source.operationId === "UpdateThreadReadForUser" ||
+      source.operationId === "UpdateThreadsReadForUser" ||
       source.operationId === "StartFollowingThread" ||
       source.operationId === "StopFollowingThread"
     )
-      expected = correctThreadFollow(
+      expected = correctThreadMutation(
         source,
         object(at(read("users-12.1.0.yaml"), key), path),
       );
@@ -989,6 +1082,7 @@ test("retains the catalog operations, security and transitive models", () => {
     if (source.operationId === "ExecuteCommand")
       expected = correctExecuteCommand(source, read("commands-12.1.0.yaml"));
     if (
+      source.operationId === "GetFileInfosForPost" ||
       source.operationId === "GetReactions" ||
       source.operationId === "GetRolesByNames" ||
       source.operationId === "GetPreferences" ||
@@ -1012,7 +1106,15 @@ test("retains the catalog operations, security and transitive models", () => {
       expected = correctBulkChannelView(source, read("channels.yaml"), path);
     if (source.operationId === "SetPostUnread")
       expected = correctSetPostUnread(source, read("posts-12.1.0.yaml"), path);
-    if (path === sidebar) expected = correctSidebarResponse(source);
+    if (source.operationId === "GetSidebarCategoriesForTeamForUser")
+      expected = correctSidebarResponse(source);
+    const id = String(source.operationId);
+    if (sidebarWriteCorrections.has(id))
+      expected = correctSidebarWrite(
+        id,
+        source,
+        object(at(read("channels-12.1.0.yaml"), key), id),
+      );
     if (
       source.operationId === "GetGroupsByTeam" ||
       source.operationId === "GetGroupsAssociatedToChannelsByTeam"
@@ -1210,6 +1312,31 @@ test("both pinned User definitions omit the same three fields returned by the se
   }
 });
 
+test("category writes detect changed request and response shapes in either pinned version", () => {
+  for (const { id, file, path, method } of catalog.filter(({ id }) =>
+    sidebarWriteCorrections.has(id),
+  )) {
+    const key = [path, method.toLowerCase()];
+    for (const slot of [0, 1]) {
+      for (const half of ["requestBody", "responses"]) {
+        const operations = [read(file), read("channels-12.1.0.yaml")].map(
+          (doc) => structuredClone(object(at(doc, key), id)),
+        );
+        const changed = operations[slot];
+        const body = {
+          content: { "application/json": { schema: { type: "string" } } },
+          required: true,
+        };
+        changed[half] = half === "responses" ? { "200": body } : body;
+        assert.throws(
+          () => correctSidebarWrite(id, operations[0], operations[1]),
+          /Review the pinned sidebar/,
+        );
+      }
+    }
+  }
+});
+
 test("corrects the sidebar envelope and category fields without changing the upstream objects", () => {
   const operation = object(
     at(read("channels.yaml"), [sidebar, "get"]),
@@ -1352,7 +1479,7 @@ test("changes only the confirmed history fields in the selected models", () => {
       "is_following",
     ],
     PostList: ["first_inaccessible_post_time"],
-    PostMetadata: ["images"],
+    PostMetadata: ["images", "redacted_file_count"],
   };
   for (const [name, fields] of Object.entries(additions)) {
     const path = ["components", "schemas", name];
@@ -1447,6 +1574,51 @@ test("a correction stops when either pinned history contract changes", () => {
   const images = object(at(metadata, ["properties", "images"]), "images");
   images.additionalProperties = images.items;
   assert.throws(() => correctHistorySchema("PostMetadata", metadata), /Review/);
+});
+
+test("applies the optional attachment count only while both pinned definitions omit it", () => {
+  const newer = read("definitions-12.1.0.yaml");
+  const baseline = object(
+    at(definitions, ["components", "schemas", "PostMetadata"]),
+    "PostMetadata",
+  );
+  const latest = object(
+    at(newer, ["components", "schemas", "PostMetadata"]),
+    "PostMetadata",
+  );
+  const added = { type: "integer", format: "int64", minimum: 0 };
+  const original = structuredClone(baseline);
+  assert.deepEqual(correctRedactedFileCount(baseline, newer), {
+    ...baseline,
+    properties: {
+      ...object(baseline.properties, "properties"),
+      redacted_file_count: added,
+    },
+  });
+  assert.deepEqual(baseline, original);
+  for (const replacement of [
+    { redacted_file_count: added },
+    { files: { type: "array", items: { type: "string" } } },
+  ]) {
+    const changed = (schema: Fields) => ({
+      ...schema,
+      properties: {
+        ...object(schema.properties, "properties"),
+        ...replacement,
+      },
+    });
+    assert.throws(
+      () => correctRedactedFileCount(changed(baseline), newer),
+      /Review the PostMetadata attachment count/,
+    );
+    assert.throws(
+      () =>
+        correctRedactedFileCount(baseline, {
+          components: { schemas: { PostMetadata: changed(latest) } },
+        }),
+      /Review the PostMetadata attachment count/,
+    );
+  }
 });
 
 const removals = [
@@ -1877,6 +2049,8 @@ const {
   FilesApi,
   FileInfoListToJSON,
   PostsApi,
+  PostFromJSON,
+  PostToJSON,
   PostListWithSearchMatchesFromJSON,
   PostListWithSearchMatchesToJSON,
   PostListFromJSON,
@@ -2101,6 +2275,25 @@ test("keeps scheme roles separate from explicit membership roles and detects ups
       assert.deepEqual(JSON.parse(JSON.stringify(encode(decode(wire)))), wire);
   }
 });
+test("round trips the attachment count independently of available files", () => {
+  for (const count of [undefined, 0, 2]) {
+    const metadata = count === undefined ? {} : { redacted_file_count: count };
+    const wire = { id: "p".repeat(26), file_ids: [], metadata };
+    const parsed = PostFromJSON(wire);
+    assert.equal(parsed.metadata.redactedFileCount, count);
+    assert.deepEqual(JSON.parse(JSON.stringify(PostToJSON(parsed))), wire);
+  }
+  const file = "f".repeat(26);
+  const visible = {
+    file_ids: [file],
+    metadata: { files: [{ id: file, name: "notes.txt" }] },
+  };
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(PostToJSON(PostFromJSON(visible)))),
+    visible,
+  );
+});
+
 test("the generated reader preserves a nonzero history boundary and thread values", () => {
   const page = PostListFromJSON({
     order: ["root"],

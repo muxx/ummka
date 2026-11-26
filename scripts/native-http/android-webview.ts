@@ -3,17 +3,33 @@ import { setTimeout as delay } from "node:timers/promises";
 import { coldLink, warmLink } from "../webview-check/link-examples.ts";
 
 type Adb = (...args: string[]) => Promise<string>;
-export type OnKeyboardReady = (sendTab: () => Promise<void>) => void;
+export type SendAndroidKey = (
+  key: "KEYCODE_TAB" | "KEYCODE_BACK",
+) => Promise<void>;
+export type OnAndroidInputReady = (send: SendAndroidKey) => void;
 
 export async function launchWebview(
   adb: Adb,
   app: string,
   activity: string,
   expected: string,
-  onKeyboardReady?: OnKeyboardReady,
+  onAndroidInputReady?: OnAndroidInputReady,
 ) {
-  onKeyboardReady?.(async () => {
-    await adb("shell", "input", "keyevent", "KEYCODE_TAB");
+  onAndroidInputReady?.(async (key) => {
+    if (key === "KEYCODE_BACK") {
+      // This case exercises app navigation. Android gives a visible IME the first Back.
+      const deadline = Date.now() + 5_000;
+      while (true) {
+        const input = await adb("shell", "dumpsys", "input_method");
+        if (/\bmInputShown=false\b/u.test(input)) break;
+        assert(
+          Date.now() < deadline,
+          "Thread navigation requires a hidden IME",
+        );
+        await delay(50);
+      }
+    }
+    await adb("shell", "input", "keyevent", key);
   });
   assert.match(
     await adb("shell", "am", "start", "-W", "-n", activity),
@@ -112,7 +128,7 @@ export async function checkWebviewProcesses(
   adb: Adb,
   app: string,
   component: string,
-  onKeyboardReady: OnKeyboardReady,
+  onAndroidInputReady: OnAndroidInputReady,
 ) {
   const activity = `${component}MainActivity`;
   await adb(
@@ -134,7 +150,7 @@ export async function checkWebviewProcesses(
     app,
     activity,
     "browser-checked",
-    onKeyboardReady,
+    onAndroidInputReady,
   );
   // Android protects the device owner from force-stop. TLS checks have finished
   // using its test CA, so release ownership before testing process restarts.

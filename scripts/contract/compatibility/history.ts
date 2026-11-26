@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { latestReactionTarget } from "../../../src/channels/latest-reaction-target.ts";
 import { nextPostDestinationStep } from "../../../src/channels/post-destination-step.ts";
+import { accountChannelReadState } from "../../../src/mattermost/account-channel-read-state.ts";
 import { channelHistoryPage } from "../../../src/mattermost/channel-history-page.ts";
 import { channelPostChanges } from "../../../src/mattermost/channel-post-records.ts";
 import {
@@ -56,6 +57,7 @@ import {
 } from "./memberships.ts";
 import { checkMentionLimit } from "./mention-limit.ts";
 import { checkMentionText } from "./mention-text.ts";
+import { checkMobileFilePolicy } from "./mobile-file-policy.ts";
 import {
   checkPostCollections,
   checkSavedPageBoundary,
@@ -68,6 +70,7 @@ import {
 } from "./post-mutations.ts";
 import { checkPostSearch } from "./post-search.ts";
 import { checkProfileReads } from "./profile-reads.ts";
+import { checkPublishedPostDocument } from "./published-post-document.ts";
 import { checkReactionActions } from "./reaction-actions.ts";
 import { checkReactionLimit } from "./reaction-limit.ts";
 import { checkPostReactions } from "./reactions.ts";
@@ -78,6 +81,8 @@ import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
 import { checkThreadFollow } from "./thread-follow.ts";
 import { checkThreadList } from "./thread-list.ts";
+import { checkThreadPageTies } from "./thread-page-ties.ts";
+import { checkThreadReadState } from "./thread-read-state.ts";
 import { checkThreadSummary } from "./thread-summary.ts";
 import { checkThreadWindow } from "./thread-window.ts";
 import { checkUserNotifications } from "./user-notifications.ts";
@@ -403,6 +408,17 @@ console.log(
   `Mattermost ${version} verified channel audience counts, timezones and private channel access.`,
 );
 await checkChannelRoster(closedReader, closed.id, dm.id, [user.id, reader.id]);
+for (const [caller, target, status] of [
+  [closedReader, closed.id, 403],
+  [closedReader, "z".repeat(26), 404],
+  [new ChannelsApi(new Configuration({ basePath: base })), dm.id, 401],
+] as const) {
+  await assert.rejects(
+    caller.getChannel({ channelId: target }),
+    (error: unknown) =>
+      error instanceof ResponseError && error.response.status === status,
+  );
+}
 await assert.rejects(
   closedReader.getChannelMember({ channelId: closed.id, userId: user.id }),
   (e: unknown) => e instanceof ResponseError && e.response.status === 403,
@@ -965,9 +981,32 @@ await checkThreadFollow(
 );
 // The earlier non-member checks use this private channel before the reader joins.
 await create(`channels/${closed.id}/members`, { user_id: reader.id }, token);
+const observerName = "sidebar-observer";
+const observerPassword = randomBytes(24).toString("hex") + "aA7!";
+const observer = await (
+  await create("users", {
+    username: observerName,
+    email: "sidebar-observer@example.test",
+    password: observerPassword,
+  })
+).json();
+assert.equal(observer.roles, "system_user");
+await create(
+  `teams/${team.id}/members`,
+  { team_id: team.id, user_id: observer.id },
+  token,
+);
+const observerToken = (
+  await create("users/login", {
+    login_id: observerName,
+    password: observerPassword,
+  })
+).headers.get("token");
+assert.ok(observerToken);
 await checkSidebarReads(
   base,
   readerToken,
+  observerToken,
   reader.id,
   user.id,
   team.id,
@@ -976,7 +1015,7 @@ await checkSidebarReads(
   closed.id,
 );
 console.log(
-  `Mattermost ${version} verified personal sidebar categories, order, flags, preferences and ownership.`,
+  `Mattermost ${version} verified category creation, edits, bulk channel moves, order and deletion independently of a second member’s sidebar.`,
 );
 const disposable = await (
   await create(
@@ -1126,6 +1165,21 @@ const group = await (
   await create("channels/group", [user.id, reader.id, bot.user_id], token)
 ).json();
 assert.equal(group.type, "G");
+for (const [source, expectedTeam] of [
+  [channel, team.id],
+  [dm, ""],
+  [group, ""],
+] as const) {
+  const found = await closedReader.getChannel({ channelId: source.id });
+  assert.equal(found.id, source.id);
+  assert.equal(found.type, source.type);
+  assert.equal(found.name, source.name);
+  assert.equal(found.teamId, expectedTeam);
+  assert.equal(found.deleteAt, 0);
+}
+console.log(
+  `Mattermost ${version} verified signed metadata for one channel, DM and group, and the three expected HTTP errors.`,
+);
 const groupName = {
   kind: group.type,
   name: group.name,
@@ -1160,7 +1214,7 @@ await checkProfileReads(
   version,
 );
 
-await checkPostMutations(base, posts, channelId, user.id, version);
+await checkPostMutations(base, posts, readerPosts, channelId, user.id, version);
 await checkCommands(session, team.id, channelId, version);
 // A self-join avoids the membership notification produced when somebody adds the reader.
 const mentionRoom = await (
@@ -1221,6 +1275,7 @@ await checkPreviouslyAcceptedPost(
 
 await checkSearchScopePolicy(base, token, readerToken, version);
 await checkPostEditWindow(base, token, readerToken);
+await checkMobileFilePolicy(base, token, readerToken);
 await checkReactionLimit(base, token, user.id, readerToken, channelId);
 console.log(
   `Mattermost ${version} verified the signed reaction limit against adding a new emoji name.`,
@@ -1291,6 +1346,12 @@ await checkThreadList(
   threadDirect.id,
   version,
 );
+await checkThreadPageTies(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  team.id,
+  message,
+  version,
+);
 
 await checkSavedPageBoundary(
   base,
@@ -1299,14 +1360,62 @@ await checkSavedPageBoundary(
   version,
 );
 
+const readerReadState = accountChannelReadState(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  reader.id,
+  (run) => run(),
+);
+const ownerChannels = new ChannelsApi(session);
+const ownerMember = await ownerChannels.getChannelMember({
+  channelId: dm.id,
+  userId: "me",
+});
+const dmUnread = await readerReadState.markPostUnread(dm.id, dmPost.id);
+assert.equal(dmUnread.teamId, "");
+assert.equal(dmUnread.userId, reader.id);
+assert.equal(dmUnread.channelId, dm.id);
+assert.equal(dmUnread.lastViewedAt, dmPost.create_at - 1);
+assert.deepEqual(
+  await ownerChannels.getChannelMember({ channelId: dm.id, userId: "me" }),
+  ownerMember,
+);
+assert.equal(
+  (await readerReadState.markPostUnread(closed.id, closedPost.id)).teamId,
+  team.id,
+);
+
 await checkFocusedConversation(memberPosts, readerPosts, closed.id, () =>
   new ChannelsApi(session).removeUserFromChannel({
     channelId: closed.id,
     userId: reader.id,
   }),
 );
+await assert.rejects(
+  readerReadState.markPostUnread(closed.id, closedPost.id),
+  (error: unknown) =>
+    error instanceof ResponseError && error.response.status === 403,
+);
+console.log(
+  `Mattermost ${version} verified personal unread markers in a direct conversation and a private channel before and after membership removal.`,
+);
 console.log(
   `Mattermost ${version} verified focused channel windows for roots and a reply beyond the first thread page, including subsequent loss of channel access.`,
+);
+
+// Both ordinary participants also need a shared channel in another team.
+await create(
+  `teams/${team.id}/members`,
+  { team_id: team.id, user_id: otherSaver.id },
+  token,
+);
+await checkThreadReadState(
+  threadReader,
+  otherSaverName,
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  readerLogin.login_id,
+  { teamId: emptyTeam.id, channelId: threadRoom.id, directId: threadDirect.id },
+  { teamId: team.id, channelId },
+  version,
 );
 
 const secondLogin = await create("users/login", {
@@ -1357,6 +1466,7 @@ await checkFileContent(session, authorization, readerToken, closed.id, () =>
 console.log(
   `Mattermost ${version} verified attachment representations, ranges and channel access.`,
 );
+await checkPublishedPostDocument(readerPosts, base, channelId, version);
 await allowFixtureBrowserSignIn(base, token);
 const logout = await fetch(`${base}/api/v4/users/logout`, {
   method: "POST",

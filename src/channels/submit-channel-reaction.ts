@@ -49,9 +49,7 @@ function ownsThread(
     state.root !== null &&
     state.root.channelId === channelId &&
     state.root.id === rootId &&
-    state.root.rootId === null &&
-    state.up.status !== "inaccessible" &&
-    state.down.status !== "inaccessible"
+    state.root.rootId === null
   );
 }
 

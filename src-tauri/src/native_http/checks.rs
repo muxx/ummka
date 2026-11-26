@@ -80,7 +80,8 @@ async fn check_scope(
     const PING: &str = "api/v4/system/ping";
     const HISTORY: &str =
         "api/v4/channels/Channel0123456789012345678/posts?page=0&per_page=60&collapsedThreads=true";
-    const READ_ROUTES: [&str; 16] = [
+    const READ_ROUTES: [&str; 17] = [
+        "api/v4/channels/Channel0123456789012345678",
         "api/v4/config/client?format=old",
         "api/v4/license/client?format=old",
         "api/v4/users/me",
@@ -169,6 +170,7 @@ async fn check_scope(
             selected,
             "api/v4/channels/Channel0123456789012345678/posts/unread",
         ),
+        get(selected, "api/v4/channels/short"),
         get(selected, "api/v4/channels/short/pinned"),
         get(selected, "api/v4/users/short/posts/flagged"),
         history_with_body,
@@ -290,6 +292,7 @@ async fn check_wire(
     )
     .await?;
     crate::realtime::checks::wire(&client, &base).await?;
+    crate::rest_ipc::mobile_file_policy_check::wire(&client, &base).await?;
     let prefix = "/Teams/Blue%20Sky//A%2FB";
     let selected = format!("https://127.0.0.1:{selected}{prefix}");
     let other = format!("https://127.0.0.1:{other}{prefix}");
@@ -375,7 +378,7 @@ async fn wire() -> CheckResult {
 #[jni::jni_mangle("io.github.muxx.ummka.dev.HttpCheckInstrumentation")]
 pub fn run_checks<'local>(
     mut env: jni::EnvUnowned<'local>,
-    _: jni::objects::JObject<'local>,
+    instrumentation: jni::objects::JObject<'local>,
     ports: jni::objects::JString<'local>,
     registry_path: jni::objects::JString<'local>,
     _account_port: jni::sys::jint,
@@ -394,7 +397,18 @@ pub fn run_checks<'local>(
             crate::credentials::android::checks::reject_first_account_removal()
                 .expect("could not install fixture constraint");
         }
+        let mut report_stage = |name: &str| -> jni::errors::Result<()> {
+            let stage = env.new_string(name)?;
+            env.call_method(
+                &instrumentation,
+                jni::jni_str!("reportStage"),
+                jni::jni_sig!((JString) -> void),
+                &[jni::objects::JValue::Object(stage.as_ref())],
+            )?;
+            Ok(())
+        };
         let result = tauri::async_runtime::block_on(async {
+            report_stage("sqlite")?;
             let registry = std::path::Path::new(&registry_path);
             crate::registry::checks::round_trip(registry)?;
             let fixtures = registry.parent().ok_or("missing fixture directory")?;
@@ -403,6 +417,7 @@ pub fn run_checks<'local>(
             crate::history::checks::posts::round_trip(fixtures)?;
             crate::history::checks::windows::round_trip(fixtures)?;
             crate::history::checks::reclamation::round_trip(fixtures)?;
+            report_stage("transport")?;
             check_wire(NativeHttp::new()?, RestConnection::new, &ports, fixtures).await
         });
         if let Err(error) = result {
