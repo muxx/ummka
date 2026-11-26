@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
+import { openDirectorySearch } from "../../../src/channels/open-directory-search.ts";
+import {
+  readChannelDirectoryPage,
+  searchChannelDirectory,
+} from "../../../src/mattermost/channel-directory-page.ts";
 import {
   ChannelsApi,
   Configuration,
   ResponseError,
 } from "../../../vendor/mattermost/index.js";
+import { checkDirectoryQuery } from "./directory-query.ts";
 
 export async function checkTeamChannelSearch(
   basePath: string,
@@ -33,7 +39,14 @@ export async function checkTeamChannelSearch(
       await (
         await create(
           "channels",
-          { team_id: teamId, name, display_name: name, type },
+          {
+            team_id: teamId,
+            name,
+            display_name: name,
+            type,
+            header: "Current team topic",
+            purpose: "Channel purpose",
+          },
           admin,
         )
       ).json()
@@ -76,6 +89,93 @@ export async function checkTeamChannelSearch(
       name: "zzznomatches",
     }),
     [],
+  );
+  const projected = await searchChannelDirectory(api, home, "  findable  ");
+  const publicPage = await readChannelDirectoryPage(api, {
+    teamId: home,
+    kind: "public",
+    page: 0,
+  });
+  for (const source of [publicPage.items, projected]) {
+    const room = source.find((c) => c.id === open);
+    assert.equal(room?.header, "Current team topic");
+    assert.equal(room?.purpose, "Channel purpose");
+  }
+  console.log(
+    `Mattermost ${version} verified nonmember topic and purpose in both public directory projections.`,
+  );
+  assert.deepEqual(
+    projected.map((c) => [c.id, c.name, c.kind, c.deleteAt]),
+    rows.map((c) => [c.id, c.name, c.type, c.deleteAt]),
+  );
+  assert.deepEqual(await searchChannelDirectory(api, home, "zzznomatches"), []);
+  const search = openDirectorySearch(
+    {
+      searchChannelDirectory: (id, name, signal) =>
+        searchChannelDirectory(api, id, name, signal),
+    },
+    home,
+  );
+  try {
+    const match = await checkDirectoryQuery(search, "  findable  ");
+    assert.deepEqual(match.items, projected);
+    const empty = await checkDirectoryQuery(search, "zzznomatches");
+    assert.deepEqual(empty.items, []);
+  } finally {
+    search.close();
+  }
+  console.log(
+    `Mattermost ${version} verified an open directory query, ordered matches and an empty result.`,
+  );
+  const archived = await channel(home, "historic-search-fixture", "O");
+  const headers = { Authorization: `Bearer ${admin}` };
+  const deletion = await fetch(`${basePath}/api/v4/channels/${archived}`, {
+    method: "DELETE",
+    headers,
+  });
+  assert.equal(deletion.status, 200);
+  await deletion.body?.cancel();
+  async function checkArchive(included: boolean) {
+    const items = await searchChannelDirectory(
+      api,
+      home,
+      "historic-search-fixture",
+    );
+    assert.deepEqual(
+      items.map((c) => c.id),
+      included ? [archived] : [],
+    );
+    if (included) assert.ok(items[0].deleteAt > 0);
+  }
+  if (version === "10.10.1") {
+    const response = await fetch(`${basePath}/api/v4/config`, { headers });
+    assert.equal(response.status, 200);
+    const original = (await response.json()).TeamSettings
+      .ExperimentalViewArchivedChannels;
+    assert.equal(typeof original, "boolean");
+    async function setArchive(value: boolean) {
+      const changed = await fetch(`${basePath}/api/v4/config/patch`, {
+        method: "PUT",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          TeamSettings: { ExperimentalViewArchivedChannels: value },
+        }),
+      });
+      assert.equal(changed.status, 200);
+      await changed.body?.cancel();
+    }
+    await checkArchive(original);
+    try {
+      await setArchive(!original);
+      await checkArchive(!original);
+    } finally {
+      await setArchive(original);
+    }
+  } else {
+    await checkArchive(true);
+  }
+  console.log(
+    `Mattermost ${version} verified directory search projections, server order and archive visibility.`,
   );
   const anonymous = new ChannelsApi(new Configuration({ basePath }));
   for (const [client, teamId, status] of [

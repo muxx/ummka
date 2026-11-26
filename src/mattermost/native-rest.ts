@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import {
   type ChannelNotifyProps,
+  ChannelsApi,
   CommandsApi,
   Configuration,
   FilesApi,
@@ -16,6 +17,11 @@ import { accountPostReactions } from "./account-post-reactions.ts";
 import { accountSearch } from "./account-search.ts";
 import { accountChannelAudience } from "./channel-audience.ts";
 import { readChannelBookmarks } from "./channel-bookmarks.ts";
+import {
+  type DirectoryPageQuery,
+  readChannelDirectoryPage,
+  searchChannelDirectory,
+} from "./channel-directory-page.ts";
 import { createChannelHistoryChanges } from "./channel-history-changes.ts";
 import {
   type ChannelRefreshRequest,
@@ -147,6 +153,7 @@ export async function openAccountRestConnection(
   const { rid } = connection;
   const config = new Configuration(connection);
   const posts = new PostsApi(config);
+  const channels = new ChannelsApi(config);
   const files = new FilesApi(config);
   const activity = createPostActivity();
   const historyChanges = createChannelHistoryChanges();
@@ -220,6 +227,18 @@ export async function openAccountRestConnection(
     },
     readFileAnchor(fileId: string, signal?: AbortSignal) {
       return readWhileOpen(() => readFileAnchor(files, fileId, signal), signal);
+    },
+    searchChannelDirectory(teamId: string, name: string, signal?: AbortSignal) {
+      return readWhileOpen(
+        () => searchChannelDirectory(channels, teamId, name, signal),
+        signal,
+      );
+    },
+    readChannelDirectoryPage(query: DirectoryPageQuery, signal?: AbortSignal) {
+      return readWhileOpen(
+        () => readChannelDirectoryPage(channels, query, signal),
+        signal,
+      );
     },
     ...accountChannelAudience(config, readWhileOpen),
     readChannelBookmarks(channelId: string, signal?: AbortSignal) {
