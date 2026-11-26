@@ -21,6 +21,8 @@ import { useConversationOutgoing } from "./use-conversation-outgoing.tsx";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
 import { channelPageSize } from "./workspace-data.ts";
 
+import "./workspace-dom.test-utils.ts";
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
