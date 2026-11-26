@@ -107,6 +107,10 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
                 // Setup runs on the main thread. The Tauri window owns this NSWindow.
                 let native = unsafe { &*main.ns_window()?.cast::<objc2_app_kit::NSWindow>() };
                 if std::env::var_os("UMMKA_CHECK_KEY_INPUT").is_some() {
+                    // WKWebView can deliver a key to the DOM of a hidden window
+                    // without performing its native scroll action.
+                    main.show()?;
+                    main.set_focus()?;
                     check_keyboard::listen(&main);
                 }
                 if native.minSize().width != 400.0 {
