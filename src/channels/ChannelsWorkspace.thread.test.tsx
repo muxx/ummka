@@ -10,7 +10,13 @@ import {
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ResponseError } from "../../vendor/mattermost/index.js";
 import type { TeamWorkspace } from "../entry/AccountTeamWindow.tsx";
+import type { PendingPost } from "../mattermost/account-delivery.ts";
 import type { LocalPost } from "../mattermost/local-history.ts";
+import type {
+  ComposerDraft,
+  DraftLocation,
+} from "../mattermost/native-rest.ts";
+import { outgoingRowState } from "../mattermost/outgoing-row-state.ts";
 import { projectTeamSidebar } from "../mattermost/team-sidebar.ts";
 import {
   sidebarPreferences,
@@ -63,15 +69,31 @@ const reply = {
   updateAt: 200,
 };
 const page = { kind: "page" as const, root, replies: [reply], next: null };
+const secondRoot = { ...root, id: "x".repeat(26), message: "Another question" };
 
-function mount(collapsed: boolean, online = true) {
+function mount(
+  collapsed: boolean,
+  online = true,
+  options: {
+    archived?: boolean;
+    writable?: boolean;
+    type?: string;
+    second?: boolean;
+  } = {},
+) {
   const data = projectTeamSidebar({
     teamId: team.id,
     channels: [
       [general, "General"],
       [design, "Design"],
     ].map(([id, name]) => ({
-      channel: { id, name, displayName: name, type: "O", deleteAt: 0 },
+      channel: {
+        id,
+        name,
+        displayName: name,
+        type: "O",
+        deleteAt: options.archived && id === general ? 300 : 0,
+      },
       membership: { channelId: id, userId, roles: "writer" },
     })),
     categories: [
@@ -89,6 +111,7 @@ function mount(collapsed: boolean, online = true) {
   const rows: LocalPost[] = [
     {
       ...root,
+      type: options.type ?? root.type,
       rootId: null,
       messageSource: null,
       ...(collapsed && {
@@ -101,9 +124,19 @@ function mount(collapsed: boolean, online = true) {
     },
   ];
   if (!collapsed) rows.push({ ...reply, messageSource: null });
+  if (options.second)
+    rows.push({ ...secondRoot, rootId: null, messageSource: null });
   const readThreadPage = vi
     .fn<Connection["readThreadPage"]>()
-    .mockResolvedValue(page);
+    .mockImplementation(async ({ rootId }) =>
+      rootId === secondRoot.id
+        ? { ...page, root: secondRoot, replies: [] }
+        : { ...page, root: { ...root, type: options.type ?? root.type } },
+    );
+  const drafts = new Map<string, ComposerDraft>();
+  const draftKey = ({ channelId, rootId }: DraftLocation) =>
+    JSON.stringify([channelId, rootId]);
+  let revision = 0;
   const connection = {
     rid: 1,
     readTeamSidebar: vi
@@ -113,7 +146,12 @@ function mount(collapsed: boolean, online = true) {
     selectSidebarChannel: vi.fn().mockResolvedValue(true),
     readSavedTeamRoles: vi.fn().mockResolvedValue({
       systemRoles: "",
-      definitions: [{ name: "writer", permissions: ["create_post"] }],
+      definitions: [
+        {
+          name: "writer",
+          permissions: options.writable === false ? [] : ["create_post"],
+        },
+      ],
     }),
     refreshTeamRoles: vi.fn(),
     readSavedProfiles: vi
@@ -133,12 +171,26 @@ function mount(collapsed: boolean, online = true) {
     readSavedPost: vi
       .fn<Connection["readSavedPost"]>()
       .mockResolvedValue(rows[0]),
-    readDraft: vi.fn().mockResolvedValue({ message: "", revision: null }),
-    saveDraft: vi.fn<Connection["saveDraft"]>(async ({ message }) => ({
-      kind: "saved",
-      draft: { message, revision: "saved" },
-    })),
-    readPendingPosts: vi.fn().mockResolvedValue([]),
+    readDraft: vi.fn<Connection["readDraft"]>(
+      async (place) =>
+        drafts.get(draftKey(place)) ?? { message: "", revision: null },
+    ),
+    saveDraft: vi.fn<Connection["saveDraft"]>(async (place) => {
+      const key = draftKey(place);
+      const existing = drafts.get(key) ?? { message: "", revision: null };
+      if (place.expectedRevision !== existing.revision)
+        return { kind: "conflict", draft: existing };
+      const draft = { message: place.message, revision: String(++revision) };
+      drafts.set(key, draft);
+      return { kind: "saved", draft };
+    }),
+    submitDraft: vi.fn(),
+    readPendingPosts: vi
+      .fn<Connection["readPendingPosts"]>()
+      .mockResolvedValue([]),
+    retireDeliveredPosts: vi.fn().mockResolvedValue(0),
+    getOutgoingPostState: (post: PendingPost) =>
+      outgoingRowState(post, false, true),
     subscribeToPostActivity: vi.fn(() => () => {}),
   };
   const workspace: TeamWorkspace = {
@@ -165,10 +217,21 @@ function mount(collapsed: boolean, online = true) {
       retry: vi.fn(),
     },
   };
-  render(
+  const view = render(
     <ChannelsWorkspace workspace={workspace} language="en" onEnded={vi.fn()} />,
   );
-  return connection;
+  return {
+    ...connection,
+    setOnline(next: boolean) {
+      view.rerender(
+        <ChannelsWorkspace
+          workspace={{ ...workspace, online: next }}
+          language="en"
+          onEnded={vi.fn()}
+        />,
+      );
+    },
+  };
 }
 
 test("opens a root by its reply count and returns focus to the same message with its channel draft intact", async () => {
@@ -256,6 +319,9 @@ test("removes both cached messages when the server denies access to the thread",
   const pane = await screen.findByRole("complementary", { name: "Thread" });
   expect(await within(pane).findByText(root.message)).toBeTruthy();
   expect(within(pane).getByText(reply.message)).toBeTruthy();
+  expect(
+    await within(pane).findByRole("textbox", { name: "Reply in thread…" }),
+  ).toBeTruthy();
   await act(async () =>
     reject(new ResponseError(new Response(null, { status: 403 }))),
   );
@@ -264,6 +330,7 @@ test("removes both cached messages when the server denies access to the thread",
   );
   expect(within(pane).queryByText(root.message)).toBeNull();
   expect(within(pane).queryByText(reply.message)).toBeNull();
+  expect(within(pane).queryByRole("textbox")).toBeNull();
   expect(
     within(pane).queryByRole("button", { name: /retry|again/i }),
   ).toBeNull();
@@ -285,6 +352,240 @@ test("an offline thread preserves the saved root and leaves missing replies open
   ).toBeTruthy();
   expect(within(pane).queryByText("No replies yet.")).toBeNull();
   expect(connection.readThreadPage).not.toHaveBeenCalled();
+  const draft = await within(pane).findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Reply in thread…",
+  });
+  expect(document.activeElement).not.toBe(draft);
+  fireEvent.change(draft, { target: { value: "Keep while offline" } });
+  fireEvent.keyDown(draft, { key: "Enter" });
+  expect(
+    within(pane).getByRole<HTMLButtonElement>("button", {
+      name: "Send message",
+    }).disabled,
+  ).toBe(true);
+  expect(draft.value).toBe("Keep while offline");
+  expect(connection.submitDraft).not.toHaveBeenCalled();
+  connection.setOnline(true);
+  await within(pane).findByText(reply.message);
+  expect(
+    (await within(pane).findByRole<HTMLTextAreaElement>("textbox")).value,
+  ).toBe("Keep while offline");
+  expect(connection.submitDraft).not.toHaveBeenCalled();
+});
+
+test("withdrawn posting permission unmounts the thread editor and keeps its draft for restored access", async () => {
+  const connection = mount(true);
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Open thread, 1 reply/ }),
+  );
+  const pane = await screen.findByRole("complementary", { name: "Thread" });
+  const editor = await within(pane).findByRole("textbox");
+  fireEvent.change(editor, {
+    target: { value: "Keep through permission change" },
+  });
+  connection.readSavedTeamRoles.mockResolvedValue({
+    systemRoles: "",
+    definitions: [{ name: "writer", permissions: [] }],
+  });
+  connection.setOnline(false);
+  await within(pane).findByText("This channel is read-only.");
+  expect(within(pane).queryByRole("textbox")).toBeNull();
+  connection.readSavedTeamRoles.mockResolvedValue({
+    systemRoles: "",
+    definitions: [{ name: "writer", permissions: ["create_post"] }],
+  });
+  connection.setOnline(true);
+  const restored =
+    await within(pane).findByRole<HTMLTextAreaElement>("textbox");
+  expect(restored.value).toBe("Keep through permission change");
+  expect(connection.submitDraft).not.toHaveBeenCalled();
+});
+
+test("a missing root keeps the reply editor closed and a later history limit overrides a local read", async () => {
+  const connection = mount(false);
+  let finishLocal!: (value: LocalPost | null) => void;
+  connection.readSavedPost.mockReturnValue(
+    new Promise((done) => {
+      finishLocal = done;
+    }),
+  );
+  let limit!: (result: {
+    kind: "inaccessible";
+    firstInaccessiblePostTime: number;
+  }) => void;
+  connection.readThreadPage.mockReturnValue(
+    new Promise((done) => {
+      limit = done;
+    }),
+  );
+  const row = (await screen.findByText(reply.message)).closest("article");
+  if (!row) throw new Error("Missing channel reply");
+  fireEvent.click(within(row).getByRole("button", { name: "Open thread" }));
+  const pane = await screen.findByRole("complementary", { name: "Thread" });
+  await within(pane).findByText(reply.message);
+  expect(within(pane).queryByRole("textbox")).toBeNull();
+  await act(async () =>
+    limit({ kind: "inaccessible", firstInaccessiblePostTime: 200 }),
+  );
+  expect(within(pane).getByRole("alert").textContent).toMatch(
+    /available history/i,
+  );
+  await act(async () =>
+    finishLocal({ ...root, rootId: null, messageSource: null }),
+  );
+  expect(within(pane).queryByRole("textbox")).toBeNull();
+  expect(within(pane).queryByText(root.message)).toBeNull();
+  expect(
+    connection.readDraft.mock.calls.some(
+      ([place]) => place.rootId !== undefined,
+    ),
+  ).toBe(false);
+});
+
+test("two thread drafts and the channel stay separate, and Enter sends the reply to its root", async () => {
+  const connection = mount(false, true, { second: true });
+  connection.submitDraft.mockResolvedValue({
+    kind: "sending",
+    draft: { message: "", revision: "sent", clearedBySubmission: true },
+    completion: Promise.resolve({ kind: "confirmed" }),
+  });
+  const channel = await screen.findByRole("main");
+  async function open(message: string) {
+    const article = (await within(channel).findByText(message)).closest(
+      "article",
+    );
+    if (!article) throw new Error("Missing channel post");
+    fireEvent.click(
+      within(article).getByRole("button", { name: "Open thread" }),
+    );
+    const pane = await screen.findByRole("complementary", { name: "Thread" });
+    return within(pane).findByRole<HTMLTextAreaElement>("textbox", {
+      name: "Reply in thread…",
+    });
+  }
+  const channelDraft = await within(channel).findByRole<HTMLTextAreaElement>(
+    "textbox",
+    { name: "Message #General…" },
+  );
+  fireEvent.change(channelDraft, { target: { value: "Channel draft" } });
+  const first = await open(reply.message);
+  const pane = screen.getByRole("complementary", { name: "Thread" });
+  expect(document.activeElement).toBe(
+    within(pane).getByText(reply.message).closest("article"),
+  );
+  fireEvent.change(first, { target: { value: "First reply" } });
+  const second = await open(secondRoot.message);
+  fireEvent.change(second, { target: { value: "Second reply" } });
+  const reopened = await open(reply.message);
+  expect(reopened.value).toBe("First reply");
+  reopened.focus();
+  fireEvent.keyDown(reopened, { key: "Enter" });
+  await waitFor(() => expect(connection.submitDraft).toHaveBeenCalledOnce());
+  expect(connection.submitDraft).toHaveBeenCalledWith({
+    channelId: general,
+    rootId: root.id,
+    revision: expect.any(String),
+  });
+  await waitFor(() => expect(reopened.value).toBe(""));
+  expect(document.activeElement).toBe(reopened);
+  expect(channelDraft.value).toBe("Channel draft");
+  expect((await open(secondRoot.message)).value).toBe("Second reply");
+});
+
+test.each([
+  [{ writable: false }, "This channel is read-only."],
+  [{ archived: true }, "You’re viewing an archived channel."],
+] as const)(
+  "shows the channel posting decision inside the open thread: %o",
+  async (options, reason) => {
+    const connection = mount(true, true, options);
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Open thread, 1 reply/ }),
+    );
+    const pane = await screen.findByRole("complementary", { name: "Thread" });
+    expect(await within(pane).findByText(reason)).toBeTruthy();
+    expect(within(pane).queryByRole("textbox")).toBeNull();
+    expect(connection.submitDraft).not.toHaveBeenCalled();
+  },
+);
+
+test.each(["burn_on_read", "system_fake_parent_deleted"])(
+  "never opens an editor on a restricted %s root",
+  async (type) => {
+    const connection = mount(true, true, { type });
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Open thread, 1 reply/ }),
+    );
+    const pane = await screen.findByRole("complementary", { name: "Thread" });
+    await within(pane).findByText(reply.message);
+    expect(within(pane).queryByRole("textbox")).toBeNull();
+    expect(
+      connection.readDraft.mock.calls.some(
+        ([place]) => place.rootId !== undefined,
+      ),
+    ).toBe(false);
+  },
+);
+
+test("a confirmed own reply beyond a gap stays after the lower boundary and becomes the server row once", async () => {
+  const connection = mount(true);
+  const canonical = {
+    ...reply,
+    id: "n".repeat(26),
+    createAt: 400,
+    updateAt: 400,
+    message: "Own canonical reply",
+  };
+  const pending: PendingPost = {
+    pendingId: "local-own-reply",
+    channelId: general,
+    rootId: root.id,
+    sequence: 1,
+    createdAt: 300,
+    previousLogin: false,
+    attempt: 1,
+    refusal: null,
+    confirmedPostId: canonical.id,
+    message: "Own local reply",
+  };
+  connection.readPendingPosts.mockImplementation(async ({ rootId }) =>
+    rootId === root.id ? [pending] : [],
+  );
+  connection.readThreadPage
+    .mockResolvedValueOnce({
+      ...page,
+      next: { id: reply.id, createAt: reply.createAt },
+    })
+    .mockResolvedValueOnce({ ...page, replies: [canonical] });
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Open thread, 1 reply/ }),
+  );
+  const pane = await screen.findByRole("complementary", { name: "Thread" });
+  const first = await within(pane).findByText(reply.message);
+  const own = (await within(pane).findByText(pending.message)).closest(
+    "article",
+  );
+  if (!own) throw new Error("Missing own outgoing row");
+  const boundary = within(pane).getByRole("button", {
+    name: /between these messages.*Show replies/,
+  });
+  expect(
+    first.compareDocumentPosition(boundary) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(
+    boundary.compareDocumentPosition(own) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  fireEvent.click(boundary);
+  const confirmed = await within(pane).findByText(canonical.message);
+  expect(confirmed.closest("article")).toBe(own);
+  expect(own.dataset.postId).toBe(canonical.id);
+  expect(own.dataset.localId).toBe(pending.pendingId);
+  expect(within(pane).queryByText(pending.message)).toBeNull();
+  expect(within(pane).queryByText(/between these messages/)).toBeNull();
+  expect(connection.retireDeliveredPosts).toHaveBeenCalledWith([canonical.id]);
+  expect(
+    within(screen.getByRole("main")).queryByText(canonical.message),
+  ).toBeNull();
 });
 
 test("retrying an earlier page keeps focus at the earlier edge while the other page arrives", async () => {

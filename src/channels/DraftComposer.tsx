@@ -223,11 +223,12 @@ function DraftField({
         (document.activeElement === document.body ||
           document.activeElement === field)) ||
       (pane?.querySelector("h1, h2") === document.activeElement &&
+        !(editor.location.rootId && import.meta.env.UMMKA_MOBILE === true) &&
         (field.closest(".channels-frame")?.clientWidth ?? 0) > 740)
     )
       field.focus({ preventScroll: true });
     field.setSelectionRange(field.value.length, field.value.length);
-  }, [fieldRef, focusRequest]);
+  }, [fieldRef, focusRequest, editor]);
 
   useEffect(() => {
     let visible = true;

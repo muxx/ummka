@@ -83,7 +83,7 @@ export function ComposerAccessNotice({
   language: EntryLanguage;
   online: boolean;
   statuses: Status[];
-  close: () => void;
+  close?: () => void;
   retry: () => void;
 }) {
   if (access === "absent" || access === "writable") return null;
@@ -122,7 +122,7 @@ export function ComposerAccessNotice({
         {detail && " "}
         {detail}
       </p>
-      {closed && (
+      {closed && close && (
         <button type="button" onClick={close}>
           {copy.close}
         </button>

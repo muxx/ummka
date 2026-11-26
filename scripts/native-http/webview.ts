@@ -1116,6 +1116,8 @@ export function webviewServers(
           "live-window-send",
           "live-window-thread",
           "android-thread-back",
+          "live-window-thread",
+          "live-window-send-reply",
           "live-window-command-repeat",
           "live-posts-" + "c".repeat(26),
           "live-posts-" + "d".repeat(26),

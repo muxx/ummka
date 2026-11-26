@@ -22,6 +22,68 @@ export async function waitForAppForeground() {
   );
 }
 
+async function checkThreadReply(
+  host: HTMLElement,
+  opener: HTMLElement,
+  townDraft: HTMLTextAreaElement,
+) {
+  const ui = within(host);
+  flushSync(() => fireEvent.click(opener));
+  const pane = await ui.findByRole("complementary", { name: "Thread" });
+  const thread = within(pane);
+  await thread.findByText(
+    "Reply visible only inside Town’s thread",
+    {},
+    { timeout: 10_000 },
+  );
+  const field = await thread.findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Reply in thread…",
+  });
+  if (document.activeElement === field || field.value)
+    throw Error("Opening the compact thread focused or populated its editor");
+  const message = "Posted from the thread window";
+  field.focus();
+  flushSync(() => fireEvent.input(field, { target: { value: message } }));
+  flushSync(() =>
+    fireEvent.click(thread.getByRole("button", { name: "Send message" })),
+  );
+  await waitFor(
+    () => {
+      const row = thread.getByText(message).closest("article");
+      const rect = row?.getBoundingClientRect();
+      const feed = row?.closest(".thread-feed")?.getBoundingClientRect();
+      if (
+        !rect?.height ||
+        !feed ||
+        rect.bottom <= feed.top ||
+        rect.top >= feed.bottom ||
+        row?.querySelector(".timeline-delivery") ||
+        field.value ||
+        townDraft.value !== "Draft from the channel window"
+      )
+        throw Error(
+          "The phone did not show one confirmed reply and preserve the channel draft",
+        );
+    },
+    { timeout: 10_000 },
+  );
+  flushSync(() =>
+    fireEvent.click(thread.getByRole("button", { name: "Close thread" })),
+  );
+  await waitFor(() => {
+    if (
+      pane.isConnected ||
+      ui.queryByText(message) ||
+      ui.getByRole("textbox", { name: "Message #Town Square…" }) !==
+        townDraft ||
+      townDraft.value !== "Draft from the channel window"
+    )
+      throw Error(
+        "Closing the thread showed the reply in the collapsed channel or changed its draft",
+      );
+  });
+}
+
 export async function checkBrowserApp(server: string, controlPort: string) {
   const host = document.createElement("div");
   document.body.append(host);
@@ -166,6 +228,7 @@ export async function checkBrowserApp(server: string, controlPort: string) {
       },
       { timeout: 10_000 },
     );
+    await checkThreadReply(host, opener, townDraft);
     openChannelNavigation(host, "Channels");
     const design = ui.getByRole("button", { name: "Design" });
     flushSync(() => fireEvent.click(design));

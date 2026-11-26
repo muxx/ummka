@@ -1,4 +1,6 @@
-.thread-feed {
+.thread-window {
+  display: flex;
+  flex-direction: column;
   height: 100%;
 }
 .thread-root {

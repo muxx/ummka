@@ -14,12 +14,14 @@ import {
   teammateName,
 } from "../mattermost/channel-profiles.ts";
 import type { LocalPost } from "../mattermost/local-history.ts";
+import type { TimelineMessage } from "./conversation-rows.ts";
 import {
   formatReplyCount,
   type TimelineAuthor,
   TimelinePost,
 } from "./TimelinePost.tsx";
 import { openThreadReplyWindow } from "./thread-reply-window.ts";
+import { useConversationOutgoing } from "./use-conversation-outgoing.tsx";
 import { useWorkspaceProfiles } from "./use-workspace-profiles.ts";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
 import { workspaceCopy } from "./workspace-copy.ts";
@@ -34,6 +36,8 @@ const copy = {
     empty: "No replies yet.",
     up: "Earlier replies haven’t been loaded.",
     down: "Later replies haven’t been loaded.",
+    gap: "Replies between these messages haven’t been loaded.",
+    gapError: "Couldn’t load the replies between these messages.",
     more: "Show replies",
     upError: "Couldn’t load earlier replies.",
     downError: "Couldn’t load later replies.",
@@ -48,6 +52,8 @@ const copy = {
     empty: "Пока нет ответов.",
     up: "Ответы выше ещё не загружены.",
     down: "Ответы ниже ещё не загружены.",
+    gap: "Ответы между этими ещё не загружены.",
+    gapError: "Ответы между этими не загрузились.",
     more: "Показать ответы",
     upError: "Не удалось загрузить ответы выше.",
     downError: "Не удалось загрузить ответы ниже.",
@@ -61,6 +67,7 @@ type WindowState = ReturnType<Reader["getSnapshot"]>;
 type Direction = "up" | "down";
 type Props = {
   connection: WorkspaceConnection;
+  userId: string;
   post: LocalPost;
   collapsedThreads: boolean;
   locale: EntryLanguage;
@@ -68,6 +75,7 @@ type Props = {
   author: TimelineAuthor;
   nameFormat: NameFormat;
   sessionIssue: (issue: "session" | "unauthorized") => void;
+  renderComposer: (rootId: string, reader: Reader) => ReactNode;
 };
 
 export function ThreadPane(props: Props) {
@@ -93,12 +101,14 @@ function ThreadContent({
   reader,
   collapsedThreads,
   connection,
+  userId,
   post,
   online,
   locale,
   author,
   nameFormat,
   sessionIssue,
+  renderComposer,
 }: Props & { reader: Reader }) {
   const state = useSyncExternalStore(reader.subscribe, reader.getSnapshot);
   const [savedRoot, setSavedRoot] = useState<LocalPost | null>(null);
@@ -136,9 +146,30 @@ function ThreadContent({
       active = false;
     };
   }, [connection, post, inaccessible, state.root]);
-  const root = inaccessible
-    ? null
-    : (state.root ?? (post.rootId ? savedRoot : post));
+  const candidate = state.root ?? (post.rootId ? savedRoot : post);
+  const root =
+    !inaccessible &&
+    candidate?.channelId === post.channelId &&
+    candidate.id === (post.rootId ?? post.id) &&
+    candidate.rootId === null
+      ? candidate
+      : null;
+  const canReply =
+    root !== null &&
+    root.type !== "burn_on_read" &&
+    root.type !== "system_fake_parent_deleted";
+  const history = useMemo(() => [...state.replies].reverse(), [state.replies]);
+  const outgoing = useConversationOutgoing({
+    connection,
+    userId,
+    channelId: post.channelId,
+    rootId: post.rootId ?? post.id,
+    history,
+    placement: state.down.status === "end" ? "timeline" : "afterGap",
+    locale,
+    enabled: canReply,
+    sessionIssue,
+  });
   const query = {
     ids: [
       ...new Set(
@@ -179,84 +210,100 @@ function ThreadContent({
   const summary =
     collapsedThreads && (post.rootId ? savedRoot : post)?.threadSummary;
   let lastDay: string | undefined;
+  function renderReply(row: TimelineMessage) {
+    const when = new Date(row.createAt);
+    const day = Number.isFinite(when.getTime())
+      ? dates.day.format(when)
+      : text.unknownDate;
+    const separated = day !== lastDay;
+    lastDay = day;
+    return (
+      <div
+        key={row.localId ?? row.id}
+        className="thread-reply"
+        data-selected={row.id === post.id || undefined}
+      >
+        {separated && (
+          <div className="timeline-day">
+            <span>{day}</span>
+          </div>
+        )}
+        <TimelinePost
+          post={row}
+          focusable
+          locale={locale}
+          time={dates.time}
+          author={resolve}
+          ownName={outgoing.ownName}
+        >
+          {row.outgoing && outgoing.renderOutgoing(row.outgoing)}
+        </TimelinePost>
+      </div>
+    );
+  }
+  const replyRows = [
+    ...outgoing.messages.map(renderReply),
+    <ThreadEdge
+      key="down"
+      reader={reader}
+      direction="down"
+      edge={state.down}
+      online={online}
+      locale={locale}
+      gap={outgoing.afterGap.length > 0}
+    />,
+    ...outgoing.afterGap.map(renderReply),
+  ];
   return (
-    <ThreadFeed
-      focusedId={post.rootId ? post.id : undefined}
-      state={state}
-      label={text.replies}
-    >
-      {!online && (
-        <p className="timeline-status" role="status">
-          {workspace.offlineEmpty}
-        </p>
-      )}
-      {root && (
-        <div className="thread-root">
-          <TimelinePost
-            post={root}
-            locale={locale}
-            time={dates.time}
-            author={resolve}
-          />
-        </div>
-      )}
-      {!root && !online && (
-        <p className="timeline-empty">
-          {localFailure === "storage" ? workspace.storage : text.noRoot}
-        </p>
-      )}
-      {summary && summary.replyCount > 0 && (
-        <p className="thread-count">
-          {formatReplyCount(summary.replyCount, locale)}
-        </p>
-      )}
-      <ThreadEdge
-        reader={reader}
-        direction="up"
-        edge={state.up}
-        online={online}
-        locale={locale}
-      />
-      {state.replies.map((row) => {
-        const when = new Date(row.createAt);
-        const day = Number.isFinite(when.getTime())
-          ? dates.day.format(when)
-          : text.unknownDate;
-        const separated = day !== lastDay;
-        lastDay = day;
-        return (
-          <div
-            key={row.id}
-            className="thread-reply"
-            data-selected={row.id === post.id || undefined}
-          >
-            {separated && (
-              <div className="timeline-day">
-                <span>{day}</span>
-              </div>
-            )}
+    <div className="thread-window">
+      <ThreadFeed
+        focusedId={post.rootId ? post.id : undefined}
+        state={state}
+        label={text.replies}
+      >
+        {!online && (
+          <p className="timeline-status" role="status">
+            {workspace.offlineEmpty}
+          </p>
+        )}
+        {root && (
+          <div className="thread-root">
             <TimelinePost
-              post={row}
-              focusable
+              post={root}
               locale={locale}
               time={dates.time}
               author={resolve}
             />
           </div>
-        );
-      })}
-      {state.root &&
-        state.up.status === "end" &&
-        state.down.status === "end" &&
-        !state.replies.length && <p className="timeline-empty">{text.empty}</p>}
-      <ThreadEdge
-        reader={reader}
-        direction="down"
-        edge={state.down}
-        online={online}
-        locale={locale}
-      />
-    </ThreadFeed>
+        )}
+        {!root && !online && (
+          <p className="timeline-empty">
+            {localFailure === "storage" ? workspace.storage : text.noRoot}
+          </p>
+        )}
+        {summary && summary.replyCount > 0 && (
+          <p className="thread-count">
+            {formatReplyCount(summary.replyCount, locale)}
+          </p>
+        )}
+        <ThreadEdge
+          reader={reader}
+          direction="up"
+          edge={state.up}
+          online={online}
+          locale={locale}
+        />
+        {outgoing.localNotice}
+        {replyRows}
+        {state.root &&
+          state.up.status === "end" &&
+          state.down.status === "end" &&
+          !outgoing.messages.length && (
+            <p className="timeline-empty">{text.empty}</p>
+          )}
+      </ThreadFeed>
+      {canReply && renderComposer(root.id, reader)}
+    </div>
   );
 }
 
@@ -266,12 +313,14 @@ function ThreadEdge({
   edge,
   online,
   locale,
+  gap = false,
 }: {
   reader: Reader;
   direction: Direction;
   edge: WindowState[Direction];
   online: boolean;
   locale: EntryLanguage;
+  gap?: boolean;
 }) {
   const marker = useRef<HTMLDivElement>(null);
   const text = copy[locale];
@@ -294,10 +343,14 @@ function ThreadEdge({
     edge.status === "loading"
       ? text.loading
       : failed
-        ? direction === "up"
-          ? text.upError
-          : text.downError
-        : text[direction];
+        ? gap
+          ? text.gapError
+          : direction === "up"
+            ? text.upError
+            : text.downError
+        : gap
+          ? text.gap
+          : text[direction];
   return (
     <div
       ref={marker}
@@ -402,7 +455,9 @@ class ThreadFeed extends Component<FeedProps> {
     if (!pane || !place) return;
     const row =
       place.id &&
-      pane.querySelector<HTMLElement>(`[data-post-id="${place.id}"]`);
+      pane.querySelector<HTMLElement>(
+        `[data-post-id="${CSS.escape(place.id)}"],[data-local-id="${CSS.escape(place.id)}"]`,
+      );
     if (row)
       pane.scrollTop +=
         row.getBoundingClientRect().top -

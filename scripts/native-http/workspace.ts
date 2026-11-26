@@ -223,20 +223,24 @@ export async function respondToWorkspace(
       const pending = body.pending_post_id;
       assert.equal(typeof pending, "string");
       assert.ok(pending.startsWith(member + ":"));
+      const reply = body.message === "Posted from the thread window";
       assert.deepEqual(body, {
         channel_id: town,
-        message: "Posted from the channel window",
+        message: reply
+          ? "Posted from the thread window"
+          : "Posted from the channel window",
+        ...(reply && { root_id: townRoot }),
         pending_post_id: pending,
       });
       return json(
         {
-          id: "windowpost".padEnd(26, "0"),
+          id: (reply ? "windowreply" : "windowpost").padEnd(26, "0"),
           user_id: member,
           ...body,
-          root_id: "",
+          root_id: reply ? townRoot : "",
           delete_at: 0,
         },
-        "live-window-send",
+        reply ? "live-window-send-reply" : "live-window-send",
         201,
       );
     }
