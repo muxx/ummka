@@ -19,6 +19,7 @@ export function respondToAccount(
       JSON.stringify({
         id: "f".repeat(26),
         roles: "system_user",
+        notify_props: { desktop: "mention", push: "mention" },
         timezone: {
           useAutomaticTimezone: "false",
           manualTimezone: "Asia/Kathmandu",

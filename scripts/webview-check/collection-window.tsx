@@ -139,7 +139,7 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
     });
     const menu = ui.getByRole("button", { name: "Channel menu, Town Square" });
     click(menu);
-    click(ui.getByRole("button", { name: "Pinned messages" }));
+    click(ui.getByRole("menuitem", { name: "Pinned messages" }));
     let pins = await findPane("Pinned messages");
     const pin = await pins.findByRole("button", {
       name: /Town fixture message/,

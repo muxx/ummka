@@ -67,15 +67,25 @@ export function webviewServers(
     | undefined;
   const formatKeyWidths: number[] = [];
   let controlProgress = "not started";
+  let onMacStep: ((stage: string) => void) | undefined;
   let controlRequests = 0;
   let sendRight: (() => Promise<void>) | undefined;
   let prepareKeyboard: (() => Promise<void>) | undefined;
+  const collectionBackSteps = [
+    "collection-back-saved-reply",
+    "collection-back-saved-list",
+    "collection-back-pinned-root",
+    "collection-back-pinned-list",
+    "collection-back-mentioned-reply",
+    "collection-back-mentions-list",
+  ];
   const backSteps = [
     "appearance",
     "dialog",
     "results",
     "thread",
     "reopened",
+    "notifications",
     "directory",
     "directory-dialog",
   ];
@@ -879,12 +889,55 @@ export function webviewServers(
       visits.push(mutation);
       return;
     }
+    const notificationRoom = "c".repeat(26);
+    const memberPath = `/browser-action-check/api/v4/channels/${notificationRoom}/members/me`;
+    if (
+      url.pathname === memberPath ||
+      url.pathname === memberPath + "/notify_props"
+    ) {
+      assert.equal(req.headers.authorization, "Bearer fixture-browser-action");
+      assert.equal(req.headers.cookie, undefined);
+      assert.equal(url.search, "");
+      if (url.pathname === memberPath) {
+        assert.equal(req.method, "GET");
+        visits.push("notification-member");
+        res.writeHead(200, { "Content-Type": "application/json" }).end(
+          JSON.stringify({
+            channel_id: notificationRoom,
+            user_id: "f".repeat(26),
+            notify_props: visits.includes("notification-save")
+              ? { push: "none" }
+              : {},
+          }),
+        );
+      } else {
+        assert.equal(req.method, "PUT");
+        const body: Buffer[] = [];
+        for await (const chunk of req) body.push(chunk);
+        assert.deepEqual(JSON.parse(Buffer.concat(body).toString()), {
+          push: "none",
+        });
+        const retry = visits.includes("notification-reject");
+        assert(!visits.includes("notification-save"));
+        visits.push(retry ? "notification-save" : "notification-reject");
+        res
+          .writeHead(retry ? 200 : 503, { "Content-Type": "application/json" })
+          .end(
+            JSON.stringify(
+              retry
+                ? { status: "OK" }
+                : { message: "Temporary fixture failure" },
+            ),
+          );
+      }
+      return;
+    }
     const workspace = await respondToWorkspace(
       req,
       res,
       url,
       userId,
-      visits.includes("live-roles"),
+      visits.includes("allow-design-posts"),
       { joinedPublicRoom: visits.includes("directory-join") },
     );
     if (workspace) {
@@ -1404,7 +1457,8 @@ export function webviewServers(
     const controlId = ++controlRequests;
     const knownStep =
       step &&
-      (backSteps.some((label) => step === `back-${label}`) ||
+      (collectionBackSteps.includes(step) ||
+        backSteps.some((label) => step === `back-${label}`) ||
         [
           "format-right",
           "format-times",
@@ -1415,7 +1469,13 @@ export function webviewServers(
           "release-submission",
           "disconnect",
         ].includes(step));
-    const marker = knownStep ? step : "other";
+    const name = url.searchParams.get("case") ?? "";
+    const marker =
+      (step === "received" || step === "closed") && held.has(name)
+        ? `${step}(${name})`
+        : knownStep
+          ? step
+          : "other";
     controlProgress = `${controlId} ${marker} received`;
     if (step === "before") {
       assert.equal(
@@ -1426,11 +1486,16 @@ export function webviewServers(
       before = true;
     } else if (step?.startsWith("collection-back-")) {
       assert(
-        pressWorkspaceBack && !visits.includes(step),
+        collectionBackSteps.includes(step) &&
+          pressWorkspaceBack &&
+          !visits.includes(step),
         "Unexpected collection Back: " + step,
       );
       visits.push(step);
       await pressWorkspaceBack();
+    } else if (step === "allow-design-posts") {
+      assert(visits.includes("live-roles") && !visits.includes(step));
+      visits.push(step);
     } else if (step === "search-result-back") {
       const marker = "android-" + step;
       assert(
@@ -1478,7 +1543,6 @@ export function webviewServers(
       assert(disconnect);
       disconnect.destroy();
     } else {
-      const name = url.searchParams.get("case") ?? "";
       const wait = held.get(name);
       assert(wait);
       assert(step === "received" || step === "closed");
@@ -1491,6 +1555,7 @@ export function webviewServers(
       }
     }
     controlProgress = `${controlId} ${marker} replied`;
+    if (knownStep) onMacStep?.(marker);
     res.writeHead(204).end();
   });
   let untrustedRequests = 0;
@@ -1502,7 +1567,8 @@ export function webviewServers(
     servers: [data, control, foreign],
     progress: () =>
       `control=${controlProgress}, data visits=${visits.length}, completed Back steps=${stepIndex}`,
-    onMacInputReady(send: SendMacKey) {
+    onMacInputReady(send: SendMacKey, completed: (stage: string) => void) {
+      onMacStep = completed;
       pressWorkspaceBack = () => send("escape");
       sendRight = () => send("right");
     },
@@ -1543,12 +1609,7 @@ export function webviewServers(
       assert.equal(entrySettings.size, 2);
       assert.equal(untrustedRequests, 0);
       const expected = [
-        "collection-back-saved-reply",
-        "collection-back-saved-list",
-        "collection-back-pinned-root",
-        "collection-back-pinned-list",
-        "collection-back-mentioned-reply",
-        "collection-back-mentions-list",
+        ...collectionBackSteps,
         "signed-single-channel",
         "signed-named-channel",
         "signed-named-team",
@@ -1747,7 +1808,8 @@ export function webviewServers(
           "live-window-thread",
           "live-window-thread",
         );
-      if (platform === "android") expected.push("account-logout-local-failure");
+      if (platform === "android")
+        expected.push("account-logout-local-failure", "allow-design-posts");
       expected.push(
         "directory-page",
         "directory-query",
@@ -1819,6 +1881,21 @@ export function webviewServers(
             "users/me/preferences",
           ].map((path) => "browser-entry-" + path),
         );
+      expected.push(
+        "notification-member",
+        "notification-member",
+        "notification-member",
+        "notification-reject",
+        "notification-save",
+        "live-roles",
+        "browser-action-confirmed",
+        "browser-action-confirmed",
+        "browser-action-confirmed",
+        "browser-action-confirmed",
+        "live-categories",
+        "live-channels",
+        "live-members",
+      );
       assert.equal(stepIndex, backSteps.length);
       console.log(
         `${platform} verified native return through the search dialog, results and thread with both composer drafts intact.`,

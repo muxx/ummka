@@ -25,16 +25,19 @@ export async function waitForAppForeground() {
   );
 }
 
-async function returnToSearchResults(controlPort: string) {
+async function workspaceFixtureStep(
+  controlPort: string,
+  step: "search-result-back" | "allow-design-posts",
+) {
   const control = await openNativeRestConnection(
     `https://127.0.0.1:${controlPort}`,
   );
   try {
     const response = await control.fetchApi(
-      `${control.basePath}/api/v4/system/ping?step=search-result-back`,
+      `${control.basePath}/api/v4/system/ping?step=${step}`,
     );
     if (response.status !== 204)
-      throw Error("Android did not inject the Back key");
+      throw Error("The workspace fixture did not accept " + step);
   } finally {
     await control.close();
   }
@@ -310,7 +313,7 @@ export async function checkBrowserApp(server: string, controlPort: string) {
       },
       { timeout: 10_000 },
     );
-    await returnToSearchResults(controlPort);
+    await workspaceFixtureStep(controlPort, "search-result-back");
     results = within(
       await ui.findByRole(
         "complementary",
@@ -412,6 +415,7 @@ export async function checkBrowserApp(server: string, controlPort: string) {
       throw Error("read-only room exposed a different channel’s draft");
     if (ui.queryByText("Town fixture message"))
       throw Error("room switch retained a different timeline");
+    await workspaceFixtureStep(controlPort, "allow-design-posts");
     openChannelNavigation(host, "Channels");
     const switchTeam = ui.getByRole("button", {
       name: "Switch team, Browser team",
