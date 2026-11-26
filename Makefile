@@ -41,6 +41,6 @@ check-android-package:
 	"$(ANDROID_HOME)/build-tools/36.0.0/apksigner" verify artifacts/ummka-android-arm64-debug.apk
 
 check-android-http:
-	TAURI_ENV_PLATFORM=android npm exec -- vitest run --environment jsdom src/channels/ChannelsWorkspace.thread.test.tsx src/channels/search-result-navigation.test.tsx
+	TAURI_ENV_PLATFORM=android npm exec -- vitest run --environment jsdom src/entry/EntryWindow.test.tsx src/channels/ChannelsFrame.test.tsx src/channels/ChannelsWorkspace.thread.test.tsx src/channels/search-result-navigation.test.tsx
 	node --test scripts/native-http/*.test.ts
 	npm run test:native-http -- android

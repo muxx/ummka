@@ -36,6 +36,7 @@ import {
   correctCommandResponse,
   correctExecuteCommand,
 } from "./command-corrections.ts";
+import { correctConversationCreation } from "./conversation-creation-correction.ts";
 import { correctCustomEmoji } from "./custom-emoji-correction.ts";
 import { correctFileContent } from "./file-content-correction.ts";
 import {
@@ -1126,6 +1127,15 @@ test("retains the catalog operations, security and transitive models", () => {
       );
     if (source.operationId === "SearchFiles")
       expected = correctFileSearch(path, source, read("files-12.1.0.yaml"));
+    if (
+      source.operationId === "CreateDirectChannel" ||
+      source.operationId === "CreateGroupChannel"
+    )
+      expected = correctConversationCreation(
+        source.operationId,
+        source,
+        object(at(read("channels-12.1.0.yaml"), key), path),
+      );
     if (source.operationId === "AddTeamMember")
       expected = correctTeamMemberRequest(source, read("teams-12.1.0.yaml"));
     if (source.operationId === "AddChannelMember")
@@ -2808,3 +2818,84 @@ for (const { path, id } of nativeFiles) {
     );
   });
 }
+
+test("describes distinct conversation membership separately from raw array length", () => {
+  for (const [kind, id, minItems] of [
+    ["direct", "CreateDirectChannel", 1],
+    ["group", "CreateGroupChannel", 2],
+  ] as const) {
+    const route = `/api/v4/channels/${kind}`;
+    const schema = ["requestBody", "content", "application/json", "schema"];
+    const baseline = object(at(read("channels.yaml"), [route, "post"]), route);
+    const reference = object(
+      at(read("channels-12.1.0.yaml"), [route, "post"]),
+      route,
+    );
+    const original = structuredClone(baseline);
+    assert.deepEqual(at(contract, ["paths", route, "post", ...schema]), {
+      type: "array",
+      items: { type: "string" },
+      minItems,
+    });
+    correctConversationCreation(id, baseline, reference);
+    assert.deepEqual(baseline, original);
+    for (const field of ["minItems", "maxItems", "items"]) {
+      const drift = structuredClone(baseline);
+      object(at(drift, schema), route)[field] = null;
+      for (const [first, second] of [
+        [drift, reference],
+        [baseline, drift],
+        [drift, drift],
+      ]) {
+        assert.throws(
+          () => correctConversationCreation(id, first, second),
+          /Review both pinned/,
+        );
+      }
+    }
+  }
+});
+
+test("preserves directory scopes, paging and search fields used by the recipient picker in both releases", () => {
+  const list = ["/api/v4/users", "get"];
+  const search = ["/api/v4/users/search", "post"];
+  const json = ["content", "application/json", "schema"];
+  for (const file of ["users.yaml", "users-12.1.0.yaml"]) {
+    const source = read(file);
+    for (const route of [list, search]) {
+      const success = [...route, "responses", "200", ...json];
+      assert.deepEqual(
+        at(contract, ["paths", ...success]),
+        at(source, success),
+      );
+    }
+    const sourceParams = at(source, [...list, "parameters"]);
+    const publishedParams = at(contract, ["paths", ...list, "parameters"]);
+    assert.ok(Array.isArray(sourceParams) && Array.isArray(publishedParams));
+    for (const [key, type] of [
+      ["page", "integer"],
+      ["per_page", "integer"],
+      ["in_team", "string"],
+      ["active", "boolean"],
+    ]) {
+      const param = object(
+        sourceParams.find((p) => p.name === key),
+        key,
+      );
+      assert.equal(param.in, "query");
+      assert.equal(object(param.schema, key).type, type);
+      assert.deepEqual(
+        publishedParams.find((p) => p.name === key),
+        param,
+      );
+    }
+    const body = [...search, "requestBody", ...json];
+    assert.deepEqual(at(source, [...body, "required"]), ["term"]);
+    for (const field of ["term", "team_id", "allow_inactive", "limit"]) {
+      assert.deepEqual(
+        at(contract, ["paths", ...body, "properties", field]),
+        at(source, [...body, "properties", field]),
+      );
+    }
+  }
+});

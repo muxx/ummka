@@ -1,8 +1,8 @@
-export async function refreshNavigation<T, Load>(
+export async function refreshNavigation<T, Load, Published = boolean>(
   signal: AbortSignal | undefined,
   begin: () => Promise<Load | null>,
   fetchRows: (load: Load) => Promise<T>,
-  publish: (load: Load, rows: T) => Promise<boolean>,
+  publish: (load: Load, rows: T) => Promise<Published>,
   cancel: (load: Load) => Promise<void>,
 ) {
   signal?.throwIfAborted();

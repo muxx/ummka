@@ -17,6 +17,7 @@ function fixture() {
   const fetchApi = vi.fn<typeof fetch>();
   const account = accountPostCollections(
     new Configuration({ basePath: "https://example.test/sub", fetchApi }),
+    "u".repeat(26),
     (read) => read(),
   );
   return { fetchApi, account };
@@ -129,4 +130,36 @@ test("checks inputs before sending, keeps access refusals and empty pages distin
     items: [],
     firstInaccessiblePostTime: 0,
   });
+});
+
+test("counts only the current owner's flagged preferences and detects an invalid owner", async () => {
+  const { fetchApi, account } = fixture();
+  const owner = "u".repeat(26);
+  const rows = [
+    { user_id: owner, category: "flagged_post", name: first, value: "true" },
+    {
+      user_id: owner,
+      category: "display_settings",
+      name: "name_format",
+      value: "username",
+    },
+    { user_id: owner, category: "flagged_post", name: last, value: "false" },
+  ];
+  fetchApi
+    .mockResolvedValueOnce(Response.json(rows))
+    .mockResolvedValueOnce(
+      Response.json([{ ...rows[0], user_id: "x".repeat(26) }]),
+    )
+    .mockResolvedValueOnce(Response.json(null));
+  expect(await account.readSavedPostUpperBound()).toBe(2);
+  expect(String(fetchApi.mock.calls[0][0])).toBe(
+    "https://example.test/sub/api/v4/users/me/preferences",
+  );
+  await expect(account.readSavedPostUpperBound()).rejects.toThrow();
+  expect(await account.readSavedPostUpperBound()).toBe(0);
+  for (const offset of [-1, 0.5, Number.MAX_SAFE_INTEGER + 1])
+    await expect(
+      account.readSavedPostsAtOffset({ kind: "all" }, offset),
+    ).rejects.toThrow();
+  expect(fetchApi).toHaveBeenCalledTimes(3);
 });

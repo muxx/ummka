@@ -23,10 +23,7 @@ function invalid() {
   return new TypeError("Invalid Mattermost installation profile");
 }
 
-export async function readStringFields<K extends string>(
-  request: Promise<ApiResponse<void>>,
-  fields: readonly K[],
-) {
+export async function readClientObject(request: Promise<ApiResponse<void>>) {
   const { raw } = await request;
   let data: unknown;
   try {
@@ -37,7 +34,13 @@ export async function readStringFields<K extends string>(
   }
   if (typeof data !== "object" || data === null || Array.isArray(data))
     throw invalid();
-  const source = data as Record<string, unknown>;
+  return data as Record<string, unknown>;
+}
+
+export function selectStringFields<K extends string>(
+  source: Record<string, unknown>,
+  fields: readonly K[],
+) {
   const values: Partial<Record<K, string>> = {};
   for (const field of fields) {
     if (!Object.hasOwn(source, field)) continue;
@@ -46,6 +49,13 @@ export async function readStringFields<K extends string>(
     values[field] = value;
   }
   return values;
+}
+
+export async function readStringFields<K extends string>(
+  request: Promise<ApiResponse<void>>,
+  fields: readonly K[],
+) {
+  return selectStringFields(await readClientObject(request), fields);
 }
 
 function enabled<K extends string>(choices: [K, boolean][]): K[] {

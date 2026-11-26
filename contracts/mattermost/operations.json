@@ -76,8 +76,30 @@
   {
     "file": "channels.yaml",
     "method": "GET",
+    "path": "/api/v4/teams/{team_id}/channels/autocomplete",
+    "id": "AutocompleteChannelsForTeam"
+  },
+  {
+    "file": "channels.yaml",
+    "method": "GET",
     "path": "/api/v4/users/{user_id}/teams/{team_id}/channels/members",
     "id": "GetChannelMembersForUser"
+  },
+  {
+    "file": "channels.yaml",
+    "method": "POST",
+    "path": "/api/v4/channels/direct",
+    "id": "CreateDirectChannel",
+    "body": "json",
+    "selfOnly": true
+  },
+  {
+    "file": "channels.yaml",
+    "method": "POST",
+    "path": "/api/v4/channels/group",
+    "id": "CreateGroupChannel",
+    "body": "json",
+    "selfOnly": true
   },
   {
     "file": "channels.yaml",
@@ -199,6 +221,21 @@
     "method": "GET",
     "path": "/api/v4/users/{user_id}/preferences",
     "id": "GetPreferences"
+  },
+  {
+    "file": "users.yaml",
+    "method": "GET",
+    "path": "/api/v4/users",
+    "id": "GetUsers",
+    "selfOnly": true
+  },
+  {
+    "file": "users.yaml",
+    "method": "POST",
+    "path": "/api/v4/users/search",
+    "id": "SearchUsers",
+    "body": "json",
+    "selfOnly": true
   },
   {
     "file": "users.yaml",

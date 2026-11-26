@@ -8,11 +8,29 @@ import { checkMacSystemLinks } from "./macos-links.ts";
 
 const exec = promisify(execFile);
 
-async function launch(expected: string, env = process.env) {
+type KeyDriver = (press: () => Promise<void>) => void;
+
+async function launch(
+  expected: string,
+  env = process.env,
+  register?: KeyDriver,
+) {
   const processRun = exec("src-tauri/target/release/ummka", [], {
     timeout: 45_000,
     env,
   });
+  if (register) {
+    const input = processRun.child.stdin;
+    assert(input);
+    register(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          input.write("right\n", (error) =>
+            error ? reject(error) : resolve(),
+          );
+        }),
+    );
+  }
   const { stdout } = await processRun;
   assert(
     stdout.split(/\r?\n/u).includes(`UMMKA_WEBVIEW_CHECK ${expected}`),
@@ -33,6 +51,7 @@ export async function checkMacWebview(
   ports: number[],
   dir: string,
   config: string,
+  registerRight: KeyDriver,
 ) {
   const keychain = join(dir, "sessions.keychain-db");
   const env = {
@@ -69,7 +88,7 @@ export async function checkMacWebview(
       ...env,
       UMMKA_CHECK_SEED_ACCOUNTS: "1",
     });
-    await launch("PASS", env);
+    await launch("PASS", { ...env, UMMKA_CHECK_KEY_INPUT: "1" }, registerRight);
     // The ordinary build verifies the actual NSWindow without showing anything on a developer's Mac.
     await launch("browser-anchor", {
       ...env,

@@ -7,6 +7,8 @@ pub use activity::{EventActivity, EventAvailability};
 pub(crate) mod checks;
 pub use account::AccountEvents;
 mod connection;
+mod route;
+pub(crate) use route::{ClientEventAddress, EventRoute};
 mod delivery;
 mod typing;
 pub use connection::{EventConnectionError, EventReader, EventSettings};

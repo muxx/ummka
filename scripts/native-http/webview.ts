@@ -57,6 +57,10 @@ export function webviewServers(
   let offlineHistoryRequests = 0;
   let connections = 0;
   let before = false;
+  let formattingTimes:
+    | { width: number; first: number; unchanged: number }[]
+    | undefined;
+  let sendRight: (() => Promise<void>) | undefined;
   let prepareKeyboard: (() => Promise<void>) | undefined;
   let pressAndroidBack: (() => Promise<void>) | undefined;
   let disconnect: Socket | undefined;
@@ -72,6 +76,8 @@ export function webviewServers(
   );
   const teamId = "Team0123456789012345678901";
   const channelId = "c".repeat(26);
+  const groupId = "g".repeat(26);
+  let groupOpenedAt: string | undefined;
   const collections = collectionFixture(channelId, userId);
   const teamReads = new Map<string, { name: string; body: object | null }>([
     [
@@ -112,6 +118,13 @@ export function webviewServers(
       {
         name: "managed-category-mappings",
         body: { [channelId]: "Release", ["d".repeat(26)]: "Release" },
+      },
+    ],
+    [
+      `/team/chat/api/v4/teams/${teamId}/channels/autocomplete?name=%D1%82%D0%B5%D1%81%D1%82%20%2B%26`,
+      {
+        name: "team-channel-search",
+        body: [{ id: channelId, team_id: teamId }],
       },
     ],
     [
@@ -283,6 +296,12 @@ export function webviewServers(
             name: "code_block_ctrl_enter",
             value: "false",
           },
+          ...Array.from({ length: 61 }, (_, index) => ({
+            user_id: userId,
+            category: "flagged_post",
+            name: String(index).padStart(26, "s"),
+            value: "true",
+          })),
         ],
       },
     ],
@@ -303,6 +322,14 @@ export function webviewServers(
             last_root_post_at: 300,
             shared: true,
           },
+          {
+            id: groupId,
+            team_id: "",
+            type: "G",
+            name: "fixture-group",
+            display_name: "",
+            delete_at: 0,
+          },
         ],
       },
     ],
@@ -317,6 +344,7 @@ export function webviewServers(
             roles: "channel_user custom_writer",
             mention_count_root: 2,
           },
+          { channel_id: groupId, user_id: userId, roles: "channel_user" },
         ],
       },
     ],
@@ -370,6 +398,45 @@ export function webviewServers(
       res
         .writeHead(200, { "Content-Type": "application/json" })
         .end(JSON.stringify({ status: "OK" }));
+      return;
+    }
+    if (
+      url.pathname === "/team/chat/api/v4/users" ||
+      url.pathname === "/team/chat/api/v4/users/search"
+    ) {
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      if (url.pathname.endsWith("/search")) {
+        assert.equal(req.method, "POST");
+        assert.equal(url.search, "");
+        assert.deepEqual(await json(req), {
+          term: "ан",
+          team_id: teamId,
+          allow_inactive: false,
+          limit: 12,
+        });
+        visits.push("recipient-search");
+      } else {
+        assert.equal(req.method, "GET");
+        assert.deepEqual(Object.fromEntries(url.searchParams), {
+          in_team: teamId,
+          active: "true",
+          page: "1",
+          per_page: "20",
+        });
+        assert.equal(await text(req), "");
+        visits.push("recipient-page");
+      }
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end(
+          JSON.stringify([
+            { id: userId, username: "anna", first_name: "Анна" },
+          ]),
+        );
       return;
     }
     const collection = await collections(req, res, url);
@@ -487,6 +554,42 @@ export function webviewServers(
       );
       return;
     }
+    if (
+      url.pathname === "/team/chat/api/v4/users/me/preferences" &&
+      req.method === "PUT"
+    ) {
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      assert.equal(url.search, "");
+      const prefs = await json(req);
+      assert.ok(Array.isArray(prefs));
+      const stamp = prefs[1]?.value;
+      assert.equal(typeof stamp, "string");
+      assert.match(stamp, /^[1-9]\d+$/);
+      assert.deepEqual(prefs, [
+        {
+          user_id: userId,
+          category: "group_channel_show",
+          name: groupId,
+          value: "true",
+        },
+        {
+          user_id: userId,
+          category: "channel_open_time",
+          name: groupId,
+          value: stamp,
+        },
+      ]);
+      groupOpenedAt = stamp;
+      visits.push("show-known-group");
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end('{"status":"OK"}');
+      return;
+    }
     const customCategory = "m".repeat(26);
     const builtin = `direct_messages_${userId.toLowerCase()}_${teamId.toLowerCase()}`;
     const categoryRoute = `/team/chat/api/v4/users/me/teams/${teamId}/channels/categories`;
@@ -528,6 +631,34 @@ export function webviewServers(
     const readThread = await respondToThreadRead(req, res, url, teamId);
     if (readThread) {
       visits.push(readThread);
+      return;
+    }
+    if (
+      url.pathname === "/team/chat/api/v4/channels/direct" ||
+      url.pathname === "/team/chat/api/v4/channels/group"
+    ) {
+      const direct = url.pathname.endsWith("/direct");
+      assert.equal(req.method, "POST");
+      assert.equal(url.search, "");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      assert.deepEqual(
+        await json(req),
+        direct ? [userId] : ["x".repeat(26), "y".repeat(26)],
+      );
+      visits.push(
+        direct ? "open-self-conversation" : "open-group-conversation",
+      );
+      res.writeHead(201, { "Content-Type": "application/json" }).end(
+        JSON.stringify({
+          id: (direct ? "d" : "g").repeat(26),
+          team_id: "",
+          type: direct ? "D" : "G",
+        }),
+      );
       return;
     }
     const threadList = await respondToThreadList(
@@ -857,7 +988,27 @@ export function webviewServers(
       );
       assert.equal(req.headers.cookie, undefined);
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(teamRead.body));
+      const body =
+        teamRead.name === "sidebar-preferences" &&
+        groupOpenedAt &&
+        Array.isArray(teamRead.body)
+          ? [
+              ...teamRead.body,
+              {
+                user_id: userId,
+                category: "group_channel_show",
+                name: groupId,
+                value: "true",
+              },
+              {
+                user_id: userId,
+                category: "channel_open_time",
+                name: groupId,
+                value: groupOpenedAt,
+              },
+            ]
+          : teamRead.body;
+      res.end(JSON.stringify(body));
       return;
     }
     if (url.pathname === "/api/v4/users/me") {
@@ -904,6 +1055,8 @@ export function webviewServers(
                 RestrictDirectMessage: "team",
                 FeatureFlagEnableSharedChannelsDMs: "true",
                 EnableConfirmNotificationsToChannel: "false",
+                WebsocketURL: "",
+                WebsocketSecurePort: "443",
                 MaxNotificationsPerChannel: "9223372036854775807",
                 UniqueEmojiReactionLimitPerPost: "-2",
                 EnableUserStatuses: "false",
@@ -1047,6 +1200,21 @@ export function webviewServers(
       );
       visits.push(marker);
       await pressAndroidBack();
+    } else if (step === "format-right") {
+      assert(sendRight, "Missing native keyboard driver");
+      await sendRight();
+    } else if (step === "format-times") {
+      const data = JSON.parse(url.searchParams.get("case") ?? "null");
+      assert.ok(Array.isArray(data));
+      assert.deepEqual(
+        data.map((row) => row.width),
+        [320, 820],
+      );
+      for (const row of data) {
+        assert.ok(Number.isFinite(row.first) && row.first >= 0);
+        assert.ok(Number.isFinite(row.unchanged) && row.unchanged >= 0);
+      }
+      formattingTimes = data;
     } else if (step === "release-history") {
       refresh.release();
     } else if (step === "release-submission") {
@@ -1079,6 +1247,10 @@ export function webviewServers(
     onAndroidInputReady(send: SendAndroidKey) {
       prepareKeyboard = () => send("KEYCODE_TAB");
       pressAndroidBack = () => send("KEYCODE_BACK");
+      sendRight = () => send("KEYCODE_DPAD_RIGHT");
+    },
+    onMacRightReady(send: () => Promise<void>) {
+      sendRight = send;
     },
     verify(platform: "macos" | "android") {
       refresh.verify();
@@ -1088,6 +1260,10 @@ export function webviewServers(
         "only the online control may reach the offline fixture",
       );
       assert(before);
+      assert.ok(formattingTimes);
+      console.log(
+        `Rendered 60 formatted posts in the ${platform} WebView (milliseconds): ${JSON.stringify(formattingTimes)}`,
+      );
       assert.equal(settings.size, 2);
       assert.equal(entrySettings.size, 2);
       assert.equal(untrustedRequests, 0);
@@ -1096,6 +1272,7 @@ export function webviewServers(
         "signed-named-channel",
         "signed-named-team",
         "managed-category-mappings",
+        "team-channel-search",
         "bytes",
         "204",
         "205",
@@ -1112,6 +1289,8 @@ export function webviewServers(
         "user-me",
         "user-profile",
         "profiles-by-name",
+        "recipient-page",
+        "recipient-search",
         "profile-image",
         "account-logout-confirmed",
         "account-logout-unconfirmed",
@@ -1119,6 +1298,10 @@ export function webviewServers(
         "account-second",
         "account-denied",
         "account-expired",
+        "show-known-group",
+        "directory-teams",
+        "my-team-members",
+        "sidebar-preferences",
         "workspace-config",
         "workspace-license",
         "account-html",
@@ -1159,6 +1342,9 @@ export function webviewServers(
         "list-saved",
         "remove-pin",
         "remove-saved",
+        "sidebar-preferences",
+        "sidebar-preferences",
+        "list-saved-more",
         "custom-emoji-by-name",
         "custom-emoji-by-name",
         "custom-emoji-by-name",
@@ -1168,6 +1354,8 @@ export function webviewServers(
         "read-team-threads",
         "read-thread",
         "read-team-threads",
+        "open-self-conversation",
+        "open-group-conversation",
         "follow-thread",
         "unfollow-thread",
         "collapse-sidebar-category",

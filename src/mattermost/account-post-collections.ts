@@ -3,11 +3,16 @@ import {
   type Configuration,
   type PostList,
   PostsApi,
+  PreferencesApi,
 } from "../../vendor/mattermost/index.js";
-import { isMattermostId, isMattermostTime } from "./model-fields.ts";
+import {
+  assertAccountPreference,
+  isMattermostId,
+  isMattermostTime,
+} from "./model-fields.ts";
 import { orderedItems } from "./ordered-items.ts";
 
-const savedPageSize = 60;
+export const savedPageSize = 60;
 
 type SavedScope =
   | { kind: "all" }
@@ -39,10 +44,27 @@ function collection(list: PostList, channelId?: string) {
 
 export function accountPostCollections(
   config: Configuration,
+  userId: string,
   whileOpen: <T>(read: () => Promise<T>, signal?: AbortSignal) => Promise<T>,
 ) {
   const channels = new ChannelsApi(config);
   const posts = new PostsApi(config);
+  const preferences = new PreferencesApi(config);
+  async function savedWindow(
+    scope: SavedScope,
+    offset: number,
+    signal?: AbortSignal,
+  ) {
+    signal?.throwIfAborted();
+    if (!Number.isSafeInteger(offset) || offset < 0)
+      throw new RangeError("Invalid Mattermost saved post offset.");
+    const filter = savedFilter(scope);
+    const result = await posts.getFlaggedPostsForUser(
+      { userId: "me", page: offset, perPage: savedPageSize, ...filter },
+      { signal },
+    );
+    return collection(result, filter.channelId);
+  }
   return {
     readPinnedChannelPosts(channelId: string, signal?: AbortSignal) {
       return whileOpen(async () => {
@@ -56,20 +78,32 @@ export function accountPostCollections(
     readSavedPosts(scope: SavedScope, page: number, signal?: AbortSignal) {
       return whileOpen(async () => {
         signal?.throwIfAborted();
-        // Both supported servers use the page query parameter directly as SQL OFFSET.
-        const offset = page * savedPageSize;
-        if (
-          !Number.isSafeInteger(page) ||
-          page < 0 ||
-          !Number.isSafeInteger(offset)
-        )
+        if (!Number.isSafeInteger(page) || page < 0)
           throw new RangeError("Invalid Mattermost saved post page.");
-        const filter = savedFilter(scope);
-        const result = await posts.getFlaggedPostsForUser(
-          { userId: "me", page: offset, perPage: savedPageSize, ...filter },
+        return savedWindow(scope, page * savedPageSize, signal);
+      }, signal);
+    },
+    readSavedPostsAtOffset(
+      scope: SavedScope,
+      offset: number,
+      signal?: AbortSignal,
+    ) {
+      return whileOpen(() => savedWindow(scope, offset, signal), signal);
+    },
+    readSavedPostUpperBound(signal?: AbortSignal) {
+      return whileOpen(async () => {
+        signal?.throwIfAborted();
+        const rows = await preferences.getPreferences(
+          { userId: "me" },
           { signal },
         );
-        return collection(result, filter.channelId);
+        // A missing list is the server representation of an account with no preferences.
+        let count = 0;
+        for (const row of rows ?? []) {
+          assertAccountPreference(row, userId);
+          if (row.category === "flagged_post") count++;
+        }
+        return count;
       }, signal);
     },
   };
