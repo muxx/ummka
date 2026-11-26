@@ -9,7 +9,7 @@ import {
 } from "../../src/mattermost/native-rest.ts";
 import { openChannelNavigation } from "./account-team-window.tsx";
 import { checkPendingCommandActions } from "./pending-command-actions.ts";
-import { verifyWorkspaceBack } from "./workspace-back.tsx";
+import { findThreadDraft, verifyWorkspaceBack } from "./workspace-back.tsx";
 
 export async function waitForAppForeground() {
   await waitFor(
@@ -45,16 +45,7 @@ async function checkThreadReply(
 ) {
   const ui = within(host);
   flushSync(() => fireEvent.click(opener));
-  const pane = await ui.findByRole("complementary", { name: "Thread" });
-  const thread = within(pane);
-  await thread.findByText(
-    "Reply visible only inside Town’s thread",
-    {},
-    { timeout: 10_000 },
-  );
-  const field = await thread.findByRole<HTMLTextAreaElement>("textbox", {
-    name: "Reply in thread…",
-  });
+  const { pane, thread, field } = await findThreadDraft(host);
   if (document.activeElement === field || field.value)
     throw Error("Opening the compact thread focused or populated its editor");
   const message = "Posted from the thread window";

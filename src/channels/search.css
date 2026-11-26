@@ -192,10 +192,6 @@
   margin: 0.25rem 0;
 }
 @container (width <= 740px) {
-  .channels-panes[data-page="search"]
-    > :is(.channels-sidebar, .channels-conversation, .channels-thread) {
-    display: none;
-  }
   .search-results-pane {
     flex: 1;
     border: 0;

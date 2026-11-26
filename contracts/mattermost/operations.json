@@ -64,6 +64,18 @@
   {
     "file": "channels.yaml",
     "method": "GET",
+    "path": "/api/v4/teams/{team_id}/channels",
+    "id": "GetPublicChannelsForTeam"
+  },
+  {
+    "file": "channels.yaml",
+    "method": "GET",
+    "path": "/api/v4/teams/{team_id}/channels/deleted",
+    "id": "GetDeletedChannelsForTeam"
+  },
+  {
+    "file": "channels.yaml",
+    "method": "GET",
     "path": "/api/v4/users/{user_id}/teams/{team_id}/channels",
     "id": "GetChannelsForTeamForUser"
   },

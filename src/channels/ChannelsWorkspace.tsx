@@ -19,19 +19,24 @@ import {
   teammateName,
 } from "../mattermost/channel-profiles.ts";
 import type { LocalPost } from "../mattermost/local-history.ts";
+import { isMattermostId } from "../mattermost/model-fields.ts";
 import { visibleSidebar } from "../mattermost/sidebar-rows.ts";
 import { effectiveWorkspacePreferences } from "../mattermost/workspace-preferences.ts";
 import { ChannelsFrame } from "./ChannelsFrame.tsx";
+import { CollectionChannelMenu } from "./CollectionChannelMenu.tsx";
 import { ComposerAccessNotice } from "./ComposerAccessNotice.tsx";
 import { ConversationTimeline } from "./ConversationTimeline.tsx";
 import { channelDraftActions } from "./channel-draft-actions.ts";
+import { collectionCopy } from "./collection-copy.ts";
 import { channelComposerAccess } from "./composer-access.ts";
 import { DraftComposer } from "./DraftComposer.tsx";
 import { draftCopy } from "./draft-copy.ts";
+import { CollectionMark, PostCollectionPane } from "./PostCollectionPane.tsx";
 import type { ReactionThread } from "./submit-channel-reaction.ts";
 import { ThreadPane } from "./ThreadPane.tsx";
 import { useChannelTimeline } from "./use-channel-timeline.ts";
 import { useWorkspaceBack } from "./use-workspace-back.ts";
+import { useWorkspaceCollections } from "./use-workspace-collections.ts";
 import { useWorkspaceProfiles } from "./use-workspace-profiles.ts";
 import { useTeamRoles, useWorkspaceRead } from "./use-workspace-read.ts";
 import { useWorkspaceSearch } from "./use-workspace-search.tsx";
@@ -189,6 +194,27 @@ export function ChannelsWorkspace({
   const draftField = useRef<HTMLTextAreaElement>(null);
   const replyField = useRef<HTMLTextAreaElement>(null);
   const [accountOpen, setAccountOpen] = useState(false);
+  const collections = useWorkspaceCollections(connection, online);
+  const collectionLabels = collectionCopy[language];
+  const channelMenuButton = useRef<HTMLButtonElement>(null);
+  const [channelMenuOpen, setChannelMenuOpen] = useState(false);
+  const [knownSaves, setKnownSaves] = useState<{
+    ids: ReadonlySet<string>;
+    complete: boolean;
+  }>(() => ({ ids: new Set(), complete: false }));
+  const savedValue =
+    collections.view?.source.kind === "all" ? collections.state : null;
+  const savedItems = savedValue?.value?.items;
+  const hasSavedView = Boolean(savedValue);
+  const complete =
+    savedValue?.status === "ready" && savedValue.continuation === "none";
+  useEffect(() => {
+    if (hasSavedView)
+      setKnownSaves({
+        ids: new Set(savedItems?.map((post) => post.id)),
+        complete,
+      });
+  }, [hasSavedView, savedItems, complete]);
   const returnToAccount = useRef(false);
   useLayoutEffect(() => {
     if (!accountOpen && returnToAccount.current) {
@@ -307,10 +333,30 @@ export function ChannelsWorkspace({
     () => (snapshot ? { ...snapshot, selectedChannel: chosen } : null),
     [snapshot, chosen],
   );
-  const profileQuery = useMemo(
-    () => workspaceProfileQuery(userId, current, settings, timeline.page),
-    [userId, current, settings, timeline.page],
+  const savedChannelIds = useMemo(
+    () => new Set(savedItems?.map((post) => post.channelId)),
+    [savedItems],
   );
+  const profileQuery = useMemo(() => {
+    const query = workspaceProfileQuery(
+      userId,
+      current,
+      settings,
+      timeline.page,
+      savedChannelIds,
+    );
+    const ids = new Set(query.ids);
+    for (const post of collections.state?.value?.items ?? [])
+      if (isMattermostId(post.userId)) ids.add(post.userId);
+    return { ...query, ids: [...ids] };
+  }, [
+    userId,
+    current,
+    settings,
+    timeline.page,
+    collections.state?.value,
+    savedChannelIds,
+  ]);
   const saved = useWorkspaceProfiles(
     connection,
     profileQuery,
@@ -334,9 +380,33 @@ export function ChannelsWorkspace({
         : [],
     [current, settings, userId, profiles, language, compact],
   );
+  const channels = snapshot?.data.channels;
+  const savedRooms = useMemo(() => {
+    const result = new Map<string, { title: string; kind: string }>();
+    if (!channels || !savedChannelIds.size) return result;
+    for (const room of channels) {
+      if (!savedChannelIds.has(room.id)) continue;
+      const title = conversationName(
+        room,
+        userId,
+        profiles,
+        settings?.nameFormat ?? "username",
+        language,
+      );
+      result.set(room.id, { title, kind: room.kind });
+    }
+    return result;
+  }, [
+    channels,
+    savedChannelIds,
+    userId,
+    profiles,
+    settings?.nameFormat,
+    language,
+  ]);
   const selectedLabel = sections
-    .flatMap((s) => s.rows)
-    .find((r) => r.id === chosen)?.title;
+    .flatMap((section) => section.rows)
+    .find((row) => row.id === chosen)?.title;
   const draftText = draftCopy[language];
   function draftLabel() {
     if (!channel) return draftText.generic;
@@ -377,6 +447,8 @@ export function ChannelsWorkspace({
 
   function choose(id: string, returning = false) {
     search.abortPending();
+    if (!returning) collections.close(false);
+    setChannelMenuOpen(false);
     if (!returning && (position || search.origin)) search.dismiss();
     workspace.messages.clear();
     const version = ++choice.current;
@@ -464,6 +536,25 @@ export function ChannelsWorkspace({
       ? { name: teammateName(profile, settings.nameFormat) }
       : undefined;
   }
+  function openResult(
+    source: { kind: "post" | "file"; id: string },
+    signal: AbortSignal,
+    origin: HTMLElement,
+  ) {
+    return workspace.messages.open(
+      source,
+      signal,
+      (operation) => {
+        const result = writes.current.then(operation);
+        writes.current = result.then(
+          () => {},
+          () => {},
+        );
+        return result;
+      },
+      origin,
+    );
+  }
   const search = useWorkspaceSearch(
     workspace,
     language,
@@ -474,22 +565,32 @@ export function ChannelsWorkspace({
     {
       channelId: chosen,
       clear: workspace.messages.clear,
-      open: (source, signal, origin) =>
-        workspace.messages.open(
-          source,
-          signal,
-          (operation) => {
-            const result = writes.current.then(operation);
-            writes.current = result.then(
-              () => {},
-              () => {},
-            );
-            return result;
-          },
-          origin,
-        ),
+      open: openResult,
+      beforeOpen: () => {
+        collections.close(false);
+        setChannelMenuOpen(false);
+      },
     },
   );
+  function showCollection(
+    source: { kind: "all" } | { kind: "pins"; channelId: string },
+    opener: HTMLButtonElement,
+  ) {
+    setChannelMenuOpen(false);
+    if (search.back || search.origin) search.dismiss();
+    workspace.messages.clear();
+    collections.open(source, opener);
+  }
+  const collectionDestination =
+    position &&
+    position.request.post.id === collections.origin.current?.id &&
+    collections.view;
+  function returnToCollection() {
+    const source = collections.restoreRow();
+    if (source?.channelId) choose(source.channelId, true);
+    else workspace.messages.clear();
+  }
+
   const notice = (message: string, retry?: () => void, alert = false) => (
     <Notice message={message} label={text.retry} retry={retry} alert={alert} />
   );
@@ -539,6 +640,21 @@ export function ChannelsWorkspace({
           : null
       : null;
   if (thread && !activeThread) setThread(null);
+  const pinsSource =
+    collections.view?.source.kind === "pins"
+      ? collections.view.source.channelId
+      : null;
+  const pinsAvailable =
+    !pinsSource ||
+    (!["forbidden", "session", "unauthorized"].includes(
+      directory.state.status,
+    ) &&
+      !(chosen === pinsSource && historyDenied) &&
+      (snapshot?.data.channels.some((room) => room.id === pinsSource) ??
+        false));
+  useEffect(() => {
+    if (!pinsAvailable) collections.close(false);
+  }, [pinsAvailable, collections.close]);
   const visibleSearchPanel = position ? null : search.panel;
   const canReturnToResults = Boolean(position && search.origin);
   function returnToResults() {
@@ -548,13 +664,23 @@ export function ChannelsWorkspace({
   const manualThread =
     activeThread && closedRequest === position?.request.requestId;
   function workspaceBack() {
+    if (channelMenuOpen)
+      return () => {
+        setChannelMenuOpen(false);
+        channelMenuButton.current?.focus();
+      };
     if (search.dialog) return search.back;
     if (manualThread) return closeThread;
+    if (collectionDestination) return returnToCollection;
+    if (collections.view && !position) return () => collections.close();
     if (canReturnToResults) return returnToResults;
     if (visibleSearchPanel) return search.back;
     return activeThread ? closeThread : null;
   }
   useWorkspaceBack(accountOpen, workspaceBack());
+  const channelTitle = channel
+    ? selectedLabel || channel.displayName || text.nav
+    : text.choose;
   function composer(rootId?: string, reader?: ReactionThread) {
     if (historyDenied) return null;
     if (access !== "writable" || !channel) {
@@ -604,8 +730,87 @@ export function ChannelsWorkspace({
           chooseTeam: text.switchTeam,
           closeThread: text.closeThread,
         }}
-        searchTrigger={search.trigger}
-        searchPanel={visibleSearchPanel}
+        toolbar={
+          <>
+            {search.trigger}
+            <button
+              type="button"
+              className="channels-icon-action collection-saved-trigger"
+              aria-label={collectionLabels.saved}
+              title={collectionLabels.saved}
+              onClick={(event) =>
+                showCollection({ kind: "all" }, event.currentTarget)
+              }
+            >
+              <CollectionMark kind="all" />
+              {knownSaves.complete && knownSaves.ids.size > 0 && (
+                <small aria-hidden="true">{knownSaves.ids.size}</small>
+              )}
+            </button>
+          </>
+        }
+        channelHeading={
+          channel && !historyDenied
+            ? (id, ref) => (
+                <CollectionChannelMenu
+                  headingId={id}
+                  headingRef={ref}
+                  title={channelTitle}
+                  language={language}
+                  trigger={channelMenuButton}
+                  open={channelMenuOpen}
+                  setOpen={setChannelMenuOpen}
+                  onPins={(opener) =>
+                    showCollection(
+                      { kind: "pins", channelId: channel.id },
+                      opener,
+                    )
+                  }
+                />
+              )
+            : undefined
+        }
+        sidePanel={
+          position ? null : collections.view &&
+            collections.state &&
+            pinsAvailable ? (
+            <PostCollectionPane
+              key={collections.view.key}
+              model={collections.view.model}
+              state={collections.state}
+              kind={collections.view.source.kind}
+              language={language}
+              online={online}
+              canRemove={
+                collections.view.source.kind === "all" ||
+                Boolean(
+                  channel &&
+                    !channel.deleteAt &&
+                    !historyDenied &&
+                    (permission(channel, "read_channel_content") ===
+                      "allowed" ||
+                      (channel.kind === "O" &&
+                        permission("team", "read_public_channel") ===
+                          "allowed")),
+                )
+              }
+              channelInfo={(id) => savedRooms.get(id)}
+              authorName={(id) => author(id)?.name}
+              savedIds={knownSaves.ids}
+              sessionIssue={sessionIssue}
+              restore={collections.restore}
+              openRow={(id, origin, scroll) =>
+                void collections.activate(
+                  { id, channelId: chosen, scroll },
+                  (signal) => openResult({ kind: "post", id }, signal, origin),
+                )
+              }
+              close={() => collections.close()}
+            />
+          ) : (
+            search.panel
+          )
+        }
         resultReturn={
           position && (
             <>
@@ -613,6 +818,17 @@ export function ChannelsWorkspace({
                 <span className="search-membership" role="status">
                   {position.membership}
                 </span>
+              )}
+              {collectionDestination && (
+                <button
+                  type="button"
+                  className="search-return"
+                  onClick={returnToCollection}
+                >
+                  {collectionDestination.source.kind === "all"
+                    ? collectionLabels.savedBack
+                    : collectionLabels.pinsBack}
+                </button>
               )}
               {search.origin && (
                 <button
@@ -637,7 +853,7 @@ export function ChannelsWorkspace({
           channel
             ? {
                 id: channel.id,
-                title: selectedLabel || channel.displayName || text.nav,
+                title: channelTitle,
               }
             : null
         }
@@ -649,10 +865,12 @@ export function ChannelsWorkspace({
         page={chosen || canReturnToResults ? page : "navigation"}
         onNavigation={() => {
           search.abortPending();
+          collections.close(false);
           setPage("navigation");
         }}
         onAccount={() => {
           search.abortPending();
+          collections.abort();
           setAccountOpen(true);
         }}
         onTeam={workspace.chooseAnotherTeam}
@@ -734,6 +952,7 @@ export function ChannelsWorkspace({
               }
               onOpenThread={(post) => {
                 setClosedRequest(position?.request.requestId ?? null);
+                collections.close(false);
                 setThread(post);
               }}
               openThreadPostId={activeThread?.id}

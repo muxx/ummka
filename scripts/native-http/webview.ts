@@ -10,6 +10,7 @@ import { respondToAccount } from "./account.ts";
 import type { SendAndroidKey } from "./android-webview.ts";
 import { respondToChannelMembers } from "./channel-members.ts";
 import { respondToChannelView } from "./channel-view.ts";
+import { collectionWindowFixture } from "./collection-window.ts";
 import { respondToGroupAssociations } from "./group-associations.ts";
 import { respondToGroupAudience } from "./group-audience.ts";
 import { respondToHistory } from "./history.ts";
@@ -55,6 +56,7 @@ export function webviewServers(
     ]),
   );
   const visits: string[] = [];
+  const collectionWindow = collectionWindowFixture();
   let offlineHistoryRequests = 0;
   let connections = 0;
   let before = false;
@@ -83,7 +85,10 @@ export function webviewServers(
   const groupId = "g".repeat(26);
   let groupOpenedAt: string | undefined;
   const collections = collectionFixture(channelId, userId);
-  const teamReads = new Map<string, { name: string; body: object | null }>([
+  const teamReads = new Map<
+    string,
+    { name: string; body: object | null; status?: number }
+  >([
     [
       "/team/chat/api/v4/teams/name/fixture-team",
       {
@@ -115,6 +120,40 @@ export function webviewServers(
       {
         name: "signed-single-channel",
         body: { id: "j".repeat(26), type: "G", team_id: "", delete_at: 0 },
+      },
+    ],
+    [
+      `/team/chat/api/v4/teams/${"z".repeat(26)}/channels?page=0&per_page=50`,
+      {
+        name: "public-directory-denied",
+        status: 403,
+        body: { id: "fixture.denied", status_code: 403 },
+      },
+    ],
+    [
+      `/team/chat/api/v4/teams/${"z".repeat(26)}/channels/deleted?page=0&per_page=50`,
+      {
+        name: "archived-directory-denied",
+        status: 403,
+        body: { id: "fixture.denied", status_code: 403 },
+      },
+    ],
+    [
+      `/team/chat/api/v4/teams/${teamId}/channels?page=1&per_page=50`,
+      {
+        name: "public-directory-page",
+        body: [
+          { id: "o".repeat(26), team_id: teamId, type: "O", delete_at: 0 },
+        ],
+      },
+    ],
+    [
+      `/team/chat/api/v4/teams/${teamId}/channels/deleted?page=0&per_page=50`,
+      {
+        name: "archived-directory-page",
+        body: [
+          { id: "p".repeat(26), team_id: teamId, type: "P", delete_at: 42 },
+        ],
       },
     ],
     [
@@ -402,6 +441,7 @@ export function webviewServers(
         .end(JSON.stringify(rows));
       return;
     }
+    if (await collectionWindow(req, res, url)) return;
     if (url.pathname === "/team/chat/api/v4/reactions") {
       assert.equal(req.method, "POST");
       assert.equal(
@@ -1069,7 +1109,9 @@ export function webviewServers(
           : "Bearer fixture-root-session",
       );
       assert.equal(req.headers.cookie, undefined);
-      res.writeHead(200, { "Content-Type": "application/json" });
+      res.writeHead(teamRead.status ?? 200, {
+        "Content-Type": "application/json",
+      });
       const body =
         teamRead.name === "sidebar-preferences" &&
         groupOpenedAt &&
@@ -1274,6 +1316,13 @@ export function webviewServers(
         "prepared, cancelled and refused requests must not open a socket",
       );
       before = true;
+    } else if (step?.startsWith("collection-back-")) {
+      assert(
+        pressWorkspaceBack && !visits.includes(step),
+        "Unexpected collection Back: " + step,
+      );
+      visits.push(step);
+      await pressWorkspaceBack();
     } else if (step === "search-result-back") {
       const marker = "android-" + step;
       assert(
@@ -1366,9 +1415,17 @@ export function webviewServers(
       assert.equal(entrySettings.size, 2);
       assert.equal(untrustedRequests, 0);
       const expected = [
+        "collection-back-saved-reply",
+        "collection-back-saved-list",
+        "collection-back-pinned-root",
+        "collection-back-pinned-list",
         "signed-single-channel",
         "signed-named-channel",
         "signed-named-team",
+        "public-directory-page",
+        "archived-directory-page",
+        "public-directory-denied",
+        "archived-directory-denied",
         "managed-category-mappings",
         "team-channel-search",
         "bytes",

@@ -43,7 +43,7 @@ export async function checkChannelsFrame() {
           }}
           onTeam={() => {}}
           onAccount={() => {}}
-          searchTrigger={
+          toolbar={
             <button type="button" className="channels-search-trigger">
               Search
             </button>
