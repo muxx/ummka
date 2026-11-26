@@ -380,10 +380,13 @@ export async function checkBrowserApp(server: string, controlPort: string) {
       ),
     );
     await commandResults.findByText("Search found this fixture post");
-    await waitFor(() => {
-      if (townDraft.value !== "")
-        throw Error("The local search command is still in the channel draft");
-    });
+    await waitFor(
+      () => {
+        if (townDraft.value !== "")
+          throw Error("The local search command is still in the channel draft");
+      },
+      { container: host, timeout: 10_000 },
+    );
     flushSync(() =>
       fireEvent.click(
         commandResults.getByRole("button", { name: "Close search" }),
@@ -401,10 +404,13 @@ export async function checkBrowserApp(server: string, controlPort: string) {
       throw Error(
         "A search command without arguments did not open the empty input",
       );
-    await waitFor(() => {
-      if (townDraft.value !== "")
-        throw Error("The bare command was not cleared");
-    });
+    await waitFor(
+      () => {
+        if (townDraft.value !== "")
+          throw Error("The bare command was not cleared");
+      },
+      { container: host, timeout: 10_000 },
+    );
     flushSync(() =>
       fireEvent.click(
         emptySearch.getByRole("button", { name: "Close search" }),
