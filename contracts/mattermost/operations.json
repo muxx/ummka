@@ -214,6 +214,13 @@
     "body": "json"
   },
   {
+    "file": "status.yaml",
+    "method": "POST",
+    "path": "/api/v4/users/status/ids",
+    "id": "GetUsersStatusesByIds",
+    "body": "json"
+  },
+  {
     "file": "users.yaml",
     "method": "POST",
     "path": "/api/v4/users/usernames",

@@ -803,6 +803,43 @@ export function webviewServers(
       visits.push(history);
       return;
     }
+    if (url.pathname === "/team/chat/api/v4/users/status/ids") {
+      visits.push("batch-presence");
+      assert.equal(req.method, "POST");
+      assert.equal(url.search, "");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      assert.equal(req.headers["content-type"], "application/json");
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const peer = "b".repeat(26);
+      assert.deepEqual(JSON.parse(Buffer.concat(chunks).toString()), [
+        userId,
+        peer,
+      ]);
+      res.writeHead(200, { "Content-Type": "application/json" }).end(
+        JSON.stringify([
+          {
+            user_id: peer,
+            status: "dnd",
+            manual: true,
+            last_activity_at: 1700000000123,
+            dnd_end_time: 1700003600,
+          },
+          {
+            user_id: userId,
+            status: "offline",
+            manual: false,
+            last_activity_at: 0,
+            dnd_end_time: 0,
+          },
+        ]),
+      );
+      return;
+    }
     if (
       url.pathname === "/team/chat/api/v4/users/ids" ||
       url.pathname === "/api/v4/users/ids"
@@ -1245,6 +1282,7 @@ export function webviewServers(
         "post-thread-archive",
         "post-thread-reply",
         "batch-signed",
+        "batch-presence",
         "batch-anonymous",
         "batch-text",
         "batch-headers",

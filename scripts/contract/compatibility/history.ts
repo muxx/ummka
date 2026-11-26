@@ -91,6 +91,7 @@ import { checkThreadSummary } from "./thread-summary.ts";
 import { checkThreadWindow } from "./thread-window.ts";
 import { checkUnreadThreadWindow } from "./unread-thread-window.ts";
 import { checkUserNotifications } from "./user-notifications.ts";
+import { checkUserPresence } from "./user-presence.ts";
 import { checkUserTimezone } from "./user-timezone.ts";
 
 const base = "http://mattermost:8065";
@@ -880,6 +881,11 @@ const otherSaverLogin = await create("users/login", {
 const otherSaverToken = otherSaverLogin.headers.get("token");
 assert.ok(otherSaverToken);
 assert.equal(otherSaver.roles, "system_user");
+await checkUserPresence(
+  base,
+  { id: reader.id, token: readerToken },
+  { id: otherSaver.id, token: otherSaverToken },
+);
 await checkPostCollections(
   { session, id: user.id },
   { id: reader.id, token: readerToken },
@@ -1285,7 +1291,7 @@ await checkTeamChannelSearch(
 await checkSearchScopePolicy(base, token, readerToken, version);
 await checkPostEditWindow(base, token, readerToken);
 await checkMobileFilePolicy(base, token, readerToken);
-await checkPresencePolicy(base, token, readerToken);
+await checkPresencePolicy(base, token, readerToken, reader.id);
 await checkReactionLimit(base, token, user.id, readerToken, channelId);
 console.log(
   `Mattermost ${version} verified the signed reaction limit against adding a new emoji name.`,

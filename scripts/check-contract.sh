@@ -31,6 +31,8 @@ npm run contract:emoji -- "$cache/emoji-10.10.1.json" "$cache/emoji-12.1.0.json"
 
 download introduction.yaml "$upstream/introduction.yaml" 4b3786cc86ec1097c29f5b1bea8e9a32d09c4ddb6244140ec094425b6fdc5e09
 download system.yaml "$upstream/system.yaml" 10e9e11b14d34d30a661474269f69220f8ebdb05db64cd53e30cb199a665ae8e
+download status.yaml "$upstream/status.yaml" e1adcf4a377c13618d7229f5319bfaceeea1879810d17cec5887f88b4032cde7
+download status-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/status.yaml" e1adcf4a377c13618d7229f5319bfaceeea1879810d17cec5887f88b4032cde7
 download users.yaml "$upstream/users.yaml" 20d0c9cf9631682f3461c7b13a521321dbd2aa605b60922404183ec2735e8f28
 download teams.yaml "$upstream/teams.yaml" dc0723e5164d19b5d147ee9133db170fb83eedb3b884e320cd58ee36435cd3b3
 download teams-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/teams.yaml" a96864edb919a027e886752898e3e115ca997381af39f97b5a8e28186172893f

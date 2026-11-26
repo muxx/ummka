@@ -43,6 +43,7 @@ export * from './SearchPostsInAllTeamsRequest.js';
 export * from './SearchPostsRequest.js';
 export * from './SetPostUnreadRequest.js';
 export * from './SidebarCategoryWithChannels.js';
+export * from './Status.js';
 export * from './StatusOK.js';
 export * from './SystemStatusResponse.js';
 export * from './Team.js';

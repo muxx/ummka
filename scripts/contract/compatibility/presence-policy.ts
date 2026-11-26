@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
 import { loadWorkspaceServerPolicy } from "../../../src/mattermost/workspace-server.ts";
-import { Configuration, SystemApi } from "../../../vendor/mattermost/index.js";
+import {
+  Configuration,
+  StatusApi,
+  SystemApi,
+} from "../../../vendor/mattermost/index.js";
 
 export async function checkPresencePolicy(
   base: string,
   admin: string,
   member: string,
+  memberId: string,
 ) {
   const signed = new Configuration({ basePath: base, accessToken: member });
   const system = new SystemApi(signed);
@@ -34,6 +39,13 @@ export async function checkPresencePolicy(
         await system.getClientConfigRaw({ format: "old" })
       ).raw.json();
       assert.equal(raw.EnableUserStatuses, String(value));
+      if (!value) {
+        const result = await new StatusApi(signed).getUsersStatusesByIdsRaw({
+          requestBody: [memberId],
+        });
+        assert.equal(result.raw.status, 200);
+        assert.deepEqual(await result.value(), []);
+      }
       assert.equal(
         (await loadWorkspaceServerPolicy(signed)).userStatusesEnabled,
         value,

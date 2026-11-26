@@ -5,6 +5,7 @@ import {
   Configuration,
   RequiredError,
   ResponseError,
+  StatusApi,
   UserFromJSON,
   UsersApi,
   UserToJSON,
@@ -28,6 +29,27 @@ test("the generated profile codecs preserve optional identity fields", () => {
     assert.equal(profile.remoteId, wire.remote_id);
     assert.equal(profile.isBot, wire.is_bot);
     assert.deepEqual(JSON.parse(JSON.stringify(UserToJSON(profile))), wire);
+  }
+});
+
+test("presence keeps an empty server response distinct from an explicit offline row", async () => {
+  const userId = "u".repeat(26);
+  for (const wire of [[], [{ user_id: userId, status: "offline" }]]) {
+    const api = new StatusApi(
+      new Configuration({
+        basePath: "https://chat.example.test",
+        fetchApi: async () => Response.json(wire),
+      }),
+    );
+    const statuses = await api.getUsersStatusesByIds({ requestBody: [userId] });
+    assert.deepEqual(
+      statuses.map(({ userId, status, dndEndTime }) => [
+        userId,
+        status,
+        dndEndTime,
+      ]),
+      wire.map((row) => [row.user_id, row.status, undefined]),
+    );
   }
 });
 
