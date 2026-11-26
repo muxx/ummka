@@ -657,10 +657,11 @@ test("switching rooms while the audience is loading never submits the other room
 
 test("only an explicit send-as-text sends an unknown command, and its released revision still requires mention confirmation", async () => {
   const { connection, rows } = storage();
+  const message = "/xyz @all";
   const props = { ...inputs(connection), online: true };
   props.sendContext.route.mockResolvedValue({ kind: "command" });
   props.sendContext.performOther.mockImplementationOnce(async () => {
-    const draft = { message: "/xyz @all", revision: "released" };
+    const draft = { message, revision: "released" };
     rows.set("A/", draft);
     return {
       kind: "command",
@@ -680,9 +681,12 @@ test("only an explicit send-as-text sends an unknown command, and its released r
     draft: { message: "", revision: "sent" },
     completion: Promise.resolve({ kind: "unconfirmed" }),
   });
-  render(<DraftComposer {...props} />);
+  await act(async () => {
+    render(<DraftComposer {...props} />);
+  });
   const input = await field();
-  fireEvent.change(input, { target: { value: "/xyz @all" } });
+  fireEvent.change(input, { target: { value: message } });
+  expect(input.value).toBe(message);
   fireEvent.click(screen.getByRole("button", { name: "Выполнить команду" }));
   const asText = await screen.findByRole("button", {
     name: "Отправить текстом",
@@ -692,7 +696,10 @@ test("only an explicit send-as-text sends an unknown command, and its released r
   ).not.toHaveBeenCalled();
   expect(connection.submitDraft).not.toHaveBeenCalled();
   fireEvent.click(asText);
-  fireEvent.click(await screen.findByRole("button", { name: "Отправить" }));
+  const confirm = await screen.findByRole("button", { name: "Отправить" });
+  expect(input.value).toBe(message);
+  expect(connection.submitDraft).not.toHaveBeenCalled();
+  fireEvent.click(confirm);
   await waitFor(() => expect(input.value).toBe(""));
   expect(connection.submitDraft).toHaveBeenCalledExactlyOnceWith({
     channelId: "A",
