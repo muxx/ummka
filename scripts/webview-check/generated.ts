@@ -496,6 +496,25 @@ export async function checkGeneratedRequests(ports: string[]) {
       await accountPrefix.selectSidebarChannel(teamId, channelId),
       "select-saved-room",
     );
+    const groupId = "g".repeat(26);
+    check(
+      (await accountPrefix.reopenKnownConversation(teamId, groupId)) ===
+        "confirmed",
+      "reopen-known-group-on-server",
+    );
+    check(
+      await accountPrefix.refreshJoinedTeams(),
+      "publish-updated-conversation-preferences",
+    );
+    const settingsAfterOpen = (await accountPrefix.readWorkspaceSettings())
+      .preferences;
+    check(
+      settingsAfterOpen?.groupShown[groupId] === true &&
+        settingsAfterOpen.viewTimes[groupId] > 0 &&
+        (await accountPrefix.reopenKnownConversation(teamId, groupId)) ===
+          "alreadyShown",
+      "known-group-visible-without-a-second-put",
+    );
     const catalog = await accountPrefix.readTeamSidebar(teamId);
     check(
       catalog?.selectedChannel === channelId &&

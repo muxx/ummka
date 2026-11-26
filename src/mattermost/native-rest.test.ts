@@ -541,6 +541,7 @@ test("opens a native account by installation and user ID", async () => {
     "refreshWorkspaceServerPolicy",
     "rememberTeamSearch",
     "removeOwnReaction",
+    "reopenKnownConversation",
     "resendPost",
     "retireDeliveredPosts",
     "retryPendingPost",

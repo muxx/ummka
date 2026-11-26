@@ -48,6 +48,7 @@ import { checkFileSearch } from "./file-search.ts";
 import { checkFocusedConversation } from "./focused-conversation.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
 import { checkJoinPostTarget } from "./join-post-target.ts";
+import { checkKnownConversationVisibility } from "./known-conversation-visibility.ts";
 import {
   checkChannelRoster,
   checkEmptyTeamDirectory,
@@ -1150,6 +1151,26 @@ const group = await (
   await create("channels/group", [user.id, reader.id, bot.user_id], token)
 ).json();
 assert.equal(group.type, "G");
+const knownDirect = await (
+  await create("channels/direct", [reader.id, observer.id], readerToken)
+).json();
+const knownGroup = await (
+  await create("channels/group", [reader.id, observer.id, user.id], readerToken)
+).json();
+await checkKnownConversationVisibility(
+  {
+    config: new Configuration({ basePath: base, accessToken: readerToken }),
+    id: reader.id,
+  },
+  {
+    config: new Configuration({ basePath: base, accessToken: observerToken }),
+    id: observer.id,
+  },
+  team.id,
+  knownDirect.id,
+  knownGroup.id,
+  version,
+);
 const groupName = {
   kind: group.type,
   name: group.name,
