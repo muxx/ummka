@@ -85,6 +85,8 @@ import {
   correctSidebarCategory,
   correctSidebarResponse,
   correctSidebarSchema,
+  correctSidebarWrite,
+  sidebarWriteCorrections,
 } from "./sidebar-corrections.ts";
 import { correctSinglePost } from "./single-post-correction.ts";
 import { correctTeamMemberRequest } from "./team-member-correction.ts";
@@ -1008,7 +1010,15 @@ test("retains the catalog operations, security and transitive models", () => {
       expected = correctBulkChannelView(source, read("channels.yaml"), path);
     if (source.operationId === "SetPostUnread")
       expected = correctSetPostUnread(source, read("posts-12.1.0.yaml"), path);
-    if (path === sidebar) expected = correctSidebarResponse(source);
+    if (source.operationId === "GetSidebarCategoriesForTeamForUser")
+      expected = correctSidebarResponse(source);
+    const id = String(source.operationId);
+    if (sidebarWriteCorrections.has(id))
+      expected = correctSidebarWrite(
+        id,
+        source,
+        object(at(read("channels-12.1.0.yaml"), key), id),
+      );
     if (
       source.operationId === "GetGroupsByTeam" ||
       source.operationId === "GetGroupsAssociatedToChannelsByTeam"
@@ -1202,6 +1212,31 @@ test("both pinned User definitions omit the same three fields returned by the se
           }),
         /Review the User profile/,
       );
+    }
+  }
+});
+
+test("category writes detect changed request and response shapes in either pinned version", () => {
+  for (const { id, file, path, method } of catalog.filter(({ id }) =>
+    sidebarWriteCorrections.has(id),
+  )) {
+    const key = [path, method.toLowerCase()];
+    for (const slot of [0, 1]) {
+      for (const half of ["requestBody", "responses"]) {
+        const operations = [read(file), read("channels-12.1.0.yaml")].map(
+          (doc) => structuredClone(object(at(doc, key), id)),
+        );
+        const changed = operations[slot];
+        const body = {
+          content: { "application/json": { schema: { type: "string" } } },
+          required: true,
+        };
+        changed[half] = half === "responses" ? { "200": body } : body;
+        assert.throws(
+          () => correctSidebarWrite(id, operations[0], operations[1]),
+          /Review the pinned sidebar/,
+        );
+      }
     }
   }
 });

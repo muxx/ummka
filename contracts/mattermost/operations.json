@@ -138,6 +138,45 @@
     "id": "GetSidebarCategoriesForTeamForUser"
   },
   {
+    "file": "channels.yaml",
+    "method": "POST",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/channels/categories",
+    "id": "CreateSidebarCategoryForTeamForUser",
+    "body": "json",
+    "selfOnly": true
+  },
+  {
+    "file": "channels.yaml",
+    "method": "PUT",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/channels/categories",
+    "id": "UpdateSidebarCategoriesForTeamForUser",
+    "body": "json",
+    "selfOnly": true
+  },
+  {
+    "file": "channels.yaml",
+    "method": "PUT",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/channels/categories/order",
+    "id": "UpdateSidebarCategoryOrderForTeamForUser",
+    "body": "json",
+    "selfOnly": true
+  },
+  {
+    "file": "channels.yaml",
+    "method": "PUT",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/channels/categories/{category_id}",
+    "id": "UpdateSidebarCategoryForTeamForUser",
+    "body": "json",
+    "selfOnly": true
+  },
+  {
+    "file": "channels.yaml",
+    "method": "DELETE",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/channels/categories/{category_id}",
+    "id": "RemoveSidebarCategoryForTeamForUser",
+    "selfOnly": true
+  },
+  {
     "file": "preferences.yaml",
     "method": "GET",
     "path": "/api/v4/users/{user_id}/preferences",

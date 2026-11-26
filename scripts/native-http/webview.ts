@@ -437,6 +437,44 @@ export function webviewServers(
       );
       return;
     }
+    const customCategory = "m".repeat(26);
+    const builtin = `direct_messages_${userId.toLowerCase()}_${teamId.toLowerCase()}`;
+    const categoryRoute = `/team/chat/api/v4/users/me/teams/${teamId}/channels/categories`;
+    if (
+      url.pathname === `${categoryRoute}/${builtin}` ||
+      url.pathname === `${categoryRoute}/${customCategory}`
+    ) {
+      assert.equal(url.search, "");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      let result: Record<string, unknown>;
+      if (url.pathname.endsWith(builtin)) {
+        assert.equal(req.method, "PUT");
+        assert.equal(req.headers["content-type"], "application/json");
+        result = {
+          id: builtin,
+          team_id: teamId,
+          user_id: userId,
+          type: "direct_messages",
+          channel_ids: [channelId],
+          collapsed: true,
+        };
+        assert.deepEqual(await json(req), result);
+        visits.push("collapse-sidebar-category");
+      } else {
+        assert.equal(req.method, "DELETE");
+        assert.equal(await text(req), "");
+        result = { status: "OK" };
+        visits.push("remove-sidebar-category");
+      }
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end(JSON.stringify(result));
+      return;
+    }
     const threadList = await respondToThreadList(
       req,
       res,
@@ -1052,6 +1090,8 @@ export function webviewServers(
         "post-reactions",
         "follow-thread",
         "unfollow-thread",
+        "collapse-sidebar-category",
+        "remove-sidebar-category",
         "thread-list-page",
         "thread-list-totals",
         "thread-list-empty",
