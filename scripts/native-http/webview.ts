@@ -5,6 +5,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import https from "node:https";
 import type { Socket } from "node:net";
 import { json, text } from "node:stream/consumers";
+import type { SendMacKey } from "../webview-check/macos.ts";
 import { respondToAccount } from "./account.ts";
 import type { SendAndroidKey } from "./android-webview.ts";
 import { respondToChannelMembers } from "./channel-members.ts";
@@ -62,7 +63,9 @@ export function webviewServers(
     | undefined;
   let sendRight: (() => Promise<void>) | undefined;
   let prepareKeyboard: (() => Promise<void>) | undefined;
-  let pressAndroidBack: (() => Promise<void>) | undefined;
+  const backSteps = ["dialog", "results", "thread", "reopened"];
+  let stepIndex = 0;
+  let pressWorkspaceBack: (() => Promise<void>) | undefined;
   let disconnect: Socket | undefined;
   let pingSocket: Socket | undefined;
   const settings = new Map<string, ServerResponse>();
@@ -357,6 +360,47 @@ export function webviewServers(
   }
   const data = https.createServer(trusted, async (req, res) => {
     const url = new URL(req.url ?? "/", "https://localhost");
+    const rosterChannel = "r".repeat(26);
+    const rosterUser = "n".repeat(26);
+    const rosterProfiles =
+      url.pathname === "/team/chat/api/v4/users" &&
+      url.searchParams.get("in_channel") === rosterChannel;
+    if (
+      rosterProfiles ||
+      url.pathname === `/team/chat/api/v4/channels/${rosterChannel}/members/ids`
+    ) {
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      let rows: object[];
+      if (rosterProfiles) {
+        assert.equal(req.method, "GET");
+        assert.deepEqual(Object.fromEntries(url.searchParams), {
+          in_channel: rosterChannel,
+          page: "0",
+          per_page: "100",
+          sort: "admin",
+        });
+        rows = [{ id: rosterUser, username: "roster-reader" }];
+      } else {
+        assert.equal(req.method, "POST");
+        assert.deepEqual(await json(req), [rosterUser]);
+        rows = [
+          {
+            user_id: rosterUser,
+            channel_id: rosterChannel,
+            roles: "channel_user channel_admin",
+            scheme_admin: true,
+          },
+        ];
+      }
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end(JSON.stringify(rows));
+      return;
+    }
     if (url.pathname === "/team/chat/api/v4/reactions") {
       assert.equal(req.method, "POST");
       assert.equal(
@@ -1229,14 +1273,22 @@ export function webviewServers(
         "prepared, cancelled and refused requests must not open a socket",
       );
       before = true;
-    } else if (step === "thread-back" || step === "search-result-back") {
+    } else if (step === "search-result-back") {
       const marker = "android-" + step;
       assert(
-        pressAndroidBack && !visits.includes(marker),
+        pressWorkspaceBack && !visits.includes(marker),
         "expected one Android Back at " + step,
       );
       visits.push(marker);
-      await pressAndroidBack();
+      await pressWorkspaceBack();
+    } else if (step?.startsWith("back-")) {
+      assert.equal(step, "back-" + backSteps[stepIndex]);
+      assert(
+        pressWorkspaceBack,
+        "expected the active platform's key input driver",
+      );
+      await pressWorkspaceBack();
+      stepIndex++;
     } else if (step === "format-right") {
       assert(sendRight, "Missing native keyboard driver");
       await sendRight();
@@ -1281,13 +1333,14 @@ export function webviewServers(
   });
   return {
     servers: [data, control, foreign],
+    onMacInputReady(send: SendMacKey) {
+      pressWorkspaceBack = () => send("escape");
+      sendRight = () => send("right");
+    },
     onAndroidInputReady(send: SendAndroidKey) {
       prepareKeyboard = () => send("KEYCODE_TAB");
-      pressAndroidBack = () => send("KEYCODE_BACK");
+      pressWorkspaceBack = () => send("KEYCODE_BACK");
       sendRight = () => send("KEYCODE_DPAD_RIGHT");
-    },
-    onMacRightReady(send: () => Promise<void>) {
-      sendRight = send;
     },
     verify(platform: "macos" | "android") {
       refresh.verify();
@@ -1475,7 +1528,27 @@ export function webviewServers(
         "ping-headers",
         "ping-body",
       ];
-      if (platform === "macos") expected.push("window");
+      if (platform === "macos")
+        expected.push(
+          "window",
+          "browser-action-confirmed",
+          "browser-action-confirmed",
+          "browser-entry-users/me/preferences",
+          "browser-entry-users/me/teams",
+          "browser-entry-users/me/teams/members",
+          "live-authors",
+          "live-categories",
+          "live-channels",
+          "live-config/client",
+          "live-license/client",
+          "live-members",
+          `live-posts-${"c".repeat(26)}`,
+          "live-roles",
+          "live-search-posts",
+          "live-window-thread",
+          "live-window-thread",
+          "live-window-thread",
+        );
       if (platform === "android") expected.push("account-logout-local-failure");
       expected.push(
         "directory-teams",
@@ -1502,8 +1575,11 @@ export function webviewServers(
           "live-categories",
           "live-window-send",
           "live-window-thread",
-          "android-thread-back",
           "android-search-result-back",
+          "browser-action-confirmed",
+          "live-search-posts",
+          "live-window-thread",
+          "live-window-thread",
           "live-window-thread",
           "live-window-send-reply",
           "live-window-command-repeat",
@@ -1536,6 +1612,10 @@ export function webviewServers(
             "users/me/preferences",
           ].map((path) => "browser-entry-" + path),
         );
+      assert.equal(stepIndex, backSteps.length);
+      console.log(
+        `${platform} verified native return through the search dialog, results and thread with both composer drafts intact.`,
+      );
       assert.deepEqual(visits.sort(), expected.sort());
     },
   };

@@ -65,7 +65,7 @@ try {
         fixture.webviewPorts,
         dir,
         config,
-        fixture.onMacRightReady,
+        fixture.onMacInputReady,
       );
     }
     external?.verify();

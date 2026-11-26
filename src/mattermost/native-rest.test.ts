@@ -539,6 +539,7 @@ test("opens a native account by installation and user ID", async () => {
     "readAccountDirectory",
     "readAssociatedMentionGroups",
     "readChannelMemberCount",
+    "readChannelMemberDirectory",
     "readChannelNotifications",
     "readChannelTimezoneCount",
     "readChannelWindow",

@@ -1,3 +1,5 @@
+#[cfg(all(feature = "native-http-check", any(test, target_os = "android")))]
+pub(crate) mod attachment_check;
 pub(crate) mod delivery;
 pub(crate) mod directory;
 pub(crate) mod drafts;
@@ -260,6 +262,14 @@ pub(crate) fn seed_check_sessions(
         ] {
             sessions.activate(base, account, token).await?;
         }
+        #[cfg(target_os = "macos")]
+        sessions
+            .activate(
+                &format!("{root}/browser-action-check"),
+                "ffffffffffffffffffffffffff",
+                "fixture-browser-action",
+            )
+            .await?;
         history_check::seed(sessions, &root).await?;
         #[cfg(target_os = "android")]
         sessions

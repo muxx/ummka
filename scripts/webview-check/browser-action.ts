@@ -12,6 +12,7 @@ import {
   getCurrentAccountId,
 } from "../../src/mattermost/native-rest.ts";
 import { checkBrowserApp, waitForAppForeground } from "./browser-app.tsx";
+import { checkDesktopBack } from "./workspace-back.tsx";
 
 function matches(actual: unknown, fields: Record<string, string>) {
   if (actual === null || typeof actual !== "object") return false;
@@ -37,7 +38,16 @@ export async function checkBrowserAction(port: string, controlPort: string) {
   if (await cancelBrowserSignIn("00000000-0000-4000-8000-000000000000")) {
     throw Error("inactive browser request was cancelled");
   }
-  if (!navigator.userAgent.includes("Android")) return;
+  if (!navigator.userAgent.includes("Android")) {
+    await connectInstallation(server);
+    try {
+      await checkDesktopBack(controlPort);
+    } finally {
+      await forgetLocalAccount(server, "f".repeat(26));
+      await forgetInstallation(server);
+    }
+    return;
+  }
 
   await connectInstallation(server);
   await waitForAppForeground();

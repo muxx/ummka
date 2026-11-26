@@ -6,6 +6,7 @@ import {
   useRef,
 } from "react";
 import smallMark from "../../src-tauri/icons/symbols/ummka-small.svg?no-inline";
+import { isMobile, usesMacOSOverlay } from "../build-platform.ts";
 import "./frame.css";
 
 type FrameLabels = {
@@ -92,7 +93,7 @@ export function ChannelsFrame({
   const lastFocus = useRef<HTMLElement>(null);
   const headingId = useId();
   const threadId = useId();
-  const overlay = import.meta.env.UMMKA_MACOS_OVERLAY === true;
+  const overlay = usesMacOSOverlay;
   const channelId = channel?.id;
   const openThread = thread?.id;
   const replyRef = thread?.replyRef;
@@ -177,7 +178,7 @@ export function ChannelsFrame({
           className="channels-bar-brand"
           data-tauri-drag-region={overlay || undefined}
         >
-          {import.meta.env.UMMKA_MOBILE === true && (
+          {isMobile && (
             <img
               className="channels-brand-mark"
               src={smallMark}

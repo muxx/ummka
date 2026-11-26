@@ -10,6 +10,8 @@ use serde::Deserialize;
 use std::sync::{Arc, LazyLock};
 use tokio_util::sync::CancellationToken;
 
+pub mod file_transfer;
+
 #[derive(Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum BodyKind {
@@ -127,6 +129,7 @@ pub struct RestConnection {
     base: Url,
     http: NativeHttp,
     account: Option<Arc<AccountSession>>,
+    owner: CancellationToken,
 }
 
 impl RestConnection {
@@ -144,6 +147,7 @@ impl RestConnection {
             base: url,
             http: client()?,
             account: None,
+            owner: CancellationToken::new(),
         })
     }
 
@@ -152,11 +156,11 @@ impl RestConnection {
         sessions: &AccountSessions,
         user_id: &str,
     ) -> Result<Self, TransportError> {
-        self.account = Some(
-            sessions
-                .restore(self.base.as_str().trim_end_matches('/'), user_id)
-                .await?,
-        );
+        let session = sessions
+            .restore(self.base.as_str().trim_end_matches('/'), user_id)
+            .await?;
+        self.owner = session.lifetime();
+        self.account = Some(session);
         Ok(self)
     }
 
@@ -242,9 +246,7 @@ impl RestConnection {
     }
 
     pub(crate) fn lifetime(&self) -> CancellationToken {
-        self.account
-            .as_ref()
-            .map_or_else(CancellationToken::new, |account| account.lifetime())
+        self.owner.clone()
     }
 
     pub async fn send(&self, request: Request) -> Result<Response, TransportError> {

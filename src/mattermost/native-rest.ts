@@ -22,6 +22,10 @@ import {
   refreshChannelHistory,
 } from "./channel-history-refresh.ts";
 import {
+  type ChannelMemberQuery,
+  readChannelMemberDirectory,
+} from "./channel-member-directory.ts";
+import {
   readChannelNotifications,
   updateChannelNotifications,
 } from "./channel-notifications.ts";
@@ -217,6 +221,16 @@ export async function openAccountRestConnection(
       return readWhileOpen(() => readFileAnchor(files, fileId, signal), signal);
     },
     ...accountChannelAudience(config, readWhileOpen),
+    readChannelMemberDirectory(
+      channelId: string,
+      query: ChannelMemberQuery,
+      signal?: AbortSignal,
+    ) {
+      return readWhileOpen(
+        () => readChannelMemberDirectory(config, channelId, query, signal),
+        signal,
+      );
+    },
     ...accountChannelReadState(config, userId, readWhileOpen),
     readChannelNotifications(channelId: string, signal?: AbortSignal) {
       return readWhileOpen(

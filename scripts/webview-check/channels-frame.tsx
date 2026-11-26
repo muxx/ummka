@@ -2,6 +2,7 @@ import { createRef } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { applyPalette, resolvePalette } from "../../src/appearance/palette.ts";
+import { isMobile, usesMacOSOverlay } from "../../src/build-platform.ts";
 import { ChannelsFrame } from "../../src/channels/ChannelsFrame.tsx";
 
 import "../../src/channels/search.css";
@@ -115,15 +116,14 @@ export async function checkChannelsFrame() {
     const open = control('[data-open-thread="first"]');
     const second = control('[data-open-thread="second"]');
     const brand = control(".channels-bar-brand");
-    const mobile = import.meta.env.UMMKA_MOBILE === true;
     const mark = brand.querySelector("img");
-    if (mobile !== Boolean(mark) || (mark && mark.alt !== "ummka"))
+    if (isMobile !== Boolean(mark) || (mark && mark.alt !== "ummka"))
       throw Error("frame-brand-platform");
     await mark?.decode();
     const bar = control(".channels-bar");
     const account = control(".channels-account");
     const scene = control(".channels-frame");
-    const overlay = import.meta.env.UMMKA_MACOS_OVERLAY === true;
+    const overlay = usesMacOSOverlay;
     if (
       Boolean(brand.closest("[data-tauri-drag-region]")) !== overlay ||
       bar.hasAttribute("data-tauri-drag-region") !== overlay ||

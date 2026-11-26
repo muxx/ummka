@@ -1,8 +1,0 @@
-{
-  "identifier": "android-thread-back",
-  "description": "The local Channels window handles Android Back while reading a thread.",
-  "local": true,
-  "webviews": ["main"],
-  "platforms": ["android"],
-  "permissions": ["core:app:allow-register-listener", "core:app:allow-remove-listener"]
-}

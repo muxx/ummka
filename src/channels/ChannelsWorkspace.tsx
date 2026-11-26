@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { isMobile } from "../build-platform.ts";
 import { AccountSessionWindow } from "../entry/AccountSessionWindow.tsx";
 import type { TeamWorkspace } from "../entry/AccountTeamWindow.tsx";
 import type { EntryLanguage } from "../entry/language.ts";
@@ -30,7 +31,7 @@ import { draftCopy } from "./draft-copy.ts";
 import type { ReactionThread } from "./submit-channel-reaction.ts";
 import { ThreadPane } from "./ThreadPane.tsx";
 import { useChannelTimeline } from "./use-channel-timeline.ts";
-import { useThreadBack } from "./use-thread-back.ts";
+import { useWorkspaceBack } from "./use-workspace-back.ts";
 import { useWorkspaceProfiles } from "./use-workspace-profiles.ts";
 import { useTeamRoles, useWorkspaceRead } from "./use-workspace-read.ts";
 import { useWorkspaceSearch } from "./use-workspace-search.tsx";
@@ -69,17 +70,37 @@ function Sidebar({
                     className="workspace-row"
                     type="button"
                     aria-current={row.current ? "page" : undefined}
+                    aria-description={
+                      row.kind === "P" ? text.privateChannel : undefined
+                    }
                     data-unread={row.unread || undefined}
                     onClick={() => choose(row.id)}
                   >
                     <span className="workspace-kind" aria-hidden="true">
-                      {row.kind === "D"
-                        ? "@"
-                        : row.kind === "G"
-                          ? "••"
-                          : row.kind === "P"
-                            ? "◇"
-                            : "#"}
+                      {row.kind === "P" ? (
+                        <svg
+                          className="workspace-lock"
+                          aria-hidden="true"
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.65"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <rect x="5" y="11" width="14" height="10" rx="2" />
+                          <circle cx="12" cy="16" r="1" />
+                          <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                        </svg>
+                      ) : row.kind === "D" ? (
+                        "@"
+                      ) : row.kind === "G" ? (
+                        "••"
+                      ) : (
+                        "#"
+                      )}
                     </span>
                     <span className="workspace-row-name" title={row.title}>
                       {row.title}
@@ -526,13 +547,14 @@ export function ChannelsWorkspace({
   }
   const manualThread =
     activeThread && closedRequest === position?.request.requestId;
-  useThreadBack(
-    Boolean(activeThread || canReturnToResults) &&
-      !accountOpen &&
-      !search.dialog &&
-      !visibleSearchPanel,
-    canReturnToResults && !manualThread ? returnToResults : closeThread,
-  );
+  function workspaceBack() {
+    if (search.dialog) return search.back;
+    if (manualThread) return closeThread;
+    if (canReturnToResults) return returnToResults;
+    if (visibleSearchPanel) return search.back;
+    return activeThread ? closeThread : null;
+  }
+  useWorkspaceBack(accountOpen, workspaceBack());
   function composer(rootId?: string, reader?: ReactionThread) {
     if (historyDenied) return null;
     if (access !== "writable" || !channel) {
@@ -642,9 +664,7 @@ export function ChannelsWorkspace({
                 title: text.thread,
                 close: closeThread,
                 replyRef:
-                  activeThread.rootId || import.meta.env.UMMKA_MOBILE === true
-                    ? undefined
-                    : replyField,
+                  activeThread.rootId || isMobile ? undefined : replyField,
                 content: (
                   <ThreadPane
                     key={JSON.stringify([

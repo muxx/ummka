@@ -80,6 +80,13 @@ export function useWorkspaceSearch(
   const clearPosition = navigation.clear;
   const trigger = useRef<HTMLButtonElement>(null);
   const previousPolicy = useRef(policyKey);
+  const restoreTrigger = useRef(false);
+  useLayoutEffect(() => {
+    if (!open && restoreTrigger.current) {
+      restoreTrigger.current = false;
+      trigger.current?.focus();
+    }
+  }, [open]);
   useLayoutEffect(() => {
     if (previousPolicy.current === policyKey) return;
     previousPolicy.current = policyKey;
@@ -110,8 +117,10 @@ export function useWorkspaceSearch(
     request.current = null;
     setPending(false);
     setError(null);
+    // The modal makes its opener inert until React commits the dismissal.
+    if (open) restoreTrigger.current = true;
+    else trigger.current?.focus();
     setForm(null);
-    trigger.current?.focus();
   }
   function abandonDestination() {
     activation.current?.controller.abort();
@@ -220,6 +229,11 @@ export function useWorkspaceSearch(
     },
     dismiss,
     abortPending: () => activation.current?.controller.abort(),
+    back: open
+      ? closeDialog
+      : entry && entry.policyKey === policyKey
+        ? dismiss
+        : null,
     async fromCommand(
       terms: string,
       origin: AbortSignal,

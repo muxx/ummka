@@ -33,12 +33,7 @@ pub(super) fn split(
         {
             continue;
         }
-        let retention_marker = status == StatusCode::FORBIDDEN
-            && matches!(
-                name,
-                "first-inaccessible-post-time" | "first-inaccessible-file-time"
-            )
-            && value.as_bytes() == b"1";
+        let retention_marker = app_error::retention_marker(status, name, value.as_bytes());
         if account_error
             && !retention_marker
             && !matches!(

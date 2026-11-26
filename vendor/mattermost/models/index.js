@@ -4,6 +4,8 @@ export * from './AppError.js';
 export * from './AutocompleteCommand.js';
 export * from './AutocompleteSuggestion.js';
 export * from './Channel.js';
+export * from './ChannelBookmark.js';
+export * from './ChannelBookmarkWithFileInfo.js';
 export * from './ChannelMember.js';
 export * from './ChannelMemberCountByGroup.js';
 export * from './ChannelNotifyProps.js';

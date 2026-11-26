@@ -9,6 +9,7 @@ import {
 } from "../../src/mattermost/native-rest.ts";
 import { openChannelNavigation } from "./account-team-window.tsx";
 import { checkPendingCommandActions } from "./pending-command-actions.ts";
+import { verifyWorkspaceBack } from "./workspace-back.tsx";
 
 export async function waitForAppForeground() {
   await waitFor(
@@ -22,16 +23,13 @@ export async function waitForAppForeground() {
   );
 }
 
-async function pressAndroidBack(
-  controlPort: string,
-  step: "thread-back" | "search-result-back",
-) {
+async function returnToSearchResults(controlPort: string) {
   const control = await openNativeRestConnection(
     `https://127.0.0.1:${controlPort}`,
   );
   try {
     const response = await control.fetchApi(
-      `${control.basePath}/api/v4/system/ping?step=${step}`,
+      `${control.basePath}/api/v4/system/ping?step=search-result-back`,
     );
     if (response.status !== 204)
       throw Error("Android did not inject the Back key");
@@ -216,25 +214,7 @@ export async function checkBrowserApp(server: string, controlPort: string) {
     );
     if (town.getClientRects().length || document.activeElement === townDraft)
       throw Error("The compact thread did not take over the conversation");
-    await pressAndroidBack(controlPort, "thread-back");
-    await waitFor(
-      () => {
-        if (thread.isConnected)
-          throw Error("Android Back left the thread open");
-        if (!document.hasFocus()) throw Error("Android Back left the Activity");
-        if (document.activeElement !== opener || !town.getClientRects().length)
-          throw Error(
-            "Android Back did not restore the channel and its opener",
-          );
-        if (
-          ui.getByRole("textbox", { name: "Message #Town Square…" }) !==
-            townDraft ||
-          townDraft.value !== "Draft from the channel window"
-        )
-          throw Error("Android Back lost the channel draft");
-      },
-      { timeout: 10_000 },
-    );
+    await verifyWorkspaceBack(host, controlPort, opener, townDraft);
     await checkThreadReply(host, opener, townDraft);
     const searchTrigger = ui.getByRole("button", { name: "Search" });
     searchTrigger.focus();
@@ -336,7 +316,7 @@ export async function checkBrowserApp(server: string, controlPort: string) {
       },
       { timeout: 10_000 },
     );
-    await pressAndroidBack(controlPort, "search-result-back");
+    await returnToSearchResults(controlPort);
     results = within(
       await ui.findByRole(
         "complementary",
@@ -380,10 +360,13 @@ export async function checkBrowserApp(server: string, controlPort: string) {
       ),
     );
     await commandResults.findByText("Search found this fixture post");
-    await waitFor(() => {
-      if (townDraft.value !== "")
-        throw Error("The local search command is still in the channel draft");
-    });
+    await waitFor(
+      () => {
+        if (townDraft.value !== "")
+          throw Error("The local search command is still in the channel draft");
+      },
+      { container: host, timeout: 10_000 },
+    );
     flushSync(() =>
       fireEvent.click(
         commandResults.getByRole("button", { name: "Close search" }),
@@ -401,10 +384,13 @@ export async function checkBrowserApp(server: string, controlPort: string) {
       throw Error(
         "A search command without arguments did not open the empty input",
       );
-    await waitFor(() => {
-      if (townDraft.value !== "")
-        throw Error("The bare command was not cleared");
-    });
+    await waitFor(
+      () => {
+        if (townDraft.value !== "")
+          throw Error("The bare command was not cleared");
+      },
+      { container: host, timeout: 10_000 },
+    );
     flushSync(() =>
       fireEvent.click(
         emptySearch.getByRole("button", { name: "Close search" }),

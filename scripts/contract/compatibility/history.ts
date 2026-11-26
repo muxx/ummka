@@ -22,6 +22,7 @@ import {
 } from "../../../src/mattermost/thread-page.ts";
 import { loadVisibleProfiles } from "../../../src/mattermost/visible-profiles.ts";
 import {
+  BookmarksApi,
   ChannelsApi,
   Configuration,
   type Post,
@@ -36,6 +37,10 @@ import {
   checkBrowserSignIn,
 } from "./browser-sign-in.ts";
 import { checkChannelAudience } from "./channel-audience.ts";
+import {
+  checkChannelMemberDirectory,
+  checkChannelMemberRoles,
+} from "./channel-member-directory.ts";
 import {
   checkChannelNotifications,
   checkPersonalNotificationUpdate,
@@ -406,6 +411,30 @@ assert.equal(closedMember.userId, user.id);
 assert.equal(closedMember.channelId, closed.id);
 const closedReader = new ChannelsApi(
   new Configuration({ basePath: base, accessToken: readerToken }),
+);
+const bookmarkDirectory = new BookmarksApi(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+);
+const bookmarkFailure = await bookmarkDirectory
+  .listChannelBookmarksForChannel({ channelId: dm.id })
+  .catch((error: unknown) => error);
+assert.ok(bookmarkFailure instanceof ResponseError);
+assert.equal(bookmarkFailure.response.status, 501);
+assert.equal(
+  (await bookmarkFailure.response.json()).id,
+  "api.channel.bookmark.channel_bookmark.license.error",
+);
+await checkChannelMemberDirectory(
+  base,
+  readerToken,
+  dm.id,
+  closed.id,
+  user.id,
+  reader.id,
+  username,
+);
+console.log(
+  `Mattermost ${version} verified channel member paging, search, roles and private access.`,
 );
 await checkChannelAudience(
   base,
@@ -1640,6 +1669,34 @@ await checkNamedRoutes(
 );
 console.log(
   `Mattermost ${version} verified team and channel names before and after invitation and archive.`,
+);
+const memberDirectoryChannel = await (
+  await create(
+    "channels",
+    {
+      team_id: team.id,
+      name: "roster-role-order",
+      display_name: "Roster role order",
+      type: "P",
+    },
+    token,
+  )
+).json();
+await create(
+  `channels/${memberDirectoryChannel.id}/members`,
+  { user_id: reader.id },
+  token,
+);
+await checkChannelMemberRoles(
+  base,
+  readerToken,
+  memberDirectoryChannel.id,
+  user.id,
+  reader.id,
+  observer,
+);
+console.log(
+  `Mattermost ${version} verified admin-first role order and excluded an existing outside profile from private channel search.`,
 );
 await allowFixtureBrowserSignIn(base, token);
 const logout = await fetch(`${base}/api/v4/users/logout`, {
