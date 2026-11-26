@@ -5,10 +5,21 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { openMentionList } from "./mention-list.ts";
 import { openPostCollection } from "./post-collection.ts";
 
-type CollectionsAccount = Parameters<typeof openPostCollection>[0];
+type CollectionsAccount = Parameters<typeof openPostCollection>[0] &
+  Parameters<typeof openMentionList>[0];
 type Source = { kind: "all" } | { kind: "pins"; channelId: string };
+type Mentions = {
+  kind: "mentions";
+  archivedChannels: boolean;
+  standalone: boolean;
+};
+type View = { key: number; opener: HTMLButtonElement } & (
+  | (Source & { model: ReturnType<typeof openPostCollection> })
+  | (Mentions & { model: ReturnType<typeof openMentionList> })
+);
 type RowOrigin = { id: string; channelId: string | null; scroll: number };
 const subscribeToNothing = () => () => {};
 const empty = () => null;
@@ -18,12 +29,7 @@ export function useWorkspaceCollections(
   online: boolean,
 ) {
   const generation = useRef(0);
-  const [view, setView] = useState<{
-    key: number;
-    source: Source;
-    model: ReturnType<typeof openPostCollection>;
-    opener: HTMLButtonElement;
-  } | null>(null);
+  const [view, setView] = useState<View | null>(null);
   const owned = useRef(view);
   const returnFocus = useRef<HTMLButtonElement | null>(null);
   useLayoutEffect(() => {
@@ -35,9 +41,15 @@ export function useWorkspaceCollections(
   const activation = useRef<AbortController | null>(null);
   const origin = useRef<RowOrigin | null>(null);
   const [restore, setRestore] = useState<RowOrigin | null>(null);
+  const collection = view?.kind === "mentions" ? null : view;
+  const mentions = view?.kind === "mentions" ? view : null;
   const state = useSyncExternalStore(
-    view?.model.subscribe ?? subscribeToNothing,
-    view?.model.getSnapshot ?? empty,
+    collection?.model.subscribe ?? subscribeToNothing,
+    collection?.model.getSnapshot ?? empty,
+  );
+  const mentionState = useSyncExternalStore(
+    mentions?.model.subscribe ?? subscribeToNothing,
+    mentions?.model.getSnapshot ?? empty,
   );
   useEffect(() => {
     if (view && online) void view.model.refresh();
@@ -64,15 +76,18 @@ export function useWorkspaceCollections(
     returnFocus.current = focus ? previous.opener : null;
     setView(null);
   }
-  function show(source: Source, opener: HTMLButtonElement) {
+  function show(source: Source | Mentions, opener: HTMLButtonElement) {
     close(false);
     returnFocus.current = null;
-    const next = {
-      key: ++generation.current,
-      source,
-      opener,
-      model: openPostCollection(account, source),
-    };
+    const owner = { key: ++generation.current, opener };
+    const next =
+      source.kind === "mentions"
+        ? {
+            ...owner,
+            ...source,
+            model: openMentionList(account, source.archivedChannels),
+          }
+        : { ...owner, ...source, model: openPostCollection(account, source) };
     owned.current = next;
     setView(next);
   }
@@ -100,6 +115,7 @@ export function useWorkspaceCollections(
   return {
     view,
     state,
+    mentionState,
     open: show,
     close,
     abort,

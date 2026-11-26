@@ -222,6 +222,7 @@ export function fixture({
     readRecentTeamSearches: vi.fn().mockResolvedValue([]),
     rememberTeamSearch: vi.fn().mockResolvedValue(true),
     readSearchTimezone: vi.fn().mockResolvedValue("UTC"),
+    openRecentMentions: vi.fn<Account["openRecentMentions"]>(),
     readSavedPosts: vi.fn<Account["readSavedPosts"]>().mockResolvedValue({
       items: [
         {

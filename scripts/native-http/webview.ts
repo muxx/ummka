@@ -1547,6 +1547,8 @@ export function webviewServers(
         "collection-back-saved-list",
         "collection-back-pinned-root",
         "collection-back-pinned-list",
+        "collection-back-mentioned-reply",
+        "collection-back-mentions-list",
         "signed-single-channel",
         "signed-named-channel",
         "signed-named-team",

@@ -1,0 +1,207 @@
+.mentions-pane {
+  --min-panel: 304px;
+  --normal-panel: 400px;
+  --min-channel: min(352px, calc(100cqi - 168px - var(--min-panel)));
+  --room: calc(100cqi - var(--sidebar-width));
+  --wide-panel: min(
+    60cqi,
+    1536px,
+    calc(var(--room) - min(240px, var(--min-channel) - 48px))
+  );
+  flex: 0 0
+    max(
+      var(--min-panel),
+      min(
+        var(--normal-panel),
+        var(--wide-panel) -
+        48px,
+        var(--room) -
+        var(--min-channel)
+      )
+    );
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+  border-inline-start: 1px solid var(--divider);
+  background: var(--canvas);
+  color: var(--text);
+}
+.mentions-pane[data-wide] {
+  flex-basis: var(--wide-panel);
+}
+.channels-panes:has(.mentions-pane[data-standalone]) .channels-conversation {
+  display: none;
+}
+.mentions-pane[data-standalone] {
+  flex: 1;
+}
+.mentions-head {
+  min-height: 70px;
+  padding: 10px 17px;
+  gap: 2px;
+}
+.mentions-heading {
+  min-width: 0;
+  flex: 1;
+}
+.mentions-heading > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.mentions-heading svg {
+  width: 21px;
+  height: 21px;
+  color: var(--muted);
+}
+.mentions-heading h2 {
+  font-size: 1.09rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.mentions-heading p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.5;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.mentions-mobile-back {
+  display: none;
+}
+.mentions-desktop-action,
+.channels-bar .mentions-trigger,
+.mentions-trigger + .collection-saved-trigger {
+  width: 32px;
+  height: 32px;
+}
+.mentions-desktop-action:hover,
+.mention-result:hover {
+  background: var(--row-hover);
+}
+.mentions-trigger:hover {
+  background: color-mix(in srgb, var(--on-topbar) 13%, transparent);
+}
+.mentions-trigger + .collection-saved-trigger {
+  margin-inline-start: 0;
+}
+.mentions-pane .collection-rows {
+  padding: 13px 14px;
+  overflow: auto;
+}
+.mentions-empty {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  box-sizing: border-box;
+  max-width: 460px;
+  margin: 8px auto;
+  padding: 24px 20px;
+}
+.mentions-empty svg {
+  width: 27px;
+  height: 27px;
+  margin-bottom: 4px;
+  color: var(--accent);
+}
+.mentions-empty h3 {
+  font-size: 1rem;
+  line-height: normal;
+  margin: 0;
+}
+.mentions-empty p {
+  font-size: 0.86rem;
+  line-height: 1.5;
+  margin: 0;
+  color: var(--muted);
+}
+.mention-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  text-align: start;
+  color: inherit;
+  cursor: pointer;
+}
+.mention-avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 29px;
+  height: 29px;
+  border-radius: 8px;
+  font-size: 0.7rem;
+  font-weight: 680;
+  color: var(--accent);
+  background: var(--accent-tint);
+}
+.mention-result-copy {
+  min-width: 0;
+  flex: 1;
+}
+.mention-result strong,
+.mention-result small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mention-result strong {
+  font-size: 0.87rem;
+  font-weight: 620;
+}
+.mention-result small {
+  font-size: 0.76rem;
+  margin-top: 2px;
+  color: var(--muted);
+}
+.mention-result time {
+  font-size: 0.7rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+@container (width > 1680px) {
+  .mentions-pane {
+    --normal-panel: 500px;
+  }
+}
+@container (width <= 900px) {
+  .mentions-pane {
+    --min-panel: 264px;
+    --normal-panel: 300px;
+  }
+}
+@container (width <= 740px) {
+  .mentions-pane,
+  .mentions-pane[data-wide] {
+    flex: 1;
+    border: 0;
+    padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
+    padding-block-end: env(safe-area-inset-bottom);
+  }
+  .mentions-pane .mentions-head {
+    min-height: 59px;
+    padding: 7px 17px;
+    gap: 8px;
+  }
+  .mentions-heading p {
+    font-size: 0.7rem;
+  }
+  .mentions-mobile-back {
+    display: grid;
+    width: 34px;
+    height: 34px;
+  }
+  .mentions-desktop-action {
+    display: none;
+  }
+}

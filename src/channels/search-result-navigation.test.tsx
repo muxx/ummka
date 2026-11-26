@@ -877,3 +877,104 @@ test("the channel heading can receive WebKit's pointer focus before a pin-menu c
     await screen.findByRole("complementary", { name: "Pinned messages" }),
   ).toBeTruthy();
 });
+
+test("opens a mentioned reply and returns to its row, scroll position and toolbar opener", async () => {
+  const { account } = fixture();
+  const readPage = vi.fn().mockResolvedValue({
+    items: [{ ...reply, message: "A mention for @reader" }],
+    nextPage: null,
+    firstInaccessiblePostTime: 0,
+  });
+  account.openRecentMentions.mockResolvedValue({ readPage });
+  const trigger = await screen.findByRole("button", { name: "Mentions" });
+  await waitFor(() => expect(trigger.hasAttribute("disabled")).toBe(false));
+  fireEvent.click(trigger);
+  const row = await screen.findByRole("button", {
+    name: /A mention for @reader/,
+  });
+  const list = row.closest(".collection-rows") as HTMLElement;
+  list.scrollTop = 19;
+  fireEvent.click(row);
+  const thread = await screen.findByRole("complementary", { name: "Thread" });
+  expect(await within(thread).findByText(reply.message)).toBeTruthy();
+  expect(account.readPostAnchor).toHaveBeenCalledWith(
+    reply.id,
+    expect.any(AbortSignal),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Back to mentions" }));
+  const restored = await screen.findByRole("button", {
+    name: /A mention for @reader/,
+  });
+  await waitFor(() => expect(document.activeElement).toBe(restored));
+  expect(restored.closest(".collection-rows")?.scrollTop).toBe(19);
+  expect(readPage).toHaveBeenCalledTimes(1);
+  fireEvent.keyDown(window, { key: "Escape" });
+  await waitFor(() => expect(document.activeElement).toBe(trigger));
+});
+
+test("a temporary mention read failure is distinct from empty and retries the same query", async () => {
+  const { account } = fixture();
+  const readPage = vi
+    .fn()
+    .mockRejectedValueOnce(new TypeError("offline"))
+    .mockResolvedValue({
+      items: [],
+      nextPage: null,
+      firstInaccessiblePostTime: 0,
+    });
+  account.openRecentMentions.mockResolvedValue({ readPage });
+  const trigger = await screen.findByRole("button", { name: "Mentions" });
+  await waitFor(() => expect(trigger.hasAttribute("disabled")).toBe(false));
+  fireEvent.click(trigger);
+  const pane = within(
+    await screen.findByRole("complementary", { name: "Mentions" }),
+  );
+  await pane.findByRole("alert");
+  expect(pane.queryByText("No mentions yet")).toBeNull();
+  const retry = pane.getByRole("button", { name: "Try again" });
+  retry.focus();
+  fireEvent.click(retry);
+  await pane.findByText("No mentions yet");
+  expect(document.activeElement).toBe(
+    pane.getByRole("heading", { name: "Mentions" }),
+  );
+  expect(account.openRecentMentions).toHaveBeenCalledTimes(1);
+  expect(readPage.mock.calls.map((call) => call[0])).toEqual([0, 0]);
+});
+
+test("keyboard pagination returns to retry after a refusal and focuses the first new mention", async () => {
+  const { account } = fixture();
+  const first = { ...root, message: "First mention" };
+  const second = { ...reply, message: "Earlier mention" };
+  const readPage = vi
+    .fn()
+    .mockResolvedValueOnce({
+      items: [first],
+      nextPage: 1,
+      firstInaccessiblePostTime: 0,
+    })
+    .mockRejectedValueOnce(new TypeError("connection lost"))
+    .mockResolvedValueOnce({
+      items: [first, second],
+      nextPage: null,
+      firstInaccessiblePostTime: 0,
+    });
+  account.openRecentMentions.mockResolvedValue({ readPage });
+  const trigger = await screen.findByRole("button", { name: "Mentions" });
+  await waitFor(() => expect(trigger.hasAttribute("disabled")).toBe(false));
+  fireEvent.click(trigger);
+  const pane = within(
+    await screen.findByRole("complementary", { name: "Mentions" }),
+  );
+  const next = await pane.findByRole("button", {
+    name: "Load earlier mentions",
+  });
+  next.focus();
+  fireEvent.click(next);
+  const retry = await pane.findByRole("button", { name: "Try again" });
+  expect(document.activeElement).toBe(retry);
+  fireEvent.click(retry);
+  const item = await pane.findByRole("button", { name: /Earlier mention/ });
+  expect(document.activeElement).toBe(item);
+  expect(readPage.mock.calls.map(([index]) => index)).toEqual([0, 1, 1]);
+});
