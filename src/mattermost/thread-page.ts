@@ -4,12 +4,15 @@ import { isMattermostId, isMattermostTime } from "./model-fields.ts";
 type ThreadPosition = { id: string; createAt: number };
 function follows(
   post: ThreadPosition,
-  cursor: ThreadPosition,
+  cursor: { id?: string; createAt: number },
   direction: "up" | "down",
 ) {
   if (post.id === cursor.id) return false;
   if (post.createAt === cursor.createAt)
-    return direction === "down" ? post.id > cursor.id : post.id < cursor.id;
+    return (
+      cursor.id !== undefined &&
+      (direction === "down" ? post.id > cursor.id : post.id < cursor.id)
+    );
   return direction === "down"
     ? post.createAt > cursor.createAt
     : post.createAt < cursor.createAt;
@@ -21,6 +24,7 @@ export interface ThreadPageRequest {
   collapsedThreads: boolean;
   direction: "up" | "down";
   cursor?: ThreadPosition;
+  fromCreateAt?: number;
   perPage?: number;
 }
 
@@ -38,11 +42,14 @@ export async function readThreadPage(
     perPage = 60,
   } = request;
   const fromPost = request.cursor?.id;
-  const fromCreateAt = request.cursor?.createAt;
+  const fromCreateAt = request.cursor?.createAt ?? request.fromCreateAt;
   if (
     !isMattermostId(channelId) ||
     !isMattermostId(rootId) ||
     typeof collapsedThreads !== "boolean" ||
+    (request.fromCreateAt !== undefined &&
+      (request.cursor !== undefined ||
+        !isMattermostTime(request.fromCreateAt, 1))) ||
     (direction !== "up" && direction !== "down") ||
     (request.cursor !== undefined &&
       (!isMattermostId(fromPost) || !isMattermostTime(fromCreateAt, 1)))
@@ -83,7 +90,7 @@ export async function readThreadPage(
     throw new TypeError("Invalid Mattermost thread page.");
 
   let previous =
-    fromPost !== undefined && fromCreateAt !== undefined
+    fromCreateAt !== undefined
       ? { id: fromPost, createAt: fromCreateAt }
       : undefined;
   const rows = order.map((id) => {

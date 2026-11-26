@@ -88,6 +88,7 @@ import { checkThreadPageTies } from "./thread-page-ties.ts";
 import { checkThreadReadState } from "./thread-read-state.ts";
 import { checkThreadSummary } from "./thread-summary.ts";
 import { checkThreadWindow } from "./thread-window.ts";
+import { checkUnreadThreadWindow } from "./unread-thread-window.ts";
 import { checkUserNotifications } from "./user-notifications.ts";
 import { checkUserTimezone } from "./user-timezone.ts";
 
@@ -757,6 +758,13 @@ await checkThreadWindow(readerPosts, channelId, imported.id, [
   ...[early.id, tied.id].sort(),
   late.id,
 ]);
+await checkUnreadThreadWindow(
+  readerPosts,
+  reader.id,
+  channelId,
+  message,
+  version,
+);
 console.log(
   `Mattermost ${version} verified ordinary-member thread pagination and reply anchors in both modes.`,
 );

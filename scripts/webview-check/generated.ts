@@ -37,6 +37,7 @@ import { checkSubmissions } from "./submission.ts";
 import { checkTeamReads } from "./team-reads.ts";
 import { checkRoleStorage } from "./team-role-storage.ts";
 import { checkAccountThreadList, checkThreadList } from "./thread-list.ts";
+import { checkUnreadThread } from "./unread-thread.ts";
 import { checkWorkspaceSettings } from "./workspace-settings.ts";
 
 function check(value: unknown, message: string): asserts value {
@@ -242,6 +243,7 @@ export async function checkGeneratedRequests(ports: string[]) {
     await checkAccountResponses(accountPrefix, userId, observed);
     await checkChannelRefresh(accountPrefix, observed);
     await checkOpenTimelineCommits(accountPrefix);
+    await checkUnreadThread(accountPrefix, userId);
     await checkPostReactions(accountRoot, accountPrefix);
     await checkTeamReads(accountRoot, accountPrefix);
     const prepared = await resolveComposerSubmission(
