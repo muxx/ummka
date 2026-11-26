@@ -94,6 +94,15 @@ followed.threads?.[0].unreadReplies satisfies number | undefined;
 followed.totalUnreadUrgentMentions satisfies number | undefined;
 // @ts-expect-error The server takes thread IDs as cursors and ignores page numbers.
 threads.getUserThreads({ userId: "me", teamId: "team", page: 2 });
+import type { FilesApi as FileContentApi } from "./compiled/index.js";
+declare const content: FileContentApi;
+for (const method of ["getFileRaw", "getFileThumbnailRaw", "getFilePreviewRaw"] as const) {
+    const reply = await content[method]({ fileId: "file", range: "bytes=0-7" });
+    reply.raw.body satisfies ReadableStream<Uint8Array> | null;
+    reply.value() satisfies Promise<Blob>;
+    // @ts-expect-error Each representation requires a file ID.
+    content[method]({ range: "bytes=0-7" });
+}
 declare const users: UsersApi;
 (await users.getUsersByUsernames({ requestBody: ["ada"] })) satisfies User[];
 (await users.getProfileImage({ userId: "user" })) satisfies Blob;

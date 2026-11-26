@@ -43,6 +43,7 @@ import { checkCollectionActions } from "./collection-actions.ts";
 import { checkCommands } from "./commands.ts";
 import { checkCustomEmojiLookup } from "./custom-emoji.ts";
 import { checkEventStream } from "./event-stream.ts";
+import { checkFileContent } from "./file-content.ts";
 import { checkFileSearch } from "./file-search.ts";
 import { checkFocusedConversation } from "./focused-conversation.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
@@ -1348,6 +1349,13 @@ await checkPostEditHistory(
   reader.id,
   channelId,
   version,
+);
+// The focused-history check already removed this reader from the private channel.
+await checkFileContent(session, authorization, readerToken, closed.id, () =>
+  create(`channels/${closed.id}/members`, { user_id: reader.id }, token),
+);
+console.log(
+  `Mattermost ${version} verified attachment representations, ranges and channel access.`,
 );
 await allowFixtureBrowserSignIn(base, token);
 const logout = await fetch(`${base}/api/v4/users/logout`, {
