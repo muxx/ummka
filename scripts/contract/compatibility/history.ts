@@ -22,6 +22,7 @@ import {
 } from "../../../src/mattermost/thread-page.ts";
 import { loadVisibleProfiles } from "../../../src/mattermost/visible-profiles.ts";
 import {
+  BookmarksApi,
   ChannelsApi,
   Configuration,
   type Post,
@@ -410,6 +411,18 @@ assert.equal(closedMember.userId, user.id);
 assert.equal(closedMember.channelId, closed.id);
 const closedReader = new ChannelsApi(
   new Configuration({ basePath: base, accessToken: readerToken }),
+);
+const bookmarkDirectory = new BookmarksApi(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+);
+const bookmarkFailure = await bookmarkDirectory
+  .listChannelBookmarksForChannel({ channelId: dm.id })
+  .catch((error: unknown) => error);
+assert.ok(bookmarkFailure instanceof ResponseError);
+assert.equal(bookmarkFailure.response.status, 501);
+assert.equal(
+  (await bookmarkFailure.response.json()).id,
+  "api.channel.bookmark.channel_bookmark.license.error",
 );
 await checkChannelMemberDirectory(
   base,

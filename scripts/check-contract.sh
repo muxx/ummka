@@ -46,6 +46,8 @@ download channels.yaml "$upstream/channels.yaml" 34282bb7db184ae792493b97b384f9b
 download channels-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/channels.yaml" 57be9442965e8a747d88d579df013fdff377a5315cc91a8dc55f58eefeef2a6d
 download preferences-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/preferences.yaml" 3bf3c9734d69bfdf20e1dd4e71158a65a81fca9dd64ee1703269b460111625a2
 download preferences.yaml "$upstream/preferences.yaml" 3bf3c9734d69bfdf20e1dd4e71158a65a81fca9dd64ee1703269b460111625a2
+download bookmarks.yaml "$upstream/bookmarks.yaml" fc24c32a05a2cceeeb7d43dc8794827a5520ce1f44613b4d2e0e5b1847557257
+download bookmarks-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/bookmarks.yaml" 7b40fb9661f1e642ecc2fc60cd4e293493d7bb1776c1d186747014144ba088bb
 download files.yaml "$upstream/files.yaml" c204f5c97602b2ac5bb023c7d56cd02fae30b5bfc4094101ef59e6e1d0118652
 download files-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/files.yaml" 0a08b46860b5bf677fbcafecb97062ac53bf8a35e12cfa864a4dad26ff10b2ec
 download posts.yaml "$upstream/posts.yaml" 83400ef682b755f3f3830dd4b622373b659bcc5b4d2d159756a735752b3b19ff

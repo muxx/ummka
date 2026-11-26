@@ -1,3 +1,4 @@
+export * from './BookmarksApi.js';
 export * from './ChannelsApi.js';
 export * from './CommandsApi.js';
 export * from './EmojiApi.js';

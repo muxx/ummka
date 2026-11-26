@@ -13,6 +13,12 @@ export function checkPaletteSurfaces() {
     for (const mode of ["light", "dark"] as const) {
       const colors = resolvePalette(mode);
       applyPalette(sample, mode, colors);
+      if (
+        CSS.supports("-webkit-font-smoothing", "antialiased") &&
+        getComputedStyle(link).getPropertyValue("-webkit-font-smoothing") !==
+          "antialiased"
+      )
+        throw Error("palette-font-rendering");
       for (const [surface, linkRole, focusRole] of [
         ["message", "message-link", "focus"],
         ["selected-row", "link", "text"],
