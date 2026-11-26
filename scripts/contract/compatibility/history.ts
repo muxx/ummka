@@ -42,6 +42,7 @@ import {
 } from "./channel-notifications.ts";
 import { checkCollectionActions } from "./collection-actions.ts";
 import { checkCommands } from "./commands.ts";
+import { checkConversationCreation } from "./conversation-creation.ts";
 import { checkCustomEmojiLookup } from "./custom-emoji.ts";
 import { checkEventStream } from "./event-stream.ts";
 import { checkFileSearch } from "./file-search.ts";
@@ -1407,6 +1408,27 @@ await checkPostEditHistory(
   version,
 );
 await checkPublishedPostDocument(readerPosts, base, channelId, version);
+const conversationPeers: string[] = [observer.id, otherSaver.id, user.id];
+for (let i = conversationPeers.length; i < 8; i++) {
+  const name = `conversation-peer-${i}`;
+  const peer = await (
+    await create("users", {
+      username: name,
+      email: `${name}@example.test`,
+      password: `${randomBytes(24).toString("hex")}aA7!`,
+    })
+  ).json();
+  assert.equal(peer.roles, "system_user");
+  conversationPeers.push(peer.id);
+}
+assert.equal(reader.roles, "system_user");
+await checkConversationCreation(
+  base,
+  readerToken,
+  reader.id,
+  conversationPeers,
+  version,
+);
 await allowFixtureBrowserSignIn(base, token);
 const logout = await fetch(`${base}/api/v4/users/logout`, {
   method: "POST",

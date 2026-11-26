@@ -49,6 +49,70 @@ export class ChannelsApi extends runtime.BaseAPI {
         const response = await this.addChannelMemberRaw(requestParameters, initOverrides);
         return await response.value();
     }
+    async createDirectChannelRequestOpts(requestParameters) {
+        if (requestParameters['requestBody'] == null) {
+            throw new runtime.RequiredError('requestBody', 'Required parameter "requestBody" was null or undefined when calling createDirectChannel().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        headerParameters['Content-Type'] = 'application/json';
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/channels/direct`;
+        return {
+            path: urlPath,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+            body: requestParameters['requestBody'],
+        };
+    }
+    async createDirectChannelRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.createDirectChannelRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => ChannelFromJSON(jsonValue));
+    }
+    async createDirectChannel(requestParameters, initOverrides) {
+        const response = await this.createDirectChannelRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async createGroupChannelRequestOpts(requestParameters) {
+        if (requestParameters['requestBody'] == null) {
+            throw new runtime.RequiredError('requestBody', 'Required parameter "requestBody" was null or undefined when calling createGroupChannel().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        headerParameters['Content-Type'] = 'application/json';
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/channels/group`;
+        return {
+            path: urlPath,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+            body: requestParameters['requestBody'],
+        };
+    }
+    async createGroupChannelRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.createGroupChannelRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => ChannelFromJSON(jsonValue));
+    }
+    async createGroupChannel(requestParameters, initOverrides) {
+        const response = await this.createGroupChannelRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
     async createSidebarCategoryForTeamForUserRequestOpts(requestParameters) {
         if (requestParameters['teamId'] == null) {
             throw new runtime.RequiredError('teamId', 'Required parameter "teamId" was null or undefined when calling createSidebarCategoryForTeamForUser().');

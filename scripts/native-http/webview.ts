@@ -475,6 +475,34 @@ export function webviewServers(
         .end(JSON.stringify(result));
       return;
     }
+    if (
+      url.pathname === "/team/chat/api/v4/channels/direct" ||
+      url.pathname === "/team/chat/api/v4/channels/group"
+    ) {
+      const direct = url.pathname.endsWith("/direct");
+      assert.equal(req.method, "POST");
+      assert.equal(url.search, "");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      assert.deepEqual(
+        await json(req),
+        direct ? [userId] : ["x".repeat(26), "y".repeat(26)],
+      );
+      visits.push(
+        direct ? "open-self-conversation" : "open-group-conversation",
+      );
+      res.writeHead(201, { "Content-Type": "application/json" }).end(
+        JSON.stringify({
+          id: (direct ? "d" : "g").repeat(26),
+          team_id: "",
+          type: direct ? "D" : "G",
+        }),
+      );
+      return;
+    }
     const threadList = await respondToThreadList(
       req,
       res,
@@ -1088,6 +1116,8 @@ export function webviewServers(
         "custom-emoji-by-name",
         "empty-post-reactions",
         "post-reactions",
+        "open-self-conversation",
+        "open-group-conversation",
         "follow-thread",
         "unfollow-thread",
         "collapse-sidebar-category",

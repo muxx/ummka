@@ -585,6 +585,45 @@ export async function checkGeneratedRequests(ports: string[]) {
       );
     }
     const categoryApi = new ChannelsApi(signed);
+    const direct = await categoryApi.createDirectChannelRaw({
+      requestBody: [userId],
+    });
+    const group = await categoryApi.createGroupChannelRaw({
+      requestBody: ["x".repeat(26), "y".repeat(26)],
+    });
+    const ownConversation = await direct.value();
+    const groupConversation = await group.value();
+    check(
+      direct.raw.status === 201 &&
+        ownConversation.id === "d".repeat(26) &&
+        ownConversation.type === "D" &&
+        ownConversation.teamId === "",
+      "signed self conversation",
+    );
+    check(
+      group.raw.status === 201 &&
+        groupConversation.id === "g".repeat(26) &&
+        groupConversation.type === "G" &&
+        groupConversation.teamId === "",
+      "signed group conversation",
+    );
+    const unsignedConversations = new ChannelsApi(new Configuration(prefixed));
+    for (const request of [
+      () =>
+        unsignedConversations.createDirectChannel({ requestBody: [userId] }),
+      () =>
+        unsignedConversations.createGroupChannel({
+          requestBody: ["x".repeat(26), "y".repeat(26)],
+        }),
+    ]) {
+      const denied = await rejected(request());
+      check(
+        denied instanceof FetchError &&
+          denied.cause instanceof TypeError &&
+          denied.cause.cause === "operation_denied",
+        "conversation-denied-before-dispatch",
+      );
+    }
     const categoryOwner = "Abc01234567890123456789012";
     const categoryId = `direct_messages_${categoryOwner.toLowerCase()}_${teamId.toLowerCase()}`;
     const categoryScope = { userId: "me", teamId };

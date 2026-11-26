@@ -138,6 +138,12 @@ const badCursor: GetPostThreadRequest = { postId: "a-post-id", fromCreateAt: "12
 declare const page: PostList;
 import type { ChannelsApi, Preference, PreferencesApi } from "./compiled/index.js";
 declare const channels: ChannelsApi;
+(await channels.createDirectChannel({ requestBody: ["self"] })).id satisfies string | undefined;
+(await channels.createGroupChannel({ requestBody: ["first", "second"] })).type satisfies string | undefined;
+// @ts-expect-error A conversation request contains user IDs.
+channels.createDirectChannel({ requestBody: [7] });
+// @ts-expect-error A group needs its participant array.
+channels.createGroupChannel({});
 const managed = await channels.getManagedCategories({ teamId: "team" });
 managed satisfies Record<string, string>;
 // @ts-expect-error The mapping belongs to one team.

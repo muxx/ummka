@@ -33,6 +33,7 @@ import {
   correctCommandResponse,
   correctExecuteCommand,
 } from "./command-corrections.ts";
+import { correctConversationCreation } from "./conversation-creation-correction.ts";
 import { correctCustomEmoji } from "./custom-emoji-correction.ts";
 import {
   correctFileModel,
@@ -967,6 +968,15 @@ test("retains the catalog operations, security and transitive models", () => {
       );
     if (source.operationId === "SearchFiles")
       expected = correctFileSearch(path, source, read("files-12.1.0.yaml"));
+    if (
+      source.operationId === "CreateDirectChannel" ||
+      source.operationId === "CreateGroupChannel"
+    )
+      expected = correctConversationCreation(
+        source.operationId,
+        source,
+        object(at(read("channels-12.1.0.yaml"), key), path),
+      );
     if (source.operationId === "AddTeamMember")
       expected = correctTeamMemberRequest(source, read("teams-12.1.0.yaml"));
     if (source.operationId === "AddChannelMember")
@@ -2589,4 +2599,41 @@ test("takes managed category assignments from the server version that exposes th
   ]);
   assert.equal(at(schema, ["type"]), "object");
   assert.deepEqual(at(schema, ["additionalProperties"]), { type: "string" });
+});
+
+test("describes distinct conversation membership separately from raw array length", () => {
+  for (const [kind, id, minItems] of [
+    ["direct", "CreateDirectChannel", 1],
+    ["group", "CreateGroupChannel", 2],
+  ] as const) {
+    const route = `/api/v4/channels/${kind}`;
+    const schema = ["requestBody", "content", "application/json", "schema"];
+    const baseline = object(at(read("channels.yaml"), [route, "post"]), route);
+    const reference = object(
+      at(read("channels-12.1.0.yaml"), [route, "post"]),
+      route,
+    );
+    const original = structuredClone(baseline);
+    assert.deepEqual(at(contract, ["paths", route, "post", ...schema]), {
+      type: "array",
+      items: { type: "string" },
+      minItems,
+    });
+    correctConversationCreation(id, baseline, reference);
+    assert.deepEqual(baseline, original);
+    for (const field of ["minItems", "maxItems", "items"]) {
+      const drift = structuredClone(baseline);
+      object(at(drift, schema), route)[field] = null;
+      for (const [first, second] of [
+        [drift, reference],
+        [baseline, drift],
+        [drift, drift],
+      ]) {
+        assert.throws(
+          () => correctConversationCreation(id, first, second),
+          /Review both pinned/,
+        );
+      }
+    }
+  }
 });

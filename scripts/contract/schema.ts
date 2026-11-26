@@ -22,6 +22,7 @@ import {
   correctCommandResponse,
   correctExecuteCommand,
 } from "./command-corrections.ts";
+import { correctConversationCreation } from "./conversation-creation-correction.ts";
 import { correctCustomEmoji } from "./custom-emoji-correction.ts";
 import {
   correctFileModel,
@@ -358,6 +359,12 @@ export function buildSpecification(
       paths[path][method] = correctThreadFollow(
         operation,
         object(object(read("users-12.1.0.yaml")[path], path)[method], id),
+      );
+    else if (id === "CreateDirectChannel" || id === "CreateGroupChannel")
+      paths[path][method] = correctConversationCreation(
+        id,
+        operation,
+        object(object(read("channels-12.1.0.yaml")[path], path)[method], id),
       );
     else if (id === "AddTeamMember")
       paths[path][method] = correctTeamMemberRequest(
