@@ -68,7 +68,7 @@ export function webviewServers(
   const formatKeyWidths: number[] = [];
   let sendRight: (() => Promise<void>) | undefined;
   let prepareKeyboard: (() => Promise<void>) | undefined;
-  const backSteps = ["dialog", "results", "thread", "reopened"];
+  const backSteps = ["appearance", "dialog", "results", "thread", "reopened"];
   let stepIndex = 0;
   let pressWorkspaceBack: (() => Promise<void>) | undefined;
   let disconnect: Socket | undefined;

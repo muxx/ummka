@@ -91,6 +91,8 @@ export function startAppearance(target: Window) {
     }
   }
   let settings = restore();
+  const listeners = new Set<() => void>();
+  let snapshot: { mode: PaletteMode; settings: Settings };
   function paint() {
     const mode =
       settings.appearance === "system"
@@ -103,6 +105,8 @@ export function startAppearance(target: Window) {
       mode,
       resolvePalette(mode, settings.palettes[mode]),
     );
+    snapshot = { mode, settings };
+    for (const listener of listeners) listener();
   }
   function systemChanged() {
     if (settings.appearance === "system") paint();
@@ -128,6 +132,13 @@ export function startAppearance(target: Window) {
   system.addEventListener("change", systemChanged);
   target.addEventListener("storage", storageChanged);
   return {
+    getSnapshot: () => snapshot,
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
     get settings() {
       return settings;
     },
@@ -140,6 +151,7 @@ export function startAppearance(target: Window) {
       save(keys[mode], colors);
     },
     dispose() {
+      listeners.clear();
       target.removeEventListener("storage", storageChanged);
       system.removeEventListener("change", systemChanged);
     },
