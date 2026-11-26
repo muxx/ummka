@@ -119,27 +119,30 @@ export async function checkTeamReads(
     inspected.deleteAt !== 0
   )
     throw Error("generated signed channel by ID");
-  const open = await api.getPublicChannelsForTeam({
+  const open = await prefixedAccount.readChannelDirectoryPage({
     teamId,
     page: 1,
-    perPage: 50,
+    kind: "public",
   });
-  const archived = await api.getDeletedChannelsForTeam({
+  const archive = await prefixedAccount.readChannelDirectoryPage({
     teamId,
     page: 0,
-    perPage: 50,
+    kind: "archived",
   });
   if (
-    open.length !== 1 ||
-    open[0].id !== "o".repeat(26) ||
-    open[0].teamId !== teamId ||
-    open[0].deleteAt !== 0 ||
-    archived.length !== 1 ||
-    archived[0].id !== "p".repeat(26) ||
-    archived[0].type !== "P" ||
-    archived[0].deleteAt !== 42
+    open.items.length !== 1 ||
+    open.hasMore ||
+    open.items[0].id !== "o".repeat(26) ||
+    open.items[0].displayName !== "Systems" ||
+    open.items[0].deleteAt !== 0 ||
+    archive.items.length !== 1 ||
+    archive.hasMore ||
+    archive.items[0].id !== "p".repeat(26) ||
+    archive.items[0].kind !== "P" ||
+    archive.items[0].deleteAt !== 42 ||
+    archive.items[0].purpose !== "Fixture design"
   )
-    throw Error("generated channel directory pages");
+    throw Error("signed account channel directory pages");
   for (const operation of [
     "getPublicChannelsForTeam",
     "getDeletedChannelsForTeam",

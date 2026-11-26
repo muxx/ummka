@@ -140,7 +140,15 @@ export function webviewServers(
       {
         name: "public-directory-page",
         body: [
-          { id: "o".repeat(26), team_id: teamId, type: "O", delete_at: 0 },
+          {
+            id: "o".repeat(26),
+            team_id: teamId,
+            type: "O",
+            name: "systems",
+            display_name: "Systems",
+            purpose: "Fixture systems",
+            delete_at: 0,
+          },
         ],
       },
     ],
@@ -149,7 +157,15 @@ export function webviewServers(
       {
         name: "archived-directory-page",
         body: [
-          { id: "p".repeat(26), team_id: teamId, type: "P", delete_at: 42 },
+          {
+            id: "p".repeat(26),
+            team_id: teamId,
+            type: "P",
+            name: "design",
+            display_name: "Design",
+            purpose: "Fixture design",
+            delete_at: 42,
+          },
         ],
       },
     ],
