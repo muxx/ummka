@@ -62,6 +62,12 @@
     "id": "GetChannelsForTeamForUser"
   },
   {
+    "file": "channels-12.1.0.yaml",
+    "method": "GET",
+    "path": "/api/v4/teams/{team_id}/channels/managed_categories",
+    "id": "GetManagedCategories"
+  },
+  {
     "file": "channels.yaml",
     "method": "GET",
     "path": "/api/v4/users/{user_id}/teams/{team_id}/channels/members",

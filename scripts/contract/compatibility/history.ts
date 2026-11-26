@@ -884,6 +884,27 @@ await checkFileSearch(
   extraTeam.id,
   version,
 );
+const managedApi = new ChannelsApi(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+);
+const memberConfig = await fetch(`${base}/api/v4/config/client?format=old`, {
+  headers: { Authorization: `Bearer ${readerToken}` },
+});
+assert.equal(memberConfig.status, 200);
+const hasManagedRoute = version === "12.1.0";
+assert.equal(
+  (await memberConfig.json()).FeatureFlagManagedChannelCategories,
+  hasManagedRoute ? "true" : undefined,
+);
+const unavailableManaged = await managedApi
+  .getManagedCategories({ teamId: team.id })
+  .catch((error: unknown) => error);
+assert.ok(unavailableManaged instanceof ResponseError);
+assert.equal(unavailableManaged.response.status, hasManagedRoute ? 501 : 404);
+assert.equal(
+  (await unavailableManaged.response.json()).id,
+  hasManagedRoute ? "api.license_error" : "api.context.404.app_error",
+);
 await checkNavigationMemberships(
   new Configuration({ basePath: base, accessToken: readerToken }),
   reader.id,

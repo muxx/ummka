@@ -72,6 +72,13 @@ export async function checkTeamReads(
   )
     throw Error("generated team membership");
   const api = new ChannelsApi(prefixed);
+  const managed = await api.getManagedCategories({ teamId });
+  if (
+    Object.keys(managed).length !== 2 ||
+    managed["c".repeat(26)] !== "Release" ||
+    managed["d".repeat(26)] !== "Release"
+  )
+    throw Error("generated managed category assignments");
   const channels = await api.getChannelsForTeamForUser({
     userId: "me",
     teamId,
