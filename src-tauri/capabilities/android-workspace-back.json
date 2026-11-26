@@ -1,0 +1,8 @@
+{
+  "identifier": "android-workspace-back",
+  "description": "The local Channels window handles Android Back for active search dialogs, search results, the account dialog and open threads.",
+  "local": true,
+  "webviews": ["main"],
+  "platforms": ["android"],
+  "permissions": ["core:app:allow-register-listener", "core:app:allow-remove-listener"]
+}

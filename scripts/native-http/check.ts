@@ -58,7 +58,12 @@ try {
         },
       );
       assert.match(result.stdout, /1 passed/);
-      await checkMacWebview(fixture.webviewPorts, dir, config);
+      await checkMacWebview(
+        fixture.webviewPorts,
+        dir,
+        config,
+        fixture.onMacEscapeReady,
+      );
     }
     fixture.verify(platform === "android");
     console.log(

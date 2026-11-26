@@ -15,7 +15,7 @@ tauri-build = { version = "=2.7.6", features = [] }
 
 [features]
 native-http-check = []
-webview-check = []
+webview-check = ["objc2-app-kit/NSEvent", "objc2-app-kit/NSGraphicsContext"]
 
 [dependencies]
 futures-util = { version = "=0.3.34", default-features = false, features = ["sink"] }

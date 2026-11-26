@@ -30,7 +30,7 @@ import { draftCopy } from "./draft-copy.ts";
 import type { ReactionThread } from "./submit-channel-reaction.ts";
 import { ThreadPane } from "./ThreadPane.tsx";
 import { useChannelTimeline } from "./use-channel-timeline.ts";
-import { useThreadBack } from "./use-thread-back.ts";
+import { useWorkspaceBack } from "./use-workspace-back.ts";
 import { useWorkspaceProfiles } from "./use-workspace-profiles.ts";
 import { useTeamRoles, useWorkspaceRead } from "./use-workspace-read.ts";
 import { useWorkspaceSearch } from "./use-workspace-search.tsx";
@@ -526,13 +526,14 @@ export function ChannelsWorkspace({
   }
   const manualThread =
     activeThread && closedRequest === position?.request.requestId;
-  useThreadBack(
-    Boolean(activeThread || canReturnToResults) &&
-      !accountOpen &&
-      !search.dialog &&
-      !visibleSearchPanel,
-    canReturnToResults && !manualThread ? returnToResults : closeThread,
-  );
+  function workspaceBack() {
+    if (search.dialog) return search.back;
+    if (manualThread) return closeThread;
+    if (canReturnToResults) return returnToResults;
+    if (visibleSearchPanel) return search.back;
+    return activeThread ? closeThread : null;
+  }
+  useWorkspaceBack(accountOpen, workspaceBack());
   function composer(rootId?: string, reader?: ReactionThread) {
     if (historyDenied) return null;
     if (access !== "writable" || !channel) {

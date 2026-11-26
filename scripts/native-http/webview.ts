@@ -57,7 +57,9 @@ export function webviewServers(
   let connections = 0;
   let before = false;
   let prepareKeyboard: (() => Promise<void>) | undefined;
-  let pressAndroidBack: (() => Promise<void>) | undefined;
+  const backSteps = ["dialog", "results", "thread", "reopened"];
+  let stepIndex = 0;
+  let pressWorkspaceBack: (() => Promise<void>) | undefined;
   let disconnect: Socket | undefined;
   let pingSocket: Socket | undefined;
   const settings = new Map<string, ServerResponse>();
@@ -1006,14 +1008,22 @@ export function webviewServers(
         "prepared, cancelled and refused requests must not open a socket",
       );
       before = true;
-    } else if (step === "thread-back" || step === "search-result-back") {
+    } else if (step === "search-result-back") {
       const marker = "android-" + step;
       assert(
-        pressAndroidBack && !visits.includes(marker),
+        pressWorkspaceBack && !visits.includes(marker),
         "expected one Android Back at " + step,
       );
       visits.push(marker);
-      await pressAndroidBack();
+      await pressWorkspaceBack();
+    } else if (step?.startsWith("back-")) {
+      assert.equal(step, "back-" + backSteps[stepIndex]);
+      assert(
+        pressWorkspaceBack,
+        "expected the active platform's key input driver",
+      );
+      await pressWorkspaceBack();
+      stepIndex++;
     } else if (step === "release-history") {
       refresh.release();
     } else if (step === "release-submission") {
@@ -1043,9 +1053,12 @@ export function webviewServers(
   });
   return {
     servers: [data, control, foreign],
+    onMacEscapeReady(press: () => Promise<void>) {
+      pressWorkspaceBack = press;
+    },
     onAndroidInputReady(send: SendAndroidKey) {
       prepareKeyboard = () => send("KEYCODE_TAB");
-      pressAndroidBack = () => send("KEYCODE_BACK");
+      pressWorkspaceBack = () => send("KEYCODE_BACK");
     },
     verify(platform: "macos" | "android") {
       refresh.verify();
@@ -1205,7 +1218,27 @@ export function webviewServers(
         "ping-headers",
         "ping-body",
       ];
-      if (platform === "macos") expected.push("window");
+      if (platform === "macos")
+        expected.push(
+          "window",
+          "browser-action-confirmed",
+          "browser-action-confirmed",
+          "browser-entry-users/me/preferences",
+          "browser-entry-users/me/teams",
+          "browser-entry-users/me/teams/members",
+          "live-authors",
+          "live-categories",
+          "live-channels",
+          "live-config/client",
+          "live-license/client",
+          "live-members",
+          `live-posts-${"c".repeat(26)}`,
+          "live-roles",
+          "live-search-posts",
+          "live-window-thread",
+          "live-window-thread",
+          "live-window-thread",
+        );
       if (platform === "android") expected.push("account-logout-local-failure");
       expected.push(
         "directory-teams",
@@ -1232,8 +1265,11 @@ export function webviewServers(
           "live-categories",
           "live-window-send",
           "live-window-thread",
-          "android-thread-back",
           "android-search-result-back",
+          "browser-action-confirmed",
+          "live-search-posts",
+          "live-window-thread",
+          "live-window-thread",
           "live-window-thread",
           "live-window-send-reply",
           "live-window-command-repeat",
@@ -1266,6 +1302,10 @@ export function webviewServers(
             "users/me/preferences",
           ].map((path) => "browser-entry-" + path),
         );
+      assert.equal(stepIndex, backSteps.length);
+      console.log(
+        `${platform} verified native return through the search dialog, results and thread with both composer drafts intact.`,
+      );
       assert.deepEqual(visits.sort(), expected.sort());
     },
   };
