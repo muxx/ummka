@@ -399,7 +399,14 @@ export function webviewServers(
         visits.push("saved-role-definitions");
         res.writeHead(200, { "Content-Type": "application/json" }).end(
           JSON.stringify([
-            { name: "channel_user", permissions: ["create_post"] },
+            {
+              name: "channel_user",
+              permissions: [
+                "create_post",
+                "manage_public_channel_properties",
+                "delete_public_channel",
+              ],
+            },
             { name: "system_user", permissions: ["create_direct_channel"] },
             { name: "team_guest", permissions: [] },
           ]),
