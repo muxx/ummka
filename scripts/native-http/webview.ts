@@ -141,7 +141,14 @@ export function webviewServers(
       `/team/chat/api/v4/channels/${"j".repeat(26)}`,
       {
         name: "signed-single-channel",
-        body: { id: "j".repeat(26), type: "G", team_id: "", delete_at: 0 },
+        body: {
+          id: "j".repeat(26),
+          type: "G",
+          team_id: "",
+          name: "fixture_group",
+          display_name: "alex, robin",
+          delete_at: 0,
+        },
       },
     ],
     [
