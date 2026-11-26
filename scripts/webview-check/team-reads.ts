@@ -1,10 +1,10 @@
+import type { openAccountRestConnection } from "../../src/mattermost/native-rest.ts";
 import {
   ChannelsApi,
-  type Configuration,
+  Configuration,
   EmojiApi,
   GroupFromJSON,
   GroupsApi,
-  PostsApi,
   PreferencesApi,
   RolesApi,
   TeamsApi,
@@ -12,9 +12,11 @@ import {
 import { checkGroupAssociations } from "./group-associations.ts";
 
 export async function checkTeamReads(
-  root: Configuration,
-  prefixed: Configuration,
+  rootAccount: Awaited<ReturnType<typeof openAccountRestConnection>>,
+  prefixedAccount: Awaited<ReturnType<typeof openAccountRestConnection>>,
 ) {
+  const root = new Configuration(rootAccount);
+  const prefixed = new Configuration(prefixedAccount);
   const entry = await new EmojiApi(prefixed).getEmojiByName({
     emojiName: "fixture+wave",
   });
@@ -173,21 +175,15 @@ export async function checkTeamReads(
     ).length
   )
     throw Error("empty group directory search");
-  const single = await new ChannelsApi(root).viewChannel({
-    userId: "me",
-    viewChannelRequest: { channelId, collapsedThreadsSupported: true },
-  });
+  const single = await rootAccount.viewChannel(channelId);
+  const cleared = await rootAccount.viewChannel(null);
   const other = "v".repeat(26);
-  const bulk = await api.markChannelsReadForUser({
-    userId: "me",
-    requestBody: [channelId, other],
-  });
+  const bulk = await prefixedAccount.markChannelsRead([channelId, other]);
   if (
-    single.status !== "OK" ||
-    single.lastViewedAtTimes?.[channelId] !== 121 ||
-    bulk.status !== "OK" ||
-    bulk.lastViewedAtTimes?.[channelId] !== 123 ||
-    bulk.lastViewedAtTimes[other] !== 126
+    single[channelId] !== 121 ||
+    Object.keys(cleared).length !== 0 ||
+    bulk[channelId] !== 123 ||
+    bulk[other] !== 126
   )
     throw Error("generated channel read timestamps");
   const userId = "Abc01234567890123456789012";
@@ -248,11 +244,10 @@ export async function checkTeamReads(
     )
   )
     throw Error("generated channel member lists");
-  const unread = await new PostsApi(prefixed).setPostUnread({
-    userId: "me",
-    postId: "p".repeat(26),
-    setPostUnreadRequest: { collapsedThreadsSupported: true },
-  });
+  const unread = await prefixedAccount.markPostUnread(
+    channelId,
+    "p".repeat(26),
+  );
   if (
     unread.teamId !== teamId ||
     unread.userId !== userId ||

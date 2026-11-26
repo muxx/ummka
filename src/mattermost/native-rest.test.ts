@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, expect, expectTypeOf, test, vi } from "vitest";
 import {
+  ChannelsApi,
   type PostInfo,
   PostsApi,
   type Reaction,
@@ -432,6 +433,8 @@ test("opens a native account by installation and user ID", async () => {
     "forgetTeamSearch",
     "getOutgoingPostState",
     "isPostSending",
+    "markChannelsRead",
+    "markPostUnread",
     "readAccountDirectory",
     "readAssociatedMentionGroups",
     "readChannelMemberCount",
@@ -489,6 +492,7 @@ test("opens a native account by installation and user ID", async () => {
     "subscribeToPostActivity",
     "transitionDraftCommand",
     "updateChannelNotifications",
+    "viewChannel",
   ]);
 });
 
@@ -1083,3 +1087,72 @@ test("retiring an account hides its in-flight timezone", async () => {
     read.mockRestore();
   }
 });
+
+test.each([
+  ["view", "close"],
+  ["view", "abort"],
+  ["unread", "close"],
+  ["unread", "abort"],
+] as const)(
+  "discards signed %s confirmations after %s",
+  async (operation, action) => {
+    ipc.mockResolvedValueOnce(41);
+    const channel = "c".repeat(26);
+    const account = await openAccountRestConnection(
+      "https://example.test/prefix",
+      "u".repeat(26),
+    );
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const controller = new AbortController();
+    const request = vi
+      .spyOn(ChannelsApi.prototype, "viewChannelRaw")
+      .mockImplementation(async () => {
+        await gate;
+        return {
+          raw: new Response(null),
+          value: async () => ({
+            status: "OK",
+            lastViewedAtTimes: { [channel]: 10 },
+          }),
+        };
+      });
+    const unread = vi
+      .spyOn(PostsApi.prototype, "setPostUnreadRaw")
+      .mockImplementation(async () => {
+        await gate;
+        return {
+          raw: new Response(null),
+          value: async () => ({
+            userId: "u".repeat(26),
+            channelId: channel,
+            teamId: "",
+            msgCount: 0,
+            msgCountRoot: 0,
+            mentionCount: 0,
+            mentionCountRoot: 0,
+            urgentMentionCount: 0,
+            lastViewedAt: 0,
+          }),
+        };
+      });
+    try {
+      const pending =
+        operation === "view"
+          ? account.viewChannel(channel, controller.signal)
+          : account.markPostUnread(channel, "p".repeat(26), controller.signal);
+      if (action === "close") await account.close();
+      else controller.abort();
+      release();
+      if (action === "close") await expect(pending).rejects.toBe("cancelled");
+      else await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+      expect(request).toHaveBeenCalledTimes(operation === "view" ? 1 : 0);
+      expect(unread).toHaveBeenCalledTimes(operation === "unread" ? 1 : 0);
+    } finally {
+      request.mockRestore();
+      unread.mockRestore();
+    }
+  },
+);
