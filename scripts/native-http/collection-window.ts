@@ -137,6 +137,11 @@ export function collectionWindowFixture() {
           })),
         );
       }
+    } else if (path === `channels/${channel}/stats`) {
+      assert.equal(url.searchParams.get("exclude_files_count"), "true");
+      send({ channel_id: channel, member_count: 7 });
+    } else if (path === `channels/${channel}/members/me`) {
+      send({ channel_id: channel, user_id: user, notify_props: {} });
     } else if (path === "users/me/posts/flagged") {
       const offset = Number(url.searchParams.get("page"));
       assert.deepEqual(Object.fromEntries(url.searchParams), {

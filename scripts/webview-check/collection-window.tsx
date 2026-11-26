@@ -211,6 +211,39 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
       if (document.activeElement !== trigger)
         throw Error("Saved control did not regain focus");
     });
+    const info = ui.getByRole("button", { name: "Channel info" });
+    click(info);
+    let about = await findPane("About this channel");
+    await about.findByText("7", { selector: "[role=status]" });
+    click(about.getByRole("button", { name: "Pinned messages" }));
+    let infoPins = await findPane("Pinned messages");
+    click(
+      await infoPins.findByRole("button", { name: /Town fixture message/ }),
+    );
+    await ui.findByRole("button", { name: "Back to pinned messages" });
+    await back("info-row");
+    infoPins = await findPane("Pinned messages");
+    await waitFor(() => {
+      if (
+        document.activeElement !==
+        infoPins.getByRole("button", { name: /Town fixture message/ })
+      )
+        throw Error("Pinned message did not regain focus");
+    });
+    await back("info-pins");
+    about = await findPane("About this channel");
+    await waitFor(() => {
+      if (
+        document.activeElement !==
+        about.getByRole("button", { name: "Pinned messages" })
+      )
+        throw Error("The pinned messages action did not regain focus");
+    });
+    await back("info-overview");
+    await waitFor(() => {
+      if (document.activeElement !== info)
+        throw Error("The channel information button did not regain focus");
+    });
     const menu = ui.getByRole("button", { name: "Channel menu, Town Square" });
     click(menu);
     click(ui.getByRole("menuitem", { name: "Pinned messages" }));

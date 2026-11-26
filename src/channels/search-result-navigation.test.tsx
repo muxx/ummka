@@ -1308,6 +1308,121 @@ test("opens channel information from the header, saves notifications and returns
   expect(account.readChannelMemberCount).toHaveBeenCalledOnce();
 });
 
+test("pins opened from channel details restore the post, the pins action and the header in order", async () => {
+  const { account } = fixture();
+  fireEvent.click(await screen.findByRole("button", { name: "Design" }));
+  await screen.findByRole("heading", { level: 1, name: "Design" });
+  account.readPinnedChannelPosts.mockResolvedValue({
+    items: [
+      {
+        id: root.id,
+        channelId: design,
+        message: "Pinned project note",
+        cards: [],
+      },
+    ],
+    firstInaccessiblePostTime: 0,
+  });
+  const info = screen.getByRole("button", { name: "Channel info" });
+  fireEvent.click(info);
+  const open = await screen.findByRole("button", { name: "Pinned messages" });
+  expect(account.readPinnedChannelPosts).not.toHaveBeenCalled();
+  fireEvent.click(open);
+  const pin = await screen.findByRole("button", {
+    name: /Pinned project note/,
+  });
+  expect(screen.getByText("# Design · visible to all members")).toBeTruthy();
+  fireEvent.click(pin);
+  await screen.findByRole("button", { name: "Back to pinned messages" });
+  const back = () => fireEvent.keyDown(window, { key: "Escape" });
+  back();
+  const restored = await screen.findByRole("button", {
+    name: /Pinned project note/,
+  });
+  await waitFor(() => expect(document.activeElement).toBe(restored));
+  back();
+  const action = await screen.findByRole("button", { name: "Pinned messages" });
+  expect(document.activeElement).toBe(action);
+  back();
+  expect(document.activeElement).toBe(info);
+  expect(
+    screen.getByRole<HTMLTextAreaElement>("textbox", {
+      name: "Message #Design…",
+    }).value,
+  ).toBe("Target draft");
+});
+
+test("closing an empty pins list restores details above an addressed search reply", async () => {
+  const { account } = fixture();
+  account.readPinnedChannelPosts.mockResolvedValue({
+    items: [],
+    firstInaccessiblePostTime: 0,
+  });
+  const results = await search();
+  fireEvent.click(
+    await results.findByRole("button", { name: "Search reply snippet" }),
+  );
+  await screen.findByText(reply.message);
+  fireEvent.click(screen.getByRole("button", { name: "Channel info" }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Pinned messages" }),
+  );
+  await screen.findByText("No pinned messages in this channel.");
+  fireEvent.click(screen.getByRole("button", { name: "Close collection" }));
+  const pins = await screen.findByRole("button", { name: "Pinned messages" });
+  expect(document.activeElement).toBe(pins);
+  fireEvent.keyDown(window, { key: "Escape" });
+  const thread = await screen.findByRole("complementary", { name: "Thread" });
+  expect(within(thread).getByText(reply.message)).toBeTruthy();
+});
+
+test("a refused pins read drops its return to channel details", async () => {
+  const { account } = fixture();
+  account.readPinnedChannelPosts.mockRejectedValue(
+    new ResponseError(new Response(null, { status: 403 })),
+  );
+  const info = await screen.findByRole("button", { name: "Channel info" });
+  fireEvent.click(info);
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Pinned messages" }),
+  );
+  const list = await screen.findByRole("complementary", {
+    name: "Pinned messages",
+  });
+  await within(list).findByRole("alert");
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(
+    screen.queryByRole("complementary", {
+      name: /About this channel|Pinned messages/,
+    }),
+  ).toBeNull();
+  expect(document.activeElement).toBe(info);
+});
+
+test("changing channels cancels the pins read and discards its return to the previous channel details", async () => {
+  const { account } = fixture();
+  account.readPinnedChannelPosts.mockImplementationOnce(
+    () => new Promise(() => {}),
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "Channel info" }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Pinned messages" }),
+  );
+  await waitFor(() =>
+    expect(account.readPinnedChannelPosts).toHaveBeenCalledOnce(),
+  );
+  const signal = account.readPinnedChannelPosts.mock.calls[0][1];
+  fireEvent.click(screen.getByRole("button", { name: "Design" }));
+  await screen.findByRole("heading", { level: 1, name: "Design" });
+  expect(signal?.aborted).toBe(true);
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(
+    screen.queryByRole("complementary", {
+      name: /About this channel|Pinned messages/,
+    }),
+  ).toBeNull();
+});
+
 test("losing access while reading channel details moves focus to the access notice heading", async () => {
   const { account } = fixture();
   let denyHistory!: (e: Error) => void;

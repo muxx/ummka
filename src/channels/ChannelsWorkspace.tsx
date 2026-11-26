@@ -326,6 +326,7 @@ export function ChannelsWorkspace({
   const [infoChannel, setInfoChannel] = useState<{
     id: string;
     requestId?: number;
+    stage: "overview" | "pins" | "afterPins";
   } | null>(null);
   const infoButton = useRef<HTMLButtonElement>(null);
   const [notification, setNotification] = useState<{
@@ -670,6 +671,7 @@ export function ChannelsWorkspace({
       open: (source, signal, origin) =>
         workspace.messages.open(source, signal, origin),
       beforeOpen: () => {
+        setInfoChannel(null);
         collections.close(false);
         setChannelMenuOpen(false);
       },
@@ -867,8 +869,12 @@ export function ChannelsWorkspace({
   function choose(id: string, returning = false) {
     const main = inbox.visible ? inboxMain.current : undefined;
     inbox.close();
+    setInfoChannel(
+      returning && infoChannel?.stage === "pins" && infoChannel.id === id
+        ? { ...infoChannel, requestId: undefined }
+        : null,
+    );
     setDirectoryOpen(false);
-    setInfoChannel(null);
     search.abortPending();
     if (!returning) {
       collections.close(false);
@@ -987,6 +993,7 @@ export function ChannelsWorkspace({
     opener: HTMLButtonElement,
   ) {
     inbox.close();
+    setInfoChannel(null);
     setChannelMenuOpen(false);
     if (
       source.kind !== "pins" &&
@@ -1087,6 +1094,7 @@ export function ChannelsWorkspace({
     collections.abort();
     const source = collections.restoreRow(id);
     restoreConversation(source?.channelId ?? null, source?.reading ?? null);
+    if (pinsFromInfo && search.origin) search.dismiss();
     if (source?.channelId) choose(source.channelId, true);
     else workspace.messages.clear();
   }
@@ -1248,19 +1256,36 @@ export function ChannelsWorkspace({
       ? channel.kind
       : null;
   const infoAvailable =
-    channel !== undefined &&
     channel !== null &&
     !historyDenied &&
     !directoryOpen &&
     !inbox.visible &&
     !["forbidden", "session", "unauthorized"].includes(directory.state.status);
+  const sameInfoChannel =
+    infoAvailable && infoChannel !== null && infoChannel.id === chosen;
+  const sameInfoPosition =
+    infoChannel?.requestId === position?.request.requestId;
+  const pinsFromInfo =
+    sameInfoChannel &&
+    infoChannel.stage === "pins" &&
+    collections.view?.kind === "pins" &&
+    collections.view.channelId === chosen &&
+    (sameInfoPosition || Boolean(collectionDestination));
   const infoOpen =
-    infoAvailable &&
-    infoChannel !== null &&
-    infoChannel.id === chosen &&
-    infoChannel.requestId === position?.request.requestId &&
+    sameInfoChannel &&
+    infoChannel.stage !== "pins" &&
+    sameInfoPosition &&
     (Boolean(position) || (!search.panel && !collections.view));
-  if (infoChannel !== null && !infoOpen) setInfoChannel(null);
+  if (infoChannel !== null && !infoOpen && !pinsFromInfo) setInfoChannel(null);
+  function closeCollection() {
+    if (pinsFromInfo && collections.state?.status !== "forbidden") {
+      collections.close(false);
+      setInfoChannel({ ...infoChannel, stage: "afterPins" });
+    } else {
+      setInfoChannel(null);
+      collections.close();
+    }
+  }
   if (
     notification &&
     (notification.room !== chosen ||
@@ -1373,6 +1398,7 @@ export function ChannelsWorkspace({
         setDirectoryOpen(false);
         if (compact || !chosen) setPage("navigation");
       };
+    if (pinsFromInfo && !collectionDestination) return closeCollection;
     if (selection) return closeInboxThread;
     if (inbox.visible && compact && page !== "navigation")
       return () => setPage("navigation");
@@ -1495,7 +1521,8 @@ export function ChannelsWorkspace({
       !appearanceOpen &&
       !channelMenuOpen &&
       !search.dialog &&
-      !infoOpen
+      !infoOpen &&
+      !pinsFromInfo
       ? backToReading
       : backWorkspace,
   );
@@ -2026,6 +2053,8 @@ export function ChannelsWorkspace({
               control={infoButton}
               onClick={() => {
                 if (infoOpen) return closeInfo();
+                if (pinsFromInfo && !collectionDestination)
+                  return closeCollection();
                 if (!position) {
                   collections.close(false);
                   search.dismiss();
@@ -2034,6 +2063,7 @@ export function ChannelsWorkspace({
                 setInfoChannel({
                   id: channel.id,
                   requestId: position?.request.requestId,
+                  stage: "overview",
                 });
               }}
             />
@@ -2115,6 +2145,16 @@ export function ChannelsWorkspace({
                 directory.retry();
               }}
               close={closeInfo}
+              focusPins={infoChannel.stage === "afterPins"}
+              openPins={() => {
+                if (!infoButton.current) return;
+                setInfoChannel({ ...infoChannel, stage: "pins" });
+                collectionReading.current = readChannelPlace();
+                collections.open(
+                  { kind: "pins", channelId: channel.id },
+                  infoButton.current,
+                );
+              }}
               notificationRevision={notificationRevision}
               notifications={
                 notificationKind
@@ -2127,7 +2167,9 @@ export function ChannelsWorkspace({
                   : undefined
               }
             />
-          ) : position ? null : collections.view &&
+          ) : position &&
+            (!pinsFromInfo ||
+              collectionDestination) ? null : collections.view &&
             collections.mentionState &&
             !mentionPolicyChanged &&
             collections.view.kind === "mentions" ? (
@@ -2183,7 +2225,7 @@ export function ChannelsWorkspace({
               savedIds={knownSaves.ids}
               restore={collections.restore}
               openRow={openCollectionRow}
-              close={() => collections.close()}
+              close={closeCollection}
             />
           ) : (
             search.panel
@@ -2319,6 +2361,7 @@ export function ChannelsWorkspace({
           if (!inbox.visible && !inbox.paused) rememberInboxChannel();
           publishedReading?.interrupt();
           workspace.systemPost?.stop("paused");
+          setInfoChannel(null);
           restoreDirectoryFocus.current = directoryOpen;
           setDirectoryOpen(false);
           search.abortPending();

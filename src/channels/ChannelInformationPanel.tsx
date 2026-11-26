@@ -10,6 +10,8 @@ import type { ChannelNotifyProps } from "../../vendor/mattermost/index.js";
 import type { EntryLanguage } from "../entry/language.ts";
 import type { TeamSidebar } from "../mattermost/team-sidebar.ts";
 import { PaneSizeToggle } from "./PaneWidthControls.tsx";
+import { collectionCopy } from "./collection-copy.ts";
+import { CollectionMark } from "./PostCollectionPane.tsx";
 import { PublishedPostBody } from "./PublishedPostBody.tsx";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
 import { workspaceFailure } from "./workspace-data.ts";
@@ -65,6 +67,8 @@ type Props = {
   name: string;
   language: EntryLanguage;
   online: boolean;
+  openPins: () => void;
+  focusPins: boolean;
   notifications: ((opener: HTMLButtonElement) => void) | undefined;
   notificationRevision: number;
   denied: () => void;
@@ -194,6 +198,8 @@ export function ChannelInformationPanel({
   name,
   language,
   online,
+  openPins,
+  focusPins,
   notifications,
   notificationRevision,
   close,
@@ -202,7 +208,8 @@ export function ChannelInformationPanel({
 }: Props) {
   const t = labels[language],
     id = useId(),
-    heading = useRef<HTMLHeadingElement>(null);
+    heading = useRef<HTMLHeadingElement>(null),
+    pins = useRef<HTMLButtonElement>(null);
   const count = useInfoRead(
     true,
     online,
@@ -219,8 +226,8 @@ export function ChannelInformationPanel({
     notificationRevision,
   );
   useLayoutEffect(() => {
-    heading.current?.focus({ preventScroll: true });
-  }, []);
+    (focusPins ? pins : heading).current?.focus({ preventScroll: true });
+  }, [focusPins]);
   function status(v: SectionValue<unknown>) {
     return v.status === "failed"
       ? t.failed
@@ -229,7 +236,10 @@ export function ChannelInformationPanel({
         : t.loading;
   }
   return (
-    <aside className="channels-thread channel-information" aria-labelledby={id}>
+    <aside
+      className="channels-thread channel-information channel-context-pane"
+      aria-labelledby={id}
+    >
       <header className="channels-pane-head">
         <div className="channels-pane-titles">
           <h2 id={id} ref={heading} tabIndex={-1}>
@@ -283,6 +293,15 @@ export function ChannelInformationPanel({
               </section>
             ),
         )}
+        <button
+          ref={pins}
+          type="button"
+          className="channel-info-notify"
+          onClick={openPins}
+        >
+          <CollectionMark kind="pins" />
+          <strong>{collectionCopy[language].pins}</strong>
+        </button>
         {notifications && (
           <>
             <button

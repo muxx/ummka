@@ -50,6 +50,8 @@ function setup(props: Partial<Props> = {}) {
     name: "Releases",
     language: "en",
     online: true,
+    openPins: vi.fn(),
+    focusPins: false,
     close: vi.fn(),
     sessionIssue: vi.fn(),
     notifications: vi.fn(),

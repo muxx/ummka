@@ -79,30 +79,6 @@
 .channel-information .channels-pane-head {
   min-height: 70px;
 }
-
-/* Keep the conversation readable as the desktop panel reaches its preferred width. */
-@container (width > 740px) {
-  .channels-thread.channel-information {
-    --info-min: 304px;
-    --info-preferred: 400px;
-    flex-basis: clamp(
-      var(--info-min),
-      calc(100cqi - var(--sidebar-width) - 352px),
-      var(--info-preferred)
-    );
-  }
-}
-@container (740px < width <= 900px) {
-  .channels-thread.channel-information {
-    --info-min: 264px;
-    --info-preferred: 300px;
-  }
-}
-@container (width > 1680px) {
-  .channels-thread.channel-information {
-    --info-preferred: 500px;
-  }
-}
 .channel-info-back {
   display: none;
 }
