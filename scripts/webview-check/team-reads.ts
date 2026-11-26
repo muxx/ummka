@@ -5,7 +5,6 @@ import {
   EmojiApi,
   GroupFromJSON,
   GroupsApi,
-  PostsApi,
   PreferencesApi,
   RolesApi,
   TeamsApi,
@@ -238,11 +237,10 @@ export async function checkTeamReads(
     )
   )
     throw Error("generated channel member lists");
-  const unread = await new PostsApi(prefixed).setPostUnread({
-    userId: "me",
-    postId: "p".repeat(26),
-    setPostUnreadRequest: { collapsedThreadsSupported: true },
-  });
+  const unread = await prefixedAccount.markPostUnread(
+    channelId,
+    "p".repeat(26),
+  );
   if (
     unread.teamId !== teamId ||
     unread.userId !== userId ||

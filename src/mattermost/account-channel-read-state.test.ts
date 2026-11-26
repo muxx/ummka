@@ -1,14 +1,15 @@
 import { expect, test, vi } from "vitest";
 import { Configuration, ResponseError } from "../../vendor/mattermost/index.js";
-import { accountChannelViews } from "./account-channel-views.ts";
+import { accountChannelReadState } from "./account-channel-read-state.ts";
 
 const first = "a".repeat(26);
 const second = "b".repeat(26);
 const absent = "c".repeat(26);
 function fixture(body: unknown, status = 200) {
   const send = vi.fn<typeof fetch>(async () => Response.json(body, { status }));
-  const api = accountChannelViews(
+  const api = accountChannelReadState(
     new Configuration({ basePath: "https://example.test/sub", fetchApi: send }),
+    first,
     (run) => run(),
   );
   return { api, send };
@@ -84,8 +85,9 @@ test("refused and unconfirmed requests never become successful empty reads", asy
     status: 202,
   });
   const send = vi.fn<typeof fetch>(async () => response);
-  const api = accountChannelViews(
+  const api = accountChannelReadState(
     new Configuration({ fetchApi: send }),
+    first,
     (run) => run(),
   );
   await expect(api.viewChannel(first)).rejects.toThrow(TypeError);
@@ -114,4 +116,75 @@ test("the target collection belongs to the request even if the caller changes it
   const pending = api.markChannelsRead(ids);
   ids[0] = second;
   await expect(pending).rejects.toThrow(TypeError);
+});
+
+const marker = {
+  user_id: first,
+  channel_id: second,
+  team_id: absent,
+  last_viewed_at: 1000,
+  msg_count: 3,
+  msg_count_root: 1,
+  mention_count: 2,
+  mention_count_root: 1,
+  urgent_mention_count: 0,
+};
+
+test("marks a real post unread as the signed account, including direct channels", async () => {
+  for (const team of [absent, ""]) {
+    const { api, send } = fixture({ ...marker, team_id: team });
+    expect(await api.markPostUnread(second, absent)).toEqual({
+      userId: first,
+      channelId: second,
+      teamId: team,
+      lastViewedAt: 1000,
+      msgCount: 3,
+      msgCountRoot: 1,
+      mentionCount: 2,
+      mentionCountRoot: 1,
+      urgentMentionCount: 0,
+    });
+    expect(send).toHaveBeenCalledTimes(1);
+    const [url, init] = send.mock.calls[0];
+    expect(url).toBe(
+      `https://example.test/sub/api/v4/users/me/posts/${absent}/set_unread`,
+    );
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      collapsed_threads_supported: true,
+    });
+  }
+});
+
+test.each([
+  null,
+  {},
+  { ...marker, user_id: absent },
+  { ...marker, channel_id: first },
+  { ...marker, team_id: null },
+  { ...marker, team_id: "." },
+  { ...marker, last_viewed_at: -1 },
+  { ...marker, msg_count: undefined },
+  { ...marker, mention_count_root: 1.5 },
+  { ...marker, urgent_mention_count: "0" },
+])("rejects an unbound or incomplete unread marker", async (body) => {
+  await expect(
+    fixture(body).api.markPostUnread(second, absent),
+  ).rejects.toThrow(TypeError);
+});
+
+test("invalid, cancelled and refused unread actions keep separate outcomes", async () => {
+  const { api, send } = fixture(marker);
+  await expect(api.markPostUnread("", absent)).rejects.toThrow(TypeError);
+  await expect(api.markPostUnread(second, "bad")).rejects.toThrow(TypeError);
+  await expect(
+    api.markPostUnread(second, absent, AbortSignal.abort()),
+  ).rejects.toThrow();
+  expect(send).not.toHaveBeenCalled();
+  await expect(
+    fixture({}, 403).api.markPostUnread(second, absent),
+  ).rejects.toBeInstanceOf(ResponseError);
+  await expect(
+    fixture(marker, 202).api.markPostUnread(second, absent),
+  ).rejects.toThrow(TypeError);
 });

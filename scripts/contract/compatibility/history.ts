@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { latestReactionTarget } from "../../../src/channels/latest-reaction-target.ts";
 import { nextPostDestinationStep } from "../../../src/channels/post-destination-step.ts";
+import { accountChannelReadState } from "../../../src/mattermost/account-channel-read-state.ts";
 import { channelHistoryPage } from "../../../src/mattermost/channel-history-page.ts";
 import { channelPostChanges } from "../../../src/mattermost/channel-post-records.ts";
 import {
@@ -1277,11 +1278,43 @@ await checkSavedPageBoundary(
   version,
 );
 
+const readerReadState = accountChannelReadState(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  reader.id,
+  (run) => run(),
+);
+const ownerChannels = new ChannelsApi(session);
+const ownerMember = await ownerChannels.getChannelMember({
+  channelId: dm.id,
+  userId: "me",
+});
+const dmUnread = await readerReadState.markPostUnread(dm.id, dmPost.id);
+assert.equal(dmUnread.teamId, "");
+assert.equal(dmUnread.userId, reader.id);
+assert.equal(dmUnread.channelId, dm.id);
+assert.equal(dmUnread.lastViewedAt, dmPost.create_at - 1);
+assert.deepEqual(
+  await ownerChannels.getChannelMember({ channelId: dm.id, userId: "me" }),
+  ownerMember,
+);
+assert.equal(
+  (await readerReadState.markPostUnread(closed.id, closedPost.id)).teamId,
+  team.id,
+);
+
 await checkFocusedConversation(memberPosts, readerPosts, closed.id, () =>
   new ChannelsApi(session).removeUserFromChannel({
     channelId: closed.id,
     userId: reader.id,
   }),
+);
+await assert.rejects(
+  readerReadState.markPostUnread(closed.id, closedPost.id),
+  (error: unknown) =>
+    error instanceof ResponseError && error.response.status === 403,
+);
+console.log(
+  `Mattermost ${version} verified personal unread markers in a direct conversation and a private channel before and after membership removal.`,
 );
 console.log(
   `Mattermost ${version} verified focused channel windows for roots and a reply beyond the first thread page, including subsequent loss of channel access.`,
