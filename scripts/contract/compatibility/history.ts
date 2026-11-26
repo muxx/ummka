@@ -60,6 +60,7 @@ import {
   checkSavedPageBoundary,
 } from "./post-collections.ts";
 import { checkPostEditHistory } from "./post-edit-history.ts";
+import { checkPostEditWindow } from "./post-edit-window.ts";
 import {
   checkPostMutations,
   checkPreviouslyAcceptedPost,
@@ -1197,6 +1198,7 @@ await checkPreviouslyAcceptedPost(
 );
 
 await checkSearchScopePolicy(base, token, readerToken, version);
+await checkPostEditWindow(base, token, readerToken);
 await checkReactionLimit(base, token, user.id, readerToken, channelId);
 console.log(
   `Mattermost ${version} verified the signed reaction limit against adding a new emoji name.`,
