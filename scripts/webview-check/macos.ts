@@ -17,7 +17,8 @@ async function launch(
   register?: KeyDriver,
 ) {
   const processRun = exec("src-tauri/target/release/ummka", [], {
-    timeout: 45_000,
+    // PASS runs the full signed HTTP, storage and interactive UI suite in one process.
+    timeout: expected === "PASS" ? 120_000 : 45_000,
     env,
   });
   if (register) {
