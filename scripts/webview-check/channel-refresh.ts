@@ -23,10 +23,20 @@ export async function checkChannelRefresh(
   if (
     thread.kind !== "page" ||
     thread.root.id !== root ||
+    thread.root.isFollowing !== false ||
     thread.replies[0]?.id !== reply ||
     thread.next !== null
   )
     throw Error("Account did not read the requested thread page.");
+  const flatThread = await account.readThreadPage({
+    channelId,
+    rootId: root,
+    direction: "down",
+    collapsedThreads: false,
+    perPage: 1,
+  });
+  if (flatThread.kind !== "page" || flatThread.root.isFollowing !== undefined)
+    throw Error("Flat thread unexpectedly reported the user's subscription.");
   const target = channelPostChange(channelId, root, thread.root);
   if (target.kind !== "save") throw Error("Expected a visible fixture root.");
   const { signal } = new AbortController();

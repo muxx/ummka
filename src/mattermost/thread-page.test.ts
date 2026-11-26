@@ -51,7 +51,7 @@ test("passes both cursor fields and reads one page even when reply times are ide
   const initial = await readThreadPage(api, request, controller.signal);
   expect(initial).toEqual({
     kind: "page",
-    root,
+    root: { ...root, isFollowing: false },
     replies: [first],
     next: { id: idA, createAt: 1000 },
   });
@@ -73,7 +73,12 @@ test("passes both cursor fields and reads one page even when reply times are ide
     },
     { signal: controller.signal },
   );
-  expect(next).toEqual({ kind: "page", root, replies: [last], next: null });
+  expect(next).toEqual({
+    kind: "page",
+    root: { ...root, isFollowing: false },
+    replies: [last],
+    next: null,
+  });
 });
 test("distinguishes an empty thread, a flat first page and a retention limit", async () => {
   const api = {
@@ -85,7 +90,7 @@ test("distinguishes an empty thread, a flat first page and a retention limit", a
   };
   expect(await readThreadPage(api, request)).toEqual({
     kind: "page",
-    root,
+    root: { ...root, isFollowing: false },
     replies: [],
     next: null,
   });
@@ -106,6 +111,46 @@ test("distinguishes an empty thread, a flat first page and a retention limit", a
     firstInaccessiblePostTime: 42,
   });
 });
+test.each([true, false, undefined])(
+  "only a collapsed root supplies a personal following state (%s)",
+  async (isFollowing) => {
+    const api = {
+      getPostThread: vi.fn().mockResolvedValue({
+        ...page([rootId, idA, idB]),
+        posts: {
+          [rootId]: { ...root, isFollowing },
+          [idA]: { ...first, isFollowing: true },
+          [idB]: { ...last, isFollowing: false },
+        },
+      }),
+    };
+    for (const collapsedThreads of [true, false]) {
+      const result = await readThreadPage(api, {
+        ...request,
+        collapsedThreads,
+      });
+      expect(result.kind === "page" && result.root.isFollowing).toBe(
+        collapsedThreads ? (isFollowing ?? false) : undefined,
+      );
+      expect(
+        result.kind === "page" &&
+          result.replies.map((reply) => Object.hasOwn(reply, "isFollowing")),
+      ).toEqual([false, false]);
+    }
+    expect(api.getPostThread).toHaveBeenCalledTimes(2);
+  },
+);
+
+test("rejects a malformed subscription on a visible collapsed root", async () => {
+  const api = {
+    getPostThread: vi.fn().mockResolvedValue({
+      ...page([rootId]),
+      posts: { [rootId]: { ...root, isFollowing: "false" } },
+    }),
+  };
+  await expect(readThreadPage(api, request)).rejects.toThrow(TypeError);
+});
+
 test("rejects a different thread, repeated or missing rows and a stalled cursor", async () => {
   const visible = page([rootId, idA]);
   for (const invalid of [
