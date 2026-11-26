@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { copyFile, cp, readFile, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
+import { postLinks } from "./link-examples.ts";
 import { checkMacSystemLinks } from "./macos-links.ts";
 
 const exec = promisify(execFile);
@@ -90,6 +91,7 @@ export async function checkMacWebview(
       UMMKA_CHECK_SEED_ACCOUNTS: "1",
     });
     await launch("PASS", { ...env, UMMKA_CHECK_KEY_INPUT: "1" }, registerKey);
+    await checkMacSystemLinks(dir, env, postLinks(ports[0]));
     // The ordinary build verifies the actual NSWindow without showing anything on a developer's Mac.
     await launch("browser-anchor", {
       ...env,

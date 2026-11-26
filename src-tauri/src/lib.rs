@@ -109,6 +109,10 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
                 if std::env::var_os("UMMKA_CHECK_KEY_INPUT").is_some() {
                     check_keyboard::listen(&main);
                 }
+                if std::env::var_os("UMMKA_CHECK_SYSTEM_POST_WINDOW").is_some() {
+                    main.show()?;
+                    main.set_focus()?;
+                }
                 if native.minSize().width != 400.0 {
                     return Err("unexpected native minimum window width".into());
                 }
