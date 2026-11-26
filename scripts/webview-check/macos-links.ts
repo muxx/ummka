@@ -74,7 +74,7 @@ export async function checkMacSystemLinks(
 <key>CFBundleExecutable</key><string>ummka-link-check</string>
 <key>CFBundleIdentifier</key><string>io.github.muxx.ummka.link-check-${randomUUID()}</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>LSUIElement</key><true/>
+<key>LSUIElement</key>${posts ? "<false/>" : "<true/>"}
 </dict></plist>`,
   );
   const output = join(dir, "link-launch.stdout");
