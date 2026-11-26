@@ -41,7 +41,7 @@
   position: relative;
   min-width: 0;
 }
-.collection-channel-action {
+.collection-channel-actions {
   position: absolute;
   top: 100%;
   inset-inline-start: 0;
@@ -50,11 +50,19 @@
   font-size: 0.9375rem;
   width: max-content;
   max-width: 70cqi;
-  padding: 0.5rem 1rem;
+  display: grid;
+  padding: 4px;
+  max-height: 50dvh;
+  overflow: auto;
   border: 1px solid var(--divider);
   border-radius: 8px;
   background: var(--canvas);
   box-shadow: 0 6px 16px #08152c26;
+}
+.collection-channel-action {
+  text-align: start;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
 }
 .collection-rows {
   padding: 0.35rem 0.8rem 0.8rem;

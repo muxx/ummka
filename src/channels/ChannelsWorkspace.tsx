@@ -25,6 +25,7 @@ import type { LocalPost } from "../mattermost/local-history.ts";
 import { isMattermostId } from "../mattermost/model-fields.ts";
 import { visibleSidebar } from "../mattermost/sidebar-rows.ts";
 import { effectiveWorkspacePreferences } from "../mattermost/workspace-preferences.ts";
+import { ChannelNotificationsDialog } from "./ChannelNotificationsDialog.tsx";
 import { ChannelsFrame } from "./ChannelsFrame.tsx";
 import { CollectionChannelMenu } from "./CollectionChannelMenu.tsx";
 import { ComposerAccessNotice } from "./ComposerAccessNotice.tsx";
@@ -214,6 +215,14 @@ export function ChannelsWorkspace({
     }
   }, [directoryOpen]);
   const [channelMenuOpen, setChannelMenuOpen] = useState(false);
+  const [notificationRoom, setNotificationRoom] = useState<string | null>(null);
+  const restoreChannelTitle = useRef(false);
+  useLayoutEffect(() => {
+    if (notificationRoom === null && restoreChannelTitle.current) {
+      restoreChannelTitle.current = false;
+      channelMenuButton.current?.focus();
+    }
+  }, [notificationRoom]);
   const [knownSaves, setKnownSaves] = useState<{
     ids: ReadonlySet<string>;
     complete: boolean;
@@ -671,6 +680,14 @@ export function ChannelsWorkspace({
   const historyDenied =
     timeline.notice === "forbidden" ||
     ["forbidden", "session", "unauthorized"].includes(timeline.status);
+  const notificationKind =
+    !historyDenied &&
+    channel?.deleteAt === 0 &&
+    (channel.kind === "O" || channel.kind === "P" || channel.kind === "G")
+      ? channel.kind
+      : null;
+  if (notificationRoom && (notificationRoom !== chosen || !notificationKind))
+    setNotificationRoom(null);
   // App keys this workspace by connection and team. Also discard a selection
   // when the directory refresh removes the channel or revokes access.
   const activeThread =
@@ -730,7 +747,7 @@ export function ChannelsWorkspace({
     return activeThread ? closeThread : null;
   }
   useWorkspaceBack(
-    accountOpen || workspace.messages.dialogOpen,
+    accountOpen || notificationRoom !== null || workspace.messages.dialogOpen,
     workspaceBack(),
   );
   useEffect(() => {
@@ -939,6 +956,14 @@ export function ChannelsWorkspace({
                   trigger={channelMenuButton}
                   open={channelMenuOpen}
                   setOpen={setChannelMenuOpen}
+                  onNotifications={
+                    notificationKind
+                      ? () => {
+                          setChannelMenuOpen(false);
+                          setNotificationRoom(channel.id);
+                        }
+                      : undefined
+                  }
                   onPins={(opener) =>
                     showCollection(
                       { kind: "pins", channelId: channel.id },
@@ -1195,6 +1220,27 @@ export function ChannelsWorkspace({
         </div>
       </ChannelsFrame>
       {search.dialog}
+      {notificationRoom && notificationRoom === chosen && notificationKind && (
+        <ChannelNotificationsDialog
+          account={connection}
+          channelId={notificationRoom}
+          kind={notificationKind}
+          name={channelTitle}
+          language={language}
+          online={online}
+          collapsed={settings?.collapsedThreads === true}
+          saved={directory.retry}
+          sessionIssue={sessionIssue}
+          back={() => {
+            setNotificationRoom(null);
+            setChannelMenuOpen(true);
+          }}
+          dismiss={() => {
+            restoreChannelTitle.current = true;
+            setNotificationRoom(null);
+          }}
+        />
+      )}
       {appearanceInput && (
         <Suspense fallback={null}>
           <AppearanceDialog

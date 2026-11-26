@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "../../src/App.tsx";
 import { openNativeRestConnection } from "../../src/mattermost/native-rest.ts";
 import { checkAvailableDirectoryWindow } from "./available-directory-window.ts";
+import { checkChannelNotificationsWindow } from "./channel-notifications-window.ts";
 
 export function findThreadDraft(host: HTMLElement) {
   const ui = within(host);
@@ -177,6 +178,7 @@ export async function verifyWorkspaceBack(
       if (reopened.isConnected || document.activeElement !== opener)
         throw Error("The reopened thread did not return to the same post");
     });
+    await checkChannelNotificationsWindow(host, () => press("notifications"));
     const mobileNav = ui.queryByRole("button", { name: "Channels" });
     if (mobileNav) flushSync(() => fireEvent.click(mobileNav));
     const directory = ui.getByRole("button", { name: "Directory" });
