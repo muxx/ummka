@@ -15,6 +15,7 @@ import { accountPostCollections } from "./account-post-collections.ts";
 import { accountPostReactions } from "./account-post-reactions.ts";
 import { accountSearch } from "./account-search.ts";
 import { accountChannelAudience } from "./channel-audience.ts";
+import { readChannelBookmarks } from "./channel-bookmarks.ts";
 import { createChannelHistoryChanges } from "./channel-history-changes.ts";
 import {
   type ChannelRefreshRequest,
@@ -221,6 +222,12 @@ export async function openAccountRestConnection(
       return readWhileOpen(() => readFileAnchor(files, fileId, signal), signal);
     },
     ...accountChannelAudience(config, readWhileOpen),
+    readChannelBookmarks(channelId: string, signal?: AbortSignal) {
+      return readWhileOpen(
+        () => readChannelBookmarks(config, channelId, signal),
+        signal,
+      );
+    },
     readChannelMemberDirectory(
       channelId: string,
       query: ChannelMemberQuery,
