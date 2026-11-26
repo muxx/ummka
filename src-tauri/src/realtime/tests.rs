@@ -71,7 +71,7 @@ fn replies_are_independent_before_hello_and_between_events() {
         let cursor = delivered(hello(ORIGINAL, 0), None).2;
         for applied in [None, Some(&cursor)] {
             assert!(
-                matches!(read(message.clone(), applied), Ok(IncomingFrame::Reply { request_sequence:4, status }) if status == expected)
+                matches!(read(message.clone(), applied), Ok(IncomingFrame::Reply { request_sequence:4, status, .. }) if status == expected)
             );
         }
         assert_eq!(
@@ -162,4 +162,62 @@ fn malformed_messages_do_not_yield_a_checkpoint_or_expose_the_frame() {
             Some(StreamError::InvalidFrame)
         );
     }
+}
+
+#[test]
+fn only_the_matching_successful_application_pong_completes_a_ping() {
+    for (seq, status, text, expected) in [
+        (1, "OK", "pong", true),
+        (2, "OK", "pong", false),
+        (1, "FAIL", "pong", false),
+        (1, "OK", "other", false),
+    ] {
+        let reply = read(
+            json!({"seq_reply":seq,"status":status,"data":{"text":text}}),
+            None,
+        )
+        .unwrap();
+        assert_eq!(reply.confirms_ping(1), expected);
+    }
+    assert!(!read(hello(ORIGINAL, 0), None).unwrap().confirms_ping(1));
+}
+
+#[test]
+fn typing_identifies_a_channel_or_thread_and_rejects_incomplete_addresses() {
+    let cursor = delivered(hello(ORIGINAL, 0), None).2;
+    for (channel, user, root, valid) in [
+        (ORIGINAL, REPLACEMENT, Some(""), true),
+        (ORIGINAL, REPLACEMENT, Some(ORIGINAL), true),
+        ("", REPLACEMENT, Some(""), false),
+        (ORIGINAL, "", Some(""), false),
+        (ORIGINAL, REPLACEMENT, Some("bad"), false),
+        (ORIGINAL, REPLACEMENT, None, false),
+    ] {
+        let mut data = json!({"user_id":user});
+        if let Some(root) = root {
+            data["parent_id"] = json!(root);
+        }
+        let mut wire = event("typing", 1, data);
+        wire["broadcast"]["channel_id"] = json!(channel);
+        let frame = delivered(wire, Some(&cursor)).0;
+        if valid {
+            assert_eq!(
+                frame.typing().unwrap(),
+                Some(TypingEvent {
+                    channel_id: channel,
+                    user_id: user,
+                    root_id: root.filter(|v| !v.is_empty())
+                })
+            );
+        } else {
+            assert_eq!(frame.typing(), Err(StreamError::InvalidFrame));
+        }
+    }
+    assert!(
+        delivered(hello(ORIGINAL, 0), None)
+            .0
+            .typing()
+            .unwrap()
+            .is_none()
+    );
 }

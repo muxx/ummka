@@ -25,6 +25,7 @@ export function loadWorkspaceConfiguration(
           api.getClientConfigRaw(format, options),
         );
         const policy = selectStringFields(data, [
+          "EnableUserStatuses",
           "MaxNotificationsPerChannel",
           "UniqueEmojiReactionLimitPerPost",
           "PostEditTimeLimit",

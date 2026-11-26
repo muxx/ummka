@@ -22,6 +22,24 @@ export async function waitForAppForeground() {
   );
 }
 
+async function pressAndroidBack(
+  controlPort: string,
+  step: "thread-back" | "search-result-back",
+) {
+  const control = await openNativeRestConnection(
+    `https://127.0.0.1:${controlPort}`,
+  );
+  try {
+    const response = await control.fetchApi(
+      `${control.basePath}/api/v4/system/ping?step=${step}`,
+    );
+    if (response.status !== 204)
+      throw Error("Android did not inject the Back key");
+  } finally {
+    await control.close();
+  }
+}
+
 async function checkThreadReply(
   host: HTMLElement,
   opener: HTMLElement,
@@ -198,18 +216,7 @@ export async function checkBrowserApp(server: string, controlPort: string) {
     );
     if (town.getClientRects().length || document.activeElement === townDraft)
       throw Error("The compact thread did not take over the conversation");
-    const control = await openNativeRestConnection(
-      `https://127.0.0.1:${controlPort}`,
-    );
-    try {
-      const response = await control.fetchApi(
-        `${control.basePath}/api/v4/system/ping?step=thread-back`,
-      );
-      if (response.status !== 204)
-        throw Error("Android did not inject the Back key");
-    } finally {
-      await control.close();
-    }
+    await pressAndroidBack(controlPort, "thread-back");
     await waitFor(
       () => {
         if (thread.isConnected)
@@ -242,7 +249,7 @@ export async function checkBrowserApp(server: string, controlPort: string) {
     flushSync(() =>
       fireEvent.click(dialog.getByRole("button", { name: "Search" })),
     );
-    const results = within(
+    let results = within(
       await ui.findByRole(
         "complementary",
         { name: "Search results" },
@@ -253,11 +260,102 @@ export async function checkBrowserApp(server: string, controlPort: string) {
     flushSync(() =>
       fireEvent.click(results.getByRole("button", { name: "Files" })),
     );
-    await results.findByText("window-fixture.pdf");
+    const fileAction = { name: "Show message with file window-fixture.pdf" };
+    const openFile = await results.findByRole("button", fileAction);
+    flushSync(() => fireEvent.click(openFile));
+    await waitFor(
+      () => {
+        const row = host.querySelector<HTMLElement>(
+          "article[data-navigation-target]",
+        );
+        const box = row?.getBoundingClientRect();
+        const feed = row?.closest(".timeline-scroll")?.getBoundingClientRect();
+        if (
+          !box?.height ||
+          !feed ||
+          box.bottom <= feed.top ||
+          box.top >= feed.bottom ||
+          row?.dataset.postId !== "v".repeat(26) ||
+          document.activeElement !== row
+        ) {
+          throw Error("The file did not focus its visible, canonical message");
+        }
+      },
+      { timeout: 10_000 },
+    );
+    flushSync(() =>
+      fireEvent.click(ui.getByRole("button", { name: "Back to results" })),
+    );
+    results = within(
+      await ui.findByRole("complementary", { name: "Search results" }),
+    );
+    await waitFor(() => {
+      if (
+        document.activeElement !== results.getByRole("button", fileAction) ||
+        townDraft.value !== "Draft from the channel window"
+      )
+        throw Error(
+          "Returning did not restore the original file and channel draft",
+        );
+    });
     flushSync(() =>
       fireEvent.click(results.getByRole("button", { name: /Messages/ })),
     );
-    await results.findByText("Search found this fixture post");
+    const replyAction = { name: "Search found this reply" };
+    const foundReply = await results.findByRole("button", replyAction);
+    flushSync(() => fireEvent.click(foundReply));
+    const addressedThread = await ui.findByRole(
+      "complementary",
+      { name: "Thread" },
+      { timeout: 10_000 },
+    );
+    await waitFor(
+      () => {
+        if (addressedThread.querySelector("[data-thread-edge]"))
+          throw Error(
+            "Both sides of the addressed reply have not finished loading",
+          );
+        within(addressedThread).getByText("Town fixture message");
+        const row = within(addressedThread)
+          .getByText("Reply visible only inside Town’s thread")
+          .closest("article");
+        const bounds = row?.getBoundingClientRect();
+        const feed = row?.closest(".thread-feed")?.getBoundingClientRect();
+        if (
+          !row ||
+          row.dataset.postId !== "w".repeat(26) ||
+          !bounds?.height ||
+          !feed ||
+          bounds.bottom <= feed.top ||
+          bounds.top >= feed.bottom ||
+          document.activeElement !== row
+        )
+          throw Error(
+            "The search result did not focus the visible addressed reply",
+          );
+      },
+      { timeout: 10_000 },
+    );
+    await pressAndroidBack(controlPort, "search-result-back");
+    results = within(
+      await ui.findByRole(
+        "complementary",
+        { name: "Search results" },
+        { timeout: 10_000 },
+      ),
+    );
+    await waitFor(
+      () => {
+        if (
+          document.activeElement !== results.getByRole("button", replyAction) ||
+          townDraft.value !== "Draft from the channel window"
+        )
+          throw Error(
+            "Returning from the reply lost the selected result or the channel draft",
+          );
+      },
+      { timeout: 10_000 },
+    );
     flushSync(() =>
       fireEvent.click(results.getByRole("button", { name: "Close search" })),
     );

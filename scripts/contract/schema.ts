@@ -4,6 +4,9 @@ import { parse } from "yaml";
 import nativeAuth from "../../contracts/mattermost/native-auth.json" with {
   type: "json",
 };
+import nativeFiles from "../../contracts/mattermost/native-files.json" with {
+  type: "json",
+};
 import catalog from "../../contracts/mattermost/operations.json" with {
   type: "json",
 };
@@ -23,6 +26,7 @@ import {
   correctExecuteCommand,
 } from "./command-corrections.ts";
 import { correctCustomEmoji } from "./custom-emoji-correction.ts";
+import { correctFileContent } from "./file-content-correction.ts";
 import {
   correctFileModel,
   correctFileSearch,
@@ -136,7 +140,7 @@ export function buildSpecification(
     method: string;
     id: string;
     body?: string;
-  }> = catalog,
+  }> = [...catalog, ...nativeFiles],
 ) {
   const introduction = read("introduction.yaml");
   const definitions = read("definitions.yaml");
@@ -307,6 +311,12 @@ export function buildSpecification(
         path,
         originalOperation,
         read("files-12.1.0.yaml"),
+      );
+    else if (nativeFiles.some((file) => file.id === id))
+      operation = correctFileContent(
+        originalOperation,
+        read("files-12.1.0.yaml"),
+        path,
       );
     if (operation.operationId !== id)
       throw new Error(`Expected operation ${id} at ${method} ${path}`);

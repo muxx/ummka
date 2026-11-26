@@ -33,6 +33,12 @@
   {
     "file": "teams.yaml",
     "method": "GET",
+    "path": "/api/v4/teams/name/{name}",
+    "id": "GetTeamByName"
+  },
+  {
+    "file": "teams.yaml",
+    "method": "GET",
     "path": "/api/v4/users/{user_id}/teams",
     "id": "GetTeamsForUser"
   },
@@ -78,6 +84,12 @@
     "method": "GET",
     "path": "/api/v4/channels/{channel_id}",
     "id": "GetChannel"
+  },
+  {
+    "file": "channels.yaml",
+    "method": "GET",
+    "path": "/api/v4/teams/name/{team_name}/channels/name/{channel_name}",
+    "id": "GetChannelByNameForTeamName"
   },
   {
     "file": "channels.yaml",

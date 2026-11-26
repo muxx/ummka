@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { channelManagementAccess } from "../../../src/channels/channel-management-access.ts";
 import { channelComposerAccess } from "../../../src/channels/composer-access.ts";
 import { readChannelNotifications } from "../../../src/mattermost/channel-notifications.ts";
 import {
@@ -120,6 +121,29 @@ export async function checkNavigationMemberships(
         [...team.roles.split(" "), ...assignments].filter(Boolean),
       );
       const check = savedChannelPermissions(snapshot, team.roles);
+      const town = projection.channels.find(
+        (row) => row.name === "town-square",
+      );
+      const direct = projection.channels.find((row) => row.id === directId);
+      assert.ok(town && direct);
+      const townManagement = channelManagementAccess(check, town);
+      assert.equal(townManagement.createPublic, "allowed");
+      assert.equal(townManagement.createPrivate, "allowed");
+      assert.equal(
+        townManagement.editProperties,
+        allows(town.id, "manage_public_channel_properties")
+          ? "allowed"
+          : "denied",
+      );
+      assert.equal(townManagement.archive, "denied");
+      assert.equal(townManagement.restore, "denied");
+      const directManagement = channelManagementAccess(check, direct);
+      assert.equal(directManagement.editProperties, "denied");
+      assert.equal(directManagement.archive, "denied");
+      assert.equal(directManagement.restore, "denied");
+      console.log(
+        "Verified ordinary member channel management on the default channel and a direct conversation.",
+      );
       for (const channel of projection.channels) {
         const permission = check(channel, "create_post");
         const access = channelComposerAccess({

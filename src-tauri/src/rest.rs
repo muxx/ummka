@@ -40,6 +40,12 @@ impl Operation<'_> {
                 "{team_id}" | "{channel_id}" | "{post_id}" | "{thread_id}" | "{file_id}" => {
                     is_mattermost_id(actual)
                 }
+                "{name}" | "{team_name}" | "{channel_name}" => {
+                    (1..=64).contains(&actual.len())
+                        && actual
+                            .bytes()
+                            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_'))
+                }
                 "{category_id}" => valid_category_id(actual),
                 "{timestamp}" => {
                     // The generated SDK passes Unix milliseconds as a JavaScript number.
@@ -347,6 +353,33 @@ mod tests {
     }
 
     #[test]
+    fn named_channel_requires_two_bounded_name_segments() {
+        let get = reqwest::Method::GET;
+        let route = |team: &str, channel: &str| {
+            format!("/api/v4/teams/name/{team}/channels/name/{channel}")
+        };
+        let operation = OPERATIONS
+            .iter()
+            .find(|op| op.allows(&get, &route("team-a", "room_1")))
+            .unwrap();
+        let team_route = |team: &str| format!("/api/v4/teams/name/{team}");
+        let team_operation = OPERATIONS
+            .iter()
+            .find(|op| op.allows(&get, &team_route("team-a")))
+            .unwrap();
+        let limit = "r".repeat(64);
+        assert!(team_operation.allows(&get, &team_route(&limit)));
+        assert!(!team_operation.allows(&reqwest::Method::POST, &team_route("team-a")));
+        assert!(operation.allows(&get, &route(&limit, &limit)));
+        assert!(!operation.allows(&reqwest::Method::POST, &route("team-a", "room_1")));
+        for bad in ["", "two/names", "a%2Fb", "with.dot", "☃", &"a".repeat(65)] {
+            assert!(!team_operation.allows(&get, &team_route(bad)), "{bad}");
+            assert!(!operation.allows(&get, &route(bad, "room_1")), "{bad}");
+            assert!(!operation.allows(&get, &route("team-a", bad)), "{bad}");
+        }
+    }
+
+    #[test]
     fn file_metadata_requires_a_concrete_file_id_and_exact_route() {
         let base = "https://chat.example.test/team/chat";
         let connection = RestConnection::new(base).unwrap();
@@ -378,6 +411,24 @@ mod tests {
                 connection.check_request(&request).is_ok(),
                 allowed,
                 "{route}"
+            );
+        }
+    }
+
+    #[test]
+    fn attachment_content_routes_are_reserved_for_native_delivery() {
+        let base = "https://fixture.test/team/chat";
+        let connection = RestConnection::new(base).unwrap();
+        let routes: Vec<Operation<'_>> =
+            serde_json::from_str(include_str!("../../contracts/mattermost/native-files.json"))
+                .unwrap();
+        for route in routes {
+            let path = route.path.replace("{file_id}", &"f".repeat(26));
+            let url = Url::parse(&format!("{base}{path}")).unwrap();
+            let request = Request::new(route.method.parse().unwrap(), url);
+            assert_eq!(
+                connection.check_request(&request),
+                Err(TransportError::OperationDenied)
             );
         }
     }

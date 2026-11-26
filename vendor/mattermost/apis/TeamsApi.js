@@ -40,6 +40,37 @@ export class TeamsApi extends runtime.BaseAPI {
         const response = await this.addTeamMemberRaw(requestParameters, initOverrides);
         return await response.value();
     }
+    async getTeamByNameRequestOpts(requestParameters) {
+        if (requestParameters['name'] == null) {
+            throw new runtime.RequiredError('name', 'Required parameter "name" was null or undefined when calling getTeamByName().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/teams/name/{name}`;
+        urlPath = urlPath.replace('{name}', encodeURIComponent(String(requestParameters['name'])));
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async getTeamByNameRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.getTeamByNameRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => TeamFromJSON(jsonValue));
+    }
+    async getTeamByName(requestParameters, initOverrides) {
+        const response = await this.getTeamByNameRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
     async getTeamMembersForUserRequestOpts(requestParameters) {
         if (requestParameters['userId'] == null) {
             throw new runtime.RequiredError('userId', 'Required parameter "userId" was null or undefined when calling getTeamMembersForUser().');

@@ -1,0 +1,20 @@
+[
+  {
+    "file": "files.yaml",
+    "method": "GET",
+    "path": "/api/v4/files/{file_id}",
+    "id": "GetFile"
+  },
+  {
+    "file": "files.yaml",
+    "method": "GET",
+    "path": "/api/v4/files/{file_id}/thumbnail",
+    "id": "GetFileThumbnail"
+  },
+  {
+    "file": "files.yaml",
+    "method": "GET",
+    "path": "/api/v4/files/{file_id}/preview",
+    "id": "GetFilePreview"
+  }
+]

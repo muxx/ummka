@@ -15,6 +15,7 @@ import { accountPostCollections } from "./account-post-collections.ts";
 import { accountPostReactions } from "./account-post-reactions.ts";
 import { accountSearch } from "./account-search.ts";
 import { accountChannelAudience } from "./channel-audience.ts";
+import { createChannelHistoryChanges } from "./channel-history-changes.ts";
 import {
   type ChannelRefreshRequest,
   type ChannelRefreshResult,
@@ -141,6 +142,7 @@ export async function openAccountRestConnection(
   const posts = new PostsApi(config);
   const files = new FilesApi(config);
   const activity = createPostActivity();
+  const historyChanges = createChannelHistoryChanges();
   let retired:
     | "unknown_connection"
     | "cancelled"
@@ -149,6 +151,7 @@ export async function openAccountRestConnection(
   function retire(reason: NonNullable<typeof retired>) {
     retired = reason;
     activity.close();
+    historyChanges.close();
   }
   async function readWhileOpen<T>(
     read: () => Promise<T>,
@@ -424,9 +427,17 @@ export async function openAccountRestConnection(
         loadTeamDirectory(config, userId, teamId, signal),
       );
     },
-    refreshChannelHistory(query: ChannelRefreshRequest, signal?: AbortSignal) {
+    subscribeToChannelHistory: historyChanges.subscribe,
+    notifyChannelHistoryChanged(channelId: string) {
+      historyChanges.notify(channelId);
+    },
+    async refreshChannelHistory(
+      query: ChannelRefreshRequest,
+      signal?: AbortSignal,
+    ) {
       if (retired) return Promise.reject<ChannelRefreshResult>(retired);
-      return refreshChannelHistory(
+      const { channelId } = query;
+      const result = await refreshChannelHistory(
         posts,
         {
           begin: (channelId) =>
@@ -450,6 +461,9 @@ export async function openAccountRestConnection(
         query,
         signal,
       );
+      if (result.kind === "applied" || result.kind === "inaccessible")
+        historyChanges.notify(channelId, signal);
+      return result;
     },
     close() {
       retire("unknown_connection");

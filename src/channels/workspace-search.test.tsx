@@ -101,6 +101,7 @@ function Window({
     "ru",
     () => "Релизы",
     () => "Анна",
+    { channelId: null, open: vi.fn(), clear: vi.fn() },
   );
   return (
     <>

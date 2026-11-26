@@ -24,6 +24,10 @@ import { openAccountRestConnection } from "../mattermost/native-rest";
 import { EntryWindow } from "./EntryWindow";
 import type { EntryLanguage } from "./language";
 import { teamText } from "./team-text";
+import {
+  type MessageNavigation,
+  useMessageNavigation,
+} from "./use-message-navigation";
 import "./connect.css";
 import "./team-window.css";
 
@@ -36,6 +40,7 @@ export type TeamWorkspace = {
   directoryNotice: Issue | null;
   directoryCode?: string;
   chooseAnotherTeam: () => void;
+  messages: MessageNavigation;
   policy: ReturnType<typeof useAccountPolicy>;
   online: boolean;
   sessionIssue: (issue: "session" | "unauthorized") => void;
@@ -245,20 +250,27 @@ function AccountWindow({
     };
   }, [serverUrl, userId, read]);
 
-  async function choose(team: JoinedTeam) {
+  async function choose(
+    team: JoinedTeam,
+    targetDirectory?: JoinedTeams,
+    signal?: AbortSignal,
+    commit?: () => void,
+  ): Promise<boolean> {
     const current = connection.current;
-    if (!current || selection.current) return;
+    if (!current || selection.current || signal?.aborted) return false;
     selection.current = true;
     setChoosing(true);
     readVersion.current++;
     try {
       const accepted = await current.selectJoinedTeam(team.id);
-      if (connection.current !== current) return;
+      if (connection.current !== current || signal?.aborted) return false;
       if (accepted) {
         // The selection was committed while this connection still owned the account.
-        setDirectory(
-          (previous) => previous && { ...previous, selectedTeam: team.id },
-        );
+        commit?.();
+        setDirectory((previous) => {
+          const source = targetDirectory ?? previous;
+          return source && { ...source, selectedTeam: team.id };
+        });
         setPicker(false);
         setNotice((previous) =>
           previous === "chooseFailed" ? null : previous,
@@ -269,10 +281,14 @@ function AccountWindow({
       try {
         await read(current);
       } catch {
-        if (connection.current === current) setNotice("storage");
+        if (connection.current === current && !signal?.aborted)
+          setNotice("storage");
       }
+      return accepted;
     } catch {
-      if (connection.current === current) setNotice("chooseFailed");
+      if (connection.current === current && !signal?.aborted)
+        setNotice("chooseFailed");
+      return false;
     } finally {
       if (connection.current === current) {
         selection.current = false;
@@ -281,21 +297,38 @@ function AccountWindow({
     }
   }
 
+  const { navigation: messages, dialog: messageDialog } = useMessageNavigation(
+    connection.current,
+    directory,
+    online,
+    language,
+    sessionIssue,
+    choose,
+  );
   const teams = directory?.teams ?? [];
   const selected = teams.find((team) => team.id === directory?.selectedTeam);
   if (selected && connection.current && !picker) {
-    return children({
-      serverUrl,
-      userId,
-      team: selected,
-      connection: connection.current,
-      online,
-      policy,
-      sessionIssue,
-      directoryNotice: notice,
-      directoryCode,
-      chooseAnotherTeam: () => setPicker(true),
-    });
+    return (
+      <>
+        {children({
+          serverUrl,
+          userId,
+          team: selected,
+          connection: connection.current,
+          online,
+          policy,
+          sessionIssue,
+          directoryNotice: notice,
+          directoryCode,
+          chooseAnotherTeam: () => {
+            messages.clear();
+            setPicker(true);
+          },
+          messages,
+        })}
+        {messageDialog}
+      </>
+    );
   }
   return (
     <EntryWindow>

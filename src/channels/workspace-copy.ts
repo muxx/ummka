@@ -20,6 +20,8 @@ export const workspaceCopy = {
     retry: "Try again",
     selected: "Couldn’t save the selected channel.",
     edge: "This part of the history is unavailable.",
+    positionLost: "The messages you were reading are no longer available here.",
+    latest: "Go to latest messages",
     sidebar: "Channel categories",
     archived: "Archived",
     muted: "Muted",
@@ -29,6 +31,8 @@ export const workspaceCopy = {
     formatMentions: (n: number) => `Mentions: ${n}`,
   },
   ru: {
+    positionLost: "Сообщения, которые вы читали, здесь больше недоступны.",
+    latest: "К последним сообщениям",
     nav: "Каналы",
     account: "Аккаунт",
     switchTeam: "Сменить команду",

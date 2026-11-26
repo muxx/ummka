@@ -37,6 +37,15 @@ export function useWorkspaceSearch(
   language: EntryLanguage,
   channelName: (id: string) => string | undefined,
   authorName: (id: string) => string | undefined,
+  navigation: {
+    channelId: string | null;
+    open: (
+      source: { kind: "post" | "file"; id: string },
+      signal: AbortSignal,
+      origin: HTMLElement,
+    ) => Promise<void>;
+    clear: () => void;
+  },
 ) {
   const { team, connection, online, policy, sessionIssue } = workspace;
   const settings = policy.server.value?.search;
@@ -55,11 +64,29 @@ export function useWorkspaceSearch(
   } | null>(null);
   const request = useRef<AbortController | null>(null);
   const result = useRef<SearchSession | null>(null);
+  const activation = useRef<{
+    kind: "post" | "file";
+    id: string;
+    controller: AbortController;
+  } | null>(null);
+  const sourceRow = useRef<{
+    id: string;
+    channelId: string;
+    scroll: number;
+  } | null>(null);
+  const [restore, setRestore] = useState<{ id: string; scroll: number } | null>(
+    null,
+  );
+  const clearPosition = navigation.clear;
   const trigger = useRef<HTMLButtonElement>(null);
   const previousPolicy = useRef(policyKey);
   useLayoutEffect(() => {
     if (previousPolicy.current === policyKey) return;
     previousPolicy.current = policyKey;
+    activation.current?.controller.abort();
+    sourceRow.current = null;
+    setRestore(null);
+    if (result.current || activation.current) clearPosition();
     request.current?.abort();
     request.current = null;
     setPending(false);
@@ -69,10 +96,11 @@ export function useWorkspaceSearch(
       setEntry(null);
       if (!open) trigger.current?.focus();
     }
-  }, [policyKey, open]);
+  }, [policyKey, open, clearPosition]);
   useEffect(
     () => () => {
       request.current?.abort();
+      activation.current?.controller.abort();
       result.current?.close();
     },
     [],
@@ -85,7 +113,15 @@ export function useWorkspaceSearch(
     setForm(null);
     trigger.current?.focus();
   }
+  function abandonDestination() {
+    activation.current?.controller.abort();
+    activation.current = null;
+    sourceRow.current = null;
+    setRestore(null);
+    clearPosition();
+  }
   function dismiss() {
+    abandonDestination();
     closeDialog();
     result.current?.close();
     result.current = null;
@@ -102,6 +138,7 @@ export function useWorkspaceSearch(
     };
   }
   function edit() {
+    abandonDestination();
     setError(null);
     setForm(currentQuery());
   }
@@ -111,6 +148,7 @@ export function useWorkspaceSearch(
     onOpened?: () => void,
   ) {
     if (request.current || origin?.aborted) return false;
+    abandonDestination();
     const token = new AbortController();
     const leaveOrigin = () => {
       token.abort();
@@ -173,6 +211,15 @@ export function useWorkspaceSearch(
     }
   }
   return {
+    origin: sourceRow.current,
+    backLabel: text.back,
+    restoreRow: () => {
+      const origin = sourceRow.current;
+      setRestore(origin);
+      return origin?.channelId;
+    },
+    dismiss,
+    abortPending: () => activation.current?.controller.abort(),
     async fromCommand(
       terms: string,
       origin: AbortSignal,
@@ -231,6 +278,29 @@ export function useWorkspaceSearch(
         <SearchResultsPanel
           key={JSON.stringify(entry.query)}
           session={entry.result}
+          restore={restore}
+          activate={async (source, origin, scroll) => {
+            if (!navigation.channelId) return;
+            if (
+              activation.current?.id === source.id &&
+              activation.current.kind === source.kind
+            )
+              return;
+            activation.current?.controller.abort();
+            const task = new AbortController();
+            activation.current = { ...source, controller: task };
+            sourceRow.current = {
+              id: source.id,
+              channelId: navigation.channelId,
+              scroll,
+            };
+            try {
+              await navigation.open(source, task.signal, origin);
+            } finally {
+              if (activation.current?.controller === task)
+                activation.current = null;
+            }
+          }}
           terms={entry.query.terms}
           filesAllowed={settings?.files === true}
           language={language}

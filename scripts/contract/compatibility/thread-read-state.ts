@@ -6,6 +6,8 @@ import {
   type UserThread,
 } from "../../../vendor/mattermost/index.js";
 
+import { checkAccountThreadReadState } from "./account-thread-read-state.ts";
+
 function account(session: Configuration, username: string) {
   return {
     posts: new PostsApi(session),
@@ -178,6 +180,16 @@ export async function checkThreadReadState(
   }
   assert.deepEqual(await page(writer, room.teamId), writerSnapshot);
   assert.deepEqual(await page(reader, other.teamId, true), otherSnapshot);
+  await checkAccountThreadReadState(
+    readerSession,
+    writerSession,
+    room.teamId,
+    other.teamId,
+    subject,
+    direct,
+    outside.scope.threadId,
+    personal.scope.threadId,
+  );
   console.log(
     `Mattermost ${version} verified partial, complete and team-wide thread read state, direct conversations and isolation across users and teams.`,
   );

@@ -10,7 +10,9 @@ mod connection;
 mod route;
 pub(crate) use route::{ClientEventAddress, EventRoute};
 mod delivery;
+mod typing;
 pub use connection::{EventConnectionError, EventReader, EventSettings};
+pub use typing::TypingEvent;
 
 use crate::rest::is_mattermost_id;
 use serde::Deserialize;
@@ -58,6 +60,7 @@ pub enum IncomingFrame {
     Reply {
         request_sequence: i64,
         status: ReplyStatus,
+        pong: bool,
     },
     Event {
         event: ServerEvent,
@@ -65,6 +68,12 @@ pub enum IncomingFrame {
         /// Keep this only after applying the event and any required synchronization.
         after: EventCursor,
     },
+}
+
+impl IncomingFrame {
+    pub fn confirms_ping(&self, sequence: i64) -> bool {
+        matches!(self, Self::Reply { request_sequence, status: ReplyStatus::Ok, pong: true } if *request_sequence == sequence)
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -101,6 +110,12 @@ pub fn read_frame(
             Ok(IncomingFrame::Reply {
                 request_sequence,
                 status,
+                pong: wire
+                    .data
+                    .as_ref()
+                    .and_then(|data| data.get("text"))
+                    .and_then(Value::as_str)
+                    == Some("pong"),
             })
         }
         (Some(name), Some(sequence), None, None) if !name.is_empty() && sequence >= 0 => {
