@@ -11,6 +11,22 @@ export async function checkPostContext(
 ) {
   const query = { postId: "p".repeat(26) };
   const fileQuery = { fileId: "f".repeat(26) };
+  const attachments = await new PostsApi(prefixed).getFileInfosForPost(query);
+  if (
+    attachments?.length !== 2 ||
+    attachments[0]?.name !== "zebra.txt" ||
+    attachments[1]?.name !== "apple.txt" ||
+    !attachments.every(
+      (info, index) =>
+        info.id === String(index + 1).repeat(26) &&
+        info.channelId === "c".repeat(26) &&
+        info.postId === query.postId &&
+        info.size === 24 + index &&
+        info.mimeType === "text/plain",
+    )
+  ) {
+    throw Error("Post attachment metadata changed shape or order");
+  }
   const file = await new FilesApi(prefixed).getFileInfo(fileQuery);
   if (
     file.id !== fileQuery.fileId ||
@@ -35,9 +51,14 @@ export async function checkPostContext(
   if (
     single.id !== query.postId ||
     single.channelId !== "c".repeat(26) ||
-    single.rootId !== "r".repeat(26)
+    single.rootId !== "r".repeat(26) ||
+    single.metadata?.redactedFileCount !== 2 ||
+    single.fileIds?.length !== 0 ||
+    single.metadata.files !== undefined
   )
-    throw Error("Single post did not preserve the requested reply");
+    throw Error(
+      "Single post did not preserve the reply and its hidden attachment count",
+    );
   try {
     await new PostsApi(root).getPost(query);
     throw Error("Expected a history restriction");

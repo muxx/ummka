@@ -87,6 +87,11 @@ import type { ThreadsApi, UserThread, UsersApi, GetPostInfoRequest, GetPostThrea
 declare const transport: ReturnType<typeof createRestTransport>;
 transport satisfies Required<Pick<ConfigurationParameters, "basePath" | "fetchApi">>;
 declare const threads: ThreadsApi;
+const selection = {userId: "me", teamId: "team", threadId: "thread"};
+(await threads.updateThreadReadForUser({...selection, timestamp: Date.now()})) satisfies UserThread;
+(await threads.updateThreadsReadForUser(selection)).status satisfies string | undefined;
+// @ts-expect-error callers use Unix milliseconds as a number
+threads.updateThreadReadForUser({...selection, timestamp: "1700000000000"});
 const followed = await threads.getUserThreads({ userId: "me", teamId: "team", before: "thread", perPage: 25, unread: true, threadsOnly: true });
 followed.threads satisfies UserThread[] | null | undefined;
 followed.threads?.[0].participants?.[0].username satisfies string | undefined;
@@ -94,6 +99,14 @@ followed.threads?.[0].unreadReplies satisfies number | undefined;
 followed.totalUnreadUrgentMentions satisfies number | undefined;
 // @ts-expect-error The server takes thread IDs as cursors and ignores page numbers.
 threads.getUserThreads({ userId: "me", teamId: "team", page: 2 });
+import type { FileInfo, PostsApi } from "./compiled/index.js";
+declare const attachmentPosts: PostsApi;
+const attachments = await attachmentPosts.getFileInfosForPost({ postId: "a-post" });
+attachments satisfies FileInfo[] | null;
+// @ts-expect-error The server may serialize an empty file list as null.
+attachments satisfies FileInfo[];
+// @ts-expect-error A post ID is required even when includeDeleted is absent.
+attachmentPosts.getFileInfosForPost({});
 declare const users: UsersApi;
 (await users.getUsersByUsernames({ requestBody: ["ada"] })) satisfies User[];
 (await users.getProfileImage({ userId: "user" })) satisfies Blob;
@@ -130,6 +143,10 @@ const badCursor: GetPostThreadRequest = { postId: "a-post-id", fromCreateAt: "12
 declare const page: PostList;
 import type { ChannelsApi, Preference, PreferencesApi } from "./compiled/index.js";
 declare const channels: ChannelsApi;
+const managed = await channels.getManagedCategories({ teamId: "team" });
+managed satisfies Record<string, string>;
+// @ts-expect-error The mapping belongs to one team.
+channels.getManagedCategories({});
 const memberAdded = await channels.addChannelMember({ channelId: "channel", addChannelMemberRequest: { userId: "user", postRootId: "root" } });
 memberAdded.channelId satisfies string | undefined;
 (await channels.removeUserFromChannel({ channelId: "channel", userId: "user" })).status satisfies string | undefined;

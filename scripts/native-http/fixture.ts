@@ -92,7 +92,37 @@ function certificates(dir: string) {
   };
 }
 
+// Only fixture-defined steps may appear in failure output.
+const probeSteps = new Set([
+  "login",
+  "logout",
+  "me",
+  "received",
+  "release",
+  "detached-revoked",
+  "event-handshake-arrived",
+  "event-handshake-closed",
+  "websocket",
+  "scope-created",
+  "scope-denied",
+  "hold-headers",
+  "headers-received",
+  "headers-closed",
+  "hold-body",
+  "body-closed",
+  "disconnect",
+  "warm",
+  "one",
+  "two",
+]);
+
 export async function startFixture(dir: string) {
+  let lastNativeProbe = "none";
+  let probeCount = 0;
+  function observe(kind: string, path?: string) {
+    const step = path?.split("?", 1)[0].split("/").at(-1);
+    lastNativeProbe = `${++probeCount} ${kind}${step && probeSteps.has(step) ? `/${step}` : ""}`;
+  }
   const certs = certificates(dir);
   const visits: string[] = [];
   const authVisits: string[] = [];
@@ -138,7 +168,8 @@ export async function startFixture(dir: string) {
   const eventStream = eventFixture();
   const tls = https.createServer(certs.trusted, (request, response) => {
     const path = request.url;
-    if (eventStream.control(path, response)) return;
+    observe("https", path);
+    if (eventStream.control(request, response)) return;
     const control = path?.match(
       /^\/auth-check\/([a-z-]+)\/(received|release)$/,
     );
@@ -211,9 +242,13 @@ export async function startFixture(dir: string) {
       response.writeHead(404).end();
     }
   });
-  tls.on("upgrade", (request, socket) => eventStream.upgrade(request, socket));
+  tls.on("upgrade", (request, socket) => {
+    observe("upgrade", request.url);
+    eventStream.upgrade(request, socket);
+  });
   let rejectedHttp = 0;
   const unexpected = (_req: http.IncomingMessage, res: http.ServerResponse) => {
+    observe("unexpected-tls");
     rejectedHttp++;
     res.end();
   };
@@ -226,7 +261,10 @@ export async function startFixture(dir: string) {
     });
   }
   let plainConnections = 0;
-  const plain = http.createServer((_request, response) => ok(response));
+  const plain = http.createServer((_request, response) => {
+    observe("cleartext");
+    ok(response);
+  });
   plain.on("connection", () => {
     plainConnections++;
   });
@@ -240,6 +278,7 @@ export async function startFixture(dir: string) {
   });
   h2.on("stream", (stream, headers) => {
     const path = String(headers[":path"]);
+    observe("http2", path);
     paths.push(path);
     if (path === "/warm") stream.end("OK");
     else {
@@ -252,6 +291,7 @@ export async function startFixture(dir: string) {
   const selected = https.createServer(certs.trusted, async (req, res) => {
     assert.equal(req.headers.authorization, undefined);
     assert.equal(req.headers.cookie, undefined);
+    observe("account", req.url);
     scopedSockets.push(req.socket);
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk);
@@ -269,6 +309,7 @@ export async function startFixture(dir: string) {
     ok(res);
   });
   const other = https.createServer(certs.trusted, (_req, res) => {
+    observe("other-origin");
     otherRequests++;
     ok(res);
   });
@@ -299,6 +340,7 @@ export async function startFixture(dir: string) {
       }),
     );
     return {
+      lastNativeProbe: () => lastNativeProbe,
       ports: ports.slice(0, native.length),
       webviewPorts: ports.slice(native.length),
       onKeyboardReady: webview.onKeyboardReady,

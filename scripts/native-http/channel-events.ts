@@ -3,21 +3,66 @@ import { createHash } from "node:crypto";
 import { EventEmitter, once } from "node:events";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
+import { json } from "node:stream/consumers";
 
 const fixtureId = "e".repeat(26);
 const prefix = "/Event%20Site//";
 function frame(text: string) {
   const bytes = Buffer.from(text);
-  assert(bytes.length < 126);
-  return Buffer.concat([Buffer.from([0x81, bytes.length]), bytes]);
+  if (bytes.length < 126)
+    return Buffer.concat([Buffer.from([0x81, bytes.length]), bytes]);
+  const header = Buffer.from([0x81, 126, 0, 0]);
+  header.writeUInt16BE(bytes.length, 2);
+  return Buffer.concat([header, bytes]);
 }
 export function eventFixture() {
   const visits: string[] = [];
   const events = new EventEmitter();
   const arrived = once(events, "arrived");
   const closed = once(events, "closed");
+  let delivery: Duplex | undefined;
+  let accepted = 0;
   return {
-    control(path: string | undefined, response: ServerResponse) {
+    control(request: IncomingMessage, response: ServerResponse) {
+      const path = request.url;
+      if (path === `${prefix}delivery/api/v4/posts`) {
+        assert.equal(request.method, "POST");
+        assert.equal(
+          request.headers.authorization,
+          "Bearer event-fixture-token",
+        );
+        const socket = delivery;
+        assert(socket);
+        void json(request).then((body) => {
+          const post = body as Record<string, unknown>;
+          assert.equal(post.channel_id, "c".repeat(26));
+          assert.equal(post.root_id, "r".repeat(26));
+          assert.equal(post.message, "fixture reply");
+          const userId = "Abc01234567890123456789012";
+          assert(typeof post.pending_post_id === "string");
+          assert(post.pending_post_id.startsWith(`${userId}:`));
+          accepted++;
+          socket.write(
+            frame(
+              JSON.stringify({
+                event: "posted",
+                seq: 1,
+                broadcast: { channel_id: post.channel_id },
+                data: {
+                  post: JSON.stringify({
+                    ...post,
+                    id: "p".repeat(26),
+                    user_id: userId,
+                    delete_at: 0,
+                  }),
+                },
+              }),
+            ),
+          );
+          response.destroy();
+        });
+        return true;
+      }
       if (
         path !== "/event-handshake-arrived" &&
         path !== "/event-handshake-closed"
@@ -52,7 +97,10 @@ export function eventFixture() {
         return;
       }
       if (mode === "denied") {
-        socket.end("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n");
+        // Node detached this socket for Upgrade. It cannot serve another HTTP request.
+        socket.end(
+          "HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+        );
         return;
       }
       const key = req.headers["sec-websocket-key"];
@@ -67,7 +115,11 @@ export function eventFixture() {
           "\r\n\r\n",
       );
       socket.on("end", () => socket.end());
-      if (mode === "events") {
+      if (mode === "events" || mode === "delivery") {
+        if (mode === "delivery") {
+          assert(!resumed);
+          delivery = socket;
+        }
         const message = resumed
           ? {
               event: "posted",
@@ -90,7 +142,9 @@ export function eventFixture() {
       }
     },
     verify() {
+      assert.equal(accepted, 1);
       assert.deepEqual(visits, [
+        "delivery",
         "events",
         "events",
         "closed",

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { latestReactionTarget } from "../../../src/channels/latest-reaction-target.ts";
 import { nextPostDestinationStep } from "../../../src/channels/post-destination-step.ts";
+import { accountChannelReadState } from "../../../src/mattermost/account-channel-read-state.ts";
 import { channelHistoryPage } from "../../../src/mattermost/channel-history-page.ts";
 import { channelPostChanges } from "../../../src/mattermost/channel-post-records.ts";
 import {
@@ -44,6 +45,7 @@ import { checkCommands } from "./commands.ts";
 import { checkCustomEmojiLookup } from "./custom-emoji.ts";
 import { checkEventStream } from "./event-stream.ts";
 import { checkFileSearch } from "./file-search.ts";
+import { checkFocusedConversation } from "./focused-conversation.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
 import { checkJoinPostTarget } from "./join-post-target.ts";
 import {
@@ -59,12 +61,14 @@ import {
   checkSavedPageBoundary,
 } from "./post-collections.ts";
 import { checkPostEditHistory } from "./post-edit-history.ts";
+import { checkPostEditWindow } from "./post-edit-window.ts";
 import {
   checkPostMutations,
   checkPreviouslyAcceptedPost,
 } from "./post-mutations.ts";
 import { checkPostSearch } from "./post-search.ts";
 import { checkProfileReads } from "./profile-reads.ts";
+import { checkPublishedPostDocument } from "./published-post-document.ts";
 import { checkReactionActions } from "./reaction-actions.ts";
 import { checkReactionLimit } from "./reaction-limit.ts";
 import { checkPostReactions } from "./reactions.ts";
@@ -76,6 +80,7 @@ import { checkSidebarCounters } from "./sidebar-counters.ts";
 import { checkThreadFollow } from "./thread-follow.ts";
 import { checkThreadList } from "./thread-list.ts";
 import { checkThreadPageTies } from "./thread-page-ties.ts";
+import { checkThreadReadState } from "./thread-read-state.ts";
 import { checkThreadSummary } from "./thread-summary.ts";
 import { checkThreadWindow } from "./thread-window.ts";
 import { checkUserNotifications } from "./user-notifications.ts";
@@ -883,6 +888,27 @@ await checkFileSearch(
   extraTeam.id,
   version,
 );
+const managedApi = new ChannelsApi(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+);
+const memberConfig = await fetch(`${base}/api/v4/config/client?format=old`, {
+  headers: { Authorization: `Bearer ${readerToken}` },
+});
+assert.equal(memberConfig.status, 200);
+const hasManagedRoute = version === "12.1.0";
+assert.equal(
+  (await memberConfig.json()).FeatureFlagManagedChannelCategories,
+  hasManagedRoute ? "true" : undefined,
+);
+const unavailableManaged = await managedApi
+  .getManagedCategories({ teamId: team.id })
+  .catch((error: unknown) => error);
+assert.ok(unavailableManaged instanceof ResponseError);
+assert.equal(unavailableManaged.response.status, hasManagedRoute ? 501 : 404);
+assert.equal(
+  (await unavailableManaged.response.json()).id,
+  hasManagedRoute ? "api.license_error" : "api.context.404.app_error",
+);
 await checkNavigationMemberships(
   new Configuration({ basePath: base, accessToken: readerToken }),
   reader.id,
@@ -942,9 +968,32 @@ await checkThreadFollow(
 );
 // The earlier non-member checks use this private channel before the reader joins.
 await create(`channels/${closed.id}/members`, { user_id: reader.id }, token);
+const observerName = "sidebar-observer";
+const observerPassword = randomBytes(24).toString("hex") + "aA7!";
+const observer = await (
+  await create("users", {
+    username: observerName,
+    email: "sidebar-observer@example.test",
+    password: observerPassword,
+  })
+).json();
+assert.equal(observer.roles, "system_user");
+await create(
+  `teams/${team.id}/members`,
+  { team_id: team.id, user_id: observer.id },
+  token,
+);
+const observerToken = (
+  await create("users/login", {
+    login_id: observerName,
+    password: observerPassword,
+  })
+).headers.get("token");
+assert.ok(observerToken);
 await checkSidebarReads(
   base,
   readerToken,
+  observerToken,
   reader.id,
   user.id,
   team.id,
@@ -953,7 +1002,7 @@ await checkSidebarReads(
   closed.id,
 );
 console.log(
-  `Mattermost ${version} verified personal sidebar categories, order, flags, preferences and ownership.`,
+  `Mattermost ${version} verified category creation, edits, bulk channel moves, order and deletion independently of a second member’s sidebar.`,
 );
 const disposable = await (
   await create(
@@ -1197,6 +1246,7 @@ await checkPreviouslyAcceptedPost(
 );
 
 await checkSearchScopePolicy(base, token, readerToken, version);
+await checkPostEditWindow(base, token, readerToken);
 await checkReactionLimit(base, token, user.id, readerToken, channelId);
 console.log(
   `Mattermost ${version} verified the signed reaction limit against adding a new emoji name.`,
@@ -1225,9 +1275,16 @@ console.log(
   `Mattermost ${version} verified empty and populated reaction lists and post metadata.`,
 );
 
-await checkEventStream(base, token, session, team.id, channelId);
+await checkEventStream(
+  base,
+  readerToken,
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  reader.id,
+  team.id,
+  channelId,
+);
 console.log(
-  `Mattermost ${version} verified sequenced posts, command replies and replay of a post after reconnect.`,
+  `Mattermost ${version} verified an ordinary author's pending_post_id in posted, command replies and post replay after reconnect.`,
 );
 
 // Two ordinary users share a previously empty team and a new DM. Existing
@@ -1274,6 +1331,64 @@ await checkSavedPageBoundary(
   version,
 );
 
+const readerReadState = accountChannelReadState(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  reader.id,
+  (run) => run(),
+);
+const ownerChannels = new ChannelsApi(session);
+const ownerMember = await ownerChannels.getChannelMember({
+  channelId: dm.id,
+  userId: "me",
+});
+const dmUnread = await readerReadState.markPostUnread(dm.id, dmPost.id);
+assert.equal(dmUnread.teamId, "");
+assert.equal(dmUnread.userId, reader.id);
+assert.equal(dmUnread.channelId, dm.id);
+assert.equal(dmUnread.lastViewedAt, dmPost.create_at - 1);
+assert.deepEqual(
+  await ownerChannels.getChannelMember({ channelId: dm.id, userId: "me" }),
+  ownerMember,
+);
+assert.equal(
+  (await readerReadState.markPostUnread(closed.id, closedPost.id)).teamId,
+  team.id,
+);
+
+await checkFocusedConversation(memberPosts, readerPosts, closed.id, () =>
+  new ChannelsApi(session).removeUserFromChannel({
+    channelId: closed.id,
+    userId: reader.id,
+  }),
+);
+await assert.rejects(
+  readerReadState.markPostUnread(closed.id, closedPost.id),
+  (error: unknown) =>
+    error instanceof ResponseError && error.response.status === 403,
+);
+console.log(
+  `Mattermost ${version} verified personal unread markers in a direct conversation and a private channel before and after membership removal.`,
+);
+console.log(
+  `Mattermost ${version} verified focused channel windows for roots and a reply beyond the first thread page, including subsequent loss of channel access.`,
+);
+
+// Both ordinary participants also need a shared channel in another team.
+await create(
+  `teams/${team.id}/members`,
+  { team_id: team.id, user_id: otherSaver.id },
+  token,
+);
+await checkThreadReadState(
+  threadReader,
+  otherSaverName,
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  readerLogin.login_id,
+  { teamId: emptyTeam.id, channelId: threadRoom.id, directId: threadDirect.id },
+  { teamId: team.id, channelId },
+  version,
+);
+
 const secondLogin = await create("users/login", {
   login_id: username,
   password,
@@ -1315,6 +1430,7 @@ await checkPostEditHistory(
   channelId,
   version,
 );
+await checkPublishedPostDocument(readerPosts, base, channelId, version);
 await allowFixtureBrowserSignIn(base, token);
 const logout = await fetch(`${base}/api/v4/users/logout`, {
   method: "POST",

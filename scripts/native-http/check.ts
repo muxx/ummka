@@ -31,6 +31,7 @@ try {
         fixture.ca,
         config,
         fixture.onKeyboardReady,
+        fixture.lastNativeProbe,
       );
     else {
       const result = await promisify(execFile)(

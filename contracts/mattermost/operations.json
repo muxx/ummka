@@ -62,6 +62,12 @@
     "id": "GetChannelsForTeamForUser"
   },
   {
+    "file": "channels-12.1.0.yaml",
+    "method": "GET",
+    "path": "/api/v4/teams/{team_id}/channels/managed_categories",
+    "id": "GetManagedCategories"
+  },
+  {
     "file": "channels.yaml",
     "method": "GET",
     "path": "/api/v4/users/{user_id}/teams/{team_id}/channels/members",
@@ -130,6 +136,45 @@
     "method": "GET",
     "path": "/api/v4/users/{user_id}/teams/{team_id}/channels/categories",
     "id": "GetSidebarCategoriesForTeamForUser"
+  },
+  {
+    "file": "channels.yaml",
+    "method": "POST",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/channels/categories",
+    "id": "CreateSidebarCategoryForTeamForUser",
+    "body": "json",
+    "selfOnly": true
+  },
+  {
+    "file": "channels.yaml",
+    "method": "PUT",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/channels/categories",
+    "id": "UpdateSidebarCategoriesForTeamForUser",
+    "body": "json",
+    "selfOnly": true
+  },
+  {
+    "file": "channels.yaml",
+    "method": "PUT",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/channels/categories/order",
+    "id": "UpdateSidebarCategoryOrderForTeamForUser",
+    "body": "json",
+    "selfOnly": true
+  },
+  {
+    "file": "channels.yaml",
+    "method": "PUT",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/channels/categories/{category_id}",
+    "id": "UpdateSidebarCategoryForTeamForUser",
+    "body": "json",
+    "selfOnly": true
+  },
+  {
+    "file": "channels.yaml",
+    "method": "DELETE",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/channels/categories/{category_id}",
+    "id": "RemoveSidebarCategoryForTeamForUser",
+    "selfOnly": true
   },
   {
     "file": "preferences.yaml",
@@ -209,6 +254,20 @@
   {
     "file": "users.yaml",
     "method": "PUT",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/threads/{thread_id}/read/{timestamp}",
+    "id": "UpdateThreadReadForUser",
+    "selfOnly": true
+  },
+  {
+    "file": "users.yaml",
+    "method": "PUT",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/threads/read",
+    "id": "UpdateThreadsReadForUser",
+    "selfOnly": true
+  },
+  {
+    "file": "users.yaml",
+    "method": "PUT",
     "path": "/api/v4/users/{user_id}/teams/{team_id}/threads/{thread_id}/following",
     "id": "StartFollowingThread",
     "selfOnly": true
@@ -239,6 +298,12 @@
     "method": "GET",
     "path": "/api/v4/files/{file_id}/info",
     "id": "GetFileInfo"
+  },
+  {
+    "file": "posts.yaml",
+    "method": "GET",
+    "path": "/api/v4/posts/{post_id}/files/info",
+    "id": "GetFileInfosForPost"
   },
   {
     "file": "files.yaml",

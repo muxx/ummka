@@ -1,9 +1,12 @@
+import type { openAccountRestConnection } from "../../src/mattermost/native-rest.ts";
 import { type Configuration, PostsApi } from "../../vendor/mattermost/index.js";
 
 export async function checkPostMutations(
   root: Configuration,
   prefixed: Configuration,
   channelId: string,
+  account: Awaited<ReturnType<typeof openAccountRestConnection>>,
+  userId: string,
 ) {
   const post = await new PostsApi(root).createPost({
     createPostRequest: {
@@ -68,6 +71,35 @@ export async function checkPostMutations(
     throw Error(
       "Post edit history lost its ordered revisions or original identity",
     );
-  if ((await api.deletePost({ postId: reply.id })).status !== "OK")
-    throw Error("post deletion was not confirmed");
+  const target = {
+    id: reply.id,
+    userId,
+    channelId,
+    rootId: post.id,
+  };
+  const revisions = await account.readPostEditHistory(target);
+  if (
+    revisions.length !== 2 ||
+    revisions[0].id !== history[0].id ||
+    revisions[0].message !== "Second revision" ||
+    revisions[0].timestamp !== 200 ||
+    revisions[1].id !== history[1].id ||
+    revisions[1].message !== "First revision" ||
+    revisions[1].timestamp !== 100
+  )
+    throw Error(
+      "The signed account lost a historical message or its timestamp",
+    );
+  const changed = await account.editOwnPostMessage(
+    target,
+    "Правка **через аккаунт**\nСо второй строки",
+  );
+  if (
+    changed.id !== reply.id ||
+    changed.message !== "Rendered edit" ||
+    changed.messageSource !== "Правка **через аккаунт**\nСо второй строки" ||
+    changed.editAt !== 302
+  )
+    throw Error("The signed account lost the server's canonical post edit");
+  await account.deleteOwnPost(target);
 }

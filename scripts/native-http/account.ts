@@ -17,7 +17,17 @@ export function respondToAccount(
     assert.equal(request.headers.cookie, undefined);
     assert.equal(url.search, "");
     response.writeHead(200, { "Content-Type": "application/json" });
-    response.end(JSON.stringify({ id: "f".repeat(26), roles: "system_user" }));
+    response.end(
+      JSON.stringify({
+        id: "f".repeat(26),
+        roles: "system_user",
+        timezone: {
+          useAutomaticTimezone: "false",
+          manualTimezone: "Asia/Kathmandu",
+          automaticTimezone: "UTC",
+        },
+      }),
+    );
     return "browser-action-confirmed";
   }
   if (url.pathname === "/browser-action-check/api/v4/users/logout") {

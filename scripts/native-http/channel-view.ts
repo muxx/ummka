@@ -44,6 +44,15 @@ export async function respondToChannelView(
     );
     return "set-post-unread";
   }
+  if (url.pathname === single && body?.channel_id === "") {
+    assert.deepEqual(body, {
+      channel_id: "",
+      collapsed_threads_supported: true,
+    });
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ status: "OK", last_viewed_at_times: {} }));
+    return "clear-channel-view";
+  }
   assert.deepEqual(
     body,
     prefix

@@ -16,6 +16,7 @@ import { respondToPostContext } from "./post-context.ts";
 import { respondToPostMutation } from "./post-mutations.ts";
 import { submissionFixture } from "./submit-post.ts";
 import { respondToThreadList } from "./thread-list.ts";
+import { respondToThreadRead } from "./thread-read-state.ts";
 import { respondToWorkspace } from "./workspace.ts";
 
 export function webviewServers(
@@ -69,6 +70,13 @@ export function webviewServers(
   const teamId = "Team0123456789012345678901";
   const channelId = "c".repeat(26);
   const teamReads = new Map<string, { name: string; body: object | null }>([
+    [
+      `/team/chat/api/v4/teams/${teamId}/channels/managed_categories`,
+      {
+        name: "managed-category-mappings",
+        body: { [channelId]: "Release", ["d".repeat(26)]: "Release" },
+      },
+    ],
     [
       `/api/v4/posts/${"p".repeat(26)}/reactions`,
       { name: "empty-post-reactions", body: null },
@@ -428,6 +436,49 @@ export function webviewServers(
           status_code: 503,
         }),
       );
+      return;
+    }
+    const customCategory = "m".repeat(26);
+    const builtin = `direct_messages_${userId.toLowerCase()}_${teamId.toLowerCase()}`;
+    const categoryRoute = `/team/chat/api/v4/users/me/teams/${teamId}/channels/categories`;
+    if (
+      url.pathname === `${categoryRoute}/${builtin}` ||
+      url.pathname === `${categoryRoute}/${customCategory}`
+    ) {
+      assert.equal(url.search, "");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      let result: Record<string, unknown>;
+      if (url.pathname.endsWith(builtin)) {
+        assert.equal(req.method, "PUT");
+        assert.equal(req.headers["content-type"], "application/json");
+        result = {
+          id: builtin,
+          team_id: teamId,
+          user_id: userId,
+          type: "direct_messages",
+          channel_ids: [channelId],
+          collapsed: true,
+        };
+        assert.deepEqual(await json(req), result);
+        visits.push("collapse-sidebar-category");
+      } else {
+        assert.equal(req.method, "DELETE");
+        assert.equal(await text(req), "");
+        result = { status: "OK" };
+        visits.push("remove-sidebar-category");
+      }
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end(JSON.stringify(result));
+      return;
+    }
+    const readThread = await respondToThreadRead(req, res, url, teamId);
+    if (readThread) {
+      visits.push(readThread);
       return;
     }
     const threadList = await respondToThreadList(
@@ -801,10 +852,12 @@ export function webviewServers(
           setting[2] === "config"
             ? {
                 CollapsedThreads: "always_on",
+                RestrictDirectMessage: "team",
                 FeatureFlagEnableSharedChannelsDMs: "true",
                 EnableConfirmNotificationsToChannel: "false",
                 MaxNotificationsPerChannel: "9223372036854775807",
                 UniqueEmojiReactionLimitPerPost: "-2",
+                PostEditTimeLimit: "9007199254740993",
                 EnableCrossTeamSearch: "true",
                 EnableFileAttachments: "true",
                 EnableFileSearch: "false",
@@ -980,6 +1033,7 @@ export function webviewServers(
       assert.equal(entrySettings.size, 2);
       assert.equal(untrustedRequests, 0);
       const expected = [
+        "managed-category-mappings",
         "bytes",
         "204",
         "205",
@@ -1041,8 +1095,12 @@ export function webviewServers(
         "custom-emoji-by-name",
         "empty-post-reactions",
         "post-reactions",
+        "read-thread",
+        "read-team-threads",
         "follow-thread",
         "unfollow-thread",
+        "collapse-sidebar-category",
+        "remove-sidebar-category",
         "thread-list-page",
         "thread-list-totals",
         "thread-list-empty",
@@ -1051,9 +1109,12 @@ export function webviewServers(
         "account-thread-totals",
         "patch-post",
         "post-edit-history",
+        "post-edit-history",
+        "signed-patch-post",
         "delete-post",
         "bulk-channel-view",
         "single-channel-view",
+        "clear-channel-view",
         "signed-slash-command",
         "saved-slash-command",
         "channel-stats",
@@ -1094,6 +1155,7 @@ export function webviewServers(
         "single-file-info",
         "single-file-info",
         "single-file-retention",
+        "post-file-infos",
         "single-post-reply",
         "single-post-reply",
         "single-post-reply",
@@ -1143,6 +1205,11 @@ export function webviewServers(
           "live-categories",
           "live-window-send",
           "live-window-command-repeat",
+          "browser-action-confirmed",
+          "live-search-posts",
+          "live-search-files",
+          "browser-action-confirmed",
+          "live-search-posts",
           "live-posts-" + "c".repeat(26),
           "live-posts-" + "d".repeat(26),
           "live-posts-" + "d".repeat(26),

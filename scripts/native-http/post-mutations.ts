@@ -56,8 +56,13 @@ export async function respondToPostMutation(
     }
     if (patch) {
       assert.equal(req.headers["content-type"], "application/json");
-      const expected = { message: "Отредактировано ✎", props: { note: true } };
-      assert.deepEqual(JSON.parse(body.toString("utf8")), expected);
+      const payload = JSON.parse(body.toString("utf8"));
+      const accountText = "Правка **через аккаунт**\nСо второй строки";
+      const accountEdit = payload.message === accountText;
+      const expected = accountEdit
+        ? { message: accountText }
+        : { message: "Отредактировано ✎", props: { note: true } };
+      assert.deepEqual(payload, expected);
       res.writeHead(200, { "Content-Type": "application/json" }).end(
         JSON.stringify({
           id: replyId,
@@ -65,9 +70,20 @@ export async function respondToPostMutation(
           user_id: user,
           channel_id: channel,
           ...expected,
+          ...(accountEdit && {
+            message: "Rendered edit",
+            message_source: accountText,
+            create_at: 100,
+            update_at: 302,
+            edit_at: 302,
+            delete_at: 0,
+            type: "",
+            hashtags: "",
+            is_pinned: false,
+          }),
         }),
       );
-      return "patch-post";
+      return accountEdit ? "signed-patch-post" : "patch-post";
     }
     assert.equal(body.length, 0);
     res

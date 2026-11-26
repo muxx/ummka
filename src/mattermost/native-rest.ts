@@ -6,6 +6,7 @@ import {
   FilesApi,
   PostsApi,
 } from "../../vendor/mattermost/index.js";
+import { accountChannelReadState } from "./account-channel-read-state.ts";
 import { readCustomEmoji } from "./account-custom-emoji.ts";
 import { accountDelivery } from "./account-delivery.ts";
 import { atDirectoryStep } from "./account-directory-error.ts";
@@ -49,9 +50,15 @@ import {
   type MembershipChange,
   type MembershipTarget,
 } from "./own-membership.ts";
+import {
+  deleteOwnPost,
+  editOwnPostMessage,
+  type OwnPostTarget,
+} from "./own-post.ts";
 import { createPostActivity } from "./post-activity.ts";
 import { accountCollectionActions } from "./post-collection-actions.ts";
 import { readPostDestination } from "./post-destination.ts";
+import { readPostEditHistory } from "./post-edit-history.ts";
 import { createRestTransport } from "./rest-transport.ts";
 import { readSearchTimezone } from "./search-timezone.ts";
 import { canonicalServerUrl } from "./server-url.ts";
@@ -159,6 +166,28 @@ export async function openAccountRestConnection(
     ...accountCollectionActions(config, userId, readWhileOpen),
     ...accountPostReactions(config, userId, readWhileOpen),
     ...accountSearch(config, readWhileOpen),
+    editOwnPostMessage(
+      target: OwnPostTarget,
+      message: string,
+      signal?: AbortSignal,
+    ) {
+      return readWhileOpen(
+        () => editOwnPostMessage(posts, userId, target, message, signal),
+        signal,
+      );
+    },
+    deleteOwnPost(target: OwnPostTarget, signal?: AbortSignal) {
+      return readWhileOpen(
+        () => deleteOwnPost(posts, userId, target, signal),
+        signal,
+      );
+    },
+    readPostEditHistory(target: OwnPostTarget, signal?: AbortSignal) {
+      return readWhileOpen(
+        () => readPostEditHistory(posts, userId, target, signal),
+        signal,
+      );
+    },
     readThreadPage(query: ThreadPageRequest, signal?: AbortSignal) {
       return readWhileOpen(() => readThreadPage(posts, query, signal), signal);
     },
@@ -175,6 +204,7 @@ export async function openAccountRestConnection(
       return readWhileOpen(() => readFileAnchor(files, fileId, signal), signal);
     },
     ...accountChannelAudience(config, readWhileOpen),
+    ...accountChannelReadState(config, userId, readWhileOpen),
     readChannelNotifications(channelId: string, signal?: AbortSignal) {
       return readWhileOpen(
         () => readChannelNotifications(config, userId, channelId, signal),

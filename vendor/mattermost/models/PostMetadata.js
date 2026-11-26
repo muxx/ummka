@@ -24,6 +24,7 @@ export function PostMetadataFromJSONTyped(json, ignoreDiscriminator) {
         'reactions': json['reactions'] == null ? undefined : (json['reactions'].map(ReactionFromJSON)),
         'priority': json['priority'] == null ? undefined : PostMetadataPriorityFromJSON(json['priority']),
         'acknowledgements': json['acknowledgements'] == null ? undefined : (json['acknowledgements'].map(PostAcknowledgementFromJSON)),
+        'redactedFileCount': json['redacted_file_count'] == null ? undefined : json['redacted_file_count'],
     };
 }
 export function PostMetadataToJSON(json) {
@@ -41,5 +42,6 @@ export function PostMetadataToJSONTyped(value, ignoreDiscriminator = false) {
         'reactions': value['reactions'] == null ? undefined : (value['reactions'].map(ReactionToJSON)),
         'priority': PostMetadataPriorityToJSON(value['priority']),
         'acknowledgements': value['acknowledgements'] == null ? undefined : (value['acknowledgements'].map(PostAcknowledgementToJSON)),
+        'redacted_file_count': value['redactedFileCount'],
     };
 }

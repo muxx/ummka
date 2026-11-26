@@ -3,7 +3,9 @@ use crate::history::{
     DraftSave, HistoryDatabase, PageWrite, PostChange, StagePost, StoredPost,
     schema::{MIGRATIONS, Migration},
 };
+use crate::realtime::{EventConnectionError, ServerEvent, StreamError};
 use crate::sessions::Account;
+use serde_json::{Value, json};
 use std::{path::Path, sync::Barrier, thread};
 use tempfile::tempdir;
 
@@ -74,6 +76,21 @@ fn http(id: &str) -> DeliverySource {
     }
 }
 
+fn wire_post(post: &DeliveryPost, pending_id: &str) -> Value {
+    json!({
+        "id": post.id, "user_id": post.user_id, "channel_id": post.channel_id,
+        "root_id": post.root_id.as_deref().unwrap_or(""), "pending_post_id": pending_id
+    })
+}
+
+fn posted(payload: Value, broadcast: Value) -> ServerEvent {
+    ServerEvent {
+        name: "posted".into(),
+        data: [("post".into(), payload)].into_iter().collect(),
+        broadcast: broadcast.as_object().unwrap().clone(),
+    }
+}
+
 #[test]
 fn posted_and_http_can_arrive_in_either_order_and_survive_restart() {
     let path = tempdir().unwrap();
@@ -81,11 +98,12 @@ fn posted_and_http_can_arrive_in_either_order_and_survive_restart() {
     for (event_first, post_id, root) in [(true, ROOT, None), (false, REPLY, Some(ROOT))] {
         let pending = stage(&mut view, root);
         let post = canonical(post_id, root);
+        let receipt = posted(
+            wire_post(&post, &pending).to_string().into(),
+            json!({"channel_id": ROOM}),
+        );
         if event_first {
-            assert!(
-                view.confirm_delivery(DeliverySource::Posted, Some(&pending), &post)
-                    .unwrap()
-            );
+            assert!(receipt.confirm_delivery(&mut view).unwrap());
         } else {
             // The server reads the deduplicated post from SQL and can omit pending_post_id.
             assert!(view.confirm_delivery(http(&pending), None, &post).unwrap());
@@ -101,16 +119,148 @@ fn posted_and_http_can_arrive_in_either_order_and_survive_restart() {
             view.confirm_delivery(http(&pending), Some(&pending), &post)
                 .unwrap()
         );
-        assert!(
-            view.confirm_delivery(DeliverySource::Posted, Some(&pending), &post)
-                .unwrap()
-        );
+        assert!(receipt.confirm_delivery(&mut view).unwrap());
         apply(&mut view, saved(post));
         assert_eq!(view.retire_delivered_posts(&[post_id, post_id]).unwrap(), 1);
         assert_eq!(view.retire_delivered_posts(&[post_id]).unwrap(), 0);
         assert!(view.pending_posts(ROOM, root, 0, 4).unwrap().is_empty());
         assert!(view.read_post(post_id).unwrap().is_some());
     }
+}
+
+#[test]
+fn omitted_root_id_confirms_channel_posts_only() {
+    let path = tempdir().unwrap();
+    let mut view = open(path.path());
+    for root in [None, Some(ROOT)] {
+        let pending = stage(&mut view, root);
+        let mut post = wire_post(
+            &canonical(if root.is_some() { REPLY } else { ROOT }, root),
+            &pending,
+        );
+        post.as_object_mut().unwrap().remove("root_id");
+        let event = posted(post.to_string().into(), json!({"channel_id": ROOM}));
+        assert_eq!(event.confirm_delivery(&mut view).unwrap(), root.is_none());
+        assert_eq!(
+            view.pending_posts(ROOM, root, 0, 4).unwrap()[0]
+                .confirmed_post_id
+                .as_deref(),
+            root.is_none().then_some(ROOT)
+        );
+    }
+}
+
+#[test]
+fn posted_checks_the_recipient_and_exact_pending_conversation() {
+    let path = tempdir().unwrap();
+    let mut view = open(path.path());
+    let pending = stage(&mut view, Some(ROOT));
+    let open_channel = view.begin_channel_load(OTHER).unwrap();
+    let original = wire_post(&canonical(REPLY, Some(ROOT)), &pending);
+    for (field, value) in [
+        ("user_id", OTHER),
+        ("channel_id", OTHER),
+        ("root_id", ""),
+        ("pending_post_id", "unknown"),
+        ("pending_post_id", ""),
+    ] {
+        let mut body = original.clone();
+        body[field] = value.into();
+        let event = posted(
+            body.to_string().into(),
+            json!({"channel_id": body["channel_id"]}),
+        );
+        assert!(!event.confirm_delivery(&mut view).unwrap(), "{field}");
+    }
+    let mut absent = original.clone();
+    absent.as_object_mut().unwrap().remove("pending_post_id");
+    assert!(
+        !posted(absent.to_string().into(), json!({"channel_id": ROOM}))
+            .confirm_delivery(&mut view)
+            .unwrap()
+    );
+    for broadcast in [
+        json!({"channel_id": OTHER}),
+        json!({"user_id": OTHER}),
+        json!({"channel_id": ROOM, "user_id": OTHER}),
+        json!({}),
+    ] {
+        assert!(
+            !posted(original.to_string().into(), broadcast)
+                .confirm_delivery(&mut view)
+                .unwrap()
+        );
+    }
+    let mut deleted = original.clone();
+    deleted["delete_at"] = 1.into();
+    assert!(
+        !posted(deleted.to_string().into(), json!({"channel_id": ROOM}))
+            .confirm_delivery(&mut view)
+            .unwrap()
+    );
+    let mut unrelated = posted(Value::Null, json!({}));
+    unrelated.name = "post_edited".into();
+    assert!(!unrelated.confirm_delivery(&mut view).unwrap());
+    assert_eq!(
+        view.pending_posts(ROOM, Some(ROOT), 0, 4).unwrap()[0].confirmed_post_id,
+        None
+    );
+    let direct = posted(
+        original.to_string().into(),
+        json!({"channel_id":"", "user_id":ME}),
+    );
+    assert!(direct.confirm_delivery(&mut view).unwrap());
+    assert!(direct.confirm_delivery(&mut view).unwrap());
+    let rows = view.pending_posts(ROOM, Some(ROOT), 0, 4).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].confirmed_post_id.as_deref(), Some(REPLY));
+    assert!(view.read_post(REPLY).unwrap().is_none());
+    assert_eq!(
+        view.apply_channel_page(open_channel, &[]).unwrap(),
+        PageWrite::Applied
+    );
+}
+
+#[test]
+fn malformed_post_storage_failure_and_a_retired_history_have_distinct_errors() {
+    let path = tempdir().unwrap();
+    let mut old = open(path.path());
+    let mut missing = posted(Value::Null, json!({"channel_id": ROOM}));
+    missing.data.clear();
+    let malformed = Err(EventConnectionError::Protocol(StreamError::InvalidFrame));
+    assert_eq!(missing.confirm_delivery(&mut old), malformed);
+    for value in [json!({}), "[]".into(), "{}".into(), "invalid".into()] {
+        assert_eq!(
+            posted(value, json!({"channel_id": ROOM})).confirm_delivery(&mut old),
+            malformed
+        );
+    }
+    HistoryDatabase::purge_account(path.path(), &account()).unwrap();
+    let mut new = open(path.path());
+    let pending = stage(&mut new, None);
+    let body = wire_post(&canonical(ROOT, None), &pending).to_string();
+    assert_eq!(
+        posted(body.clone().into(), json!({"channel_id": 5})).confirm_delivery(&mut new),
+        malformed
+    );
+    let event = posted(body.into(), json!({"channel_id": ROOM}));
+    assert_eq!(
+        event.confirm_delivery(&mut old),
+        Err(EventConnectionError::History(HistoryError::StaleOwner))
+    );
+    new.write(|tx| tx.execute_batch("CREATE TEMP TRIGGER reject_receipt BEFORE INSERT ON post_confirmation BEGIN SELECT RAISE(ABORT, 'fixture'); END"))
+        .unwrap();
+    assert_eq!(
+        event.confirm_delivery(&mut new),
+        Err(EventConnectionError::History(HistoryError::Storage))
+    );
+    assert_eq!(
+        new.pending_posts(ROOM, None, 0, 1).unwrap()[0].confirmed_post_id,
+        None
+    );
+    new.write(|tx| tx.execute_batch("DROP TRIGGER reject_receipt"))
+        .unwrap();
+    assert!(event.confirm_delivery(&mut new).unwrap());
 }
 
 #[test]

@@ -1,3 +1,5 @@
+import { prepareFocusedConversation } from "../../src/channels/prepare-focused-conversation.ts";
+import { channelPostChange } from "../../src/mattermost/channel-post-records.ts";
 import { openAccountRestConnection } from "../../src/mattermost/native-rest.ts";
 import { ResponseError } from "../../vendor/mattermost/index.js";
 
@@ -25,6 +27,22 @@ export async function checkChannelRefresh(
     thread.next !== null
   )
     throw Error("Account did not read the requested thread page.");
+  const target = channelPostChange(channelId, root, thread.root);
+  if (target.kind !== "save") throw Error("Expected a visible fixture root.");
+  const { signal } = new AbortController();
+  const focused = await prepareFocusedConversation(
+    account,
+    target,
+    false,
+    signal,
+  );
+  if (
+    focused.status !== "ready" ||
+    focused.anchorId !== root ||
+    focused.page.posts.map((post) => post.id).join(",") !==
+      [reply, root, "m".repeat(26)].join(",")
+  )
+    throw Error("Focused refresh did not publish the ordered SQLite window.");
   const scoped = { channelId, collapsedThreads: false };
   for (const collapsedThreads of [false, true]) {
     const result = await account.refreshChannelHistory({
@@ -35,17 +53,26 @@ export async function checkChannelRefresh(
     if (result.kind !== "applied")
       throw Error("channel refresh did not commit");
   }
-  if (
-    (
-      await account.refreshChannelHistory({
-        ...scoped,
-        kind: "focused",
-        postId: root,
-        perPage: 1,
-      })
-    ).kind !== "applied"
-  )
-    throw Error("focused refresh did not commit");
+  const savedReply = await account.readSavedPost(channelId, reply);
+  if (!savedReply) throw Error("Missing saved reply for focused navigation");
+  for (const collapsed of [true, false]) {
+    const result = await prepareFocusedConversation(
+      account,
+      savedReply,
+      collapsed,
+      signal,
+    );
+    const anchor = collapsed ? root : reply;
+    if (
+      result.status !== "ready" ||
+      result.anchorId !== anchor ||
+      !result.page.posts.some((row) => row.id === anchor) ||
+      result.focusedReply?.id !== (collapsed ? reply : undefined)
+    )
+      throw Error(
+        "Stored reply did not resolve to its exact channel or thread position.",
+      );
+  }
   const error = await account
     .refreshChannelHistory({ ...scoped, kind: "since", since: 3 })
     .catch((e: unknown) => e);

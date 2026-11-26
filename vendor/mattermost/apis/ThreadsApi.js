@@ -1,5 +1,6 @@
 import * as runtime from '../runtime.js';
 import { StatusOKFromJSON, } from '../models/StatusOK.js';
+import { UserThreadFromJSON, } from '../models/UserThread.js';
 import { UserThreadsFromJSON, } from '../models/UserThreads.js';
 export class ThreadsApi extends runtime.BaseAPI {
     async getUserThreadsRequestOpts(requestParameters) {
@@ -143,6 +144,84 @@ export class ThreadsApi extends runtime.BaseAPI {
     }
     async stopFollowingThread(requestParameters, initOverrides) {
         const response = await this.stopFollowingThreadRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async updateThreadReadForUserRequestOpts(requestParameters) {
+        if (requestParameters['userId'] == null) {
+            throw new runtime.RequiredError('userId', 'Required parameter "userId" was null or undefined when calling updateThreadReadForUser().');
+        }
+        if (requestParameters['teamId'] == null) {
+            throw new runtime.RequiredError('teamId', 'Required parameter "teamId" was null or undefined when calling updateThreadReadForUser().');
+        }
+        if (requestParameters['threadId'] == null) {
+            throw new runtime.RequiredError('threadId', 'Required parameter "threadId" was null or undefined when calling updateThreadReadForUser().');
+        }
+        if (requestParameters['timestamp'] == null) {
+            throw new runtime.RequiredError('timestamp', 'Required parameter "timestamp" was null or undefined when calling updateThreadReadForUser().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/users/{user_id}/teams/{team_id}/threads/{thread_id}/read/{timestamp}`;
+        urlPath = urlPath.replace('{user_id}', encodeURIComponent(String(requestParameters['userId'])));
+        urlPath = urlPath.replace('{team_id}', encodeURIComponent(String(requestParameters['teamId'])));
+        urlPath = urlPath.replace('{thread_id}', encodeURIComponent(String(requestParameters['threadId'])));
+        urlPath = urlPath.replace('{timestamp}', encodeURIComponent(String(requestParameters['timestamp'])));
+        return {
+            path: urlPath,
+            method: 'PUT',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async updateThreadReadForUserRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.updateThreadReadForUserRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => UserThreadFromJSON(jsonValue));
+    }
+    async updateThreadReadForUser(requestParameters, initOverrides) {
+        const response = await this.updateThreadReadForUserRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async updateThreadsReadForUserRequestOpts(requestParameters) {
+        if (requestParameters['userId'] == null) {
+            throw new runtime.RequiredError('userId', 'Required parameter "userId" was null or undefined when calling updateThreadsReadForUser().');
+        }
+        if (requestParameters['teamId'] == null) {
+            throw new runtime.RequiredError('teamId', 'Required parameter "teamId" was null or undefined when calling updateThreadsReadForUser().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/users/{user_id}/teams/{team_id}/threads/read`;
+        urlPath = urlPath.replace('{user_id}', encodeURIComponent(String(requestParameters['userId'])));
+        urlPath = urlPath.replace('{team_id}', encodeURIComponent(String(requestParameters['teamId'])));
+        return {
+            path: urlPath,
+            method: 'PUT',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async updateThreadsReadForUserRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.updateThreadsReadForUserRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => StatusOKFromJSON(jsonValue));
+    }
+    async updateThreadsReadForUser(requestParameters, initOverrides) {
+        const response = await this.updateThreadsReadForUserRaw(requestParameters, initOverrides);
         return await response.value();
     }
 }

@@ -75,12 +75,23 @@ struct SearchSettings {
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum RecipientScope {
+    Any,
+    Team,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ServerPolicy {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dm_recipient_scope: Option<RecipientScope>,
     #[serde(skip_serializing_if = "Option::is_none")]
     search: Option<SearchSettings>,
     #[serde(skip_serializing_if = "Option::is_none")]
     unique_reaction_limit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    post_edit_limit_seconds: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     mentions: Option<MentionSettings>,
     collapsed_threads: ThreadMode,
@@ -183,8 +194,9 @@ impl AccountHistory {
             .is_some_and(|settings| !settings.valid())
             || value
                 .unique_reaction_limit
-                .as_ref()
-                .is_some_and(|raw| canonical_i64(raw).is_none())
+                .iter()
+                .chain(&value.post_edit_limit_seconds)
+                .any(|raw| canonical_i64(raw).is_none())
         {
             return Err(HistoryError::InvalidDirectory);
         }

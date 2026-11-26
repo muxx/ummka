@@ -375,7 +375,7 @@ async fn wire() -> CheckResult {
 #[jni::jni_mangle("io.github.muxx.ummka.dev.HttpCheckInstrumentation")]
 pub fn run_checks<'local>(
     mut env: jni::EnvUnowned<'local>,
-    _: jni::objects::JObject<'local>,
+    instrumentation: jni::objects::JObject<'local>,
     ports: jni::objects::JString<'local>,
     registry_path: jni::objects::JString<'local>,
     _account_port: jni::sys::jint,
@@ -394,7 +394,18 @@ pub fn run_checks<'local>(
             crate::credentials::android::checks::reject_first_account_removal()
                 .expect("could not install fixture constraint");
         }
+        let mut report_stage = |name: &str| -> jni::errors::Result<()> {
+            let stage = env.new_string(name)?;
+            env.call_method(
+                &instrumentation,
+                jni::jni_str!("reportStage"),
+                jni::jni_sig!((JString) -> void),
+                &[jni::objects::JValue::Object(stage.as_ref())],
+            )?;
+            Ok(())
+        };
         let result = tauri::async_runtime::block_on(async {
+            report_stage("sqlite")?;
             let registry = std::path::Path::new(&registry_path);
             crate::registry::checks::round_trip(registry)?;
             let fixtures = registry.parent().ok_or("missing fixture directory")?;
@@ -403,6 +414,7 @@ pub fn run_checks<'local>(
             crate::history::checks::posts::round_trip(fixtures)?;
             crate::history::checks::windows::round_trip(fixtures)?;
             crate::history::checks::reclamation::round_trip(fixtures)?;
+            report_stage("transport")?;
             check_wire(NativeHttp::new()?, RestConnection::new, &ports, fixtures).await
         });
         if let Err(error) = result {
