@@ -1,6 +1,6 @@
 import { decodeHTMLStrict } from "entities/decode";
 import type { MarkedToken, Token, Tokens } from "marked";
-import { lexPostMarkdown } from "./post-markdown-lexer.ts";
+import { lexPostMarkdown } from "../mattermost/post-markdown-lexer.ts";
 
 type Inline =
   | { kind: "text" | "code" | "imageDescription"; text: string }

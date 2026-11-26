@@ -73,6 +73,7 @@ import { createPostActivity } from "./post-activity.ts";
 import { accountCollectionActions } from "./post-collection-actions.ts";
 import { readPostDestination } from "./post-destination.ts";
 import { readPostEditHistory } from "./post-edit-history.ts";
+import { openRecentMentions } from "./recent-mentions.ts";
 import { createRestTransport } from "./rest-transport.ts";
 import { readSearchTimezone } from "./search-timezone.ts";
 import { canonicalServerUrl } from "./server-url.ts";
@@ -183,6 +184,7 @@ export async function openAccountRestConnection(
     invoke<SavedWorkspaceSettings>("read_workspace_settings", { rid });
   const delivery = accountDelivery(rid, readWhileOpen, posts, userId, activity);
   const commands = new CommandsApi(config);
+  const search = accountSearch(config, readWhileOpen);
   let latestPolicyRead: symbol | undefined;
   return {
     ...connection,
@@ -190,7 +192,20 @@ export async function openAccountRestConnection(
     ...accountPostCollections(config, userId, readWhileOpen),
     ...accountCollectionActions(config, userId, readWhileOpen),
     ...accountPostReactions(config, userId, readWhileOpen),
-    ...accountSearch(config, readWhileOpen),
+    ...search,
+    openRecentMentions(includeDeletedChannels: boolean, signal?: AbortSignal) {
+      return readWhileOpen(
+        () =>
+          openRecentMentions(
+            config,
+            userId,
+            search,
+            includeDeletedChannels,
+            signal,
+          ),
+        signal,
+      );
+    },
     editOwnPostMessage(
       target: OwnPostTarget,
       message: string,

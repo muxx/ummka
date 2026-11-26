@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
+import * as markdown from "../mattermost/post-markdown-lexer.ts";
 import { composerPostMentions } from "./composer-mentions.ts";
-import * as markdown from "./post-markdown-lexer.ts";
 import { publishedPostDocument } from "./published-post-document.ts";
 
 const text = (value: string) => ({ kind: "text", text: value });

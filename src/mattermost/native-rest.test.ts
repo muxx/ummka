@@ -568,6 +568,7 @@ test("opens a native account by installation and user ID", async () => {
     "markPostUnread",
     "markTeamThreadsRead",
     "notifyChannelHistoryChanged",
+    "openRecentMentions",
     "readAccountDirectory",
     "readAssociatedMentionGroups",
     "readChannelBookmarks",

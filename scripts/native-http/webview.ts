@@ -67,9 +67,16 @@ export function webviewServers(
     | undefined;
   const formatKeyWidths: number[] = [];
   let controlProgress = "not started";
+  let onMacStep: ((stage: string) => void) | undefined;
   let controlRequests = 0;
   let sendRight: (() => Promise<void>) | undefined;
   let prepareKeyboard: (() => Promise<void>) | undefined;
+  const collectionBackSteps = [
+    "collection-back-saved-reply",
+    "collection-back-saved-list",
+    "collection-back-pinned-root",
+    "collection-back-pinned-list",
+  ];
   const backSteps = [
     "appearance",
     "dialog",
@@ -1448,7 +1455,8 @@ export function webviewServers(
     const controlId = ++controlRequests;
     const knownStep =
       step &&
-      (backSteps.some((label) => step === `back-${label}`) ||
+      (collectionBackSteps.includes(step) ||
+        backSteps.some((label) => step === `back-${label}`) ||
         [
           "format-right",
           "format-times",
@@ -1476,7 +1484,9 @@ export function webviewServers(
       before = true;
     } else if (step?.startsWith("collection-back-")) {
       assert(
-        pressWorkspaceBack && !visits.includes(step),
+        collectionBackSteps.includes(step) &&
+          pressWorkspaceBack &&
+          !visits.includes(step),
         "Unexpected collection Back: " + step,
       );
       visits.push(step);
@@ -1543,6 +1553,7 @@ export function webviewServers(
       }
     }
     controlProgress = `${controlId} ${marker} replied`;
+    if (knownStep) onMacStep?.(marker);
     res.writeHead(204).end();
   });
   let untrustedRequests = 0;
@@ -1554,7 +1565,8 @@ export function webviewServers(
     servers: [data, control, foreign],
     progress: () =>
       `control=${controlProgress}, data visits=${visits.length}, completed Back steps=${stepIndex}`,
-    onMacInputReady(send: SendMacKey) {
+    onMacInputReady(send: SendMacKey, completed: (stage: string) => void) {
+      onMacStep = completed;
       pressWorkspaceBack = () => send("escape");
       sendRight = () => send("right");
     },
@@ -1595,10 +1607,7 @@ export function webviewServers(
       assert.equal(entrySettings.size, 2);
       assert.equal(untrustedRequests, 0);
       const expected = [
-        "collection-back-saved-reply",
-        "collection-back-saved-list",
-        "collection-back-pinned-root",
-        "collection-back-pinned-list",
+        ...collectionBackSteps,
         "signed-single-channel",
         "signed-named-channel",
         "signed-named-team",
