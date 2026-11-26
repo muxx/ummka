@@ -20,6 +20,7 @@ fn open(path: &Path) -> AccountHistory {
 }
 fn policy() -> ServerPolicy {
     ServerPolicy {
+        dm_recipient_scope: Some(RecipientScope::Team),
         collapsed_threads: ThreadMode::DefaultOn,
         separate_unreads: false,
         name_format: NameFormat::FullName,
@@ -170,6 +171,9 @@ fn accepts_only_known_settings_and_indexes_an_owner_lookup() {
         assert!(serde_json::from_value::<SidebarPreferences>(raw).is_err());
     }
     let mut raw = serde_json::to_value(policy()).unwrap();
+    raw["dmRecipientScope"] = json!("unrecognised-value");
+    assert!(serde_json::from_value::<ServerPolicy>(raw).is_err());
+    let mut raw = serde_json::to_value(policy()).unwrap();
     raw["nameFormat"] = json!("unrecognised-value");
     assert!(serde_json::from_value::<ServerPolicy>(raw).is_err());
     for n in 0..5000 {
@@ -198,13 +202,16 @@ fn accepts_only_known_settings_and_indexes_an_owner_lookup() {
 
 #[test]
 fn upgrades_settings_and_drafts_and_protects_the_new_policy() {
-    for version in [17, 19, 21, 22, 24] {
+    for version in [17, 19, 21, 22, 24, 25] {
         let root = tempdir().unwrap();
         let previous = &MIGRATIONS[..version];
         let mut old = HistoryDatabase::open_with(root.path(), URL, previous).unwrap();
         let owner = old.restore(&account()).unwrap();
         let mut legacy = policy();
-        legacy.post_edit_limit_seconds = None;
+        legacy.dm_recipient_scope = None;
+        if version < 25 {
+            legacy.post_edit_limit_seconds = None;
+        }
         if version < 23 {
             legacy.search = None;
         }

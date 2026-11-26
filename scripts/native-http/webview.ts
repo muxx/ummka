@@ -852,6 +852,7 @@ export function webviewServers(
           setting[2] === "config"
             ? {
                 CollapsedThreads: "always_on",
+                RestrictDirectMessage: "team",
                 FeatureFlagEnableSharedChannelsDMs: "true",
                 EnableConfirmNotificationsToChannel: "false",
                 MaxNotificationsPerChannel: "9223372036854775807",

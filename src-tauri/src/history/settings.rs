@@ -75,8 +75,17 @@ struct SearchSettings {
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum RecipientScope {
+    Any,
+    Team,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ServerPolicy {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dm_recipient_scope: Option<RecipientScope>,
     #[serde(skip_serializing_if = "Option::is_none")]
     search: Option<SearchSettings>,
     #[serde(skip_serializing_if = "Option::is_none")]
