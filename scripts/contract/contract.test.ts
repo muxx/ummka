@@ -51,6 +51,7 @@ import {
   correctFlaggedPosts,
   correctHistoryQuery,
   correctHistorySchema,
+  correctRedactedFileCount,
 } from "./history-corrections.ts";
 import { correctMentionGroup } from "./mention-group-correction.ts";
 import { correctNotificationProps } from "./notification-props.ts";
@@ -1383,7 +1384,7 @@ test("changes only the confirmed history fields in the selected models", () => {
       "is_following",
     ],
     PostList: ["first_inaccessible_post_time"],
-    PostMetadata: ["images"],
+    PostMetadata: ["images", "redacted_file_count"],
   };
   for (const [name, fields] of Object.entries(additions)) {
     const path = ["components", "schemas", name];
@@ -1478,6 +1479,51 @@ test("a correction stops when either pinned history contract changes", () => {
   const images = object(at(metadata, ["properties", "images"]), "images");
   images.additionalProperties = images.items;
   assert.throws(() => correctHistorySchema("PostMetadata", metadata), /Review/);
+});
+
+test("applies the optional attachment count only while both pinned definitions omit it", () => {
+  const newer = read("definitions-12.1.0.yaml");
+  const baseline = object(
+    at(definitions, ["components", "schemas", "PostMetadata"]),
+    "PostMetadata",
+  );
+  const latest = object(
+    at(newer, ["components", "schemas", "PostMetadata"]),
+    "PostMetadata",
+  );
+  const added = { type: "integer", format: "int64", minimum: 0 };
+  const original = structuredClone(baseline);
+  assert.deepEqual(correctRedactedFileCount(baseline, newer), {
+    ...baseline,
+    properties: {
+      ...object(baseline.properties, "properties"),
+      redacted_file_count: added,
+    },
+  });
+  assert.deepEqual(baseline, original);
+  for (const replacement of [
+    { redacted_file_count: added },
+    { files: { type: "array", items: { type: "string" } } },
+  ]) {
+    const changed = (schema: Fields) => ({
+      ...schema,
+      properties: {
+        ...object(schema.properties, "properties"),
+        ...replacement,
+      },
+    });
+    assert.throws(
+      () => correctRedactedFileCount(changed(baseline), newer),
+      /Review the PostMetadata attachment count/,
+    );
+    assert.throws(
+      () =>
+        correctRedactedFileCount(baseline, {
+          components: { schemas: { PostMetadata: changed(latest) } },
+        }),
+      /Review the PostMetadata attachment count/,
+    );
+  }
 });
 
 const removals = [
@@ -1908,6 +1954,8 @@ const {
   FilesApi,
   FileInfoListToJSON,
   PostsApi,
+  PostFromJSON,
+  PostToJSON,
   PostListWithSearchMatchesFromJSON,
   PostListWithSearchMatchesToJSON,
   PostListFromJSON,
@@ -2132,6 +2180,25 @@ test("keeps scheme roles separate from explicit membership roles and detects ups
       assert.deepEqual(JSON.parse(JSON.stringify(encode(decode(wire)))), wire);
   }
 });
+test("round trips the attachment count independently of available files", () => {
+  for (const count of [undefined, 0, 2]) {
+    const metadata = count === undefined ? {} : { redacted_file_count: count };
+    const wire = { id: "p".repeat(26), file_ids: [], metadata };
+    const parsed = PostFromJSON(wire);
+    assert.equal(parsed.metadata.redactedFileCount, count);
+    assert.deepEqual(JSON.parse(JSON.stringify(PostToJSON(parsed))), wire);
+  }
+  const file = "f".repeat(26);
+  const visible = {
+    file_ids: [file],
+    metadata: { files: [{ id: file, name: "notes.txt" }] },
+  };
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(PostToJSON(PostFromJSON(visible)))),
+    visible,
+  );
+});
+
 test("the generated reader preserves a nonzero history boundary and thread values", () => {
   const page = PostListFromJSON({
     order: ["root"],

@@ -41,6 +41,7 @@ import {
   correctFlaggedPosts,
   correctHistoryQuery,
   correctHistorySchema,
+  correctRedactedFileCount,
 } from "./history-corrections.ts";
 import { correctMentionGroup } from "./mention-group-correction.ts";
 import { correctNotificationProps } from "./notification-props.ts";
@@ -176,6 +177,11 @@ export function buildSpecification(
           )[name],
           name,
         ),
+      );
+    else if (name === "PostMetadata")
+      group[name] = correctHistorySchema(
+        name,
+        correctRedactedFileCount(source, read("definitions-12.1.0.yaml")),
       );
     else if (name === "Timezone")
       group[name] = correctProfileTimezone(

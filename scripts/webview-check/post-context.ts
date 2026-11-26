@@ -35,9 +35,14 @@ export async function checkPostContext(
   if (
     single.id !== query.postId ||
     single.channelId !== "c".repeat(26) ||
-    single.rootId !== "r".repeat(26)
+    single.rootId !== "r".repeat(26) ||
+    single.metadata?.redactedFileCount !== 2 ||
+    single.fileIds?.length !== 0 ||
+    single.metadata.files !== undefined
   )
-    throw Error("Single post did not preserve the requested reply");
+    throw Error(
+      "Single post did not preserve the reply and its hidden attachment count",
+    );
   try {
     await new PostsApi(root).getPost(query);
     throw Error("Expected a history restriction");
