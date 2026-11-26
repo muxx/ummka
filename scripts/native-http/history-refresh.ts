@@ -75,6 +75,20 @@ export function historyRefreshFixture(userId: string, onHold: () => void) {
             has_next: false,
           }),
         );
+      } else if (thread && q.get("perPage") === "1") {
+        assert.deepEqual(Object.fromEntries(q), {
+          direction: "down",
+          perPage: "1",
+          collapsedThreads: "false",
+        });
+        calls.push("flat-root");
+        res.writeHead(200, { "Content-Type": "application/json" }).end(
+          JSON.stringify({
+            order: [root],
+            posts: { [root]: records[root] },
+            has_next: false,
+          }),
+        );
       } else if (thread) {
         assert.equal(q.get("perPage"), "60");
         assert.equal(q.get("direction"), "down");
@@ -137,6 +151,7 @@ export function historyRefreshFixture(userId: string, onHold: () => void) {
         [
           "plain",
           "replies",
+          "flat-root",
           "collapsed",
           "thread",
           "before",
