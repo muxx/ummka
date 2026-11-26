@@ -6,6 +6,7 @@ import {
   useRef,
 } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
+import { notificationCopy } from "./channel-notification-copy.ts";
 import { collectionCopy } from "./collection-copy.ts";
 
 export function CollectionChannelMenu({
@@ -17,6 +18,7 @@ export function CollectionChannelMenu({
   open,
   setOpen,
   onPins,
+  onNotifications,
 }: {
   headingId: string;
   headingRef: RefObject<HTMLHeadingElement | null>;
@@ -26,13 +28,19 @@ export function CollectionChannelMenu({
   open: boolean;
   setOpen: (value: boolean) => void;
   onPins: (trigger: HTMLButtonElement) => void;
+  onNotifications?: () => void;
 }) {
   const text = collectionCopy[language],
     id = useId();
-  const wrapper = useRef<HTMLDivElement>(null),
-    action = useRef<HTMLButtonElement>(null);
+  const wrapper = useRef<HTMLDivElement>(null);
+  const pins = useRef<HTMLButtonElement>(null);
+  const notifications = useRef<HTMLButtonElement>(null);
+  const returnToNotifications = useRef(false);
   useLayoutEffect(() => {
-    if (open) action.current?.focus();
+    if (open) {
+      const item = returnToNotifications.current && notifications.current;
+      (item || pins.current)?.focus();
+    }
   }, [open]);
   useEffect(() => {
     if (!open) return;
@@ -60,7 +68,11 @@ export function CollectionChannelMenu({
           aria-label={`${text.menu}, ${title}`}
           aria-controls={open ? id : undefined}
           aria-expanded={open}
-          onClick={() => setOpen(!open)}
+          aria-haspopup="menu"
+          onClick={() => {
+            returnToNotifications.current = false;
+            setOpen(!open);
+          }}
         >
           <span>{title}</span>
           <svg
@@ -77,17 +89,54 @@ export function CollectionChannelMenu({
         </button>
       </h1>
       {open && (
-        <button
+        <div
           id={id}
-          type="button"
-          className="collection-channel-action"
-          ref={action}
-          onClick={() => {
-            if (trigger.current) onPins(trigger.current);
+          role="menu"
+          aria-label={text.menu}
+          className="collection-channel-actions"
+          onKeyDown={(event) => {
+            const first = pins.current,
+              last = notifications.current ?? first;
+            const key = event.key;
+            if (
+              key !== "ArrowDown" &&
+              key !== "ArrowUp" &&
+              key !== "Home" &&
+              key !== "End"
+            )
+              return;
+            event.preventDefault();
+            if (key === "Home") first?.focus();
+            else if (key === "End") last?.focus();
+            else (document.activeElement === first ? last : first)?.focus();
           }}
         >
-          {text.pins}
-        </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="collection-channel-action"
+            ref={pins}
+            onClick={() => {
+              if (trigger.current) onPins(trigger.current);
+            }}
+          >
+            {text.pins}
+          </button>
+          {onNotifications && (
+            <button
+              type="button"
+              role="menuitem"
+              className="collection-channel-action"
+              ref={notifications}
+              onClick={() => {
+                returnToNotifications.current = true;
+                onNotifications();
+              }}
+            >
+              {notificationCopy[language].title}
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

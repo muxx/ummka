@@ -76,6 +76,7 @@ export function webviewServers(
     "results",
     "thread",
     "reopened",
+    "notifications",
     "directory",
     "directory-dialog",
   ];
@@ -879,12 +880,55 @@ export function webviewServers(
       visits.push(mutation);
       return;
     }
+    const notificationRoom = "c".repeat(26);
+    const memberPath = `/browser-action-check/api/v4/channels/${notificationRoom}/members/me`;
+    if (
+      url.pathname === memberPath ||
+      url.pathname === memberPath + "/notify_props"
+    ) {
+      assert.equal(req.headers.authorization, "Bearer fixture-browser-action");
+      assert.equal(req.headers.cookie, undefined);
+      assert.equal(url.search, "");
+      if (url.pathname === memberPath) {
+        assert.equal(req.method, "GET");
+        visits.push("notification-member");
+        res.writeHead(200, { "Content-Type": "application/json" }).end(
+          JSON.stringify({
+            channel_id: notificationRoom,
+            user_id: "f".repeat(26),
+            notify_props: visits.includes("notification-save")
+              ? { push: "none" }
+              : {},
+          }),
+        );
+      } else {
+        assert.equal(req.method, "PUT");
+        const body: Buffer[] = [];
+        for await (const chunk of req) body.push(chunk);
+        assert.deepEqual(JSON.parse(Buffer.concat(body).toString()), {
+          push: "none",
+        });
+        const retry = visits.includes("notification-reject");
+        assert(!visits.includes("notification-save"));
+        visits.push(retry ? "notification-save" : "notification-reject");
+        res
+          .writeHead(retry ? 200 : 503, { "Content-Type": "application/json" })
+          .end(
+            JSON.stringify(
+              retry
+                ? { status: "OK" }
+                : { message: "Temporary fixture failure" },
+            ),
+          );
+      }
+      return;
+    }
     const workspace = await respondToWorkspace(
       req,
       res,
       url,
       userId,
-      visits.includes("live-roles"),
+      visits.includes("allow-design-posts"),
       { joinedPublicRoom: visits.includes("directory-join") },
     );
     if (workspace) {
@@ -1437,6 +1481,9 @@ export function webviewServers(
       );
       visits.push(step);
       await pressWorkspaceBack();
+    } else if (step === "allow-design-posts") {
+      assert(visits.includes("live-roles") && !visits.includes(step));
+      visits.push(step);
     } else if (step === "search-result-back") {
       const marker = "android-" + step;
       assert(
@@ -1750,7 +1797,8 @@ export function webviewServers(
           "live-window-thread",
           "live-window-thread",
         );
-      if (platform === "android") expected.push("account-logout-local-failure");
+      if (platform === "android")
+        expected.push("account-logout-local-failure", "allow-design-posts");
       expected.push(
         "directory-page",
         "directory-query",
@@ -1822,6 +1870,21 @@ export function webviewServers(
             "users/me/preferences",
           ].map((path) => "browser-entry-" + path),
         );
+      expected.push(
+        "notification-member",
+        "notification-member",
+        "notification-member",
+        "notification-reject",
+        "notification-save",
+        "live-roles",
+        "browser-action-confirmed",
+        "browser-action-confirmed",
+        "browser-action-confirmed",
+        "browser-action-confirmed",
+        "live-categories",
+        "live-channels",
+        "live-members",
+      );
       assert.equal(stepIndex, backSteps.length);
       console.log(
         `${platform} verified native return through the search dialog, results and thread with both composer drafts intact.`,
