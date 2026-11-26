@@ -1,0 +1,33 @@
+.system-post-notice {
+  position: fixed;
+  z-index: 4;
+  inset-inline-start: max(0.75rem, env(safe-area-inset-left));
+  bottom: max(0.75rem, env(safe-area-inset-bottom));
+  max-width: min(25rem, calc(100% - 1.5rem));
+  box-sizing: border-box;
+  padding: 0.5rem 0.8rem;
+  border: 1px solid var(--divider);
+  border-radius: 0.75rem;
+  color: var(--text);
+  background: var(--canvas);
+  box-shadow: 0 3px 16px #08152c24;
+  overflow-wrap: anywhere;
+}
+.system-post-notice p {
+  margin: 0;
+}
+.system-post-notice button {
+  min-height: 44px;
+  padding-inline: 0.65rem;
+  font: inherit;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--accent);
+  font-weight: 600;
+  cursor: pointer;
+}
+.system-post-notice button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}

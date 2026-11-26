@@ -5,6 +5,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import https from "node:https";
 import type { Socket } from "node:net";
 import { json, text } from "node:stream/consumers";
+import { deniedPost } from "../webview-check/link-examples.ts";
 import type { SendMacKey } from "../webview-check/macos.ts";
 import { respondToAccount } from "./account.ts";
 import type { SendAndroidKey } from "./android-webview.ts";
@@ -56,6 +57,7 @@ export function webviewServers(
     ]),
   );
   const visits: string[] = [];
+  const systemPostReads = new Set<string>();
   const collectionWindow = collectionWindowFixture();
   let offlineHistoryRequests = 0;
   let connections = 0;
@@ -471,6 +473,50 @@ export function webviewServers(
       res
         .writeHead(200, { "Content-Type": "application/json" })
         .end(JSON.stringify(rows));
+      return;
+    }
+    if (url.pathname.startsWith("/system-post-check/api/v4/")) {
+      if (
+        url.pathname === `/system-post-check/api/v4/posts/${deniedPost}/info`
+      ) {
+        assert.equal(req.method, "GET");
+        assert.equal(req.headers.authorization, "Bearer fixture-system-post");
+        systemPostReads.add("denied");
+        res
+          .writeHead(403, { "Content-Type": "application/json" })
+          .end(JSON.stringify({ id: "fixture.denied", status_code: 403 }));
+        return;
+      }
+      if (
+        url.pathname === "/system-post-check/api/v4/system/ping" &&
+        url.searchParams.get("step") === "system-dialog-back"
+      ) {
+        assert(
+          pressWorkspaceBack &&
+            systemPostReads.has("denied") &&
+            !systemPostReads.has("dismissed"),
+        );
+        systemPostReads.add("dismissed");
+        await pressWorkspaceBack();
+        res.writeHead(204).end();
+        return;
+      }
+      url.pathname = url.pathname.replace(
+        "/system-post-check/",
+        "/browser-action-check/",
+      );
+      const seen =
+        (await respondToWorkspace(req, res, url, userId, false, true)) ??
+        respondToAccount(
+          req,
+          res,
+          url,
+          userId,
+          (name) => events.emit(name),
+          "fixture-system-post",
+        );
+      assert(seen, "Unexpected system permalink fixture request");
+      systemPostReads.add(seen);
       return;
     }
     if (await collectionWindow(req, res, url)) return;
@@ -1425,7 +1471,23 @@ export function webviewServers(
       sendRight = () => send("KEYCODE_DPAD_RIGHT");
     },
     verify(platform: "macos" | "android") {
+      if (platform === "android")
+        assert(systemPostReads.has("dismissed"), "Missing system-link Back");
+
       refresh.verify();
+      for (const read of [
+        "live-search-destination",
+        "live-search-post-anchor",
+        "system-reply-destination",
+        "system-reply-anchor",
+        "system-neighbors-before",
+        "system-neighbors-after",
+        "live-window-thread",
+      ])
+        assert(
+          systemPostReads.has(read),
+          "Missing native system-link request " + read,
+        );
       assert.equal(
         offlineHistoryRequests,
         1,

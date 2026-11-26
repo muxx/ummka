@@ -313,6 +313,7 @@ export async function checkAndroid(
       `${app}.httpcheck`,
       component,
       onAndroidInputReady,
+      webviewPorts[0],
     );
   } catch (error) {
     if (!(error instanceof NativeInstrumentationError))
