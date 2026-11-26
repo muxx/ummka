@@ -56,6 +56,7 @@ import {
 } from "./memberships.ts";
 import { checkMentionLimit } from "./mention-limit.ts";
 import { checkMentionText } from "./mention-text.ts";
+import { checkMobileFilePolicy } from "./mobile-file-policy.ts";
 import {
   checkPostCollections,
   checkSavedPageBoundary,
@@ -1273,6 +1274,7 @@ await checkPreviouslyAcceptedPost(
 
 await checkSearchScopePolicy(base, token, readerToken, version);
 await checkPostEditWindow(base, token, readerToken);
+await checkMobileFilePolicy(base, token, readerToken);
 await checkReactionLimit(base, token, user.id, readerToken, channelId);
 console.log(
   `Mattermost ${version} verified the signed reaction limit against adding a new emoji name.`,

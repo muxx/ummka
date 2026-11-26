@@ -11,6 +11,8 @@ pub(crate) mod history;
     )
 ))]
 mod history_check;
+#[cfg(all(feature = "native-http-check", any(test, target_os = "android")))]
+pub(crate) mod mobile_file_policy_check;
 pub(crate) mod profiles;
 mod response;
 pub(crate) mod settings;
