@@ -45,7 +45,7 @@ export function workspaceFailure(
   return source;
 }
 
-function mayKeepCache(failure: Failure) {
+export function mayKeepCache(failure: Failure) {
   return failure === "network" || failure === "storage";
 }
 

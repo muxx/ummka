@@ -8,12 +8,16 @@ import {
 } from "@testing-library/react";
 import { createRef } from "react";
 import { afterEach, expect, test, vi } from "vitest";
+import type { TeamWorkspace } from "../entry/AccountTeamWindow.tsx";
 import type {
   ComposerDraft,
   DraftLocation,
   DraftSave,
 } from "../mattermost/native-rest.ts";
+import { projectTeamSidebar } from "../mattermost/team-sidebar.ts";
+import { channelDraftActions } from "./channel-draft-actions.ts";
 import { DraftComposer } from "./DraftComposer.tsx";
+import { openThreadReplyWindow } from "./thread-reply-window.ts";
 
 afterEach(cleanup);
 function storage(rid = 1) {
@@ -88,6 +92,134 @@ const field = () =>
   screen.findByRole<HTMLTextAreaElement>("textbox", {
     name: "Написать сообщение…",
   });
+
+test("Enter on a quick emoji in a thread reacts to its latest reply and clears only that editor", async () => {
+  const { rows, connection: drafts } = storage();
+  const channelId = "c".repeat(26);
+  const userId = "u".repeat(26);
+  const teamId = "t".repeat(26);
+  const root = {
+    channelId,
+    userId,
+    id: "r".repeat(26),
+    rootId: "",
+    deleteAt: 0,
+    createAt: 10,
+    updateAt: 10,
+    editAt: 0,
+    type: "",
+    message: "Thread",
+    hashtags: "",
+    isPinned: false,
+  };
+  const reply = {
+    ...root,
+    id: "p".repeat(26),
+    rootId: root.id,
+    createAt: 20,
+    updateAt: 20,
+    message: "Latest reply",
+  };
+  let accept!: () => void;
+  const accepted = new Promise<void>((resolve) => {
+    accept = resolve;
+  });
+  const connection = {
+    ...drafts,
+    readThreadPage: vi
+      .fn()
+      .mockResolvedValue({ kind: "page", root, replies: [reply], next: null }),
+    readChannelWindow: vi.fn(),
+    readPostReactions: vi.fn().mockResolvedValue([]),
+    addOwnReaction: vi.fn(() => accepted),
+  };
+  const reader = openThreadReplyWindow(connection, {
+    channelId,
+    rootId: root.id,
+    collapsedThreads: true,
+  });
+  await reader.open();
+  try {
+    const channel = projectTeamSidebar({
+      teamId,
+      channels: [
+        {
+          channel: {
+            id: channelId,
+            name: "winter",
+            displayName: "Winter",
+            type: "O",
+            deleteAt: 0,
+          },
+          membership: { channelId, userId },
+        },
+      ],
+      categories: [],
+    }).channels[0];
+    const workspace = {
+      connection,
+      team: { id: teamId },
+      userId,
+      policy: { server: { value: { uniqueReactionLimit: "50" } } },
+    } as unknown as TeamWorkspace;
+    const sendContext = channelDraftActions(
+      workspace,
+      channel,
+      () => "allowed",
+      true,
+      reader,
+    );
+    const message = "+:eyes:";
+    const channelKey = `${channelId}/`;
+    const neighborKey = channelKey + "x".repeat(26);
+    const unchanged = { message, revision: "1" };
+    rows.set(channelKey, { ...unchanged });
+    rows.set(neighborKey, { ...unchanged });
+    render(
+      <DraftComposer
+        {...inputs(connection)}
+        language="en"
+        online
+        label="Reply in thread…"
+        channelId={channelId}
+        rootId={root.id}
+        sendContext={sendContext}
+      />,
+    );
+    const input = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+      name: "Reply in thread…",
+    });
+    input.focus();
+    fireEvent.change(input, { target: { value: message } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() =>
+      expect(connection.addOwnReaction).toHaveBeenCalledExactlyOnceWith(
+        reply.id,
+        "eyes",
+        expect.any(AbortSignal),
+      ),
+    );
+    expect(input.value).toBe(message);
+    expect(rows.get(channelKey + root.id)).toEqual(unchanged);
+    await act(async () => accept());
+    await screen.findByText("Added :eyes:.");
+    await waitFor(() => expect(input.value).toBe(""));
+    expect(connection.readPostReactions).toHaveBeenCalledExactlyOnceWith(
+      reply.id,
+      expect.any(AbortSignal),
+    );
+    expect(connection.readChannelWindow).not.toHaveBeenCalled();
+    expect(connection.submitDraft).not.toHaveBeenCalled();
+    expect(connection.saveDraft.mock.calls).toEqual([
+      [{ channelId, rootId: root.id, expectedRevision: null, message }],
+      [{ channelId, rootId: root.id, expectedRevision: "1", message: "" }],
+    ]);
+    expect(rows.get(channelKey)).toEqual(unchanged);
+    expect(rows.get(neighborKey)).toEqual(unchanged);
+  } finally {
+    reader.close();
+  }
+});
 
 test("a late read cannot expose a previous room and an empty draft is editable only after reading", async () => {
   const { rows, connection } = storage();
@@ -446,15 +578,16 @@ test.each([false, true])(
 );
 
 test("Escape restores focus and text, and a later confirmed mention can send", async () => {
-  const { connection } = storage();
+  const { connection, rows } = storage();
+  const draft = { message: "@here встречаемся", revision: "mention" };
+  rows.set("A/", draft);
   const props = { ...inputs(connection), online: true };
   let releaseAudience!: (count: number) => void;
   const audience = new Promise<number>((resolve) => {
     releaseAudience = resolve;
   });
-  props.sendContext.post.account.readChannelTimezoneCount.mockReturnValueOnce(
-    audience,
-  );
+  const { readChannelTimezoneCount } = props.sendContext.post.account;
+  readChannelTimezoneCount.mockReturnValueOnce(audience);
   connection.submitDraft.mockResolvedValue({
     kind: "sending",
     draft: { message: "", revision: "sent", clearedBySubmission: true },
@@ -462,64 +595,73 @@ test("Escape restores focus and text, and a later confirmed mention can send", a
   });
   render(<DraftComposer {...props} />);
   const input = await field();
-  fireEvent.change(input, { target: { value: "@here встречаемся" } });
+  expect(input.value).toBe(draft.message);
   const sendButton = screen.getByRole("button", {
     name: "Отправить сообщение",
   });
-  await act(async () => {
-    fireEvent.click(sendButton);
-  });
-  expect(
-    props.sendContext.post.account.readChannelTimezoneCount,
-  ).toHaveBeenCalledOnce();
+  fireEvent.click(sendButton);
+  await waitFor(() => expect(readChannelTimezoneCount).toHaveBeenCalledOnce());
   expect(screen.queryByRole("button", { name: "Отправить" })).toBeNull();
   await act(async () => releaseAudience(2));
-  const confirm = screen.getByRole("button", { name: "Отправить" });
+  const confirm = await screen.findByRole("button", { name: "Отправить" });
   expect(document.activeElement).toBe(confirm);
   fireEvent.keyDown(confirm, { key: "Escape" });
   expect(document.activeElement).toBe(input);
-  expect(input.value).toBe("@here встречаемся");
+  expect(input.value).toBe(draft.message);
+  expect(rows.get("A/")).toEqual(draft);
   expect(connection.submitDraft).not.toHaveBeenCalled();
-  await act(async () => {
-    fireEvent.click(sendButton);
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Отправить" }));
+  fireEvent.click(sendButton);
+  fireEvent.click(await screen.findByRole("button", { name: "Отправить" }));
+  expect(readChannelTimezoneCount).toHaveBeenCalledTimes(2);
   await waitFor(() => expect(input.value).toBe(""));
-  expect(connection.submitDraft).toHaveBeenCalledTimes(1);
+  expect(connection.submitDraft).toHaveBeenCalledExactlyOnceWith({
+    channelId: "A",
+    revision: draft.revision,
+  });
 });
 
 test("switching rooms while the audience is loading never submits the other room's draft", async () => {
   const { connection, rows } = storage();
   const props = { ...inputs(connection), online: true };
+  const first = { message: "@all проверьте", revision: "first" };
+  const second = { message: "Другой черновик", revision: "second" };
+  rows.set("A/", first);
+  rows.set("B/", second);
   let finish!: (count: number) => void;
-  props.sendContext.post.account.readChannelMemberCount.mockImplementationOnce(
-    () =>
-      new Promise<number>((r) => {
-        finish = r;
-      }),
-  );
+  const audience = new Promise<number>((resolve) => {
+    finish = resolve;
+  });
+  const { readChannelMemberCount } = props.sendContext.post.account;
+  readChannelMemberCount.mockReturnValueOnce(audience);
   const view = render(<DraftComposer {...props} />);
-  fireEvent.change(await field(), { target: { value: "@all проверьте" } });
-  fireEvent.click(screen.getByRole("button", { name: "Отправить сообщение" }));
-  await waitFor(() =>
-    expect(
-      props.sendContext.post.account.readChannelMemberCount,
-    ).toHaveBeenCalledOnce(),
+  expect((await field()).value).toBe(first.message);
+  const send = screen.getByRole("button", { name: "Отправить сообщение" });
+  await act(async () => {
+    fireEvent.click(send);
+  });
+  expect(readChannelMemberCount).toHaveBeenCalledExactlyOnceWith(
+    props.sendContext.post.channel.id,
+    expect.any(AbortSignal),
   );
+  const signal = readChannelMemberCount.mock.calls[0][1] as AbortSignal;
+  expect(signal.aborted).toBe(false);
   view.rerender(<DraftComposer {...props} channelId="B" />);
-  expect((await field()).value).toBe("");
+  expect((await field()).value).toBe(second.message);
+  expect(signal.aborted).toBe(true);
   await act(async () => finish(21));
   expect(screen.queryByRole("group")).toBeNull();
-  expect(rows.get("A/")?.message).toBe("@all проверьте");
+  expect(rows.get("A/")).toEqual(first);
+  expect(rows.get("B/")).toEqual(second);
   expect(connection.submitDraft).not.toHaveBeenCalled();
 });
 
 test("only an explicit send-as-text sends an unknown command, and its released revision still requires mention confirmation", async () => {
   const { connection, rows } = storage();
+  const message = "/xyz @all";
   const props = { ...inputs(connection), online: true };
   props.sendContext.route.mockResolvedValue({ kind: "command" });
   props.sendContext.performOther.mockImplementationOnce(async () => {
-    const draft = { message: "/xyz @all", revision: "released" };
+    const draft = { message, revision: "released" };
     rows.set("A/", draft);
     return {
       kind: "command",
@@ -539,9 +681,12 @@ test("only an explicit send-as-text sends an unknown command, and its released r
     draft: { message: "", revision: "sent" },
     completion: Promise.resolve({ kind: "unconfirmed" }),
   });
-  render(<DraftComposer {...props} />);
+  await act(async () => {
+    render(<DraftComposer {...props} />);
+  });
   const input = await field();
-  fireEvent.change(input, { target: { value: "/xyz @all" } });
+  fireEvent.change(input, { target: { value: message } });
+  expect(input.value).toBe(message);
   fireEvent.click(screen.getByRole("button", { name: "Выполнить команду" }));
   const asText = await screen.findByRole("button", {
     name: "Отправить текстом",
@@ -551,7 +696,10 @@ test("only an explicit send-as-text sends an unknown command, and its released r
   ).not.toHaveBeenCalled();
   expect(connection.submitDraft).not.toHaveBeenCalled();
   fireEvent.click(asText);
-  fireEvent.click(await screen.findByRole("button", { name: "Отправить" }));
+  const confirm = await screen.findByRole("button", { name: "Отправить" });
+  expect(input.value).toBe(message);
+  expect(connection.submitDraft).not.toHaveBeenCalled();
+  fireEvent.click(confirm);
   await waitFor(() => expect(input.value).toBe(""));
   expect(connection.submitDraft).toHaveBeenCalledExactlyOnceWith({
     channelId: "A",

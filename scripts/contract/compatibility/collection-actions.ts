@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { openPostCollection } from "../../../src/channels/post-collection.ts";
+import { accountPostCollections } from "../../../src/mattermost/account-post-collections.ts";
 import { accountCollectionActions } from "../../../src/mattermost/post-collection-actions.ts";
 import {
   ChannelsApi,
@@ -72,6 +74,40 @@ export async function checkCollectionActions(
   await actions.setPostPinned(postId, true);
   assert.deepEqual(await pinned(), [postId]);
   await assert.rejects(actions.setPostPinned(privatePostId, true), denied);
+  const readerLists = accountPostCollections(reader, (read) => read());
+  const observerLists = accountPostCollections(observer, (read) => read());
+  const readerPins = openPostCollection(readerLists, {
+    kind: "pins",
+    channelId: direct,
+  });
+  const observerPins = openPostCollection(observerLists, {
+    kind: "pins",
+    channelId: direct,
+  });
+  const readerSaved = openPostCollection(readerLists, {
+    kind: "channel",
+    channelId: direct,
+  });
+  const observerSaved = openPostCollection(observerLists, {
+    kind: "channel",
+    channelId: direct,
+  });
+  const lists = [readerPins, observerPins, readerSaved, observerSaved];
+  const ids = (view: typeof readerPins) => {
+    const state = view.getSnapshot();
+    assert.equal(state.status, "ready");
+    assert.ok(state.value);
+    return state.value.items.map((post) => post.id);
+  };
+  await actions.setPostSaved(postId, true);
+  await Promise.all(lists.map((view) => view.refresh()));
+  assert.deepEqual(lists.map(ids), [[postId], [postId], [postId], []]);
+  await actions.setPostPinned(postId, false);
+  await Promise.all(lists.map((view) => view.refresh()));
+  assert.deepEqual(lists.map(ids), [[], [], [postId], []]);
+  for (const view of lists) view.close();
+  await actions.setPostSaved(postId, false);
+  await actions.setPostPinned(postId, true);
   console.log(
     `Mattermost ${version} verified channel pins and personal saved preferences change independently.`,
   );

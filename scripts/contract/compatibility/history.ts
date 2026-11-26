@@ -58,6 +58,7 @@ import {
   checkPostCollections,
   checkSavedPageBoundary,
 } from "./post-collections.ts";
+import { checkPostEditHistory } from "./post-edit-history.ts";
 import { checkPostEditWindow } from "./post-edit-window.ts";
 import {
   checkPostMutations,
@@ -70,8 +71,10 @@ import { checkReactionLimit } from "./reaction-limit.ts";
 import { checkPostReactions } from "./reactions.ts";
 import { checkRoleReads } from "./role-reads.ts";
 import { checkSearchScopePolicy } from "./search-scope.ts";
+import { expectedNavigationPost } from "./search-target.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
+import { checkThreadFollow } from "./thread-follow.ts";
 import { checkThreadSummary } from "./thread-summary.ts";
 import { checkThreadWindow } from "./thread-window.ts";
 import { checkUserNotifications } from "./user-notifications.ts";
@@ -465,6 +468,7 @@ for (const [id, rootId] of [
     postId: id,
     channelId,
     rootId: rootId || null,
+    post: expectedNavigationPost(row),
   });
 }
 await assert.rejects(
@@ -926,6 +930,15 @@ await checkSidebarCounters(
 console.log(
   `Mattermost ${version} verified root and reply counters through a channel view.`,
 );
+await checkThreadFollow(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  new Configuration({ basePath: base }),
+  { posts: memberPosts, userId: user.id },
+  team.id,
+  [channelId, dm.id],
+  closedPost.id,
+  version,
+);
 // The earlier non-member checks use this private channel before the reader joins.
 await create(`channels/${closed.id}/members`, { user_id: reader.id }, token);
 await checkSidebarReads(
@@ -1212,9 +1225,16 @@ console.log(
   `Mattermost ${version} verified empty and populated reaction lists and post metadata.`,
 );
 
-await checkEventStream(base, token, session, team.id, channelId);
+await checkEventStream(
+  base,
+  readerToken,
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  reader.id,
+  team.id,
+  channelId,
+);
 console.log(
-  `Mattermost ${version} verified sequenced posts, command replies and replay of a post after reconnect.`,
+  `Mattermost ${version} verified an ordinary author's pending_post_id in posted, command replies and post replay after reconnect.`,
 );
 
 await checkSavedPageBoundary(
@@ -1249,6 +1269,22 @@ const previous = await fetch(`${base}/api/v4/users/me`, {
 });
 assert.equal(previous.status, 200);
 assert.equal((await previous.json()).id, user.id);
+// The earlier membership, saved-post, and mention-count checks rely on their original readers.
+await create(
+  `teams/${team.id}/members`,
+  { team_id: team.id, user_id: otherSaver.id },
+  token,
+);
+await checkPostEditHistory(
+  readerPosts,
+  new PostsApi(
+    new Configuration({ basePath: base, accessToken: otherSaverToken }),
+  ),
+  anonymous,
+  reader.id,
+  channelId,
+  version,
+);
 await allowFixtureBrowserSignIn(base, token);
 const logout = await fetch(`${base}/api/v4/users/logout`, {
   method: "POST",

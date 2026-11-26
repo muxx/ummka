@@ -17,6 +17,9 @@ export interface CreatePostOperationRequest {
 export interface DeletePostRequest {
     postId: string;
 }
+export interface GetEditHistoryForPostRequest {
+    postId: string;
+}
 export interface GetFlaggedPostsForUserRequest {
     userId: string;
     teamId?: string;
@@ -84,6 +87,9 @@ export declare class PostsApi extends runtime.BaseAPI {
     deletePostRequestOpts(requestParameters: DeletePostRequest): Promise<runtime.RequestOpts>;
     deletePostRaw(requestParameters: DeletePostRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<StatusOK>>;
     deletePost(requestParameters: DeletePostRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<StatusOK>;
+    getEditHistoryForPostRequestOpts(requestParameters: GetEditHistoryForPostRequest): Promise<runtime.RequestOpts>;
+    getEditHistoryForPostRaw(requestParameters: GetEditHistoryForPostRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Array<Post>>>;
+    getEditHistoryForPost(requestParameters: GetEditHistoryForPostRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Array<Post>>;
     getFlaggedPostsForUserRequestOpts(requestParameters: GetFlaggedPostsForUserRequest): Promise<runtime.RequestOpts>;
     getFlaggedPostsForUserRaw(requestParameters: GetFlaggedPostsForUserRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<PostList>>;
     getFlaggedPostsForUser(requestParameters: GetFlaggedPostsForUserRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<PostList>;

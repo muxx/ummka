@@ -47,6 +47,27 @@ export async function checkPostMutations(
     edited.message !== "Отредактировано ✎"
   )
     throw Error("partial post edit lost its root or message");
+  const history = await api.getEditHistoryForPost({ postId: reply.id });
+  if (
+    history.length !== 2 ||
+    !history.every(
+      (row) =>
+        row.originalId === reply.id &&
+        row.rootId === post.id &&
+        row.channelId === channelId,
+    ) ||
+    history[0].id !== "d".repeat(26) ||
+    history[0].message !== "Second revision" ||
+    history[0].editAt !== 200 ||
+    history[0].deleteAt !== 300 ||
+    history[1].id !== "b".repeat(26) ||
+    history[1].message !== "First revision" ||
+    history[1].editAt !== 0 ||
+    history[1].deleteAt !== 200
+  )
+    throw Error(
+      "Post edit history lost its ordered revisions or original identity",
+    );
   if ((await api.deletePost({ postId: reply.id })).status !== "OK")
     throw Error("post deletion was not confirmed");
 }
