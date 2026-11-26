@@ -1,4 +1,5 @@
-import { Lexer, type Token } from "marked";
+import type { Token } from "marked";
+import { lexPostMarkdown } from "./post-markdown-lexer.ts";
 
 type ChannelMention = "@all" | "@channel" | "@here";
 type ComposerMentions = {
@@ -45,7 +46,7 @@ export function composerPostMentions(message: string): ComposerMentions {
   if (!message.includes("@")) return { channel: [], groupCandidates: [] };
   const channel = new Set<ChannelMention>();
   const groupCandidates = new Set<string>();
-  const text = mentionableText(Lexer.lex(message, { gfm: true }));
+  const text = mentionableText(lexPostMarkdown(message));
   // These are the word boundaries used by Mattermost's StandardMentionParser.
   for (const [word] of text.matchAll(/[\p{L}\p{N}@.:_-]+/gu)) {
     if (!word.includes("@") || (word.startsWith(":") && word.endsWith(":")))
