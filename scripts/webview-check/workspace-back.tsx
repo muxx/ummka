@@ -3,6 +3,7 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { App } from "../../src/App.tsx";
 import { openNativeRestConnection } from "../../src/mattermost/native-rest.ts";
+import { checkAvailableDirectoryWindow } from "./available-directory-window.ts";
 
 export function findThreadDraft(host: HTMLElement) {
   const ui = within(host);
@@ -176,6 +177,35 @@ export async function verifyWorkspaceBack(
       if (reopened.isConnected || document.activeElement !== opener)
         throw Error("The reopened thread did not return to the same post");
     });
+    const mobileNav = ui.queryByRole("button", { name: "Channels" });
+    if (mobileNav) flushSync(() => fireEvent.click(mobileNav));
+    const directory = ui.getByRole("button", { name: "Directory" });
+    flushSync(() => fireEvent.click(directory));
+    const catalog = within(await ui.findByRole("main", { name: "Directory" }));
+    const title = catalog.getByRole("heading", { level: 1, name: "Directory" });
+    if (document.activeElement !== title || channel.getClientRects().length)
+      throw Error("The catalog did not take focus from the channel");
+    await press("directory");
+    await waitFor(() => {
+      if (
+        document.activeElement !== directory ||
+        directory.getClientRects().length === 0
+      )
+        throw Error(
+          "Directory Back did not restore focus to its visible sidebar entry",
+        );
+    });
+    flushSync(() => fireEvent.click(directory));
+    const joined = within(await ui.findByRole("list", { name: "My channels" }));
+    flushSync(() =>
+      fireEvent.click(
+        joined.getByRole("button", { name: "Town Square, Public channel" }),
+      ),
+    );
+    await waitFor(() => {
+      if (!channel.getClientRects().length || channel.value !== channelText)
+        throw Error("Reopening the channel from the directory lost its draft");
+    });
   } finally {
     window.removeEventListener("keydown", observed, true);
     await control.close();
@@ -205,6 +235,7 @@ export async function checkDesktopBack(port: string) {
     const opener = within(town).getByRole("button", { name: /Open thread/ });
     flushSync(() => fireEvent.click(opener));
     await verifyWorkspaceBack(host, port, opener, channel);
+    await checkAvailableDirectoryWindow(host, port);
   } finally {
     root.unmount();
     host.remove();

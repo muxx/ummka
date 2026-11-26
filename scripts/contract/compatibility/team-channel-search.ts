@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
+import { availableDirectoryChannels } from "../../../src/channels/open-channel-directory.ts";
 import { openDirectorySearch } from "../../../src/channels/open-directory-search.ts";
 import {
   readChannelDirectoryPage,
   searchChannelDirectory,
 } from "../../../src/mattermost/channel-directory-page.ts";
+import { loadTeamDirectory } from "../../../src/mattermost/navigation-data.ts";
+import { changeOwnMembership } from "../../../src/mattermost/own-membership.ts";
+import { projectTeamSidebar } from "../../../src/mattermost/team-sidebar.ts";
 import {
   ChannelsApi,
   Configuration,
@@ -188,6 +192,33 @@ export async function checkTeamChannelSearch(
         error instanceof ResponseError && error.response.status === status,
     );
   }
+  const config = new Configuration({ basePath, accessToken: reader.token });
+  async function memberIds() {
+    const sidebar = projectTeamSidebar(
+      await loadTeamDirectory(config, reader.id, home),
+    );
+    return new Set(sidebar.channels.map((room) => room.id));
+  }
+  const originalMembers = await memberIds();
+  assert.deepEqual(
+    availableDirectoryChannels(projected, originalMembers).map(
+      (room) => room.id,
+    ),
+    [open],
+  );
+  const accepted = await changeOwnMembership(
+    config,
+    reader.id,
+    { kind: "channel", id: open },
+    "join",
+  );
+  assert.equal(accepted.kind, "applied");
+  const currentMembers = await memberIds();
+  assert.ok(currentMembers.has(open));
+  assert.deepEqual(availableDirectoryChannels(projected, currentMembers), []);
+  console.log(
+    `Mattermost ${version} verified a directory join against the newly loaded team membership.`,
+  );
   console.log(
     `Mattermost ${version} verified team-scoped directory search as an ordinary member of two teams.`,
   );
