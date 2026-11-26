@@ -241,6 +241,7 @@ export function ChannelsWorkspace({
   );
   const timeline = useChannelTimeline(
     connection,
+    team.id,
     chosen,
     settings?.collapsedThreads ?? null,
     online,
@@ -506,7 +507,12 @@ export function ChannelsWorkspace({
           ))
         }
       >
-        {historyIssue && notice(historyIssue, timeline.retry, true)}
+        {historyIssue &&
+          notice(
+            historyIssue,
+            timeline.canRetry ? timeline.retry : undefined,
+            true,
+          )}
         {chosen && settings && !historyDenied && (
           <ConversationTimeline
             channelId={chosen}
@@ -515,6 +521,7 @@ export function ChannelsWorkspace({
             userId={userId}
             sessionIssue={sessionIssue}
             page={timeline.page}
+            inaccessibleBefore={timeline.firstInaccessiblePostTime}
             waitingMessage={
               !timeline.page &&
               (timeline.status === "loading" ||

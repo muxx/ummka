@@ -240,6 +240,13 @@
   },
   {
     "file": "users.yaml",
+    "method": "GET",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/threads",
+    "id": "GetUserThreads",
+    "selfOnly": true
+  },
+  {
+    "file": "users.yaml",
     "method": "PUT",
     "path": "/api/v4/users/{user_id}/teams/{team_id}/threads/{thread_id}/following",
     "id": "StartFollowingThread",

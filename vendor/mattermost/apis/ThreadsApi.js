@@ -1,6 +1,72 @@
 import * as runtime from '../runtime.js';
 import { StatusOKFromJSON, } from '../models/StatusOK.js';
+import { UserThreadsFromJSON, } from '../models/UserThreads.js';
 export class ThreadsApi extends runtime.BaseAPI {
+    async getUserThreadsRequestOpts(requestParameters) {
+        if (requestParameters['userId'] == null) {
+            throw new runtime.RequiredError('userId', 'Required parameter "userId" was null or undefined when calling getUserThreads().');
+        }
+        if (requestParameters['teamId'] == null) {
+            throw new runtime.RequiredError('teamId', 'Required parameter "teamId" was null or undefined when calling getUserThreads().');
+        }
+        const queryParameters = {};
+        if (requestParameters['since'] != null) {
+            queryParameters['since'] = requestParameters['since'];
+        }
+        if (requestParameters['deleted'] != null) {
+            queryParameters['deleted'] = requestParameters['deleted'];
+        }
+        if (requestParameters['extended'] != null) {
+            queryParameters['extended'] = requestParameters['extended'];
+        }
+        if (requestParameters['perPage'] != null) {
+            queryParameters['per_page'] = requestParameters['perPage'];
+        }
+        if (requestParameters['totalsOnly'] != null) {
+            queryParameters['totalsOnly'] = requestParameters['totalsOnly'];
+        }
+        if (requestParameters['threadsOnly'] != null) {
+            queryParameters['threadsOnly'] = requestParameters['threadsOnly'];
+        }
+        if (requestParameters['before'] != null) {
+            queryParameters['before'] = requestParameters['before'];
+        }
+        if (requestParameters['after'] != null) {
+            queryParameters['after'] = requestParameters['after'];
+        }
+        if (requestParameters['unread'] != null) {
+            queryParameters['unread'] = requestParameters['unread'];
+        }
+        if (requestParameters['excludeDirect'] != null) {
+            queryParameters['excludeDirect'] = requestParameters['excludeDirect'];
+        }
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/users/{user_id}/teams/{team_id}/threads`;
+        urlPath = urlPath.replace('{user_id}', encodeURIComponent(String(requestParameters['userId'])));
+        urlPath = urlPath.replace('{team_id}', encodeURIComponent(String(requestParameters['teamId'])));
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async getUserThreadsRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.getUserThreadsRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => UserThreadsFromJSON(jsonValue));
+    }
+    async getUserThreads(requestParameters, initOverrides) {
+        const response = await this.getUserThreadsRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
     async startFollowingThreadRequestOpts(requestParameters) {
         if (requestParameters['userId'] == null) {
             throw new runtime.RequiredError('userId', 'Required parameter "userId" was null or undefined when calling startFollowingThread().');

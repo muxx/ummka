@@ -91,6 +91,11 @@ import {
 import { correctSinglePost } from "./single-post-correction.ts";
 import { correctTeamMemberRequest } from "./team-member-correction.ts";
 import { correctThreadFollow } from "./thread-follow-correction.ts";
+import {
+  correctThreadListModel,
+  correctThreadListQuery,
+  threadListPath,
+} from "./thread-list-corrections.ts";
 
 const sources = process.env.UMMKA_CONTRACT_SOURCES;
 const work = process.env.UMMKA_CONTRACT_WORK;
@@ -815,6 +820,77 @@ test("flagged and pinned collections return a single PostList and changing eithe
   }
 });
 
+test("thread list corrections track the actual cursors, counters, null pages and user participants", () => {
+  const original = object(
+    at(read("users.yaml"), [threadListPath, "get"]),
+    "operation",
+  );
+  const newer = object(
+    at(read("users-12.1.0.yaml"), [threadListPath, "get"]),
+    "operation",
+  );
+  const params = at(contract, ["paths", threadListPath, "get", "parameters"]);
+  assert.ok(Array.isArray(params));
+  assert.deepEqual(
+    params.map((p) => p.name),
+    [
+      "user_id",
+      "team_id",
+      "since",
+      "deleted",
+      "extended",
+      "per_page",
+      "totalsOnly",
+      "threadsOnly",
+      "before",
+      "after",
+      "unread",
+      "excludeDirect",
+    ],
+  );
+  const changed = { ...original, parameters: [...params] };
+  assert.throws(() => correctThreadListQuery(changed, newer), /Review both/);
+  assert.throws(() => correctThreadListQuery(changed, changed), /Review both/);
+  for (const name of ["UserThreads", "UserThread"] as const) {
+    const path = ["components", "schemas", name];
+    const source = object(at(definitions, path), name);
+    const next = object(at(read("definitions-12.1.0.yaml"), path), name);
+    const fields = object(at(contract, [...path, "properties"]), "properties");
+    const unexpected = {
+      ...source,
+      properties: {
+        ...object(source.properties, name),
+        unexpected: { type: "string" },
+      },
+    };
+    assert.throws(
+      () => correctThreadListModel(name, unexpected, next),
+      /Review both/,
+    );
+    assert.throws(
+      () => correctThreadListModel(name, unexpected, unexpected),
+      /Review both/,
+    );
+    if (name === "UserThreads") {
+      assert.equal(at(fields, ["threads", "nullable"]), true);
+      for (const key of [
+        "total_unread_threads",
+        "total_unread_mentions",
+        "total_unread_urgent_mentions",
+      ])
+        assert.deepEqual(fields[key], { type: "integer", format: "int64" });
+    } else {
+      assert.equal(
+        at(fields, ["participants", "items", "$ref"]),
+        "#/components/schemas/User",
+      );
+      assert.deepEqual(fields.is_urgent, { type: "boolean" });
+      for (const key of ["unread_replies", "unread_mentions", "delete_at"])
+        assert.deepEqual(fields[key], { type: "integer", format: "int64" });
+    }
+  }
+});
+
 test("both thread follow verbs return StatusOK and stop on upstream response changes", () => {
   const path =
     "/api/v4/users/{user_id}/teams/{team_id}/threads/{thread_id}/following";
@@ -871,6 +947,11 @@ test("retains the catalog operations, security and transitive models", () => {
       source.operationId === "StopFollowingThread"
     )
       expected = correctThreadFollow(
+        source,
+        object(at(read("users-12.1.0.yaml"), key), path),
+      );
+    if (source.operationId === "GetUserThreads")
+      expected = correctThreadListQuery(
         source,
         object(at(read("users-12.1.0.yaml"), key), path),
       );
@@ -1012,6 +1093,12 @@ test("retains the catalog operations, security and transitive models", () => {
         object(source, name),
         read("definitions-12.1.0.yaml"),
       );
+    if (name === "UserThread" || name === "UserThreads")
+      expected = correctThreadListModel(
+        name,
+        object(source, name),
+        object(at(read("definitions-12.1.0.yaml"), path), name),
+      );
     if (name === "User") expected = correctUserProfile(object(source, name));
     if (["Channel", "ChannelMember", "TeamMember"].includes(name))
       expected = correctSidebarSchema(name, object(source, name));
@@ -1066,6 +1153,8 @@ test("retains the catalog operations, security and transitive models", () => {
       "Timezone",
       "User",
       "UserNotifyProps",
+      "UserThread",
+      "UserThreads",
     ],
   );
 });

@@ -41,5 +41,5 @@ check-android-package:
 	"$(ANDROID_HOME)/build-tools/36.0.0/apksigner" verify artifacts/ummka-android-arm64-debug.apk
 
 check-android-http:
-	node --test scripts/native-http/android-webview.test.ts
+	node --test scripts/native-http/*.test.ts
 	npm run test:native-http -- android
