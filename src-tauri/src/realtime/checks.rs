@@ -1,3 +1,5 @@
+mod applied;
+
 use super::{
     Continuity, EventConnectionError, EventReader, EventSettings, IncomingFrame, StreamError,
 };
@@ -31,6 +33,7 @@ async fn signed(
 
 pub(crate) async fn wire(client: &NativeHttp, base: &str) -> CheckResult {
     let sessions = using(Arc::new(TestVault::default()));
+    applied::check(client, &sessions, base).await?;
     let connection = signed(client, &sessions, base, "events").await?;
     let cursor = connection
         .with_event_stream(EventSettings::default(), None, async |reader| match reader
