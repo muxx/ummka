@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readChannelDirectoryPage } from "../../../src/mattermost/channel-directory-page.ts";
 import {
   ChannelsApi,
   Configuration,
@@ -99,6 +100,26 @@ export async function checkChannelDirectoryPages(
     await api.getDeletedChannelsForTeam({ teamId, page: 2, perPage: 1 }),
     [],
   );
+  for (const [kind, expected] of [
+    ["public", all],
+    ["archived", archived],
+  ] as const) {
+    const page = await readChannelDirectoryPage(api, { teamId, kind, page: 0 });
+    assert.deepEqual(
+      page.items.map((c) => [c.id, c.name, c.displayName, c.kind, c.deleteAt]),
+      expected.map((c) => [c.id, c.name, c.displayName, c.type, c.deleteAt]),
+    );
+    assert.equal(page.hasMore, false);
+    assert.deepEqual(
+      await readChannelDirectoryPage(api, { teamId, kind, page: 1 }),
+      { items: [], hasMore: false },
+    );
+    await assert.rejects(
+      readChannelDirectoryPage(api, { teamId: otherId, kind, page: 0 }),
+      (error: unknown) =>
+        error instanceof ResponseError && error.response.status === 403,
+    );
+  }
   const anonymous = new ChannelsApi(new Configuration({ basePath: base }));
   for (const op of [
     "getPublicChannelsForTeam",

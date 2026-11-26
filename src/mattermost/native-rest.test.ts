@@ -191,6 +191,35 @@ test("closing the signed account discards historical revisions already in flight
   }
 });
 
+test("closing the account discards a directory page already in flight", async () => {
+  ipc.mockResolvedValueOnce(41);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    "a".repeat(26),
+  );
+  const read = vi.spyOn(ChannelsApi.prototype, "getPublicChannelsForTeam");
+  let finish!: (rows: []) => void;
+  read.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  try {
+    const query = { teamId: "t".repeat(26), kind: "public", page: 0 } as const;
+    const pending = account.readChannelDirectoryPage(query);
+    await account.close();
+    finish([]);
+    await expect(pending).rejects.toBe("cancelled");
+    await expect(account.readChannelDirectoryPage(query)).rejects.toBe(
+      "unknown_connection",
+    );
+    expect(read).toHaveBeenCalledTimes(1);
+  } finally {
+    read.mockRestore();
+  }
+});
+
 test.each(["close", "signOut", "signOutOnDevice"] as const)(
   "%s discards native results that were already in transit to the renderer",
   async (operation) => {
@@ -541,6 +570,7 @@ test("opens a native account by installation and user ID", async () => {
     "readAccountDirectory",
     "readAssociatedMentionGroups",
     "readChannelBookmarks",
+    "readChannelDirectoryPage",
     "readChannelMemberCount",
     "readChannelMemberDirectory",
     "readChannelNotifications",
@@ -589,6 +619,7 @@ test("opens a native account by installation and user ID", async () => {
     "retryPendingPost",
     "rid",
     "saveDraft",
+    "searchChannelDirectory",
     "searchMentionGroups",
     "selectJoinedTeam",
     "selectSidebarChannel",
