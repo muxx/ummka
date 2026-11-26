@@ -156,6 +156,7 @@ export function TimelinePost({
       data-post-id={post.id}
       data-navigation-target={highlighted || undefined}
       data-local-id={post.localId}
+      data-outgoing={post.outgoing ? "" : undefined}
       tabIndex={focusable || post.outgoing ? -1 : undefined}
     >
       <div className="timeline-avatar" aria-hidden="true">

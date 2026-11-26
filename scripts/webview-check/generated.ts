@@ -27,6 +27,7 @@ import { checkConnectServer } from "./connect-server.tsx";
 import { checkChannelHistory } from "./history.ts";
 import { prepareHistoryLoads } from "./history-loads.ts";
 import { checkUnavailableHistoryServer } from "./local-history.ts";
+import { checkOpenTimelineCommits } from "./open-timeline-commits.tsx";
 import { checkPostContext } from "./post-context.ts";
 import { checkPostMutations } from "./post-mutations.ts";
 import { checkPostReactions } from "./post-reactions.ts";
@@ -238,6 +239,7 @@ export async function checkGeneratedRequests(ports: string[]) {
     const rootSession = new Configuration(accountRoot);
     await checkAccountResponses(accountPrefix, userId, observed);
     await checkChannelRefresh(accountPrefix, observed);
+    await checkOpenTimelineCommits(accountPrefix);
     await checkPostReactions(accountRoot, accountPrefix);
     await checkTeamReads(accountRoot, accountPrefix);
     const prepared = await resolveComposerSubmission(
