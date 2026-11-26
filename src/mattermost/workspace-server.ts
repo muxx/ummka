@@ -18,6 +18,7 @@ export function loadWorkspaceServerPolicy(
         readStringFields(api.getClientConfigRaw(format, options), [
           "MaxNotificationsPerChannel",
           "UniqueEmojiReactionLimitPerPost",
+          "PostEditTimeLimit",
           "EnableConfirmNotificationsToChannel",
           "EnableCustomGroups",
           "CollapsedThreads",

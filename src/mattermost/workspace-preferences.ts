@@ -1,7 +1,11 @@
 import type { Preference } from "../../vendor/mattermost/index.js";
 import { DirectoryValueError } from "./account-directory-error.ts";
 import { locksTeammateName, normalizedNameFormat } from "./channel-profiles.ts";
-import { assertAccountPreference, isMattermostId } from "./model-fields.ts";
+import {
+  assertAccountPreference,
+  isMattermostId,
+  isMattermostTime,
+} from "./model-fields.ts";
 
 type LicenseSettings = {
   LockTeammateNameDisplay?: string;
@@ -15,6 +19,7 @@ type Settings = {
   EnableFileSearch?: string;
   ExperimentalViewArchivedChannels?: string;
   UniqueEmojiReactionLimitPerPost?: string;
+  PostEditTimeLimit?: string;
   MaxNotificationsPerChannel?: string;
   EnableConfirmNotificationsToChannel?: string;
   EnableCustomGroups?: string;
@@ -164,18 +169,19 @@ function mentionSettings(
   };
 }
 
-function reactionLimit(raw: string | undefined) {
+function signedLimit(raw: string | undefined, field: string) {
   if (raw === undefined) return undefined;
   if (/^-?(?:0|[1-9][0-9]{0,18})$/.test(raw) && raw !== "-0") {
     const value = BigInt(raw);
     if (value >= -9223372036854775808n && value <= 9223372036854775807n)
       return raw;
   }
-  throw TypeError("Invalid Mattermost reaction limit.");
+  throw TypeError(`Invalid Mattermost ${field} limit.`);
 }
 
 export type ServerPolicy = {
   uniqueReactionLimit?: string;
+  postEditLimitSeconds?: string;
   mentions?: MentionSettings;
   collapsedThreads: "disabled" | "always_on" | "default_on" | "default_off";
   separateUnreads: boolean;
@@ -197,11 +203,20 @@ export function workspaceServerPolicy(
         ? value
         : "default_off";
   const mentions = mentionSettings(config, license);
-  const uniqueReactionLimit = reactionLimit(
+  const uniqueReactionLimit = signedLimit(
     config.UniqueEmojiReactionLimitPerPost,
+    "reaction",
   );
+  const editLimit = signedLimit(config.PostEditTimeLimit, "post edit");
+  const postEditLimitSeconds =
+    license.IsLicensed === "false"
+      ? "-1"
+      : license.IsLicensed === "true"
+        ? editLimit
+        : undefined;
   return {
     ...(mentions && { mentions }),
+    ...(postEditLimitSeconds !== undefined && { postEditLimitSeconds }),
     ...(uniqueReactionLimit !== undefined && { uniqueReactionLimit }),
     collapsedThreads: mode,
     separateUnreads: config.ExperimentalGroupUnreadChannels === "default_on",
@@ -219,6 +234,21 @@ export function workspaceServerPolicy(
     },
     sharedChannelDMs: config.FeatureFlagEnableSharedChannelsDMs === "true",
   };
+}
+
+export function postEditWindow(
+  server: ServerPolicy | null,
+  createAt: number,
+  now: number,
+) {
+  if (!isMattermostTime(createAt, 0) || !isMattermostTime(now, 0))
+    throw TypeError("Invalid Mattermost post edit timestamp.");
+  const limit = server?.postEditLimitSeconds;
+  if (limit === undefined) return "unknown";
+  if (limit === "-1") return "open";
+  return BigInt(createAt) + BigInt(limit) * 1000n > BigInt(now)
+    ? "open"
+    : "expired";
 }
 
 export type SavedWorkspaceSettings = {

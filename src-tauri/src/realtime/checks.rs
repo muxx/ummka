@@ -111,9 +111,15 @@ pub(crate) async fn wire(client: &NativeHttp, base: &str) -> CheckResult {
             .await?;
         control("event-handshake-closed").await
     };
-    let (result, cleanup) = tokio::join!(handshake, retire);
-    assert_eq!(result, Err(EventConnectionError::SessionUnavailable));
-    cleanup
+    let verify_retirement = async {
+        match handshake.await {
+            Err(EventConnectionError::SessionUnavailable) => Ok(()),
+            Err(error) => Err(error.into()),
+            Ok(()) => Err("held handshake completed before the session retired".into()),
+        }
+    };
+    tokio::try_join!(verify_retirement, retire)?;
+    Ok(())
 }
 
 #[cfg(any(target_os = "android", target_os = "macos"))]

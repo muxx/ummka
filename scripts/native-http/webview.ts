@@ -15,6 +15,7 @@ import { historyRefreshFixture } from "./history-refresh.ts";
 import { respondToPostContext } from "./post-context.ts";
 import { respondToPostMutation } from "./post-mutations.ts";
 import { submissionFixture } from "./submit-post.ts";
+import { respondToThreadList } from "./thread-list.ts";
 import { respondToWorkspace } from "./workspace.ts";
 
 export function webviewServers(
@@ -429,6 +430,18 @@ export function webviewServers(
       );
       return;
     }
+    const threadList = await respondToThreadList(
+      req,
+      res,
+      url,
+      teamId,
+      channelId,
+      userId,
+    );
+    if (threadList) {
+      visits.push(threadList);
+      return;
+    }
     if (
       url.pathname ===
       `/team/chat/api/v4/users/me/teams/${teamId}/threads/${"p".repeat(26)}/following`
@@ -792,6 +805,7 @@ export function webviewServers(
                 EnableConfirmNotificationsToChannel: "false",
                 MaxNotificationsPerChannel: "9223372036854775807",
                 UniqueEmojiReactionLimitPerPost: "-2",
+                PostEditTimeLimit: "9007199254740993",
                 EnableCrossTeamSearch: "true",
                 EnableFileAttachments: "true",
                 EnableFileSearch: "false",
@@ -1030,6 +1044,9 @@ export function webviewServers(
         "post-reactions",
         "follow-thread",
         "unfollow-thread",
+        "thread-list-page",
+        "thread-list-totals",
+        "thread-list-empty",
         "patch-post",
         "post-edit-history",
         "delete-post",
