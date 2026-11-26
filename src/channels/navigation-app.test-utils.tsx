@@ -221,6 +221,9 @@ export function fixture({
       return true;
     }),
     readTeamSidebar: vi.fn<Account["readTeamSidebar"]>(readSidebar),
+    readChannelMemberCount: vi
+      .fn<Account["readChannelMemberCount"]>()
+      .mockResolvedValue(7),
     readChannelNotifications: vi
       .fn<Account["readChannelNotifications"]>()
       .mockResolvedValue({ account: {}, channel: {} }),

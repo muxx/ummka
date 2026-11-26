@@ -30,6 +30,10 @@ import type { LocalPost } from "../mattermost/local-history.ts";
 import { isMattermostId } from "../mattermost/model-fields.ts";
 import { visibleSidebar } from "../mattermost/sidebar-rows.ts";
 import { effectiveWorkspacePreferences } from "../mattermost/workspace-preferences.ts";
+import {
+  ChannelInformationButton,
+  ChannelInformationPanel,
+} from "./ChannelInformationPanel.tsx";
 import { ChannelNotificationsDialog } from "./ChannelNotificationsDialog.tsx";
 import { ChannelsFrame, ThreadMark } from "./ChannelsFrame.tsx";
 import { CollectionChannelMenu } from "./CollectionChannelMenu.tsx";
@@ -319,14 +323,40 @@ export function ChannelsWorkspace({
     }
   }, [directoryOpen]);
   const [channelMenuOpen, setChannelMenuOpen] = useState(false);
-  const [notificationRoom, setNotificationRoom] = useState<string | null>(null);
-  const restoreChannelTitle = useRef(false);
+  const [infoChannel, setInfoChannel] = useState<{
+    id: string;
+    requestId?: number;
+  } | null>(null);
+  const infoButton = useRef<HTMLButtonElement>(null);
+  const [notification, setNotification] = useState<{
+    room: string;
+    source: "menu" | "info";
+    opener: HTMLButtonElement;
+  } | null>(null);
+  const [notificationRevision, setNotificationRevision] = useState(0);
+  const focusAfterClose = useRef<HTMLButtonElement | null>(null);
   useLayoutEffect(() => {
-    if (notificationRoom === null && restoreChannelTitle.current) {
-      restoreChannelTitle.current = false;
-      channelMenuButton.current?.focus();
-    }
-  }, [notificationRoom]);
+    const target = focusAfterClose.current;
+    if (
+      notification ||
+      !target ||
+      (infoChannel && target === infoButton.current)
+    )
+      return;
+    focusAfterClose.current = null;
+    if (target.isConnected) target.focus({ preventScroll: true });
+  }, [notification, infoChannel]);
+  function closeInfo() {
+    focusAfterClose.current = infoButton.current;
+    setInfoChannel(null);
+  }
+  function closeNotification(backToSource: boolean) {
+    if (!notification) return;
+    if (backToSource && notification.source === "menu")
+      setChannelMenuOpen(true);
+    else focusAfterClose.current = notification.opener;
+    setNotification(null);
+  }
   const [knownSaves, setKnownSaves] = useState<{
     ids: ReadonlySet<string>;
     complete: boolean;
@@ -838,6 +868,7 @@ export function ChannelsWorkspace({
     const main = inbox.visible ? inboxMain.current : undefined;
     inbox.close();
     setDirectoryOpen(false);
+    setInfoChannel(null);
     search.abortPending();
     if (!returning) {
       collections.close(false);
@@ -1216,8 +1247,27 @@ export function ChannelsWorkspace({
     (channel.kind === "O" || channel.kind === "P" || channel.kind === "G")
       ? channel.kind
       : null;
-  if (notificationRoom && (notificationRoom !== chosen || !notificationKind))
-    setNotificationRoom(null);
+  const infoAvailable =
+    channel !== undefined &&
+    channel !== null &&
+    !historyDenied &&
+    !directoryOpen &&
+    !inbox.visible &&
+    !["forbidden", "session", "unauthorized"].includes(directory.state.status);
+  const infoOpen =
+    infoAvailable &&
+    infoChannel !== null &&
+    infoChannel.id === chosen &&
+    infoChannel.requestId === position?.request.requestId &&
+    (Boolean(position) || (!search.panel && !collections.view));
+  if (infoChannel !== null && !infoOpen) setInfoChannel(null);
+  if (
+    notification &&
+    (notification.room !== chosen ||
+      !notificationKind ||
+      (notification.source === "info" && !infoOpen))
+  )
+    setNotification(null);
   // App keys this workspace by connection and team. Also discard a selection
   // when the directory refresh removes the channel or revokes access.
   const activeThread =
@@ -1316,6 +1366,7 @@ export function ChannelsWorkspace({
       ((directoryOpen || inbox.visible) && visibleSearchPanel)
     )
       return search.back;
+    if (infoOpen) return closeInfo;
     if (directoryOpen)
       return () => {
         restoreDirectoryFocus.current = true;
@@ -1426,7 +1477,7 @@ export function ChannelsWorkspace({
   );
   const overlayOpen =
     accountOverlay !== null ||
-    notificationRoom !== null ||
+    notification !== null ||
     workspace.messages.dialogOpen ||
     Boolean(attachments.selected) ||
     Boolean(reader.opening) ||
@@ -1440,7 +1491,11 @@ export function ChannelsWorkspace({
   useWorkspaceBack(
     overlayOpen,
     backWorkspace,
-    readingBackVisible && !appearanceOpen && !channelMenuOpen && !search.dialog
+    readingBackVisible &&
+      !appearanceOpen &&
+      !channelMenuOpen &&
+      !search.dialog &&
+      !infoOpen
       ? backToReading
       : backWorkspace,
   );
@@ -1962,6 +2017,28 @@ export function ChannelsWorkspace({
             </button>
           </>
         }
+        informationButton={
+          channel &&
+          infoAvailable && (
+            <ChannelInformationButton
+              language={language}
+              expanded={infoOpen}
+              control={infoButton}
+              onClick={() => {
+                if (infoOpen) return closeInfo();
+                if (!position) {
+                  collections.close(false);
+                  search.dismiss();
+                }
+                setChannelMenuOpen(false);
+                setInfoChannel({
+                  id: channel.id,
+                  requestId: position?.request.requestId,
+                });
+              }}
+            />
+          )
+        }
         channelHeading={
           inbox.visible
             ? (id, ref) => (
@@ -1993,7 +2070,13 @@ export function ChannelsWorkspace({
                       notificationKind
                         ? () => {
                             setChannelMenuOpen(false);
-                            setNotificationRoom(channel.id);
+                            const opener = channelMenuButton.current;
+                            if (opener)
+                              setNotification({
+                                room: channel.id,
+                                source: "menu",
+                                opener,
+                              });
                           }
                         : undefined
                     }
@@ -2018,7 +2101,33 @@ export function ChannelsWorkspace({
         }
         navigationIcon={directoryOpen ? <DirectoryNavigationIcon /> : undefined}
         sidePanel={
-          position ? null : collections.view &&
+          infoOpen && channel ? (
+            <ChannelInformationPanel
+              key={channel.id}
+              account={connection}
+              channel={channel}
+              name={channelTitle}
+              language={language}
+              online={online}
+              sessionIssue={sessionIssue}
+              denied={() => {
+                closeInfo();
+                directory.retry();
+              }}
+              close={closeInfo}
+              notificationRevision={notificationRevision}
+              notifications={
+                notificationKind
+                  ? (opener) =>
+                      setNotification({
+                        room: channel.id,
+                        source: "info",
+                        opener,
+                      })
+                  : undefined
+              }
+            />
+          ) : position ? null : collections.view &&
             collections.mentionState &&
             !mentionPolicyChanged &&
             collections.view.kind === "mentions" ? (
@@ -2461,6 +2570,7 @@ export function ChannelsWorkspace({
                   publishedReading?.interrupt();
                   setClosedRequest(position?.request.requestId ?? null);
                   collections.close(false);
+                  setInfoChannel(null);
                   setThread(post);
                 }}
                 openThreadPostId={activeThread?.id}
@@ -2470,25 +2580,22 @@ export function ChannelsWorkspace({
         </div>
       </ChannelsFrame>
       {search.dialog}
-      {notificationRoom && notificationRoom === chosen && notificationKind && (
+      {notification && notification.room === chosen && notificationKind && (
         <ChannelNotificationsDialog
           account={connection}
-          channelId={notificationRoom}
+          channelId={notification.room}
           kind={notificationKind}
           name={channelTitle}
           language={language}
           online={online}
           collapsed={settings?.collapsedThreads === true}
-          saved={directory.retry}
+          saved={() => {
+            setNotificationRevision((revision) => revision + 1);
+            directory.retry();
+          }}
           sessionIssue={sessionIssue}
-          back={() => {
-            setNotificationRoom(null);
-            setChannelMenuOpen(true);
-          }}
-          dismiss={() => {
-            restoreChannelTitle.current = true;
-            setNotificationRoom(null);
-          }}
+          back={() => closeNotification(true)}
+          dismiss={() => closeNotification(false)}
         />
       )}
       {appearanceOpen && (

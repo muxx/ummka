@@ -168,6 +168,8 @@ export function webviewServers(
     "reopened",
     "channel-menu",
     "notifications",
+    "info-notifications",
+    "info-panel",
     "directory",
     "team-choice-direct",
     "team-choice-nested",
@@ -1252,6 +1254,22 @@ export function webviewServers(
       return;
     }
     const notificationRoom = "c".repeat(26);
+    if (
+      url.pathname ===
+      `/browser-action-check/api/v4/channels/${notificationRoom}/stats`
+    ) {
+      assert.equal(req.method, "GET");
+      assert.equal(url.search, "?exclude_files_count=true");
+      assert.equal(req.headers.authorization, "Bearer fixture-browser-action");
+      assert.equal(req.headers.cookie, undefined);
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end(
+          JSON.stringify({ channel_id: notificationRoom, member_count: 30 }),
+        );
+      visits.push("info-channel-members");
+      return;
+    }
     const memberPath = `/browser-action-check/api/v4/channels/${notificationRoom}/members/me`;
     if (
       url.pathname === memberPath ||
@@ -2562,6 +2580,11 @@ export function webviewServers(
           ].map((path) => "browser-entry-" + path),
         );
       expected.push(
+        "info-channel-members",
+        "notification-member",
+        "notification-member",
+        "browser-action-confirmed",
+        "browser-action-confirmed",
         "notification-member",
         "notification-member",
         "notification-member",

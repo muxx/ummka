@@ -1,0 +1,125 @@
+.channel-information-trigger {
+  flex: none;
+  margin-inline-start: auto;
+  color: var(--muted);
+}
+.channel-information-trigger[aria-expanded="true"] {
+  color: var(--accent);
+  background: var(--row-hover);
+}
+.channel-information-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 0;
+  overflow-wrap: anywhere;
+}
+.channel-information-body section {
+  padding: 17px 19px;
+  border-bottom: 1px solid var(--divider);
+}
+.channel-information-body h3 {
+  margin: 0 0 6px;
+  font-size: 0.85rem;
+  color: var(--text);
+  font-weight: 700;
+}
+.channel-information-body p {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.channel-info-notify {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+
+  width: calc(100% - 30px);
+  margin-inline: 15px;
+  min-height: 44px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.channel-info-notify > svg,
+.channel-info-notify small {
+  color: var(--muted);
+}
+.channel-info-notify:hover {
+  background: var(--row-hover);
+}
+
+.channel-info-notify span {
+  display: grid;
+  gap: 2px;
+}
+.channel-info-notify strong {
+  font-size: 0.87rem;
+  font-weight: 620;
+}
+.channel-info-notify small {
+  font-size: 0.76rem;
+}
+.channel-information .channels-pane-titles h2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.channel-information .channels-pane-titles p {
+  margin: 2px 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.channel-information .channels-pane-head {
+  min-height: 70px;
+}
+
+/* Keep the conversation readable as the desktop panel reaches its preferred width. */
+@container (width > 740px) {
+  .channels-thread.channel-information {
+    --info-min: 304px;
+    --info-preferred: 400px;
+    flex-basis: clamp(
+      var(--info-min),
+      calc(100cqi - var(--sidebar-width) - 352px),
+      var(--info-preferred)
+    );
+  }
+}
+@container (740px < width <= 900px) {
+  .channels-thread.channel-information {
+    --info-min: 264px;
+    --info-preferred: 300px;
+  }
+}
+@container (width > 1680px) {
+  .channels-thread.channel-information {
+    --info-preferred: 500px;
+  }
+}
+.channel-info-back {
+  display: none;
+}
+@container (width <= 740px) {
+  .channel-information .channels-pane-head {
+    min-height: 59px;
+  }
+  .channel-information .channels-pane-head > button {
+    order: -1;
+  }
+  .channel-info-close {
+    display: none;
+  }
+  .channel-info-back {
+    display: inline;
+  }
+  .channels-panes[data-page="details"] > .channel-information.channels-thread {
+    display: flex;
+  }
+}

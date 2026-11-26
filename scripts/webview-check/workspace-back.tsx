@@ -305,6 +305,37 @@ export async function verifyWorkspaceBack(
         throw Error("The reopened thread did not return to the same post");
     });
     await checkChannelNotificationsWindow(host, press);
+    const infoButton = ui.getByRole("button", { name: "Channel info" });
+    flushSync(() => fireEvent.click(infoButton));
+    const info = within(
+      await ui.findByRole("complementary", { name: "About this channel" }),
+    );
+    await info.findByText("30");
+    const settings = await info.findByRole("button", {
+      name: /Notifications.*Custom channel setting/,
+    });
+    flushSync(() => fireEvent.click(settings));
+    const settingsDialog = within(
+      await ui.findByRole("dialog", { name: "Notifications" }),
+    );
+    await settingsDialog.findByRole("checkbox", { name: /Mute channel/ });
+    await press("info-notifications");
+    await waitFor(() => {
+      if (ui.queryByRole("dialog") || document.activeElement !== settings)
+        throw Error("Channel information lost the notification row on Back");
+    });
+    await press("info-panel");
+    await waitFor(() => {
+      if (
+        ui.queryByRole("complementary", { name: "About this channel" }) ||
+        document.activeElement !== infoButton ||
+        !channel.isConnected ||
+        channel.value !== channelText
+      )
+        throw Error(
+          "Channel information did not return to its opener and channel draft",
+        );
+    });
     const mobileNav = ui.queryByRole("button", { name: "Channels" });
     if (mobileNav) flushSync(() => fireEvent.click(mobileNav));
     const directory = ui.getByRole("button", { name: "Directory" });

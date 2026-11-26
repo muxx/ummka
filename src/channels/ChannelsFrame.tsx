@@ -49,6 +49,7 @@ type FrameProps = {
   sidePanel?: ReactNode;
   standalonePanel?: boolean;
   language?: EntryLanguage;
+  informationButton?: ReactNode;
   resultReturn?: ReactNode;
   threadReturn?: ReactNode;
   returnInThread?: boolean;
@@ -124,6 +125,7 @@ export function ChannelsFrame({
   sidePanel,
   standalonePanel,
   language = "en",
+  informationButton,
   resultReturn,
   threadReturn,
   returnInThread,
@@ -163,7 +165,7 @@ export function ChannelsFrame({
       "--navigation-choice": `${geometry.navigation.width}px`,
       "--right-choice": `${panes.expanded ? geometry.right.expanded : geometry.right.width}px`,
     } as CSSProperties);
-  const previous = useRef({ page, channelId, openThread });
+  const previous = useRef({ page, channelId, openThread, showingPanel });
 
   useLayoutEffect(() => {
     const control = lastFocus.current;
@@ -187,7 +189,7 @@ export function ChannelsFrame({
 
   useLayoutEffect(() => {
     const old = previous.current;
-    previous.current = { page, channelId, openThread };
+    previous.current = { page, channelId, openThread, showingPanel };
     if (showingPanel) return;
     function focusNavigation() {
       const current = sidebar.current?.querySelector<HTMLElement>(
@@ -245,6 +247,14 @@ export function ChannelsFrame({
         if (!opener?.isConnected || document.activeElement !== opener)
           heading.current?.focus();
       } else focusVisiblePane();
+    } else if (
+      old.showingPanel &&
+      document.activeElement === document.body &&
+      lastFocus.current &&
+      !lastFocus.current.isConnected
+    ) {
+      // A revoked panel can disappear together with the button that opened it.
+      focusVisiblePane();
     }
     const scene = root.current;
     if (!scene) return;
@@ -383,6 +393,7 @@ export function ChannelsFrame({
                 {channel?.title ?? emptyTitle}
               </h1>
             )}
+            {informationButton}
           </header>
           {!returnInThread && resultReturn}
           <div className="channels-conversation-body">{children}</div>

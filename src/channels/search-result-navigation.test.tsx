@@ -1272,6 +1272,141 @@ test.each(["O", "P", "G"] as const)(
   },
 );
 
+test("opens channel information from the header, saves notifications and returns focus to each opener", async () => {
+  const { account } = fixture();
+  const info = await screen.findByRole("button", { name: "Channel info" });
+  expect(account.readChannelMemberCount).not.toHaveBeenCalled();
+  fireEvent.click(info);
+  const panel = within(
+    await screen.findByRole("complementary", { name: "About this channel" }),
+  );
+  await panel.findByText("7");
+  const row = await panel.findByRole("button", {
+    name: /Notifications.*Follows your account/,
+  });
+  fireEvent.click(row);
+  const dialog = within(
+    await screen.findByRole("dialog", { name: "Notifications" }),
+  );
+  fireEvent.click(
+    await dialog.findByRole("checkbox", { name: /Mute channel/ }),
+  );
+  account.readChannelNotifications.mockResolvedValue({
+    account: {},
+    channel: { markUnread: "mention" },
+  });
+  fireEvent.click(dialog.getByRole("button", { name: "Save" }));
+  expect(
+    await panel.findByRole("button", { name: /Notifications.*Channel muted/ }),
+  ).toBe(row);
+  expect(document.activeElement).toBe(row);
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(
+    screen.queryByRole("complementary", { name: "About this channel" }),
+  ).toBeNull();
+  expect(document.activeElement).toBe(info);
+  expect(account.readChannelMemberCount).toHaveBeenCalledOnce();
+});
+
+test("losing access while reading channel details moves focus to the access notice heading", async () => {
+  const { account } = fixture();
+  let denyHistory!: (e: Error) => void;
+  account.refreshChannelHistory.mockImplementation(
+    () =>
+      new Promise((_resolve, reject) => {
+        denyHistory = reject;
+      }),
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "Channel info" }));
+  const heading = await screen.findByRole("heading", {
+    name: "About this channel",
+  });
+  expect(document.activeElement).toBe(heading);
+  await waitFor(() => expect(denyHistory).toBeTypeOf("function"));
+  await act(async () =>
+    denyHistory(new ResponseError(new Response(null, { status: 403 }))),
+  );
+  await waitFor(() =>
+    expect(screen.queryByRole("button", { name: "Channel info" })).toBeNull(),
+  );
+  expect(document.activeElement).toBe(
+    screen.getByRole("heading", {
+      level: 1,
+      name: "This content is no longer available to your account.",
+    }),
+  );
+});
+
+test("switching channels cancels both open detail reads and ignores their late results", async () => {
+  const { account } = fixture();
+  let finishCount!: (count: number) => void;
+  let finishRule!: (
+    rule: Awaited<ReturnType<typeof account.readChannelNotifications>>,
+  ) => void;
+  account.readChannelMemberCount.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishCount = resolve;
+      }),
+  );
+  account.readChannelNotifications.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishRule = resolve;
+      }),
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "Channel info" }));
+  await waitFor(() =>
+    expect(account.readChannelNotifications).toHaveBeenCalledOnce(),
+  );
+  const oldCount = account.readChannelMemberCount.mock.calls[0][1];
+  const oldRule = account.readChannelNotifications.mock.calls[0][1];
+  fireEvent.click(screen.getByRole("button", { name: "Design" }));
+  await screen.findByRole("heading", { level: 1, name: "Design" });
+  expect(oldCount?.aborted).toBe(true);
+  expect(oldRule?.aborted).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Channel info" }));
+  const panel = within(
+    await screen.findByRole("complementary", { name: "About this channel" }),
+  );
+  await panel.findByText("7");
+  await act(async () => {
+    finishCount(99);
+    finishRule({ account: {}, channel: { markUnread: "mention" } });
+  });
+  expect(panel.queryByText("99")).toBeNull();
+  expect(
+    panel.getByRole("button", { name: /Notifications.*Follows your account/ }),
+  ).toBeTruthy();
+});
+
+test("revoked member statistics dismiss channel details and refresh the directory", async () => {
+  const { account } = fixture();
+  const info = await screen.findByRole("button", { name: "Channel info" });
+  let rejectCount!: (reason: Error) => void;
+  account.readChannelMemberCount.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, reject) => {
+        rejectCount = reject;
+      }),
+  );
+  fireEvent.click(info);
+  await screen.findByRole("complementary", { name: "About this channel" });
+  const refreshes = account.refreshTeamSidebar.mock.calls.length;
+  await act(async () =>
+    rejectCount(new ResponseError(new Response(null, { status: 403 }))),
+  );
+  await waitFor(() =>
+    expect(account.refreshTeamSidebar.mock.calls.length).toBeGreaterThan(
+      refreshes,
+    ),
+  );
+  expect(
+    screen.queryByRole("complementary", { name: "About this channel" }),
+  ).toBeNull();
+  expect(info.getAttribute("aria-expanded")).toBe("false");
+});
+
 test("a direct conversation keeps pins available and excludes channel notifications", async () => {
   const { account } = fixture({ homeKind: "D" });
   fireEvent.click(
