@@ -4,6 +4,8 @@ import { createRoot } from "react-dom/client";
 import { applyPalette, resolvePalette } from "../../src/appearance/palette.ts";
 import { ChannelsFrame } from "../../src/channels/ChannelsFrame.tsx";
 
+import "../../src/channels/search.css";
+
 export async function checkChannelsFrame() {
   const host = document.createElement("div");
   document.body.append(host);
@@ -40,6 +42,11 @@ export async function checkChannelsFrame() {
           }}
           onTeam={() => {}}
           onAccount={() => {}}
+          searchTrigger={
+            <button type="button" className="channels-search-trigger">
+              Search
+            </button>
+          }
           navigation={
             <button
               type="button"
@@ -142,10 +149,24 @@ export async function checkChannelsFrame() {
       )
         throw Error("frame-palette");
       previousBar = barColor;
-      for (const width of [320, 390, 740, 741, 820, 1180]) {
+      for (const width of [320, 390, 740, 741, 800, 820, 1024, 1180, 1280]) {
         host.style.width = `${width}px`;
         const bounds = () => main.getBoundingClientRect();
         const narrow = width <= 740;
+        if (!narrow) {
+          const sidebarWidth = width > 1100 ? 244 : width > 900 ? 216 : 180;
+          const search = control(
+            ".channels-search-trigger",
+          ).getBoundingClientRect();
+          if (
+            Math.abs(nav.getBoundingClientRect().width - sidebarWidth) > 1 ||
+            Math.abs(search.left - nav.getBoundingClientRect().right - 20) >
+              1 ||
+            Math.abs(search.width - Math.min(520, width * 0.44)) > 1 ||
+            Math.abs(search.height - 30) > 1
+          )
+            throw Error(`frame-search-layout-${width}`);
+        }
         if (
           bounds().width <= 0 ||
           (nav.getBoundingClientRect().width === 0) !== narrow

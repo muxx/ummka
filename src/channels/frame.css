@@ -12,20 +12,36 @@
 .channels-frame button {
   font: inherit;
 }
+.channels-bar,
+.channels-panes {
+  --sidebar-width: 244px;
+}
 .channels-bar {
+  --bar-inset: max(16px, env(safe-area-inset-left));
   display: flex;
   align-items: center;
   flex: 0 0 46px;
-  padding-inline: max(12px, env(safe-area-inset-left))
-    max(12px, env(safe-area-inset-right));
+  padding-inline: var(--bar-inset) max(12px, env(safe-area-inset-right));
   background:
-    radial-gradient(180px 62px at 54px -6px, #66b29859, transparent),
+    radial-gradient(
+      160px 46px at 31px 0,
+      #81c79d5c,
+      #66b29842 36%,
+      #388b8421 70%,
+      transparent
+    ),
+    linear-gradient(
+      to right,
+      transparent var(--sidebar-width),
+      var(--topbar) calc(var(--sidebar-width) + 48px)
+    ),
+    linear-gradient(to bottom, var(--topbar) 28%, var(--navigation)),
     var(--topbar);
   color: var(--on-topbar);
   user-select: none;
 }
 .channels-frame[data-macos-overlay] .channels-bar {
-  padding-inline-start: 86px;
+  --bar-inset: 80px;
 }
 .channels-bar-brand {
   display: flex;
@@ -88,7 +104,7 @@
   padding-block-end: env(safe-area-inset-bottom);
 }
 .channels-sidebar {
-  flex: 0 0 244px;
+  flex: 0 0 var(--sidebar-width);
   padding-inline-start: env(safe-area-inset-left);
   color: var(--on-navigation);
   background: var(--navigation);
@@ -162,9 +178,16 @@
 .channels-mobile-back {
   display: none;
 }
+@container (900px < width <= 1100px) {
+  .channels-bar,
+  .channels-panes {
+    --sidebar-width: 216px;
+  }
+}
 @container (width <= 900px) {
-  .channels-sidebar {
-    flex-basis: 180px;
+  .channels-bar,
+  .channels-panes {
+    --sidebar-width: 180px;
   }
 }
 @container (width <= 740px) {

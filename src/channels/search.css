@@ -26,6 +26,33 @@
 .channels-search-trigger + .channels-account {
   margin-inline-start: auto;
 }
+@container (width > 740px) {
+  .channels-bar:has(.channels-search-trigger) .channels-bar-brand {
+    flex: 0 0 calc(var(--sidebar-width) - var(--bar-inset));
+    max-width: none;
+  }
+  .channels-bar .channels-search-trigger {
+    flex: 0 0 min(520px, 44cqi);
+    gap: 9px;
+    padding-inline: 9px;
+    font-size: 0.8rem;
+    font-weight: 400;
+    background: color-mix(in srgb, var(--on-topbar) 7%, transparent);
+    border-color: color-mix(in srgb, var(--on-topbar) 18%, transparent);
+    box-sizing: border-box;
+    min-height: 30px;
+    margin-inline-start: 20px;
+    border-radius: 7px;
+  }
+  .channels-search-trigger svg {
+    flex: none;
+    width: 15px;
+    height: 15px;
+  }
+  .channels-search-trigger:hover {
+    background: color-mix(in srgb, var(--on-topbar) 13%, transparent);
+  }
+}
 .channels-search-dialog,
 .search-results-pane {
   color: var(--text);
