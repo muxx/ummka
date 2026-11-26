@@ -77,6 +77,8 @@ export function webviewServers(
     "thread",
     "reopened",
     "notifications",
+    "directory",
+    "directory-dialog",
   ];
   let stepIndex = 0;
   let pressWorkspaceBack: (() => Promise<void>) | undefined;
@@ -516,7 +518,9 @@ export function webviewServers(
         "/browser-action-check/",
       );
       const seen =
-        (await respondToWorkspace(req, res, url, userId, false, true)) ??
+        (await respondToWorkspace(req, res, url, userId, false, {
+          systemLinks: true,
+        })) ??
         respondToAccount(
           req,
           res,
@@ -925,6 +929,7 @@ export function webviewServers(
       url,
       userId,
       visits.includes("allow-design-posts"),
+      { joinedPublicRoom: visits.includes("directory-join") },
     );
     if (workspace) {
       visits.push(workspace);
@@ -1790,6 +1795,15 @@ export function webviewServers(
       if (platform === "android")
         expected.push("account-logout-local-failure", "allow-design-posts");
       expected.push(
+        "directory-page",
+        "directory-query",
+        "directory-join",
+        "directory-posts",
+        "browser-action-confirmed",
+        "live-roles",
+        "live-channels",
+        "live-members",
+        "live-categories",
         "directory-teams",
         "my-team-members",
         "sidebar-preferences",
