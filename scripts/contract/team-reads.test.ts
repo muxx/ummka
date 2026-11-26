@@ -132,3 +132,22 @@ test("changes a single team membership under the installation prefix", async (t)
     ["DELETE", route + "/" + userId, "Bearer synthetic-session", ""],
   );
 });
+
+test("an empty managed category map is a successful team-scoped read", async (t) => {
+  const { base } = await listen(t, (req, res) => {
+    assert.equal(req.method, "GET");
+    assert.equal(
+      req.url,
+      `/team/chat/api/v4/teams/${teamId}/channels/managed_categories`,
+    );
+    assert.equal(req.headers.authorization, "Bearer synthetic-session");
+    res.writeHead(200, { "Content-Type": "application/json" }).end("{}");
+  });
+  const api = new ChannelsApi(
+    new Configuration({
+      ...createRestTransport(base + "/team/chat", fetch),
+      accessToken: "synthetic-session",
+    }),
+  );
+  assert.deepEqual(await api.getManagedCategories({ teamId }), {});
+});

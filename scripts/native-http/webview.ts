@@ -69,6 +69,13 @@ export function webviewServers(
   const channelId = "c".repeat(26);
   const teamReads = new Map<string, { name: string; body: object | null }>([
     [
+      `/team/chat/api/v4/teams/${teamId}/channels/managed_categories`,
+      {
+        name: "managed-category-mappings",
+        body: { [channelId]: "Release", ["d".repeat(26)]: "Release" },
+      },
+    ],
+    [
       `/api/v4/posts/${"p".repeat(26)}/reactions`,
       { name: "empty-post-reactions", body: null },
     ],
@@ -967,6 +974,7 @@ export function webviewServers(
       assert.equal(entrySettings.size, 2);
       assert.equal(untrustedRequests, 0);
       const expected = [
+        "managed-category-mappings",
         "bytes",
         "204",
         "205",

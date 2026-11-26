@@ -122,6 +122,10 @@ const badCursor: GetPostThreadRequest = { postId: "a-post-id", fromCreateAt: "12
 declare const page: PostList;
 import type { ChannelsApi, Preference, PreferencesApi } from "./compiled/index.js";
 declare const channels: ChannelsApi;
+const managed = await channels.getManagedCategories({ teamId: "team" });
+managed satisfies Record<string, string>;
+// @ts-expect-error The mapping belongs to one team.
+channels.getManagedCategories({});
 const memberAdded = await channels.addChannelMember({ channelId: "channel", addChannelMemberRequest: { userId: "user", postRootId: "root" } });
 memberAdded.channelId satisfies string | undefined;
 (await channels.removeUserFromChannel({ channelId: "channel", userId: "user" })).status satisfies string | undefined;

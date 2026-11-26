@@ -2381,3 +2381,19 @@ test("requires the team and user IDs and detects drift in either AddTeamMember i
     );
   }
 });
+
+test("takes managed category assignments from the server version that exposes them", () => {
+  const path = "/api/v4/teams/{team_id}/channels/managed_categories";
+  assert.equal(Object.hasOwn(read("channels.yaml"), path), false);
+  const current = at(read("channels-12.1.0.yaml"), [path, "get"]);
+  assert.deepEqual(at(contract, ["paths", path, "get"]), current);
+  const schema = at(current, [
+    "responses",
+    "200",
+    "content",
+    "application/json",
+    "schema",
+  ]);
+  assert.equal(at(schema, ["type"]), "object");
+  assert.deepEqual(at(schema, ["additionalProperties"]), { type: "string" });
+});

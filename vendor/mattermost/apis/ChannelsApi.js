@@ -331,6 +331,37 @@ export class ChannelsApi extends runtime.BaseAPI {
         const response = await this.getChannelsForTeamForUserRaw(requestParameters, initOverrides);
         return await response.value();
     }
+    async getManagedCategoriesRequestOpts(requestParameters) {
+        if (requestParameters['teamId'] == null) {
+            throw new runtime.RequiredError('teamId', 'Required parameter "teamId" was null or undefined when calling getManagedCategories().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/teams/{team_id}/channels/managed_categories`;
+        urlPath = urlPath.replace('{team_id}', encodeURIComponent(String(requestParameters['teamId'])));
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async getManagedCategoriesRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.getManagedCategoriesRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response);
+    }
+    async getManagedCategories(requestParameters, initOverrides) {
+        const response = await this.getManagedCategoriesRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
     async getPinnedPostsRequestOpts(requestParameters) {
         if (requestParameters['channelId'] == null) {
             throw new runtime.RequiredError('channelId', 'Required parameter "channelId" was null or undefined when calling getPinnedPosts().');
