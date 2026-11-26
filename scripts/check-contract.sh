@@ -87,6 +87,11 @@ import type { ThreadsApi, UserThread, UsersApi, GetPostInfoRequest, GetPostThrea
 declare const transport: ReturnType<typeof createRestTransport>;
 transport satisfies Required<Pick<ConfigurationParameters, "basePath" | "fetchApi">>;
 declare const threads: ThreadsApi;
+const selection = {userId: "me", teamId: "team", threadId: "thread"};
+(await threads.updateThreadReadForUser({...selection, timestamp: Date.now()})) satisfies UserThread;
+(await threads.updateThreadsReadForUser(selection)).status satisfies string | undefined;
+// @ts-expect-error callers use Unix milliseconds as a number
+threads.updateThreadReadForUser({...selection, timestamp: "1700000000000"});
 const followed = await threads.getUserThreads({ userId: "me", teamId: "team", before: "thread", perPage: 25, unread: true, threadsOnly: true });
 followed.threads satisfies UserThread[] | null | undefined;
 followed.threads?.[0].participants?.[0].username satisfies string | undefined;
