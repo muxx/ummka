@@ -64,6 +64,10 @@
   display: grid;
   gap: 0.85rem;
 }
+.message-destination-dialog button {
+  min-height: 44px;
+  padding-inline: 1rem;
+}
 .channels-search-dialog button,
 .channels-search-dialog input,
 .channels-search-dialog select,
@@ -187,4 +191,27 @@
     padding: max(1rem, env(safe-area-inset-top)) 1rem
       max(1rem, env(safe-area-inset-bottom));
   }
+}
+.search-open-result,
+.search-return {
+  min-height: 44px;
+  text-align: start;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.search-open-result {
+  width: 100%;
+  white-space: pre-wrap;
+}
+.search-membership {
+  padding: 0.5rem 1rem;
+}
+.search-return {
+  padding-inline: 1rem;
+  border-bottom: 1px solid var(--divider);
+}
+.timeline-post[data-navigation-target] {
+  background-color: color-mix(in srgb, var(--focus) 9%, transparent);
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
 }

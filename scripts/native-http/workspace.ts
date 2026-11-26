@@ -4,6 +4,8 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 const team = "Team0123456789012345678901";
 const town = "c".repeat(26);
 const townRoot = "v".repeat(26);
+const townReply = "w".repeat(26);
+const townFile = "h".repeat(26);
 const design = "d".repeat(26);
 const member = "f".repeat(26);
 
@@ -125,6 +127,41 @@ export async function respondToWorkspace(
       },
     ],
   ]);
+  const message = postList(town, member, "Town fixture message").posts[
+    townRoot
+  ];
+  const fileInfo = {
+    id: townFile,
+    channel_id: town,
+    post_id: townRoot,
+    user_id: member,
+    name: "window-fixture.pdf",
+  };
+  const reply = {
+    ...message,
+    id: townReply,
+    root_id: townRoot,
+    create_at: 561,
+    update_at: 561,
+    message: "Reply visible only inside Town’s thread",
+  };
+  const destination = {
+    channel_id: town,
+    channel_type: "O",
+    channel_display_name: "Town Square",
+    has_joined_channel: true,
+    team_id: team,
+    team_type: "O",
+    team_display_name: "Fixture team",
+    has_joined_team: true,
+  };
+  const anchors = new Map<string, [unknown, string]>([
+    [`files/${townFile}/info`, [fileInfo, "live-search-file-anchor"]],
+    [`posts/${townRoot}/info`, [destination, "live-search-destination"]],
+    [`posts/${townRoot}`, [message, "live-search-post-anchor"]],
+    [`posts/${townReply}/info`, [destination, "live-search-reply-destination"]],
+    [`posts/${townReply}`, [reply, "live-search-reply-anchor"]],
+  ]);
   const channelId =
     path === `channels/${town}/posts`
       ? town
@@ -144,10 +181,23 @@ export async function respondToWorkspace(
     path === "roles/names" ||
     path === "posts" ||
     path === "commands/execute";
-  if (!routes.has(path) && !channelId && !thread && !policy && !post) return;
+  if (
+    !routes.has(path) &&
+    !anchors.has(path) &&
+    !channelId &&
+    !thread &&
+    !policy &&
+    !post
+  )
+    return;
   assert.equal(req.headers.authorization, "Bearer fixture-browser-action");
   assert.equal(req.headers.cookie, undefined);
   assert.equal(req.method, post ? "POST" : "GET");
+  const anchor = anchors.get(path);
+  if (anchor) {
+    assert.equal(url.search, "");
+    return json(...anchor);
+  }
   if (policy) {
     assert.equal(url.search, "?format=old");
     return json(
@@ -163,26 +213,32 @@ export async function respondToWorkspace(
     );
   }
   if (thread) {
-    assert.deepEqual(Object.fromEntries(url.searchParams), {
+    const page = postList(town, member, "Town fixture message");
+    const query = Object.fromEntries(url.searchParams);
+    if (query.fromPost !== undefined) {
+      assert.ok(query.direction === "up" || query.direction === "down");
+      assert.deepEqual(query, {
+        direction: query.direction,
+        fromPost: townReply,
+        fromCreateAt: String(reply.create_at),
+        perPage: "60",
+        collapsedThreads: "true",
+      });
+      return json(
+        { ...page, has_next: false },
+        "live-search-thread-" + query.direction,
+      );
+    }
+    assert.deepEqual(query, {
       direction: "down",
       perPage: "60",
       collapsedThreads: "true",
     });
-    const page = postList(town, member, "Town fixture message");
-    const replyId = "w".repeat(26);
-    const reply = {
-      ...page.posts[townRoot],
-      id: replyId,
-      root_id: townRoot,
-      create_at: 561,
-      update_at: 561,
-      message: "Reply visible only inside Town’s thread",
-    };
     return json(
       {
         ...page,
-        order: [townRoot, replyId],
-        posts: { ...page.posts, [replyId]: reply },
+        order: [townRoot, townReply],
+        posts: { ...page.posts, [townReply]: reply },
         has_next: false,
       },
       "live-window-thread",
@@ -213,26 +269,25 @@ export async function respondToWorkspace(
         include_deleted_channels: true,
         is_or_search: false,
       });
-      if (searchPosts)
+      if (searchPosts) {
+        const page = postList(town, member, "Search found this fixture post");
         return json(
           {
-            ...postList(town, member, "Search found this fixture post"),
+            ...page,
+            order: [townReply, townRoot],
+            posts: {
+              ...page.posts,
+              [townReply]: { ...reply, message: "Search found this reply" },
+            },
             matches: {},
           },
           "live-search-posts",
         );
-      const file = "h".repeat(26);
+      }
       return json(
         {
-          order: [file],
-          file_infos: {
-            [file]: {
-              id: file,
-              channel_id: town,
-              user_id: member,
-              name: "window-fixture.pdf",
-            },
-          },
+          order: [townFile],
+          file_infos: { [townFile]: fileInfo },
           first_inaccessible_file_time: 0,
           prev_file_info_id: "",
           next_file_info_id: "",

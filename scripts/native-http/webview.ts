@@ -57,7 +57,7 @@ export function webviewServers(
   let connections = 0;
   let before = false;
   let prepareKeyboard: (() => Promise<void>) | undefined;
-  let pressThreadBack: (() => Promise<void>) | undefined;
+  let pressAndroidBack: (() => Promise<void>) | undefined;
   let disconnect: Socket | undefined;
   let pingSocket: Socket | undefined;
   const settings = new Map<string, ServerResponse>();
@@ -991,15 +991,14 @@ export function webviewServers(
         "prepared, cancelled and refused requests must not open a socket",
       );
       before = true;
-    } else if (step === "thread-back") {
+    } else if (step === "thread-back" || step === "search-result-back") {
+      const marker = "android-" + step;
       assert(
-        pressThreadBack,
-        "expected a single Back event on the disposable Android device",
+        pressAndroidBack && !visits.includes(marker),
+        "expected one Android Back at " + step,
       );
-      const press = pressThreadBack;
-      pressThreadBack = undefined;
-      await press();
-      visits.push("android-thread-back");
+      visits.push(marker);
+      await pressAndroidBack();
     } else if (step === "release-history") {
       refresh.release();
     } else if (step === "release-submission") {
@@ -1031,7 +1030,7 @@ export function webviewServers(
     servers: [data, control, foreign],
     onAndroidInputReady(send: SendAndroidKey) {
       prepareKeyboard = () => send("KEYCODE_TAB");
-      pressThreadBack = () => send("KEYCODE_BACK");
+      pressAndroidBack = () => send("KEYCODE_BACK");
     },
     verify(platform: "macos" | "android") {
       refresh.verify();
@@ -1215,12 +1214,22 @@ export function webviewServers(
           "live-window-send",
           "live-window-thread",
           "android-thread-back",
+          "android-search-result-back",
           "live-window-thread",
           "live-window-send-reply",
           "live-window-command-repeat",
           "browser-action-confirmed",
           "live-search-posts",
           "live-search-files",
+          "live-search-file-anchor",
+          "live-search-destination",
+          "live-search-post-anchor",
+          "live-search-reply-destination",
+          "live-search-reply-anchor",
+          "live-search-thread-up",
+          "live-search-thread-down",
+          "live-posts-" + "c".repeat(26),
+          "live-posts-" + "c".repeat(26),
           "browser-action-confirmed",
           "live-search-posts",
           "live-posts-" + "c".repeat(26),

@@ -184,7 +184,16 @@ export function ChannelsWorkspace({
   );
   const [selected, setSelected] = useState<string | null>(null);
   const [thread, setThread] = useState<LocalPost | null>(null);
-  const closeThread = useCallback(() => setThread(null), []);
+  const position =
+    workspace.messages.position?.request.teamId === team.id &&
+    workspace.messages.position.request.rid === connection.rid
+      ? workspace.messages.position
+      : null;
+  const [closedRequest, setClosedRequest] = useState<number | null>(null);
+  const closeThread = useCallback(() => {
+    setThread(null);
+    setClosedRequest(position?.request.requestId ?? null);
+  }, [position]);
   const [choiceFailed, setChoiceFailed] = useState(false);
   const writes = useRef(Promise.resolve());
   const choice = useRef(0);
@@ -223,14 +232,31 @@ export function ChannelsWorkspace({
     () => savedChannelPermissions(roles.state.value, team.roles),
     [roles.state.value, team.roles],
   );
-  const snapshot = directory.state.value;
+  // The verified sidebar may contain a newly joined channel. Yield to the next
+  // publication from the team's existing observer, including loss of access.
+  const published = directory.state.value;
+  const status = directory.state.status;
+  const [handoff, setHandoff] = useState({ position, published, status });
+  if (position !== handoff.position)
+    setHandoff({ position, published, status });
+  const snapshot =
+    position &&
+    (position !== handoff.position ||
+      (handoff.published === published && handoff.status === status)) &&
+    !["forbidden", "unauthorized", "session"].includes(status)
+      ? position.sidebar
+      : published;
   const channel = useMemo(
     () =>
       snapshot
-        ? (snapshot.data.channels.find((c) => c.id === selected) ??
-          openingChannel(snapshot, language))
+        ? position
+          ? (snapshot.data.channels.find(
+              (c) => c.id === position.request.post.channelId,
+            ) ?? null)
+          : (snapshot.data.channels.find((c) => c.id === selected) ??
+            openingChannel(snapshot, language))
         : null,
-    [snapshot, selected, language],
+    [snapshot, selected, language, position],
   );
   const chosen = channel?.id ?? null;
   const recent = useRef(new Set<string>());
@@ -254,6 +280,7 @@ export function ChannelsWorkspace({
     settings?.collapsedThreads ?? null,
     online,
     sessionIssue,
+    position?.request,
   );
   const current = useMemo(
     () => (snapshot ? { ...snapshot, selectedChannel: chosen } : null),
@@ -327,7 +354,10 @@ export function ChannelsWorkspace({
     roles.state.status,
   ]);
 
-  function choose(id: string) {
+  function choose(id: string, returning = false) {
+    search.abortPending();
+    if (!returning && (position || search.origin)) search.dismiss();
+    workspace.messages.clear();
     const version = ++choice.current;
     if (id !== chosen) closeThread();
     setSelected(id);
@@ -346,7 +376,6 @@ export function ChannelsWorkspace({
       }
     });
   }
-  const status = directory.state.status;
   const access = channelComposerAccess({
     channel: channel ?? undefined,
     permission: permission(channel ?? undefined, "create_post"),
@@ -421,6 +450,24 @@ export function ChannelsWorkspace({
       snapshot?.data.channels.find((row) => row.id === id)?.displayName ||
       undefined,
     (id) => author(id)?.name,
+    {
+      channelId: chosen,
+      clear: workspace.messages.clear,
+      open: (source, signal, origin) =>
+        workspace.messages.open(
+          source,
+          signal,
+          (operation) => {
+            const result = writes.current.then(operation);
+            writes.current = result.then(
+              () => {},
+              () => {},
+            );
+            return result;
+          },
+          origin,
+        ),
+    },
   );
   const notice = (message: string, retry?: () => void, alert = false) => (
     <Notice message={message} label={text.retry} retry={retry} alert={alert} />
@@ -463,11 +510,28 @@ export function ChannelsWorkspace({
   // App keys this workspace by connection and team. Also discard a selection
   // when the directory refresh removes the channel or revokes access.
   const activeThread =
-    thread?.channelId === chosen && !historyDenied && settings ? thread : null;
+    !historyDenied && settings
+      ? position && closedRequest !== position.request.requestId
+        ? (timeline.focus?.focusedReply ?? null)
+        : thread?.channelId === chosen
+          ? thread
+          : null
+      : null;
   if (thread && !activeThread) setThread(null);
+  const visibleSearchPanel = position ? null : search.panel;
+  const canReturnToResults = Boolean(position && search.origin);
+  function returnToResults() {
+    const channelId = search.restoreRow();
+    if (channelId) choose(channelId, true);
+  }
+  const manualThread =
+    activeThread && closedRequest === position?.request.requestId;
   useThreadBack(
-    Boolean(activeThread) && !accountOpen && !search.dialog && !search.panel,
-    closeThread,
+    Boolean(activeThread || canReturnToResults) &&
+      !accountOpen &&
+      !search.dialog &&
+      !visibleSearchPanel,
+    canReturnToResults && !manualThread ? returnToResults : closeThread,
   );
   function composer(rootId?: string, reader?: ReactionThread) {
     if (historyDenied) return null;
@@ -519,7 +583,28 @@ export function ChannelsWorkspace({
           closeThread: text.closeThread,
         }}
         searchTrigger={search.trigger}
-        searchPanel={search.panel}
+        searchPanel={visibleSearchPanel}
+        resultReturn={
+          position && (
+            <>
+              {position.membership && (
+                <span className="search-membership" role="status">
+                  {position.membership}
+                </span>
+              )}
+              {search.origin && (
+                <button
+                  type="button"
+                  className="search-return"
+                  onClick={returnToResults}
+                >
+                  {search.backLabel}
+                </button>
+              )}
+            </>
+          )
+        }
+        returnInThread={compact && Boolean(activeThread)}
         accountRef={accountButton}
         draftRef={draftField}
         accountName={
@@ -534,10 +619,20 @@ export function ChannelsWorkspace({
               }
             : null
         }
-        emptyTitle={text.choose}
-        page={chosen ? page : "navigation"}
-        onNavigation={() => setPage("navigation")}
-        onAccount={() => setAccountOpen(true)}
+        emptyTitle={
+          canReturnToResults
+            ? (directoryIssue ?? (snapshot ? text.forbidden : text.noCache))
+            : text.choose
+        }
+        page={chosen || canReturnToResults ? page : "navigation"}
+        onNavigation={() => {
+          search.abortPending();
+          setPage("navigation");
+        }}
+        onAccount={() => {
+          search.abortPending();
+          setAccountOpen(true);
+        }}
         onTeam={workspace.chooseAnotherTeam}
         navigation={nav}
         thread={
@@ -601,7 +696,15 @@ export function ChannelsWorkspace({
             locale={language}
             author={author}
             onReadEdge={timeline.loadEdge}
-            onOpenThread={setThread}
+            address={
+              timeline.focus && !timeline.focus.focusedReply
+                ? timeline.focus
+                : undefined
+            }
+            onOpenThread={(post) => {
+              setClosedRequest(position?.request.requestId ?? null);
+              setThread(post);
+            }}
             openThreadPostId={activeThread?.id}
             collapsedThreads={settings.collapsedThreads}
           />
