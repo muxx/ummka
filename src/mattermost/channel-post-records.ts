@@ -1,5 +1,6 @@
 import type { Post, PostList } from "../../vendor/mattermost/index.js";
 import { isMattermostId, isMattermostTime } from "./model-fields.ts";
+import { receivedPostAttachments } from "./post-attachments.ts";
 
 /** Project the complete REST dictionary into the native history store's text records. */
 export function channelPostChanges(
@@ -66,7 +67,9 @@ export function channelPostChange(
   }
   const summary =
     collapsedThreads && rootId === "" ? threadSummary(post) : undefined;
+  const attachments = receivedPostAttachments(post);
   return {
+    ...(attachments && { attachments }),
     ...(summary && { threadSummary: summary }),
     kind: "save" as const,
     id,
