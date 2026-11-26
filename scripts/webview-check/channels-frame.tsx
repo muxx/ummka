@@ -115,9 +115,11 @@ export async function checkChannelsFrame() {
     const open = control('[data-open-thread="first"]');
     const second = control('[data-open-thread="second"]');
     const brand = control(".channels-bar-brand");
-    const lockup = control(".channels-brand-lockup") as HTMLImageElement;
-    const mark = control(".channels-brand-mark") as HTMLImageElement;
-    await Promise.all([lockup.decode(), mark.decode()]);
+    const mobile = import.meta.env.UMMKA_MOBILE === true;
+    const mark = brand.querySelector("img");
+    if (mobile !== Boolean(mark) || (mark && mark.alt !== "ummka"))
+      throw Error("frame-brand-platform");
+    await mark?.decode();
     const bar = control(".channels-bar");
     const account = control(".channels-account");
     const scene = control(".channels-frame");
@@ -128,11 +130,6 @@ export async function checkChannelsFrame() {
       account.hasAttribute("data-tauri-drag-region")
     )
       throw Error("frame-window-controls");
-    if (
-      overlay &&
-      brand.getBoundingClientRect().left - bar.getBoundingClientRect().left < 76
-    )
-      throw Error("frame-overlay-inset");
     const center = (box: DOMRect) => box.top + box.height / 2;
     let previousBar = "";
     for (const mode of ["light", "dark"] as const) {
@@ -148,23 +145,20 @@ export async function checkChannelsFrame() {
         host.style.width = `${width}px`;
         const bounds = () => main.getBoundingClientRect();
         const narrow = width <= 740;
-        const logo = narrow ? mark : lockup;
-        const hiddenLogo = narrow ? lockup : mark;
+        const logoBounds = mark?.getBoundingClientRect();
         if (
-          hiddenLogo.getClientRects().length ||
-          !logo.getClientRects().length ||
-          Math.abs(
-            center(logo.getBoundingClientRect()) +
-              (narrow ? 0 : 2) -
-              center(account.getBoundingClientRect()),
-          ) > 1
+          logoBounds &&
+          (logoBounds.width !== 24 ||
+            logoBounds.height !== 24 ||
+            Math.abs(
+              center(logoBounds) - center(account.getBoundingClientRect()),
+            ) > 1)
         )
           throw Error(`frame-brand-layout-${width}`);
         if (narrow) {
           const search = control(
             ".channels-search-trigger",
           ).getBoundingClientRect();
-          const logoBounds = logo.getBoundingClientRect();
           if (width === 740 && overlay) {
             const gapEnd = account.getBoundingClientRect().left;
             const y = center(bar.getBoundingClientRect());
@@ -176,12 +170,10 @@ export async function checkChannelsFrame() {
               throw Error("frame-compact-window-drag-surface");
           }
           if (
-            logoBounds.width !== 24 ||
-            logoBounds.height !== 24 ||
-            Math.abs(search.left - logoBounds.right - 7) > 1 ||
+            (logoBounds && Math.abs(search.left - logoBounds.right - 7) > 1) ||
             search.height !== 32 ||
             bar.getBoundingClientRect().height !== (overlay ? 46 : 41) ||
-            (overlay && logoBounds.left - bar.getBoundingClientRect().left < 76)
+            (overlay && search.left - bar.getBoundingClientRect().left < 76)
           )
             throw Error(`frame-compact-header-${width}`);
         }

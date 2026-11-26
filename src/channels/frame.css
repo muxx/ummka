@@ -49,15 +49,11 @@
   align-items: center;
   flex: 1;
 }
-.channels-bar-brand img {
+.channels-brand-mark {
   display: block;
-  width: auto;
-  height: 25px;
-  transform: translateY(-2px);
+  width: 24px;
+  height: 24px;
   pointer-events: none;
-}
-.channels-bar-brand .channels-brand-mark {
-  display: none;
 }
 .channels-account,
 .channels-icon-action,
@@ -224,14 +220,8 @@
       linear-gradient(to bottom, var(--topbar) 28%, var(--navigation)),
       var(--topbar);
   }
-  .channels-bar-brand .channels-brand-lockup {
+  .channels-bar-brand:empty {
     display: none;
-  }
-  .channels-bar-brand .channels-brand-mark {
-    display: block;
-    height: 24px;
-    width: 24px;
-    transform: none;
   }
   .channels-account {
     height: 100%;

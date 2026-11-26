@@ -14,7 +14,11 @@ export function EntryWindow({
 }) {
   const overlay = import.meta.env.UMMKA_MACOS_OVERLAY === true;
   return (
-    <div className="entry-window" data-macos-overlay={overlay || undefined}>
+    <div
+      className="entry-window"
+      data-macos-overlay={overlay || undefined}
+      data-mobile={import.meta.env.UMMKA_MOBILE || undefined}
+    >
       <header
         className="entry-bar"
         data-tauri-drag-region={overlay || undefined}

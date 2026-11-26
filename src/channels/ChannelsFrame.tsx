@@ -6,7 +6,6 @@ import {
   useRef,
 } from "react";
 import smallMark from "../../src-tauri/icons/symbols/ummka-small.svg?no-inline";
-import smallLockup from "../entry/brand/lockup-small.svg?no-inline";
 import "./frame.css";
 
 type FrameLabels = {
@@ -176,24 +175,17 @@ export function ChannelsFrame({
       >
         <div
           className="channels-bar-brand"
-          role="img"
-          aria-label="ummka"
           data-tauri-drag-region={overlay || undefined}
         >
-          <img
-            className="channels-brand-lockup"
-            src={smallLockup}
-            alt=""
-            width="83"
-            height="25"
-          />
-          <img
-            className="channels-brand-mark"
-            src={smallMark}
-            alt=""
-            width="24"
-            height="24"
-          />
+          {import.meta.env.UMMKA_MOBILE === true && (
+            <img
+              className="channels-brand-mark"
+              src={smallMark}
+              alt="ummka"
+              width="24"
+              height="24"
+            />
+          )}
         </div>
         {searchTrigger}
         <button
