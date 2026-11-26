@@ -1,3 +1,5 @@
+#[cfg(all(feature = "native-http-check", any(test, target_os = "android")))]
+pub(crate) mod attachment_check;
 pub(crate) mod delivery;
 pub(crate) mod directory;
 pub(crate) mod drafts;
