@@ -8,6 +8,7 @@ import android.content.ComponentName
 import android.os.Bundle
 import android.util.Base64
 import android.util.Log
+import androidx.annotation.Keep
 import java.io.File
 import java.security.KeyStore
 import java.util.UUID
@@ -19,6 +20,11 @@ class HttpCheckInstrumentation : Instrumentation() {
     private external fun checkVault(phase: String)
     private lateinit var arguments: Bundle
 
+    @Keep
+    private fun reportStage(stage: String) {
+        sendStatus(1, Bundle().apply { putString("ummka_stage", stage) })
+    }
+
     override fun onCreate(arguments: Bundle?) {
         super.onCreate(arguments)
         this.arguments = requireNotNull(arguments)
@@ -29,9 +35,10 @@ class HttpCheckInstrumentation : Instrumentation() {
         val result = Bundle()
         try {
             // The target application initializes the native verifier on its main thread.
+            val phase = arguments.getString("vault")
+            if (phase == null) reportStage("activity-idle")
             waitForIdleSync()
             val app = targetContext
-            val phase = arguments.getString("vault")
             if (phase != null) {
                 val keys = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
                 val alias = "${app.packageName}.mattermost.sessions.v1"
@@ -47,6 +54,7 @@ class HttpCheckInstrumentation : Instrumentation() {
                 finish(Activity.RESULT_OK, result)
                 return
             }
+            reportStage("install-ca")
             val policies = app.getSystemService(DevicePolicyManager::class.java)
             val admin = ComponentName(app, HttpCheckAdmin::class.java)
             val ca = Base64.decode(requireNotNull(arguments.getString("ca")), Base64.DEFAULT)
@@ -55,6 +63,7 @@ class HttpCheckInstrumentation : Instrumentation() {
             check(workspace.mkdir())
             val registry = File(workspace, "installations.sqlite")
             try {
+                reportStage("native-setup")
                 runChecks(requireNotNull(arguments.getString("ports")), registry.absolutePath, requireNotNull(arguments.getString("accountPort")).toInt())
             } finally {
                 check(workspace.deleteRecursively())
