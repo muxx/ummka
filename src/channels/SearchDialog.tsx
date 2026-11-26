@@ -236,7 +236,7 @@ export function SearchDialog({
   return (
     <dialog
       ref={dialog}
-      className="channels-search-dialog"
+      className="channels-search-dialog modal-layout"
       aria-labelledby={title}
       onCancel={(e) => {
         e.preventDefault();
@@ -254,123 +254,125 @@ export function SearchDialog({
           ×
         </button>
       </header>
-      <search>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            run(terms);
-          }}
-        >
-          {files && (
-            <fieldset className="search-kind-switch" aria-label={text.open}>
-              {(["posts", "files"] as const).map((k) => (
-                <button
-                  key={k}
-                  type="button"
-                  aria-pressed={k === kind}
-                  onClick={() => {
-                    setKind(k);
+      <div className="modal-scroll">
+        <search>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              run(terms);
+            }}
+          >
+            {files && (
+              <fieldset className="search-kind-switch" aria-label={text.open}>
+                {(["posts", "files"] as const).map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    aria-pressed={k === kind}
+                    onClick={() => {
+                      setKind(k);
+                      input.current?.focus();
+                    }}
+                  >
+                    {text[k]}
+                  </button>
+                ))}
+              </fieldset>
+            )}
+            {allTeams && (
+              <label className="search-scope">
+                {text.scope}
+                <select
+                  value={scope?.id ?? ""}
+                  disabled={pending}
+                  onChange={(e) => {
+                    const id = e.currentTarget.value;
+                    setScope(teams.find((option) => option.id === id) ?? null);
+                    setTerms(
+                      terms
+                        .replace(/\b(?:in|from):[^\s]*/gi, "")
+                        .replace(/\s{2,}/g, " ")
+                        .trim(),
+                    );
                     input.current?.focus();
                   }}
                 >
-                  {text[k]}
-                </button>
-              ))}
-            </fieldset>
-          )}
-          {allTeams && (
-            <label className="search-scope">
-              {text.scope}
-              <select
-                value={scope?.id ?? ""}
-                disabled={pending}
-                onChange={(e) => {
-                  const id = e.currentTarget.value;
-                  setScope(teams.find((option) => option.id === id) ?? null);
-                  setTerms(
-                    terms
-                      .replace(/\b(?:in|from):[^\s]*/gi, "")
-                      .replace(/\s{2,}/g, " ")
-                      .trim(),
-                  );
-                  input.current?.focus();
-                }}
-              >
-                {selected === undefined && scope && (
-                  <option value={scope.id} disabled>
-                    {scope.displayName || scope.name} · {text.teamUnavailable}
-                  </option>
-                )}
-                {teams.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.displayName || t.name}
-                  </option>
-                ))}
-                <option value="">{text.all}</option>
-              </select>
-            </label>
-          )}
-          {allTeams && directoryError && <p role="alert">{text.readError}</p>}
-          <div className="search-input-row">
-            <input
-              ref={input}
-              type="search"
-              autoComplete="off"
-              enterKeyHint="search"
-              aria-label={text.terms}
-              value={terms}
-              readOnly={pending}
-              onChange={(e) => setTerms(e.target.value)}
-              onKeyDown={(e) => {
-                if (
-                  e.key === "Enter" &&
-                  (e.nativeEvent.isComposing || e.keyCode === 229)
-                )
-                  e.preventDefault();
-                else if (
-                  e.key === "ArrowDown" &&
-                  !terms.trim() &&
-                  !e.nativeEvent.isComposing &&
-                  e.keyCode !== 229 &&
-                  !e.altKey &&
-                  !e.ctrlKey &&
-                  !e.metaKey &&
-                  !e.shiftKey
-                ) {
-                  const first = recents.current?.querySelector("button");
-                  if (first) {
+                  {selected === undefined && scope && (
+                    <option value={scope.id} disabled>
+                      {scope.displayName || scope.name} · {text.teamUnavailable}
+                    </option>
+                  )}
+                  {teams.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.displayName || t.name}
+                    </option>
+                  ))}
+                  <option value="">{text.all}</option>
+                </select>
+              </label>
+            )}
+            {allTeams && directoryError && <p role="alert">{text.readError}</p>}
+            <div className="search-input-row">
+              <input
+                ref={input}
+                type="search"
+                autoComplete="off"
+                enterKeyHint="search"
+                aria-label={text.terms}
+                value={terms}
+                readOnly={pending}
+                onChange={(e) => setTerms(e.target.value)}
+                onKeyDown={(e) => {
+                  if (
+                    e.key === "Enter" &&
+                    (e.nativeEvent.isComposing || e.keyCode === 229)
+                  )
                     e.preventDefault();
-                    first.focus();
+                  else if (
+                    e.key === "ArrowDown" &&
+                    !terms.trim() &&
+                    !e.nativeEvent.isComposing &&
+                    e.keyCode !== 229 &&
+                    !e.altKey &&
+                    !e.ctrlKey &&
+                    !e.metaKey &&
+                    !e.shiftKey
+                  ) {
+                    const first = recents.current?.querySelector("button");
+                    if (first) {
+                      e.preventDefault();
+                      first.focus();
+                    }
                   }
-                }
-              }}
-            />
-            <button
-              type="submit"
-              disabled={!terms.trim() || pending || selected === undefined}
-            >
-              {text.run}
-            </button>
-          </div>
-          {issue && <p role="alert">{issue}</p>}
-        </form>
-      </search>
-      {selected && (
-        <RecentTerms
-          key={selected.id}
-          account={account}
-          scope={selected.id}
-          language={language}
-          list={recents}
-          visible={!terms.trim()}
-          focusInput={() => input.current?.focus()}
-          choose={(term) => {
-            setTerms(term);
-            input.current?.focus();
-            run(term);
-          }}
-        />
-      )}
+                }}
+              />
+              <button
+                type="submit"
+                disabled={!terms.trim() || pending || selected === undefined}
+              >
+                {text.run}
+              </button>
+            </div>
+            {issue && <p role="alert">{issue}</p>}
+          </form>
+        </search>
+        {selected && (
+          <RecentTerms
+            key={selected.id}
+            account={account}
+            scope={selected.id}
+            language={language}
+            list={recents}
+            visible={!terms.trim()}
+            focusInput={() => input.current?.focus()}
+            choose={(term) => {
+              setTerms(term);
+              input.current?.focus();
+              run(term);
+            }}
+          />
+        )}
+      </div>
     </dialog>
   );
 }
