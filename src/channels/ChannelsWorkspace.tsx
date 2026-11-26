@@ -69,17 +69,37 @@ function Sidebar({
                     className="workspace-row"
                     type="button"
                     aria-current={row.current ? "page" : undefined}
+                    aria-description={
+                      row.kind === "P" ? text.privateChannel : undefined
+                    }
                     data-unread={row.unread || undefined}
                     onClick={() => choose(row.id)}
                   >
                     <span className="workspace-kind" aria-hidden="true">
-                      {row.kind === "D"
-                        ? "@"
-                        : row.kind === "G"
-                          ? "••"
-                          : row.kind === "P"
-                            ? "◇"
-                            : "#"}
+                      {row.kind === "P" ? (
+                        <svg
+                          className="workspace-lock"
+                          aria-hidden="true"
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.65"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <rect x="5" y="11" width="14" height="10" rx="2" />
+                          <circle cx="12" cy="16" r="1" />
+                          <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                        </svg>
+                      ) : row.kind === "D" ? (
+                        "@"
+                      ) : row.kind === "G" ? (
+                        "••"
+                      ) : (
+                        "#"
+                      )}
                     </span>
                     <span className="workspace-row-name" title={row.title}>
                       {row.title}
