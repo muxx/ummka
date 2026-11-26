@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { on, once } from "node:events";
+import { setTimeout as delay } from "node:timers/promises";
 import {
   CommandsApi,
   type Configuration,
@@ -15,6 +16,8 @@ type FixtureFrame = {
   seq_reply?: number;
   status?: string;
 };
+
+class ReplacementHello extends Error {}
 
 // Node's built-in client accepts HTTP Upgrade headers as well as subprotocols.
 const NodeWebSocket = WebSocket as typeof WebSocket & {
@@ -51,13 +54,27 @@ function subscribe(
         );
         const frame: FixtureFrame = JSON.parse(next.value[0].data);
         if (frame.event !== undefined) {
+          assert.ok(frame.data && frame.broadcast);
+          assert.equal(frame.seq_reply, undefined);
+          assert.equal(frame.status, undefined);
+          const replacement = frame.data?.connection_id;
+          if (
+            expected === nextSequence &&
+            nextSequence > 0 &&
+            frame.event === "hello" &&
+            frame.seq === 0 &&
+            typeof replacement === "string" &&
+            /^[a-z0-9]{26}$/.test(replacement) &&
+            replacement !== id
+          ) {
+            throw new ReplacementHello("Mattermost returned a new event queue");
+          }
           assert.equal(
             frame.seq,
             expected,
             "Discontinuous Mattermost event sequence",
           );
           expected++;
-          assert.ok(frame.data && frame.broadcast);
         } else {
           assert.ok(
             frame.seq_reply && ["OK", "FAIL"].includes(frame.status ?? ""),
@@ -78,6 +95,31 @@ function subscribe(
       }
     },
   };
+}
+
+// A completed client close handshake can precede HubUnregister. Both tested
+// servers resume only inactive queues. A new hello never satisfies a replay.
+async function resumeUntil(
+  base: string,
+  token: string,
+  id: string,
+  nextSequence: number,
+  matches: (frame: FixtureFrame) => boolean,
+  onReplacement?: () => Promise<void>,
+) {
+  const deadline = performance.now() + 3_000;
+  for (;;) {
+    const stream = subscribe(base, token, id, nextSequence);
+    try {
+      return { stream, frame: await stream.until(matches) };
+    } catch (error) {
+      await stream.close();
+      if (!(error instanceof ReplacementHello) || performance.now() >= deadline)
+        throw error;
+      await onReplacement?.();
+      await delay(25);
+    }
+  }
 }
 
 export async function checkEventStream(
@@ -139,25 +181,45 @@ export async function checkEventStream(
   }
   const missed = await createPost("Created between socket connections");
   assert.ok(missed.id);
-  const resumed = subscribe(base, token, connectionId, first.nextSequence);
-  let unapplied: number;
+  const match = containsPost(missed.id);
+  const { stream: resumed, frame: delivered } = await resumeUntil(
+    base,
+    token,
+    connectionId,
+    first.nextSequence,
+    match,
+  );
   try {
-    const delivered = await resumed.until(containsPost(missed.id));
     assert.equal(delivered.broadcast?.channel_id, channelId);
     assert.ok(typeof delivered.seq === "number");
-    unapplied = delivered.seq;
+    // Keep the preceding connection alive until the server confirms it cannot
+    // resume that queue yet. Then replay the same uncommitted post and sequence.
+    let replaced = false;
+    const { stream: replay, frame: repeated } = await resumeUntil(
+      base,
+      token,
+      connectionId,
+      delivered.seq,
+      match,
+      async () => {
+        if (!replaced) {
+          replaced = true;
+          await resumed.close();
+        }
+      },
+    );
+    try {
+      assert.equal(
+        replaced,
+        true,
+        "The active queue was not held during the check",
+      );
+      assert.equal(repeated.seq, delivered.seq);
+      assert.equal(repeated.broadcast?.channel_id, channelId);
+    } finally {
+      await replay.close();
+    }
   } finally {
     await resumed.close();
-  }
-
-  // Receiving a post and committing it locally are distinct. Resume at that
-  // post's own sequence to model losing the socket before its SQLite commit.
-  const replay = subscribe(base, token, connectionId, unapplied);
-  try {
-    const delivered = await replay.until(containsPost(missed.id));
-    assert.equal(delivered.seq, unapplied);
-    assert.equal(delivered.broadcast?.channel_id, channelId);
-  } finally {
-    await replay.close();
   }
 }
