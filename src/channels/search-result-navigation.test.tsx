@@ -1,300 +1,47 @@
 import {
   act,
-  cleanup,
   fireEvent,
-  render,
   screen,
   waitFor,
   within,
 } from "@testing-library/react";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { expect, test, vi } from "vitest";
 import { ResponseError } from "../../vendor/mattermost/index.js";
-import { App } from "../App.tsx";
-import { createChannelHistoryChanges } from "../mattermost/channel-history-changes.ts";
-import { getDeviceLaunchContext } from "../mattermost/device-launch.ts";
-import type { LocalPost } from "../mattermost/local-history.ts";
-import { openAccountRestConnection } from "../mattermost/native-rest.ts";
-import { projectTeamSidebar } from "../mattermost/team-sidebar.ts";
+import { channelProfile } from "../mattermost/channel-profiles.ts";
+import "../empty-link-inbox.test-utils.ts";
 import {
-  sidebarPreferences,
-  workspaceServerPolicy,
-} from "../mattermost/workspace-preferences.ts";
-import "./workspace-dom.test-utils.ts";
+  bookmark,
+  design,
+  firstFile,
+  fixture,
+  home,
+  other,
+  reply,
+  root,
+  search,
+  secondFile,
+  summer,
+  winter,
+} from "./navigation-app.test-utils.tsx";
 
 vi.mock("../mattermost/device-launch.ts", () => ({
   getDeviceLaunchContext: vi.fn(),
 }));
 vi.mock("../mattermost/native-rest.ts", () => ({
   openAccountRestConnection: vi.fn(),
+  getCurrentAccountId: vi.fn(),
 }));
-type Account = Awaited<ReturnType<typeof openAccountRestConnection>>;
-const id = (key: string) => key.repeat(26);
-const user = id("u"),
-  winter = id("t"),
-  summer = id("s"),
-  home = id("h"),
-  design = id("d"),
-  other = id("k"),
-  firstFile = id("a"),
-  secondFile = id("b"),
-  bookmark = id("c");
-const root: LocalPost = {
-  id: id("r"),
-  channelId: design,
-  rootId: null,
-  userId: user,
-  message: "Published root",
-  messageSource: null,
-  type: "",
-  createAt: 123,
-  updateAt: 123,
-  editAt: 0,
-  isPinned: false,
-  hashtags: "",
-};
-const reply: LocalPost = {
-  ...root,
-  id: id("p"),
-  rootId: root.id,
-  createAt: 345,
-  updateAt: 345,
-  message: "Exact remote reply",
-};
-const file = (fileId: string, name: string, postId: string | null) => ({
-  id: fileId,
-  name,
-  channelId: design,
-  postId,
-});
-beforeEach(() => {
-  vi.stubGlobal(
-    "IntersectionObserver",
-    class {
-      observe() {}
-      disconnect() {}
-    },
-  );
-});
-afterEach(() => {
-  cleanup();
-  vi.clearAllMocks();
-});
-function fixture({
-  collapsed = true,
-  cross = false,
-  direct = false,
-}: {
-  collapsed?: boolean;
-  cross?: boolean;
-  direct?: boolean;
-} = {}) {
-  const serverUrl = "https://example.test";
-  const teams = [
-    {
-      id: winter,
-      name: "winter",
-      displayName: "Winter",
-      preferenceRank: null,
-      roles: "writer",
-    },
-    {
-      id: summer,
-      name: "summer",
-      displayName: "Summer",
-      preferenceRank: null,
-      roles: "writer",
-    },
-  ];
-  let selectedTeam = winter;
-  const selected = new Map([
-    [winter, home],
-    [summer, other],
-  ]);
-  const targetTeam = cross ? summer : winter;
-  const rows = (team: string) => [
-    ...(team === winter
-      ? [
-          [home, "Home"],
-          [other, "Third channel"],
-        ]
-      : [[other, "Other"]]),
-    ...(team === targetTeam ? [[design, "Design"]] : []),
-  ];
-  const readSidebar = async (team: string) => ({
-    selectedChannel: selected.get(team) ?? null,
-    data: projectTeamSidebar({
-      teamId: team,
-      channels: rows(team).map(([id, name]) => ({
-        channel: {
-          id,
-          name:
-            direct && id === design ? [user, "z".repeat(26)].join("__") : name,
-          displayName: direct && id === design ? "" : name,
-          type: direct && id === design ? "D" : "O",
-          deleteAt: 0,
-        },
-        membership: { userId: user, channelId: id, roles: "writer" },
-      })),
-      categories: [
-        {
-          id: "channels",
-          type: "channels",
-          displayName: "Channels",
-          sorting: "manual",
-          collapsed: false,
-          muted: false,
-          channelIds: rows(team)
-            .map(([id]) => id)
-            .filter((id) => !direct || id !== design),
-        },
-      ],
-    }),
-  });
-  const targetInfo = {
-    postId: root.id,
-    channel: {
-      id: design,
-      kind: "O" as const,
-      displayName: "Design",
-      joined: true,
-    },
-    team: {
-      id: targetTeam,
-      kind: "O" as const,
-      displayName: cross ? "Summer" : "Winter",
-      joined: true,
-    },
-  };
-  const drafts = new Map([
-    [home, "Original unfinished draft"],
-    [design, "Target draft"],
-    [root.id, "Unfinished reply"],
-  ]);
-  const changes = createChannelHistoryChanges();
-  const account = {
-    subscribeToChannelHistory: changes.subscribe,
-    notifyChannelHistoryChanged: changes.notify,
-    rid: 9,
-    close: vi.fn().mockResolvedValue(undefined),
-    signOutOnDevice: vi.fn().mockResolvedValue("removed"),
-    readJoinedTeams: vi.fn(async () => ({ teams, selectedTeam })),
-    refreshJoinedTeams: vi.fn().mockResolvedValue(true),
-    selectJoinedTeam: vi.fn(async (next: string) => {
-      selectedTeam = next;
-      return true;
-    }),
-    readTeamSidebar: vi.fn(readSidebar),
-    refreshTeamSidebar: vi.fn().mockResolvedValue(true),
-    selectSidebarChannel: vi.fn(async (t: string, c: string) => {
-      selected.set(t, c);
-      return true;
-    }),
-    readWorkspaceSettings: vi.fn().mockResolvedValue({
-      server: workspaceServerPolicy(
-        {
-          CollapsedThreads: collapsed ? "always_on" : "disabled",
-          EnableCrossTeamSearch: "true",
-          EnableFileSearch: "true",
-          EnableFileAttachments: "true",
-        },
-        {},
-      ),
-      preferences: sidebarPreferences(user, []),
-    }),
-    refreshWorkspaceServerPolicy: vi.fn(),
-    readSavedTeamRoles: vi.fn().mockResolvedValue({
-      systemRoles: "",
-      definitions: [{ name: "writer", permissions: ["create_post"] }],
-    }),
-    refreshTeamRoles: vi.fn(),
-    readSavedProfiles: vi
-      .fn()
-      .mockResolvedValue({ profiles: {}, usernames: {} }),
-    refreshSavedProfiles: vi.fn(),
-    readDraft: vi.fn<Account["readDraft"]>(async (p) => ({
-      revision: "1",
-      message: drafts.get(p.rootId ?? p.channelId) ?? "",
-    })),
-    subscribeToPostActivity: vi.fn(() => () => {}),
-    readPendingPosts: vi.fn().mockResolvedValue([]),
-    readRecentTeamSearches: vi.fn().mockResolvedValue([]),
-    rememberTeamSearch: vi.fn().mockResolvedValue(true),
-    readSearchTimezone: vi.fn().mockResolvedValue("UTC"),
-    readPostSearchPage: vi.fn().mockResolvedValue({
-      items: [
-        { id: root.id, channelId: design, message: "Search root snippet" },
-        { id: reply.id, channelId: design, message: "Search reply snippet" },
-      ],
-      matches: null,
-      isEnd: true,
-      firstInaccessiblePostTime: 0,
-    }),
-    readFileSearchPage: vi.fn<Account["readFileSearchPage"]>(async (q) => ({
-      items:
-        q.page === 0
-          ? [
-              file(bookmark, "bookmark.pdf", null),
-              file(firstFile, "first.pdf", root.id),
-            ]
-          : [file(secondFile, "second.pdf", root.id)],
-      isEnd: q.page > 0,
-      firstInaccessibleFileTime: 0,
-    })),
-    readFileAnchor: vi.fn<Account["readFileAnchor"]>(async (fileId) => ({
-      fileId,
-      postId: root.id,
-      channelId: design,
-    })),
-    readPostDestination: vi.fn<Account["readPostDestination"]>(
-      async (postId) => ({ ...targetInfo, postId }),
-    ),
-    readPostAnchor: vi.fn<Account["readPostAnchor"]>(async (postId) => ({
-      postId,
-      channelId: design,
-      rootId: postId === reply.id ? root.id : null,
-      post: postId === reply.id ? reply : root,
-    })),
-    changeOwnMembership: vi
-      .fn<Account["changeOwnMembership"]>()
-      .mockResolvedValue({ kind: "applied" }),
-    readChannelWindow: vi.fn<Account["readChannelWindow"]>(async (q) => ({
-      posts: q.kind === "around" ? [q.postId === root.id ? root : reply] : [],
-      newer: { kind: "end" },
-      older: { kind: "end" },
-      firstInaccessiblePostTime: 0,
-    })),
-    refreshChannelHistory: vi.fn().mockResolvedValue({ kind: "applied" }),
-    readSavedPost: vi.fn().mockResolvedValue(root),
-    readThreadPage: vi.fn().mockResolvedValue({
-      kind: "page",
-      root: { ...root, rootId: "", deleteAt: 0 },
-      replies: [{ ...reply, deleteAt: 0 }],
-      next: null,
-    }),
-  };
-  vi.mocked(getDeviceLaunchContext).mockResolvedValue({
-    status: "ready",
-    serverUrl,
-    userId: user,
-  });
-  vi.mocked(openAccountRestConnection).mockResolvedValue(
-    account as unknown as Account,
-  );
-  const view = render(<App language="en" />);
-  return { account, targetInfo, view };
-}
-async function search() {
-  const trigger = await screen.findByRole("button", { name: "Search" });
-  fireEvent.click(trigger);
-  const form = within(await screen.findByRole("dialog"));
-  fireEvent.change(form.getByRole("searchbox"), {
-    target: { value: "window" },
-  });
-  fireEvent.click(form.getByRole("button", { name: "Search" }));
-  return within(
-    await screen.findByRole("complementary", { name: "Search results" }),
-  );
-}
+let nativeBack: (() => void) | undefined;
+vi.mock("@tauri-apps/api/app", () => ({
+  onBackButtonPress: vi.fn(async (pressed: () => void) => {
+    nativeBack = pressed;
+    return {
+      unregister() {
+        if (nativeBack === pressed) nativeBack = undefined;
+      },
+    };
+  }),
+}));
 test.each([
   [true, root],
   [false, reply],
@@ -766,4 +513,456 @@ test("manually switching teams while a result is being verified keeps the new te
   expect(screen.getByRole("heading", { name: "Other" })).toBeTruthy();
   expect(account.signOutOnDevice).not.toHaveBeenCalled();
   expect(account.selectSidebarChannel).not.toHaveBeenCalled();
+});
+
+test("Back while joining keeps ownership with the waiting dialog after the submit button disappears", async () => {
+  const { account, targetInfo } = fixture();
+  account.readPostDestination.mockResolvedValue({
+    ...targetInfo,
+    channel: { ...targetInfo.channel, kind: "P", joined: false },
+  });
+  let finish!: (value: { kind: "applied" }) => void;
+  const joining = new Promise<{ kind: "applied" }>((resolve) => {
+    finish = resolve;
+  });
+  account.changeOwnMembership.mockReturnValueOnce(joining);
+  const results = await search();
+  fireEvent.click(
+    await results.findByRole("button", { name: "Search root snippet" }),
+  );
+  const button = within(await screen.findByRole("dialog")).getByRole("button", {
+    name: "Join and open",
+  });
+  button.focus();
+  fireEvent.click(button);
+  const waiting = await screen.findByRole("dialog", { name: "Joining…" });
+  await waitFor(() =>
+    expect(account.changeOwnMembership).toHaveBeenCalledTimes(1),
+  );
+  expect(waiting.contains(document.activeElement)).toBe(false);
+  if (process.env.TAURI_ENV_PLATFORM === "android") {
+    expect(nativeBack).toBeTypeOf("function");
+    act(() => nativeBack?.());
+  } else fireEvent.keyDown(document.body, { key: "Escape" });
+  expect(screen.getByRole("dialog", { name: "Joining…" })).toBe(waiting);
+  expect(
+    screen.getByRole("complementary", { name: "Search results" }),
+  ).toBeTruthy();
+  account.readPostDestination.mockResolvedValue(targetInfo);
+  await act(async () => finish({ kind: "applied" }));
+  await screen.findByText(root.message);
+  expect(account.changeOwnMembership).toHaveBeenCalledTimes(1);
+});
+
+test.each([root, reply])(
+  "opens a saved root or collapsed reply by ID, then returns to its scroll position and channel draft $id",
+  async (target) => {
+    const { account } = fixture();
+    const trigger = await screen.findByRole("button", {
+      name: "Saved messages",
+    });
+    fireEvent.click(trigger);
+    const pane = await screen.findByRole("complementary", {
+      name: "Saved messages",
+    });
+    const title =
+      target === root ? "Saved root preview" : "Saved reply preview";
+    const button = await within(pane).findByRole("button", {
+      name: new RegExp(title),
+    });
+    expect(within(pane).getAllByRole("listitem")[0].textContent).toContain(
+      "Saved reply preview",
+    );
+    expect(within(pane).getByText("Pinned")).toBeTruthy();
+    const scroll = pane.querySelector(".collection-rows") as HTMLElement;
+    scroll.scrollTop = 17;
+    fireEvent.click(button);
+    const post = await screen.findByText(target.message);
+    if (target === reply)
+      expect(
+        screen.getByRole("complementary", { name: "Thread" }).contains(post),
+      ).toBe(true);
+    expect(account.readPostAnchor).toHaveBeenCalledWith(
+      target.id,
+      expect.any(AbortSignal),
+    );
+    if (target === root)
+      fireEvent.click(
+        screen.getByRole("button", { name: "Back to saved messages" }),
+      );
+    else fireEvent.keyDown(window, { key: "Escape" });
+    const restored = await screen.findByRole("button", {
+      name: new RegExp(title),
+    });
+    await waitFor(() => expect(document.activeElement).toBe(restored));
+    expect(restored.closest(".collection-rows")?.scrollTop).toBe(17);
+    expect(account.readSavedPosts).toHaveBeenCalledTimes(1);
+    const draft = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+      name: "Message #Home…",
+    });
+    await waitFor(() => expect(draft.value).toBe("Original unfinished draft"));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(document.activeElement).toBe(trigger);
+  },
+);
+
+test("opens pins in the selected channel, distinguishes a confirmed personal mark, and forgets it after unsaving", async () => {
+  const { account } = fixture();
+  const trigger = await screen.findByRole("button", { name: "Saved messages" });
+  fireEvent.click(trigger);
+  await screen.findByText("Saved root preview");
+  const menu = screen.getByRole("button", { name: "Channel menu, Home" });
+  const pins = async () => {
+    fireEvent.click(menu);
+    const item = screen.getByRole("menuitem", { name: "Pinned messages" });
+    expect(document.activeElement).toBe(item);
+    fireEvent.click(item);
+    return within(
+      await screen.findByRole("complementary", { name: "Pinned messages" }),
+    );
+  };
+  let opened = await pins();
+  await opened.findByText("Home pin");
+  expect(opened.getByText("Saved by you")).toBeTruthy();
+  expect(account.readPinnedChannelPosts).toHaveBeenCalledWith(
+    home,
+    expect.any(AbortSignal),
+  );
+  expect(
+    opened.getByRole("button", { name: "Unpin for everyone" }),
+  ).toBeTruthy();
+  fireEvent.click(opened.getByRole("button", { name: "Close collection" }));
+  expect(document.activeElement).toBe(menu);
+  fireEvent.click(trigger);
+  const row = (await screen.findByText("Saved root preview")).closest(
+    "li",
+  ) as HTMLElement;
+  const remove = within(row).getByRole("button", { name: "Remove from saved" });
+  remove.focus();
+  fireEvent.click(remove);
+  await waitFor(() => expect(row.isConnected).toBe(false));
+  expect(account.setPostSaved).toHaveBeenCalledWith(
+    root.id,
+    false,
+    expect.any(AbortSignal),
+  );
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Remove from saved" }),
+  );
+  opened = await pins();
+  await opened.findByText("Home pin");
+  expect(opened.queryByText("Saved by you")).toBeNull();
+  expect(account.setPostPinned).not.toHaveBeenCalled();
+  account.setPostPinned.mockRejectedValueOnce(
+    new ResponseError(new Response(null, { status: 403 })),
+  );
+  const action = opened.getByRole("button", { name: "Unpin for everyone" });
+  fireEvent.click(action);
+  expect(await opened.findByRole("alert")).toBeTruthy();
+  expect(opened.getByText("Home pin")).toBeTruthy();
+  fireEvent.click(action);
+  await opened.findByText("No pinned messages in this channel.");
+  expect(account.setPostPinned).toHaveBeenCalledTimes(2);
+});
+
+test.each(["saved", "pins"] as const)(
+  "a cold offline %s collection can be retried explicitly and keeps focus through failure and success",
+  async (kind) => {
+    const { account } = fixture();
+    const trigger = await screen.findByRole("button", {
+      name: "Saved messages",
+    });
+    const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    try {
+      act(() => window.dispatchEvent(new Event("offline")));
+      if (kind === "saved") fireEvent.click(trigger);
+      else {
+        fireEvent.click(
+          screen.getByRole("button", { name: "Channel menu, Home" }),
+        );
+        fireEvent.click(
+          screen.getByRole("menuitem", { name: "Pinned messages" }),
+        );
+      }
+      const name = kind === "saved" ? "Saved messages" : "Pinned messages";
+      const pane = within(await screen.findByRole("complementary", { name }));
+      const read =
+        kind === "saved"
+          ? account.readSavedPosts
+          : account.readPinnedChannelPosts;
+      expect(read).not.toHaveBeenCalled();
+      read.mockRejectedValueOnce(new TypeError("Disconnected"));
+      let retry = await pane.findByRole("button", { name: "Try again" });
+      retry.focus();
+      fireEvent.click(retry);
+      await pane.findByRole("alert");
+      expect(document.activeElement).toBe(pane.getByRole("heading", { name }));
+      retry = pane.getByRole("button", { name: "Try again" });
+      retry.focus();
+      fireEvent.click(retry);
+      const label = kind === "saved" ? "Saved root preview" : "Home pin";
+      const row = await pane.findByRole("button", { name: new RegExp(label) });
+      expect(document.activeElement).toBe(pane.getByRole("heading", { name }));
+      expect(row.getAttribute("aria-disabled")).toBe("true");
+      fireEvent.click(row);
+      expect(account.readPostAnchor).not.toHaveBeenCalled();
+      online.mockReturnValue(true);
+      act(() => window.dispatchEvent(new Event("online")));
+      expect(account.readPostAnchor).not.toHaveBeenCalled();
+      fireEvent.click(row);
+      await waitFor(() =>
+        expect(account.readPostAnchor).toHaveBeenCalledOnce(),
+      );
+    } finally {
+      online.mockRestore();
+    }
+  },
+);
+
+test("a saved direct message keeps its known location when absent from the sidebar", async () => {
+  const { account } = fixture({ direct: true });
+  const trigger = await screen.findByRole("button", { name: "Saved messages" });
+  const peer = "z".repeat(26);
+  account.readSavedProfiles.mockResolvedValue({
+    profiles: { [peer]: channelProfile({ id: peer, username: "aurora" }) },
+    usernames: {},
+  });
+  fireEvent.click(trigger);
+  const saved = within(
+    await screen.findByRole("complementary", { name: "Saved messages" }),
+  );
+  expect(await saved.findByText("aurora · direct message")).toBeTruthy();
+  expect(
+    saved.getByText("aurora · direct message · reply in thread"),
+  ).toBeTruthy();
+});
+
+test("labels empty published bodies and attachments in saved rows", async () => {
+  const { account } = fixture();
+  const trigger = await screen.findByRole("button", { name: "Saved messages" });
+  account.readSavedPosts.mockResolvedValueOnce({
+    items: [
+      { id: root.id, channelId: design, message: "---" },
+      { id: reply.id, channelId: design, message: "", fileIds: [bookmark] },
+    ],
+    firstInaccessiblePostTime: 0,
+  });
+  fireEvent.click(trigger);
+  const pane = within(
+    await screen.findByRole("complementary", { name: "Saved messages" }),
+  );
+  expect(await pane.findByText("Attachment")).toBeTruthy();
+  expect(pane.getByText("Message")).toBeTruthy();
+});
+
+test("a hidden saved page remains traversable, preserves the previous rows on retry, and discards a revoked response", async () => {
+  const { account } = fixture();
+  const trigger = await screen.findByRole("button", { name: "Saved messages" });
+  account.readSavedPostUpperBound.mockResolvedValue(121);
+  account.readSavedPostsAtOffset
+    .mockResolvedValueOnce({ items: [], firstInaccessiblePostTime: 0 })
+    .mockRejectedValueOnce(new TypeError("offline"))
+    .mockResolvedValueOnce({
+      items: [{ id: bookmark, channelId: design, message: "Oldest visible" }],
+      firstInaccessiblePostTime: 1,
+    });
+  let onVisible: (() => void) | undefined;
+  vi.stubGlobal(
+    "IntersectionObserver",
+    class {
+      constructor(
+        private readonly notify: (
+          rows: { isIntersecting: boolean; intersectionRatio: number }[],
+        ) => void,
+      ) {}
+      observe(el: Element) {
+        if (el.classList.contains("collection-edge"))
+          onVisible = () =>
+            this.notify([{ isIntersecting: true, intersectionRatio: 1 }]);
+      }
+      disconnect() {}
+    },
+  );
+  fireEvent.click(trigger);
+  const pane = within(
+    await screen.findByRole("complementary", { name: "Saved messages" }),
+  );
+  await pane.findByText("Earlier saved messages haven’t loaded yet.");
+  await waitFor(() => expect(onVisible).toBeTypeOf("function"));
+  await act(async () => onVisible?.());
+  await waitFor(() =>
+    expect(account.readSavedPostsAtOffset).toHaveBeenCalledTimes(1),
+  );
+  await act(async () => onVisible?.());
+  await pane.findByRole("alert");
+  expect(pane.getByText("Saved reply preview")).toBeTruthy();
+  fireEvent.click(
+    pane.getByRole("button", { name: "Retry loading earlier saved messages" }),
+  );
+  await pane.findByText("Oldest visible");
+  expect(
+    pane.queryByText("Earlier saved messages haven’t loaded yet."),
+  ).toBeNull();
+  expect(
+    account.readSavedPostsAtOffset.mock.calls.map(([, offset]) => offset),
+  ).toEqual([60, 120, 120]);
+  expect(account.readSavedPostUpperBound).toHaveBeenCalledTimes(1);
+  account.readSavedPosts.mockRejectedValueOnce(
+    new ResponseError(new Response(null, { status: 403 })),
+  );
+  fireEvent.click(pane.getByRole("button", { name: "Refresh" }));
+  await pane.findByText("This collection is no longer available.");
+  expect(pane.queryByText("Saved root preview")).toBeNull();
+  expect(pane.queryByText("Oldest visible")).toBeNull();
+});
+
+test.each(["O", "P", "G"] as const)(
+  "opens personal notifications from an active %s channel title",
+  async (homeKind) => {
+    const { account } = fixture({ homeKind });
+    fireEvent.click(
+      await screen.findByRole("button", { name: /^Channel menu,/ }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Notifications" }));
+    const form = within(
+      await screen.findByRole("dialog", { name: "Notifications" }),
+    );
+    await form.findByRole("checkbox", {
+      name: homeKind === "G" ? /Mute conversation/ : /Mute channel/,
+    });
+    expect(account.readChannelNotifications).toHaveBeenCalledWith(
+      home,
+      expect.any(AbortSignal),
+    );
+  },
+);
+
+test("a direct conversation keeps pins available and excludes channel notifications", async () => {
+  const { account } = fixture({ homeKind: "D" });
+  fireEvent.click(
+    await screen.findByRole("button", { name: /^Channel menu,/ }),
+  );
+  expect(
+    screen.getByRole("menuitem", { name: "Pinned messages" }),
+  ).toBeTruthy();
+  expect(screen.queryByRole("menuitem", { name: "Notifications" })).toBeNull();
+  expect(account.readChannelNotifications).not.toHaveBeenCalled();
+});
+
+test("revoked channel history closes its notifications and cancels the pending read", async () => {
+  const { account } = fixture();
+  let rejectRefresh!: (reason: Error) => void;
+  account.refreshChannelHistory.mockImplementation(
+    () =>
+      new Promise((_resolve, reject) => {
+        rejectRefresh = reject;
+      }),
+  );
+  account.readChannelNotifications.mockImplementation(
+    () => new Promise(() => {}),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Channel menu, Home" }),
+  );
+  fireEvent.click(screen.getByRole("menuitem", { name: "Notifications" }));
+  await screen.findByRole("dialog", { name: "Notifications" });
+  const signal = account.readChannelNotifications.mock.calls[0]?.[1];
+  expect(signal?.aborted).toBe(false);
+  await waitFor(() => expect(account.refreshChannelHistory).toHaveBeenCalled());
+  await act(async () =>
+    rejectRefresh(new ResponseError(new Response(null, { status: 403 }))),
+  );
+  await waitFor(() => expect(signal?.aborted).toBe(true));
+  expect(screen.queryByRole("dialog", { name: "Notifications" })).toBeNull();
+  expect(
+    screen.queryByRole("button", { name: "Channel menu, Home" }),
+  ).toBeNull();
+  expect(account.updateChannelNotifications).not.toHaveBeenCalled();
+});
+
+test("removing the selected channel from the joined sidebar closes its notification form", async () => {
+  const { account } = fixture();
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Channel menu, Home" }),
+  );
+  fireEvent.click(screen.getByRole("menuitem", { name: "Notifications" }));
+  const form = await screen.findByRole("dialog", { name: "Notifications" });
+  await within(form).findByRole("checkbox", { name: /Mute channel/ });
+  const before = await account.readTeamSidebar(winter);
+  account.readTeamSidebar.mockResolvedValue({
+    selectedChannel: null,
+    data: { ...before.data, channels: [] },
+  });
+  const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+  try {
+    act(() => window.dispatchEvent(new Event("offline")));
+    await waitFor(() => expect(form.isConnected).toBe(false));
+    expect(screen.queryByRole("button", { name: /^Channel menu,/ })).toBeNull();
+    expect(account.updateChannelNotifications).not.toHaveBeenCalled();
+  } finally {
+    online.mockRestore();
+  }
+});
+
+test("archived channels show the pinned messages and keep the shared action hidden", async () => {
+  const { account } = fixture({ archivedHome: true });
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Channel menu, Home" }),
+  );
+  expect(screen.queryByRole("menuitem", { name: "Notifications" })).toBeNull();
+  fireEvent.click(screen.getByRole("menuitem", { name: "Pinned messages" }));
+  const pins = within(
+    await screen.findByRole("complementary", { name: "Pinned messages" }),
+  );
+  await pins.findByText("Home pin");
+  expect(pins.queryByRole("button", { name: "Unpin for everyone" })).toBeNull();
+  expect(account.setPostPinned).not.toHaveBeenCalled();
+});
+
+test("closing the collection cancels its pending read including a late unauthorized response", async () => {
+  const { account } = fixture();
+  const trigger = await screen.findByRole("button", { name: "Saved messages" });
+  let fail!: (error: Error) => void;
+  account.readSavedPosts.mockImplementationOnce(
+    () =>
+      new Promise((_, reject) => {
+        fail = reject;
+      }),
+  );
+  fireEvent.click(trigger);
+  const pane = within(
+    await screen.findByRole("complementary", { name: "Saved messages" }),
+  );
+  await pane.findByText("Loading messages…");
+  await waitFor(() => expect(account.readSavedPosts).toHaveBeenCalledTimes(1));
+  const signal = account.readSavedPosts.mock.calls[0][2];
+  fireEvent.click(pane.getByRole("button", { name: "Close collection" }));
+  expect(signal?.aborted).toBe(true);
+  await act(async () =>
+    fail(new ResponseError(new Response(null, { status: 401 }))),
+  );
+  expect(document.activeElement).toBe(trigger);
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(
+    screen.getByRole("button", { name: "Channel menu, Home" }),
+  ).toBeTruthy();
+});
+
+test("the channel heading can receive WebKit's pointer focus before a pin-menu click", async () => {
+  fixture();
+  const menu = await screen.findByRole("button", {
+    name: "Channel menu, Home",
+  });
+  fireEvent.click(menu);
+  const item = screen.getByRole("menuitem", { name: "Pinned messages" });
+  fireEvent.pointerDown(item);
+  fireEvent.mouseDown(item);
+  const heading = screen.getByRole("heading", { level: 1, name: "Home" });
+  heading.focus();
+  expect(item.isConnected).toBe(true);
+  fireEvent.mouseUp(item);
+  fireEvent.click(item);
+  expect(
+    await screen.findByRole("complementary", { name: "Pinned messages" }),
+  ).toBeTruthy();
 });

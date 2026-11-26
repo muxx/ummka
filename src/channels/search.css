@@ -1,17 +1,30 @@
-.channels-search-trigger {
+.message-destination-dialog :is(h2, footer) {
+  flex: none;
+  overflow-wrap: anywhere;
+}
+.message-destination-dialog p {
+  overflow-wrap: anywhere;
+}
+.search-recent button {
+  min-width: 0;
+}
+
+.channels-bar .channels-search-trigger {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  flex: 1 1 26rem;
-  max-width: 36rem;
+  gap: 9px;
+  box-sizing: border-box;
+  flex: 0 0 min(520px, 44cqi);
   min-width: 0;
-  min-height: 32px;
-  margin-inline: 1rem auto;
-  padding-inline: 0.75rem;
-  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
-  border-radius: 8px;
+  min-height: 30px;
+  margin-inline: 20px auto;
+  padding-inline: 9px;
+  border: 1px solid color-mix(in srgb, var(--on-topbar) 18%, transparent);
+  border-radius: 7px;
   color: var(--on-topbar);
-  background: color-mix(in srgb, var(--on-topbar) 8%, var(--topbar));
+  background: color-mix(in srgb, var(--on-topbar) 7%, transparent);
+  font-size: 0.8rem;
+  font-weight: 400;
   cursor: pointer;
 }
 .channels-search-trigger span {
@@ -19,12 +32,32 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.channels-search-trigger svg {
+  flex: none;
+  width: 15px;
+  height: 15px;
+}
+.channels-bar .channels-search-trigger:hover {
+  background: color-mix(in srgb, var(--on-topbar) 13%, transparent);
+}
 .channels-bar:has(.channels-search-trigger) .channels-bar-brand {
-  flex: 1 1 10rem;
-  max-width: 25%;
+  flex: 0 0 calc(var(--sidebar-width) - var(--bar-inset));
 }
 .channels-search-trigger + .channels-account {
   margin-inline-start: auto;
+}
+@container (width <= 740px) {
+  .channels-bar:has(.channels-search-trigger) .channels-bar-brand {
+    flex: none;
+  }
+  .channels-bar .channels-search-trigger {
+    flex: 1;
+    max-width: 380px;
+    margin: 0;
+    padding-inline: 8px;
+    min-height: 32px;
+    font-size: 0.78rem;
+  }
 }
 .channels-search-dialog,
 .search-results-pane {
@@ -170,10 +203,6 @@
   margin: 0.25rem 0;
 }
 @container (width <= 740px) {
-  .channels-panes[data-page="search"]
-    > :is(.channels-sidebar, .channels-conversation, .channels-thread) {
-    display: none;
-  }
   .search-results-pane {
     flex: 1;
     border: 0;

@@ -5,10 +5,13 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import https from "node:https";
 import type { Socket } from "node:net";
 import { json, text } from "node:stream/consumers";
+import { deniedPost } from "../webview-check/link-examples.ts";
+import type { SendMacKey } from "../webview-check/macos.ts";
 import { respondToAccount } from "./account.ts";
 import type { SendAndroidKey } from "./android-webview.ts";
 import { respondToChannelMembers } from "./channel-members.ts";
 import { respondToChannelView } from "./channel-view.ts";
+import { collectionWindowFixture } from "./collection-window.ts";
 import { respondToGroupAssociations } from "./group-associations.ts";
 import { respondToGroupAudience } from "./group-audience.ts";
 import { respondToHistory } from "./history.ts";
@@ -54,11 +57,31 @@ export function webviewServers(
     ]),
   );
   const visits: string[] = [];
+  const systemPostReads = new Set<string>();
+  const collectionWindow = collectionWindowFixture();
   let offlineHistoryRequests = 0;
   let connections = 0;
   let before = false;
+  let formattingTimes:
+    | { width: number; first: number; unchanged: number }[]
+    | undefined;
+  const formatKeyWidths: number[] = [];
+  let controlProgress = "not started";
+  let controlRequests = 0;
+  let sendRight: (() => Promise<void>) | undefined;
   let prepareKeyboard: (() => Promise<void>) | undefined;
-  let pressAndroidBack: (() => Promise<void>) | undefined;
+  const backSteps = [
+    "appearance",
+    "dialog",
+    "results",
+    "thread",
+    "reopened",
+    "notifications",
+    "directory",
+    "directory-dialog",
+  ];
+  let stepIndex = 0;
+  let pressWorkspaceBack: (() => Promise<void>) | undefined;
   let disconnect: Socket | undefined;
   let pingSocket: Socket | undefined;
   const settings = new Map<string, ServerResponse>();
@@ -72,8 +95,13 @@ export function webviewServers(
   );
   const teamId = "Team0123456789012345678901";
   const channelId = "c".repeat(26);
+  const groupId = "g".repeat(26);
+  let groupOpenedAt: string | undefined;
   const collections = collectionFixture(channelId, userId);
-  const teamReads = new Map<string, { name: string; body: object | null }>([
+  const teamReads = new Map<
+    string,
+    { name: string; body: object | null; status?: number }
+  >([
     [
       "/team/chat/api/v4/teams/name/fixture-team",
       {
@@ -115,10 +143,84 @@ export function webviewServers(
       },
     ],
     [
+      `/team/chat/api/v4/teams/${"z".repeat(26)}/channels?page=0&per_page=50`,
+      {
+        name: "public-directory-denied",
+        status: 403,
+        body: { id: "fixture.denied", status_code: 403 },
+      },
+    ],
+    [
+      `/team/chat/api/v4/teams/${"z".repeat(26)}/channels/deleted?page=0&per_page=50`,
+      {
+        name: "archived-directory-denied",
+        status: 403,
+        body: { id: "fixture.denied", status_code: 403 },
+      },
+    ],
+    [
+      `/team/chat/api/v4/teams/${teamId}/channels?page=1&per_page=50`,
+      {
+        name: "public-directory-page",
+        body: [
+          {
+            id: "o".repeat(26),
+            team_id: teamId,
+            type: "O",
+            name: "systems",
+            display_name: "Systems",
+            header: "Current systems",
+            purpose: "Fixture systems",
+            delete_at: 0,
+          },
+        ],
+      },
+    ],
+    [
+      `/team/chat/api/v4/teams/${teamId}/channels/deleted?page=0&per_page=50`,
+      {
+        name: "archived-directory-page",
+        body: [
+          {
+            id: "p".repeat(26),
+            team_id: teamId,
+            type: "P",
+            name: "design",
+            display_name: "Design",
+            purpose: "Fixture design",
+            delete_at: 42,
+          },
+        ],
+      },
+    ],
+    [
       `/team/chat/api/v4/teams/${teamId}/channels/managed_categories`,
       {
         name: "managed-category-mappings",
         body: { [channelId]: "Release", ["d".repeat(26)]: "Release" },
+      },
+    ],
+    [
+      `/team/chat/api/v4/teams/${teamId}/channels/autocomplete?name=Northern%20lights`,
+      {
+        name: "account-directory-search",
+        body: [
+          {
+            id: "p".repeat(26),
+            team_id: teamId,
+            type: "P",
+            name: "northern-lights",
+            display_name: "Northern lights",
+            delete_at: 42,
+          },
+        ],
+      },
+    ],
+    [
+      `/team/chat/api/v4/teams/${teamId}/channels/autocomplete?name=%D1%82%D0%B5%D1%81%D1%82%20%2B%26`,
+      {
+        name: "team-channel-search",
+        body: [{ id: channelId, team_id: teamId }],
       },
     ],
     [
@@ -290,6 +392,12 @@ export function webviewServers(
             name: "code_block_ctrl_enter",
             value: "false",
           },
+          ...Array.from({ length: 61 }, (_, index) => ({
+            user_id: userId,
+            category: "flagged_post",
+            name: String(index).padStart(26, "s"),
+            value: "true",
+          })),
         ],
       },
     ],
@@ -310,6 +418,14 @@ export function webviewServers(
             last_root_post_at: 300,
             shared: true,
           },
+          {
+            id: groupId,
+            team_id: "",
+            type: "G",
+            name: "fixture-group",
+            display_name: "",
+            delete_at: 0,
+          },
         ],
       },
     ],
@@ -324,6 +440,7 @@ export function webviewServers(
             roles: "channel_user custom_writer",
             mention_count_root: 2,
           },
+          { channel_id: groupId, user_id: userId, roles: "channel_user" },
         ],
       },
     ],
@@ -336,6 +453,94 @@ export function webviewServers(
   }
   const data = https.createServer(trusted, async (req, res) => {
     const url = new URL(req.url ?? "/", "https://localhost");
+    const rosterChannel = "r".repeat(26);
+    const rosterUser = "n".repeat(26);
+    const rosterProfiles =
+      url.pathname === "/team/chat/api/v4/users" &&
+      url.searchParams.get("in_channel") === rosterChannel;
+    if (
+      rosterProfiles ||
+      url.pathname === `/team/chat/api/v4/channels/${rosterChannel}/members/ids`
+    ) {
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      let rows: object[];
+      if (rosterProfiles) {
+        assert.equal(req.method, "GET");
+        assert.deepEqual(Object.fromEntries(url.searchParams), {
+          in_channel: rosterChannel,
+          page: "0",
+          per_page: "100",
+          sort: "admin",
+        });
+        rows = [{ id: rosterUser, username: "roster-reader" }];
+      } else {
+        assert.equal(req.method, "POST");
+        assert.deepEqual(await json(req), [rosterUser]);
+        rows = [
+          {
+            user_id: rosterUser,
+            channel_id: rosterChannel,
+            roles: "channel_user channel_admin",
+            scheme_admin: true,
+          },
+        ];
+      }
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end(JSON.stringify(rows));
+      return;
+    }
+    if (url.pathname.startsWith("/system-post-check/api/v4/")) {
+      if (
+        url.pathname === `/system-post-check/api/v4/posts/${deniedPost}/info`
+      ) {
+        assert.equal(req.method, "GET");
+        assert.equal(req.headers.authorization, "Bearer fixture-system-post");
+        systemPostReads.add("denied");
+        res
+          .writeHead(403, { "Content-Type": "application/json" })
+          .end(JSON.stringify({ id: "fixture.denied", status_code: 403 }));
+        return;
+      }
+      if (
+        url.pathname === "/system-post-check/api/v4/system/ping" &&
+        url.searchParams.get("step") === "system-dialog-back"
+      ) {
+        assert(
+          pressWorkspaceBack &&
+            systemPostReads.has("denied") &&
+            !systemPostReads.has("dismissed"),
+        );
+        systemPostReads.add("dismissed");
+        await pressWorkspaceBack();
+        res.writeHead(204).end();
+        return;
+      }
+      url.pathname = url.pathname.replace(
+        "/system-post-check/",
+        "/browser-action-check/",
+      );
+      const seen =
+        (await respondToWorkspace(req, res, url, userId, false, {
+          systemLinks: true,
+        })) ??
+        respondToAccount(
+          req,
+          res,
+          url,
+          userId,
+          (name) => events.emit(name),
+          "fixture-system-post",
+        );
+      assert(seen, "Unexpected system permalink fixture request");
+      systemPostReads.add(seen);
+      return;
+    }
+    if (await collectionWindow(req, res, url)) return;
     if (url.pathname === "/team/chat/api/v4/reactions") {
       assert.equal(req.method, "POST");
       assert.equal(
@@ -377,6 +582,45 @@ export function webviewServers(
       res
         .writeHead(200, { "Content-Type": "application/json" })
         .end(JSON.stringify({ status: "OK" }));
+      return;
+    }
+    if (
+      url.pathname === "/team/chat/api/v4/users" ||
+      url.pathname === "/team/chat/api/v4/users/search"
+    ) {
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      if (url.pathname.endsWith("/search")) {
+        assert.equal(req.method, "POST");
+        assert.equal(url.search, "");
+        assert.deepEqual(await json(req), {
+          term: "ан",
+          team_id: teamId,
+          allow_inactive: false,
+          limit: 12,
+        });
+        visits.push("recipient-search");
+      } else {
+        assert.equal(req.method, "GET");
+        assert.deepEqual(Object.fromEntries(url.searchParams), {
+          in_team: teamId,
+          active: "true",
+          page: "1",
+          per_page: "20",
+        });
+        assert.equal(await text(req), "");
+        visits.push("recipient-page");
+      }
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end(
+          JSON.stringify([
+            { id: userId, username: "anna", first_name: "Анна" },
+          ]),
+        );
       return;
     }
     const collection = await collections(req, res, url);
@@ -494,6 +738,42 @@ export function webviewServers(
       );
       return;
     }
+    if (
+      url.pathname === "/team/chat/api/v4/users/me/preferences" &&
+      req.method === "PUT"
+    ) {
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      assert.equal(url.search, "");
+      const prefs = await json(req);
+      assert.ok(Array.isArray(prefs));
+      const stamp = prefs[1]?.value;
+      assert.equal(typeof stamp, "string");
+      assert.match(stamp, /^[1-9]\d+$/);
+      assert.deepEqual(prefs, [
+        {
+          user_id: userId,
+          category: "group_channel_show",
+          name: groupId,
+          value: "true",
+        },
+        {
+          user_id: userId,
+          category: "channel_open_time",
+          name: groupId,
+          value: stamp,
+        },
+      ]);
+      groupOpenedAt = stamp;
+      visits.push("show-known-group");
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end('{"status":"OK"}');
+      return;
+    }
     const customCategory = "m".repeat(26);
     const builtin = `direct_messages_${userId.toLowerCase()}_${teamId.toLowerCase()}`;
     const categoryRoute = `/team/chat/api/v4/users/me/teams/${teamId}/channels/categories`;
@@ -535,6 +815,34 @@ export function webviewServers(
     const readThread = await respondToThreadRead(req, res, url, teamId);
     if (readThread) {
       visits.push(readThread);
+      return;
+    }
+    if (
+      url.pathname === "/team/chat/api/v4/channels/direct" ||
+      url.pathname === "/team/chat/api/v4/channels/group"
+    ) {
+      const direct = url.pathname.endsWith("/direct");
+      assert.equal(req.method, "POST");
+      assert.equal(url.search, "");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      assert.deepEqual(
+        await json(req),
+        direct ? [userId] : ["x".repeat(26), "y".repeat(26)],
+      );
+      visits.push(
+        direct ? "open-self-conversation" : "open-group-conversation",
+      );
+      res.writeHead(201, { "Content-Type": "application/json" }).end(
+        JSON.stringify({
+          id: (direct ? "d" : "g").repeat(26),
+          team_id: "",
+          type: direct ? "D" : "G",
+        }),
+      );
       return;
     }
     const threadList = await respondToThreadList(
@@ -579,12 +887,56 @@ export function webviewServers(
       visits.push(mutation);
       return;
     }
+    const notificationRoom = "c".repeat(26);
+    const memberPath = `/browser-action-check/api/v4/channels/${notificationRoom}/members/me`;
+    if (
+      url.pathname === memberPath ||
+      url.pathname === memberPath + "/notify_props"
+    ) {
+      assert.equal(req.headers.authorization, "Bearer fixture-browser-action");
+      assert.equal(req.headers.cookie, undefined);
+      assert.equal(url.search, "");
+      if (url.pathname === memberPath) {
+        assert.equal(req.method, "GET");
+        visits.push("notification-member");
+        res.writeHead(200, { "Content-Type": "application/json" }).end(
+          JSON.stringify({
+            channel_id: notificationRoom,
+            user_id: "f".repeat(26),
+            notify_props: visits.includes("notification-save")
+              ? { push: "none" }
+              : {},
+          }),
+        );
+      } else {
+        assert.equal(req.method, "PUT");
+        const body: Buffer[] = [];
+        for await (const chunk of req) body.push(chunk);
+        assert.deepEqual(JSON.parse(Buffer.concat(body).toString()), {
+          push: "none",
+        });
+        const retry = visits.includes("notification-reject");
+        assert(!visits.includes("notification-save"));
+        visits.push(retry ? "notification-save" : "notification-reject");
+        res
+          .writeHead(retry ? 200 : 503, { "Content-Type": "application/json" })
+          .end(
+            JSON.stringify(
+              retry
+                ? { status: "OK" }
+                : { message: "Temporary fixture failure" },
+            ),
+          );
+      }
+      return;
+    }
     const workspace = await respondToWorkspace(
       req,
       res,
       url,
       userId,
-      visits.includes("live-roles"),
+      visits.includes("allow-design-posts"),
+      { joinedPublicRoom: visits.includes("directory-join") },
     );
     if (workspace) {
       visits.push(workspace);
@@ -803,6 +1155,43 @@ export function webviewServers(
       visits.push(history);
       return;
     }
+    if (url.pathname === "/team/chat/api/v4/users/status/ids") {
+      visits.push("batch-presence");
+      assert.equal(req.method, "POST");
+      assert.equal(url.search, "");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      assert.equal(req.headers["content-type"], "application/json");
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const peer = "b".repeat(26);
+      assert.deepEqual(JSON.parse(Buffer.concat(chunks).toString()), [
+        userId,
+        peer,
+      ]);
+      res.writeHead(200, { "Content-Type": "application/json" }).end(
+        JSON.stringify([
+          {
+            user_id: peer,
+            status: "dnd",
+            manual: true,
+            last_activity_at: 1700000000123,
+            dnd_end_time: 1700003600,
+          },
+          {
+            user_id: userId,
+            status: "offline",
+            manual: false,
+            last_activity_at: 0,
+            dnd_end_time: 0,
+          },
+        ]),
+      );
+      return;
+    }
     if (
       url.pathname === "/team/chat/api/v4/users/ids" ||
       url.pathname === "/api/v4/users/ids"
@@ -863,8 +1252,30 @@ export function webviewServers(
           : "Bearer fixture-root-session",
       );
       assert.equal(req.headers.cookie, undefined);
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(teamRead.body));
+      res.writeHead(teamRead.status ?? 200, {
+        "Content-Type": "application/json",
+      });
+      const body =
+        teamRead.name === "sidebar-preferences" &&
+        groupOpenedAt &&
+        Array.isArray(teamRead.body)
+          ? [
+              ...teamRead.body,
+              {
+                user_id: userId,
+                category: "group_channel_show",
+                name: groupId,
+                value: "true",
+              },
+              {
+                user_id: userId,
+                category: "channel_open_time",
+                name: groupId,
+                value: groupOpenedAt,
+              },
+            ]
+          : teamRead.body;
+      res.end(JSON.stringify(body));
       return;
     }
     if (url.pathname === "/api/v4/users/me") {
@@ -911,6 +1322,8 @@ export function webviewServers(
                 RestrictDirectMessage: "team",
                 FeatureFlagEnableSharedChannelsDMs: "true",
                 EnableConfirmNotificationsToChannel: "false",
+                WebsocketURL: "",
+                WebsocketSecurePort: "443",
                 MaxNotificationsPerChannel: "9223372036854775807",
                 UniqueEmojiReactionLimitPerPost: "-2",
                 EnableUserStatuses: "false",
@@ -1039,6 +1452,28 @@ export function webviewServers(
     const url = new URL(req.url ?? "/", "https://localhost");
     assert.equal(url.pathname, "/api/v4/system/ping");
     const step = url.searchParams.get("step");
+    const controlId = ++controlRequests;
+    const knownStep =
+      step &&
+      (backSteps.some((label) => step === `back-${label}`) ||
+        [
+          "format-right",
+          "format-times",
+          "received",
+          "closed",
+          "before",
+          "release-history",
+          "release-submission",
+          "disconnect",
+        ].includes(step));
+    const name = url.searchParams.get("case") ?? "";
+    const marker =
+      (step === "received" || step === "closed") && held.has(name)
+        ? `${step}(${name})`
+        : knownStep
+          ? step
+          : "other";
+    controlProgress = `${controlId} ${marker} received`;
     if (step === "before") {
       assert.equal(
         connections,
@@ -1046,14 +1481,55 @@ export function webviewServers(
         "prepared, cancelled and refused requests must not open a socket",
       );
       before = true;
-    } else if (step === "thread-back" || step === "search-result-back") {
+    } else if (step?.startsWith("collection-back-")) {
+      assert(
+        pressWorkspaceBack && !visits.includes(step),
+        "Unexpected collection Back: " + step,
+      );
+      visits.push(step);
+      await pressWorkspaceBack();
+    } else if (step === "allow-design-posts") {
+      assert(visits.includes("live-roles") && !visits.includes(step));
+      visits.push(step);
+    } else if (step === "search-result-back") {
       const marker = "android-" + step;
       assert(
-        pressAndroidBack && !visits.includes(marker),
+        pressWorkspaceBack && !visits.includes(marker),
         "expected one Android Back at " + step,
       );
       visits.push(marker);
-      await pressAndroidBack();
+      await pressWorkspaceBack();
+    } else if (step?.startsWith("back-")) {
+      assert.equal(step, "back-" + backSteps[stepIndex]);
+      assert(
+        pressWorkspaceBack,
+        "expected the active platform's key input driver",
+      );
+      await pressWorkspaceBack();
+      stepIndex++;
+    } else if (step === "format-right") {
+      assert(sendRight, "Missing native keyboard driver");
+      const width = Number(url.searchParams.get("case"));
+      assert.equal(width, [320, 820][formatKeyWidths.length]);
+      formatKeyWidths.push(width);
+      console.log(
+        `Sending native ArrowRight to the ${width}px formatting fixture.`,
+      );
+      await sendRight();
+    } else if (step === "format-times") {
+      assert.deepEqual(formatKeyWidths, [320, 820]);
+      const data = JSON.parse(url.searchParams.get("case") ?? "null");
+      assert.ok(Array.isArray(data));
+      assert.deepEqual(
+        data.map((row) => row.width),
+        [320, 820],
+      );
+      for (const row of data) {
+        assert.ok(Number.isFinite(row.first) && row.first >= 0);
+        assert.ok(Number.isFinite(row.unchanged) && row.unchanged >= 0);
+      }
+      formattingTimes = data;
+      console.log("Verified native code-block scrolling at both widths.");
     } else if (step === "release-history") {
       refresh.release();
     } else if (step === "release-submission") {
@@ -1062,7 +1538,6 @@ export function webviewServers(
       assert(disconnect);
       disconnect.destroy();
     } else {
-      const name = url.searchParams.get("case") ?? "";
       const wait = held.get(name);
       assert(wait);
       assert(step === "received" || step === "closed");
@@ -1074,6 +1549,7 @@ export function webviewServers(
         await sendTab();
       }
     }
+    controlProgress = `${controlId} ${marker} replied`;
     res.writeHead(204).end();
   });
   let untrustedRequests = 0;
@@ -1083,26 +1559,63 @@ export function webviewServers(
   });
   return {
     servers: [data, control, foreign],
+    progress: () =>
+      `control=${controlProgress}, data visits=${visits.length}, completed Back steps=${stepIndex}`,
+    onMacInputReady(send: SendMacKey) {
+      pressWorkspaceBack = () => send("escape");
+      sendRight = () => send("right");
+    },
     onAndroidInputReady(send: SendAndroidKey) {
       prepareKeyboard = () => send("KEYCODE_TAB");
-      pressAndroidBack = () => send("KEYCODE_BACK");
+      pressWorkspaceBack = () => send("KEYCODE_BACK");
+      sendRight = () => send("KEYCODE_DPAD_RIGHT");
     },
     verify(platform: "macos" | "android") {
+      if (platform === "android")
+        assert(systemPostReads.has("dismissed"), "Missing system-link Back");
+
       refresh.verify();
+      for (const read of [
+        "live-search-destination",
+        "live-search-post-anchor",
+        "system-reply-destination",
+        "system-reply-anchor",
+        "system-neighbors-before",
+        "system-neighbors-after",
+        "live-window-thread",
+      ])
+        assert(
+          systemPostReads.has(read),
+          "Missing native system-link request " + read,
+        );
       assert.equal(
         offlineHistoryRequests,
         1,
         "only the online control may reach the offline fixture",
       );
       assert(before);
+      assert.ok(formattingTimes);
+      console.log(
+        `Rendered 60 formatted posts in the ${platform} WebView (milliseconds): ${JSON.stringify(formattingTimes)}`,
+      );
       assert.equal(settings.size, 2);
       assert.equal(entrySettings.size, 2);
       assert.equal(untrustedRequests, 0);
       const expected = [
+        "collection-back-saved-reply",
+        "collection-back-saved-list",
+        "collection-back-pinned-root",
+        "collection-back-pinned-list",
         "signed-single-channel",
         "signed-named-channel",
         "signed-named-team",
+        "public-directory-page",
+        "archived-directory-page",
+        "public-directory-denied",
+        "archived-directory-denied",
         "managed-category-mappings",
+        "team-channel-search",
+        "account-directory-search",
         "bytes",
         "204",
         "205",
@@ -1119,6 +1632,8 @@ export function webviewServers(
         "user-me",
         "user-profile",
         "profiles-by-name",
+        "recipient-page",
+        "recipient-search",
         "profile-image",
         "account-logout-confirmed",
         "account-logout-unconfirmed",
@@ -1126,6 +1641,10 @@ export function webviewServers(
         "account-second",
         "account-denied",
         "account-expired",
+        "show-known-group",
+        "directory-teams",
+        "my-team-members",
+        "sidebar-preferences",
         "workspace-config",
         "workspace-license",
         "account-html",
@@ -1166,6 +1685,9 @@ export function webviewServers(
         "list-saved",
         "remove-pin",
         "remove-saved",
+        "sidebar-preferences",
+        "sidebar-preferences",
+        "list-saved-more",
         "custom-emoji-by-name",
         "custom-emoji-by-name",
         "custom-emoji-by-name",
@@ -1175,6 +1697,8 @@ export function webviewServers(
         "read-team-threads",
         "read-thread",
         "read-team-threads",
+        "open-self-conversation",
+        "open-group-conversation",
         "follow-thread",
         "unfollow-thread",
         "collapse-sidebar-category",
@@ -1185,6 +1709,8 @@ export function webviewServers(
         "account-thread-page",
         "account-thread-empty",
         "account-thread-totals",
+        "follow-thread",
+        "unfollow-thread",
         "patch-post",
         "post-edit-history",
         "post-edit-history",
@@ -1244,6 +1770,7 @@ export function webviewServers(
         "post-thread-archive",
         "post-thread-reply",
         "batch-signed",
+        "batch-presence",
         "batch-anonymous",
         "batch-text",
         "batch-headers",
@@ -1256,9 +1783,39 @@ export function webviewServers(
         "ping-headers",
         "ping-body",
       ];
-      if (platform === "macos") expected.push("window");
-      if (platform === "android") expected.push("account-logout-local-failure");
+      if (platform === "macos")
+        expected.push(
+          "window",
+          "browser-action-confirmed",
+          "browser-action-confirmed",
+          "browser-entry-users/me/preferences",
+          "browser-entry-users/me/teams",
+          "browser-entry-users/me/teams/members",
+          "live-authors",
+          "live-categories",
+          "live-channels",
+          "live-config/client",
+          "live-license/client",
+          "live-members",
+          `live-posts-${"c".repeat(26)}`,
+          "live-roles",
+          "live-search-posts",
+          "live-window-thread",
+          "live-window-thread",
+          "live-window-thread",
+        );
+      if (platform === "android")
+        expected.push("account-logout-local-failure", "allow-design-posts");
       expected.push(
+        "directory-page",
+        "directory-query",
+        "directory-join",
+        "directory-posts",
+        "browser-action-confirmed",
+        "live-roles",
+        "live-channels",
+        "live-members",
+        "live-categories",
         "directory-teams",
         "my-team-members",
         "sidebar-preferences",
@@ -1283,8 +1840,11 @@ export function webviewServers(
           "live-categories",
           "live-window-send",
           "live-window-thread",
-          "android-thread-back",
           "android-search-result-back",
+          "browser-action-confirmed",
+          "live-search-posts",
+          "live-window-thread",
+          "live-window-thread",
           "live-window-thread",
           "live-window-send-reply",
           "live-window-command-repeat",
@@ -1317,6 +1877,25 @@ export function webviewServers(
             "users/me/preferences",
           ].map((path) => "browser-entry-" + path),
         );
+      expected.push(
+        "notification-member",
+        "notification-member",
+        "notification-member",
+        "notification-reject",
+        "notification-save",
+        "live-roles",
+        "browser-action-confirmed",
+        "browser-action-confirmed",
+        "browser-action-confirmed",
+        "browser-action-confirmed",
+        "live-categories",
+        "live-channels",
+        "live-members",
+      );
+      assert.equal(stepIndex, backSteps.length);
+      console.log(
+        `${platform} verified native return through the search dialog, results and thread with both composer drafts intact.`,
+      );
       assert.deepEqual(visits.sort(), expected.sort());
     },
   };

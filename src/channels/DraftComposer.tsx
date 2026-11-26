@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { isMobile } from "../build-platform.ts";
 import type { EntryLanguage } from "../entry/language.ts";
 import type { SidebarPreferences } from "../mattermost/workspace-preferences.ts";
 import { composerEnter } from "./composer-enter.ts";
@@ -229,7 +230,7 @@ function DraftField({
         (document.activeElement === document.body ||
           document.activeElement === field)) ||
       (pane?.querySelector("h1, h2") === document.activeElement &&
-        !(editor.location.rootId && import.meta.env.UMMKA_MOBILE === true) &&
+        !(editor.location.rootId && isMobile) &&
         (field.closest(".channels-frame")?.clientWidth ?? 0) > 740)
     )
       field.focus({ preventScroll: true });
@@ -433,7 +434,7 @@ function DraftField({
             const decision = composerEnter(event.nativeEvent, {
               message: event.currentTarget.value,
               caret: event.currentTarget.selectionStart,
-              mobile: import.meta.env.UMMKA_MOBILE === true,
+              mobile: isMobile,
               preferences: keys,
               millisecondsSinceChannelSwitch:
                 switchedAt === undefined

@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
-import { coldLink, warmLink } from "../webview-check/link-examples.ts";
+import {
+  coldLink,
+  postLinks,
+  warmLink,
+} from "../webview-check/link-examples.ts";
 
 type Adb = (...args: string[]) => Promise<string>;
 export type SendAndroidKey = (
-  key: "KEYCODE_TAB" | "KEYCODE_BACK",
+  key: "KEYCODE_TAB" | "KEYCODE_BACK" | "KEYCODE_DPAD_RIGHT",
 ) => Promise<void>;
 export type OnAndroidInputReady = (send: SendAndroidKey) => void;
 
@@ -65,11 +69,14 @@ export async function launchWebview(
 
 async function stop(adb: Adb, app: string) {
   await adb("shell", "am", "force-stop", app);
+  await waitForStop(adb, app);
+}
+async function waitForStop(adb: Adb, app: string) {
   const deadline = Date.now() + 8_000;
   while (
     (await adb("shell", "ps", "-A", "-o", "NAME")).split(/\s+/u).includes(app)
   ) {
-    assert(Date.now() < deadline, "the app process survived force-stop");
+    assert(Date.now() < deadline, "the fixture process did not stop");
     await delay(100);
   }
 }
@@ -86,6 +93,7 @@ async function openSystemLink(
   activity: string,
   href: string,
   id: number,
+  requireShown = false,
 ) {
   const result = await adb(
     "shell",
@@ -112,8 +120,19 @@ async function openSystemLink(
       "RustStdoutStderr:I",
       "AndroidRuntime:E",
     );
-    assert.doesNotMatch(output, /FATAL EXCEPTION|UMMKA_WEBVIEW_CHECK FAIL/u);
+    if (output.includes("UMMKA_WEBVIEW_CHECK FAIL")) {
+      const line = output.match(/WebView check stopped at (fail=[^\r\n]+)/u);
+      const detail = line && new URLSearchParams(line[1]).get("fail");
+      throw Error(
+        detail?.startsWith("system-post-flow ")
+          ? detail
+          : "Android WebView rejected the system link",
+      );
+    }
+    assert.doesNotMatch(output, /FATAL EXCEPTION/u);
     if (
+      (!requireShown ||
+        output.includes("UMMKA_WEBVIEW_CHECK system-posts-shown")) &&
       output
         .split(/\r?\n/u)
         .some((line) => line.endsWith(`UMMKA_LINK_ACK ${id} ${pid}`))
@@ -129,6 +148,7 @@ export async function checkWebviewProcesses(
   app: string,
   component: string,
   onAndroidInputReady: OnAndroidInputReady,
+  dataPort: number,
 ) {
   const activity = `${component}MainActivity`;
   await adb(
@@ -193,6 +213,34 @@ export async function checkWebviewProcesses(
     external.match(/received external mail/gu)?.length,
     1,
     "Android did not deliver exactly one mail link to the fixture handler",
+  );
+  // Instrumentation starts and ends a fresh fixture process even while its test CA is owned by the device admin.
+  const restart = await adb(
+    "shell",
+    "am",
+    "instrument",
+    "-w",
+    "-r",
+    "-e",
+    "checkpoint",
+    "permalink",
+    component + "HttpCheckInstrumentation",
+  );
+  assert.match(restart, /^INSTRUMENTATION_RESULT: checkpoint=permalink\r?$/mu);
+  await waitForStop(adb, app);
+  const posts = postLinks(dataPort);
+  const systemPid = await openSystemLink(adb, app, activity, posts.cold, 1);
+  assert.notEqual(systemPid, seeded);
+  assert.equal(
+    await openSystemLink(adb, app, activity, posts.warm, 2),
+    systemPid,
+  );
+  assert.equal(
+    await openSystemLink(adb, app, activity, posts.denied, 3, true),
+    systemPid,
+  );
+  console.log(
+    `Android focused the linked post and thread reply in process ${systemPid}; both deliveries were acknowledged.`,
   );
   // Android protects the device owner from force-stop. TLS checks have finished
   // using its test CA, so release ownership before testing process restarts.

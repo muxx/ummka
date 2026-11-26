@@ -1,13 +1,26 @@
 import assert from "node:assert/strict";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import {
+  systemReply as townReply,
+  systemRoot as townRoot,
+} from "../webview-check/link-examples.ts";
 
 const team = "Team0123456789012345678901";
 const town = "c".repeat(26);
-const townRoot = "v".repeat(26);
-const townReply = "w".repeat(26);
 const townFile = "h".repeat(26);
 const design = "d".repeat(26);
 const member = "f".repeat(26);
+
+const publicRoom = {
+  id: "z".repeat(26),
+  team_id: team,
+  name: "release-notes",
+  display_name: "Release Notes",
+  type: "O",
+  header: "Upcoming releases",
+  purpose: "Release announcements",
+  delete_at: 0,
+};
 
 const category = "k".repeat(26);
 
@@ -21,8 +34,12 @@ function latest(url: URL) {
   });
   assert.equal(url.searchParams.size, 5);
 }
-function postList(channelId: string, userId: string, message: string) {
-  const id = channelId === town ? townRoot : "y".repeat(26);
+function postList(
+  channelId: string,
+  userId: string,
+  message: string,
+  id = channelId === town ? townRoot : "y".repeat(26),
+) {
   return {
     order: [id],
     posts: {
@@ -53,6 +70,7 @@ export async function respondToWorkspace(
   url: URL,
   prefixedUser: string,
   restoredPosting: boolean,
+  { joinedPublicRoom = false, systemLinks = false } = {},
 ): Promise<string | undefined> {
   function json(value: unknown, name: string, status = 200) {
     res
@@ -76,6 +94,9 @@ export async function respondToWorkspace(
   const base = "/browser-action-check/api/v4/";
   if (!url.pathname.startsWith(base)) return;
   const path = url.pathname.slice(base.length);
+  const joinedIds = joinedPublicRoom
+    ? [town, design, publicRoom.id]
+    : [town, design];
   const routes = new Map<string, unknown>([
     [
       `users/me/teams/${team}/channels`,
@@ -96,14 +117,15 @@ export async function respondToWorkspace(
           display_name: "Design",
           delete_at: 0,
         },
+        ...(joinedPublicRoom ? [publicRoom] : []),
       ],
     ],
     [
       `users/me/teams/${team}/channels/members`,
-      [town, design].map((channel_id) => ({
+      joinedIds.map((channel_id) => ({
         channel_id,
         user_id: member,
-        roles: channel_id === town ? "channel_user" : "fixture_reader",
+        roles: channel_id === design ? "fixture_reader" : "channel_user",
       })),
     ],
     [
@@ -121,7 +143,7 @@ export async function respondToWorkspace(
             sort_order: 0,
             muted: false,
             collapsed: false,
-            channel_ids: [town, design],
+            channel_ids: joinedIds,
           },
         ],
       },
@@ -159,8 +181,19 @@ export async function respondToWorkspace(
     [`files/${townFile}/info`, [fileInfo, "live-search-file-anchor"]],
     [`posts/${townRoot}/info`, [destination, "live-search-destination"]],
     [`posts/${townRoot}`, [message, "live-search-post-anchor"]],
-    [`posts/${townReply}/info`, [destination, "live-search-reply-destination"]],
-    [`posts/${townReply}`, [reply, "live-search-reply-anchor"]],
+    [
+      `posts/${townReply}/info`,
+      [
+        destination,
+        systemLinks
+          ? "system-reply-destination"
+          : "live-search-reply-destination",
+      ],
+    ],
+    [
+      `posts/${townReply}`,
+      [reply, systemLinks ? "system-reply-anchor" : "live-search-reply-anchor"],
+    ],
   ]);
   const channelId =
     path === `channels/${town}/posts`
@@ -168,6 +201,10 @@ export async function respondToWorkspace(
       : path === `channels/${design}/posts`
         ? design
         : null;
+  const listRooms = path === `teams/${team}/channels`;
+  const queryRooms = path === `teams/${team}/channels/autocomplete`;
+  const joinRoom = path === `channels/${publicRoom.id}/members`;
+  const joinedPosts = path === `channels/${publicRoom.id}/posts`;
   const thread = path === `posts/${townRoot}/thread`;
   const policy =
     (path === "config/client" || path === "license/client") &&
@@ -175,6 +212,7 @@ export async function respondToWorkspace(
   const searchPosts = path === `teams/${team}/posts/search`;
   const searchFiles = path === `teams/${team}/files/search`;
   const post =
+    joinRoom ||
     searchPosts ||
     searchFiles ||
     path === "users/ids" ||
@@ -185,14 +223,45 @@ export async function respondToWorkspace(
     !routes.has(path) &&
     !anchors.has(path) &&
     !channelId &&
+    !listRooms &&
+    !queryRooms &&
+    !joinedPosts &&
     !thread &&
     !policy &&
     !post
   )
     return;
-  assert.equal(req.headers.authorization, "Bearer fixture-browser-action");
+  assert.equal(
+    req.headers.authorization,
+    systemLinks
+      ? "Bearer fixture-system-post"
+      : "Bearer fixture-browser-action",
+  );
   assert.equal(req.headers.cookie, undefined);
   assert.equal(req.method, post ? "POST" : "GET");
+  if (listRooms || queryRooms) {
+    assert.deepEqual(
+      Object.fromEntries(url.searchParams),
+      listRooms ? { page: "0", per_page: "50" } : { name: "release" },
+    );
+    return json([publicRoom], listRooms ? "directory-page" : "directory-query");
+  }
+  if (joinedPosts) {
+    assert.ok(
+      joinedPublicRoom,
+      "Directory details requested posts before joining",
+    );
+    latest(url);
+    return json(
+      postList(
+        publicRoom.id,
+        member,
+        "Welcome to Release Notes",
+        "j".repeat(26),
+      ),
+      "directory-posts",
+    );
+  }
   const anchor = anchors.get(path);
   if (anchor) {
     assert.equal(url.search, "");
@@ -226,13 +295,19 @@ export async function respondToWorkspace(
       });
       return json(
         { ...page, has_next: false },
-        "live-search-thread-" + query.direction,
+        systemLinks
+          ? "live-window-thread"
+          : "live-search-thread-" + query.direction,
       );
     }
     assert.deepEqual(query, {
       direction: "down",
       perPage: "60",
       collapsedThreads: "true",
+      ...(systemLinks && {
+        skipFetchThreads: "false",
+        collapsedThreadsExtended: "false",
+      }),
     });
     return json(
       {
@@ -245,6 +320,28 @@ export async function respondToWorkspace(
     );
   }
   if (channelId) {
+    if (systemLinks) {
+      const side = url.searchParams.has("before") ? "before" : "after";
+      assert.equal(channelId, town);
+      assert.deepEqual(Object.fromEntries(url.searchParams), {
+        [side]: townRoot,
+        page: "0",
+        per_page: "30",
+        skipFetchThreads: "false",
+        collapsedThreads: "true",
+        collapsedThreadsExtended: "false",
+      });
+      return json(
+        {
+          order: [],
+          posts: {},
+          next_post_id: "",
+          prev_post_id: "",
+          first_inaccessible_post_time: 0,
+        },
+        "system-neighbors-" + side,
+      );
+    }
     latest(url);
     return json(
       postList(
@@ -260,6 +357,19 @@ export async function respondToWorkspace(
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk);
     const body = JSON.parse(Buffer.concat(chunks).toString());
+    if (joinRoom) {
+      assert.equal(
+        joinedPublicRoom,
+        false,
+        "Directory sent the membership request twice",
+      );
+      assert.deepEqual(body, { user_id: member });
+      return json(
+        { channel_id: publicRoom.id, user_id: member },
+        "directory-join",
+        201,
+      );
+    }
     if (searchPosts || searchFiles) {
       assert.deepEqual(body, {
         terms: "window fixture",
@@ -356,10 +466,12 @@ export async function respondToWorkspace(
         names.map((name) => ({
           name,
           permissions:
-            name === "channel_user" ||
-            (name === "fixture_reader" && restoredPosting)
-              ? ["create_post"]
-              : [],
+            name === "team_user"
+              ? ["list_team_channels", "join_public_channels"]
+              : name === "channel_user" ||
+                  (name === "fixture_reader" && restoredPosting)
+                ? ["create_post"]
+                : [],
         })),
         "live-roles",
       );

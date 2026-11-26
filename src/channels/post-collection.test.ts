@@ -24,6 +24,10 @@ function mockAccount() {
   return {
     setPostSaved: vi.fn<Account["setPostSaved"]>(),
     setPostPinned: vi.fn<Account["setPostPinned"]>(),
+    readSavedPostUpperBound: vi
+      .fn<Account["readSavedPostUpperBound"]>()
+      .mockResolvedValue(2),
+    readSavedPostsAtOffset: vi.fn<Account["readSavedPostsAtOffset"]>(),
     readPinnedChannelPosts: vi.fn<Account["readPinnedChannelPosts"]>(),
     readSavedPosts: vi.fn<Account["readSavedPosts"]>(),
   };
@@ -37,6 +41,7 @@ test("first read is shared with subscribers and repeated refreshes replace the e
     .mockResolvedValueOnce(empty);
   const view = openPostCollection(account, { kind: "pins", channelId });
   expect(view.getSnapshot()).toEqual({
+    continuation: "none",
     removing: [],
     status: "idle",
     value: null,
@@ -49,6 +54,7 @@ test("first read is shared with subscribers and repeated refreshes replace the e
   expect(reentrant).toBe(pending);
   expect(view.refresh()).toBe(pending);
   expect(view.getSnapshot()).toEqual({
+    continuation: "none",
     removing: [],
     status: "loading",
     value: null,
@@ -61,18 +67,21 @@ test("first read is shared with subscribers and repeated refreshes replace the e
   gate.resolve(page);
   await pending;
   expect(view.getSnapshot()).toEqual({
+    continuation: "none",
     removing: [],
     status: "ready",
     value: page,
   });
   const updated = view.refresh();
   expect(view.getSnapshot()).toEqual({
+    continuation: "none",
     removing: [],
     status: "refreshing",
     value: page,
   });
   await updated;
   expect(view.getSnapshot()).toEqual({
+    continuation: "none",
     removing: [],
     status: "ready",
     value: empty,
@@ -125,6 +134,7 @@ test.each([
     await view.refresh();
     await view.refresh();
     expect(view.getSnapshot()).toEqual({
+      continuation: "none",
       removing: [],
       status,
       value: retain ? page : null,
@@ -132,6 +142,7 @@ test.each([
     expect(account.readSavedPosts).toHaveBeenCalledTimes(2);
     await view.refresh();
     expect(view.getSnapshot()).toEqual({
+      continuation: "none",
       removing: [],
       status: "ready",
       value: empty,
@@ -165,6 +176,7 @@ test.each(["success", "failure"])(
     await view.refresh();
     expect(listener).toHaveBeenCalledTimes(2);
     expect(view.getSnapshot()).toEqual({
+      continuation: "none",
       removing: [],
       status: "closed",
       value: null,
@@ -182,6 +194,7 @@ test("closing from the loading notification prevents the network call", async ()
   await view.refresh();
   expect(account.readPinnedChannelPosts).not.toHaveBeenCalled();
   expect(view.getSnapshot()).toEqual({
+    continuation: "none",
     removing: [],
     status: "closed",
     value: null,
@@ -229,6 +242,7 @@ test.each(["all", "pins"] as const)(
     const removeLast = view.remove(last.id);
     expect(duplicate).toBe(removeFirst);
     expect(view.getSnapshot()).toEqual({
+      continuation: "none",
       status: "ready",
       value: page,
       removing: [first.id, last.id],
@@ -246,6 +260,7 @@ test.each(["all", "pins"] as const)(
     older.resolve();
     expect(await removeFirst).toBe("removed");
     expect(view.getSnapshot()).toEqual({
+      continuation: "none",
       status: "ready",
       value: { ...page, items: [] },
       removing: [],
@@ -291,6 +306,7 @@ test.each([
     await view.refresh();
     expect(await view.remove(first.id)).toBe(outcome);
     expect(view.getSnapshot()).toEqual({
+      continuation: "none",
       status: "ready",
       value: page,
       removing: [],
@@ -323,6 +339,7 @@ test("loss of the session while writing cancels other writes and the old read", 
   expect(account.setPostSaved.mock.calls[0][2]?.aborted).toBe(true);
   expect(account.readSavedPosts.mock.calls[1][2]?.aborted).toBe(true);
   expect(view.getSnapshot()).toEqual({
+    continuation: "none",
     status: "unauthorized",
     value: null,
     removing: [],
@@ -333,6 +350,7 @@ test("loss of the session while writing cancels other writes and the old read", 
   await read;
   expect(await firstWrite).toBe("unavailable");
   expect(view.getSnapshot()).toEqual({
+    continuation: "none",
     status: "ready",
     value: empty,
     removing: [],
@@ -361,6 +379,7 @@ test.each(["close", "deny read"] as const)(
     gate.resolve();
     expect(await pending).toBe("unavailable");
     expect(view.getSnapshot()).toEqual({
+      continuation: "none",
       status: end === "close" ? "closed" : "forbidden",
       value: null,
       removing: [],
@@ -378,4 +397,138 @@ test("closing in the removing notification prevents sending the write", async ()
   });
   expect(await view.remove(first.id)).toBe("unavailable");
   expect(account.setPostSaved).not.toHaveBeenCalled();
+});
+
+test("a saved scan crosses a fully hidden page, keeps actual rows and reads its bound once", async () => {
+  const account = mockAccount();
+  account.readSavedPostUpperBound.mockResolvedValue(121);
+  account.readSavedPosts.mockResolvedValue({ ...page, items: [first] });
+  account.readSavedPostsAtOffset
+    .mockResolvedValueOnce(empty)
+    .mockResolvedValueOnce({
+      items: [first, last],
+      firstInaccessiblePostTime: 58,
+    });
+  const source = { kind: "team" as const, teamId: "t".repeat(26) };
+  const view = openPostCollection(account, source);
+  await view.refresh();
+  expect(view.getSnapshot().continuation).toBe("available");
+  const next = view.loadMore();
+  expect(view.getSnapshot().continuation).toBe("loading");
+  expect(view.loadMore()).toBe(next);
+  await next;
+  expect(view.getSnapshot().value?.items).toEqual([first]);
+  expect(view.getSnapshot().continuation).toBe("available");
+  await view.loadMore();
+  await view.loadMore();
+  expect(view.getSnapshot()).toMatchObject({
+    continuation: "none",
+    value: { items: [first, last], firstInaccessiblePostTime: 58 },
+  });
+  expect(
+    account.readSavedPostsAtOffset.mock.calls.map(([scope, offset]) => [
+      scope,
+      offset,
+    ]),
+  ).toEqual([
+    [source, 60],
+    [source, 120],
+  ]);
+  expect(account.readSavedPostUpperBound).toHaveBeenCalledTimes(1);
+  await view.refresh();
+  expect(account.readSavedPostUpperBound).toHaveBeenCalledTimes(2);
+});
+
+test("confirmed removal cancels a stale page and corrects the next offset, rejection leaves it alone", async () => {
+  const account = mockAccount(),
+    late = deferredPage();
+  account.readSavedPostUpperBound.mockResolvedValue(61);
+  account.readSavedPosts.mockResolvedValue(page);
+  account.readSavedPostsAtOffset
+    .mockReturnValueOnce(late.promise)
+    .mockRejectedValueOnce(new TypeError("offline"))
+    .mockResolvedValueOnce({ items: [last], firstInaccessiblePostTime: 0 });
+  account.setPostSaved
+    .mockRejectedValueOnce(new TypeError("offline"))
+    .mockResolvedValueOnce(undefined);
+  const view = openPostCollection(account, { kind: "all" });
+  await view.refresh();
+  const more = view.loadMore();
+  await Promise.resolve();
+  const signal = account.readSavedPostsAtOffset.mock.calls[0][2];
+  expect(await view.remove(first.id)).toBe("network");
+  expect(signal?.aborted).toBe(false);
+  expect(await view.remove(first.id)).toBe("removed");
+  expect(signal?.aborted).toBe(true);
+  late.resolve(page);
+  await more;
+  expect(view.getSnapshot().value?.items).toEqual([last]);
+  expect(view.getSnapshot().continuation).toBe("available");
+  await view.loadMore();
+  expect(view.getSnapshot().continuation).toBe("network");
+  await view.loadMore();
+  expect(view.getSnapshot().continuation).toBe("none");
+  expect(
+    account.readSavedPostsAtOffset.mock.calls.map(([, offset]) => offset),
+  ).toEqual([60, 59, 59]);
+});
+
+test("revoked access clears loaded saved rows; closing cancels continuation and ignores its late response", async () => {
+  const account = mockAccount(),
+    late = deferredPage();
+  account.readSavedPostUpperBound.mockResolvedValue(80);
+  account.readSavedPosts.mockResolvedValue(page);
+  account.readSavedPostsAtOffset
+    .mockRejectedValueOnce(
+      new ResponseError(new Response(null, { status: 403 })),
+    )
+    .mockReturnValueOnce(late.promise);
+  const view = openPostCollection(account, { kind: "all" });
+  await view.refresh();
+  await view.loadMore();
+  expect(view.getSnapshot()).toMatchObject({
+    status: "forbidden",
+    value: null,
+    continuation: "none",
+  });
+  await view.refresh();
+  const pending = view.loadMore();
+  await Promise.resolve();
+  const signal = account.readSavedPostsAtOffset.mock.calls[1][2];
+  view.close();
+  expect(signal?.aborted).toBe(true);
+  late.resolve(page);
+  await pending;
+  expect(view.getSnapshot()).toMatchObject({
+    status: "closed",
+    value: null,
+    continuation: "none",
+  });
+});
+
+test("a confirmed removal during refresh cannot shrink an already updated preference bound twice", async () => {
+  const account = mockAccount(),
+    fresh = deferredPage();
+  account.readSavedPostUpperBound
+    .mockResolvedValueOnce(61)
+    .mockResolvedValueOnce(60);
+  account.readSavedPosts
+    .mockResolvedValueOnce(page)
+    .mockReturnValueOnce(fresh.promise);
+  account.readSavedPostsAtOffset.mockResolvedValueOnce({
+    items: [last],
+    firstInaccessiblePostTime: 0,
+  });
+  account.setPostSaved.mockResolvedValue(undefined);
+  const view = openPostCollection(account, { kind: "all" });
+  await view.refresh();
+  const refresh = view.refresh();
+  await Promise.resolve();
+  await view.remove(first.id);
+  fresh.resolve(page);
+  await refresh;
+  expect(view.getSnapshot().continuation).toBe("available");
+  await view.loadMore();
+  expect(account.readSavedPostsAtOffset.mock.calls[0][1]).toBe(59);
+  expect(view.getSnapshot().value?.items).toEqual([last]);
 });

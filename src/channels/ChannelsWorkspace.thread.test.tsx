@@ -1,3 +1,4 @@
+import { onBackButtonPress } from "@tauri-apps/api/app";
 import {
   act,
   cleanup,
@@ -26,6 +27,18 @@ import {
 import { ChannelsWorkspace } from "./ChannelsWorkspace.tsx";
 import * as workspaceSearch from "./use-workspace-search.tsx";
 import "./workspace-dom.test-utils.ts";
+
+let androidBack: (() => void) | undefined;
+vi.mock("@tauri-apps/api/app", () => ({
+  onBackButtonPress: vi.fn(async (pressed: () => void) => {
+    androidBack = pressed;
+    return {
+      unregister: vi.fn(() => {
+        if (androidBack === pressed) androidBack = undefined;
+      }),
+    };
+  }),
+}));
 
 beforeEach(() => {
   vi.stubGlobal(
@@ -81,6 +94,7 @@ function mount(
     writable?: boolean;
     type?: string;
     second?: boolean;
+    draftRead?: Promise<void>;
   } = {},
 ) {
   const data = projectTeamSidebar({
@@ -192,10 +206,10 @@ function mount(
     readSavedPost: vi
       .fn<Connection["readSavedPost"]>()
       .mockResolvedValue(rows[0]),
-    readDraft: vi.fn<Connection["readDraft"]>(
-      async (place) =>
-        drafts.get(draftKey(place)) ?? { message: "", revision: null },
-    ),
+    readDraft: vi.fn<Connection["readDraft"]>(async (place) => {
+      if (options.draftRead) await options.draftRead;
+      return drafts.get(draftKey(place)) ?? { message: "", revision: null };
+    }),
     saveDraft: vi.fn<Connection["saveDraft"]>(async (place) => {
       const key = draftKey(place);
       const existing = drafts.get(key) ?? { message: "", revision: null };
@@ -205,6 +219,10 @@ function mount(
       drafts.set(key, draft);
       return { kind: "saved", draft };
     }),
+    readJoinedTeams: vi.fn(async () => ({
+      teams: [team],
+      selectedTeam: team.id,
+    })),
     submitDraft: vi.fn(),
     readPendingPosts: vi
       .fn<Connection["readPendingPosts"]>()
@@ -215,7 +233,13 @@ function mount(
     subscribeToPostActivity: vi.fn(() => () => {}),
   };
   const workspace: TeamWorkspace = {
-    messages: { open: vi.fn(), clear: vi.fn(), position: null },
+    messages: {
+      dialogOpen: false,
+      open: vi.fn(),
+      clear: vi.fn(),
+      position: null,
+      enqueue: (work) => work(),
+    },
     connection: connection as unknown as Connection,
     serverUrl: "https://chat.example.test",
     userId,
@@ -244,6 +268,7 @@ function mount(
   );
   return {
     ...connection,
+    unmount: view.unmount,
     setOnline(next: boolean) {
       view.rerender(
         <ChannelsWorkspace
@@ -352,7 +377,7 @@ test("a search accepted from a reply clears only that draft when the results rep
       name: "Reply in thread…",
     });
     fireEvent.change(replyBox, { target: { value: "/search fixture" } });
-    fireEvent.keyDown(replyBox, { key: "Enter" });
+    fireEvent.click(within(pane).getByRole("button", { name: "Run command" }));
     const results = await screen.findByRole("complementary", {
       name: "Search results",
     });
@@ -556,7 +581,7 @@ test("a missing root keeps the reply editor closed and a later history limit ove
   ).toBe(false);
 });
 
-test("two thread drafts and the channel stay separate, and Enter sends the reply to its root", async () => {
+test("two thread drafts and the channel stay separate when the platform sends a reply to its root", async () => {
   const connection = mount(false, true, { second: true });
   connection.submitDraft.mockResolvedValue({
     kind: "sending",
@@ -593,7 +618,17 @@ test("two thread drafts and the channel stay separate, and Enter sends the reply
   const reopened = await open(reply.message);
   expect(reopened.value).toBe("First reply");
   reopened.focus();
-  fireEvent.keyDown(reopened, { key: "Enter" });
+  const nativeEnter = fireEvent.keyDown(reopened, { key: "Enter" });
+  if (["android", "ios"].includes(process.env.TAURI_ENV_PLATFORM ?? "")) {
+    expect(nativeEnter).toBe(true);
+    expect(connection.submitDraft).not.toHaveBeenCalled();
+    const thread = screen.getByRole("complementary", { name: "Thread" });
+    fireEvent.click(
+      within(thread).getByRole("button", { name: "Send message" }),
+    );
+  } else {
+    expect(nativeEnter).toBe(false);
+  }
   await waitFor(() => expect(connection.submitDraft).toHaveBeenCalledOnce());
   expect(connection.submitDraft).toHaveBeenCalledWith({
     channelId: general,
@@ -641,66 +676,88 @@ test.each(["burn_on_read", "system_fake_parent_deleted"])(
   },
 );
 
-test("a confirmed own reply beyond a gap stays after the lower boundary and becomes the server row once", async () => {
-  const connection = mount(true);
-  const canonical = {
-    ...reply,
-    id: "n".repeat(26),
-    createAt: 400,
-    updateAt: 400,
-    message: "Own canonical reply",
-  };
-  const pending: PendingPost = {
-    pendingId: "local-own-reply",
-    channelId: general,
-    rootId: root.id,
-    sequence: 1,
-    createdAt: 300,
-    previousLogin: false,
-    attempt: 1,
-    refusal: null,
-    confirmedPostId: canonical.id,
-    message: "Own local reply",
-  };
-  connection.readPendingPosts.mockImplementation(async ({ rootId }) =>
-    rootId === root.id ? [pending] : [],
-  );
-  connection.readThreadPage
-    .mockResolvedValueOnce({
-      ...page,
-      next: { id: reply.id, createAt: reply.createAt },
-    })
-    .mockResolvedValueOnce({ ...page, replies: [canonical] });
-  fireEvent.click(
-    await screen.findByRole("button", { name: /Open thread, 1 reply/ }),
-  );
-  const pane = await screen.findByRole("complementary", { name: "Thread" });
-  const first = await within(pane).findByText(reply.message);
-  const own = (await within(pane).findByText(pending.message)).closest(
-    "article",
-  );
-  if (!own) throw new Error("Missing own outgoing row");
-  const boundary = within(pane).getByRole("button", {
-    name: /between these messages.*Show replies/,
-  });
-  expect(
-    first.compareDocumentPosition(boundary) & Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
-  expect(
-    boundary.compareDocumentPosition(own) & Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
-  fireEvent.click(boundary);
-  const confirmed = await within(pane).findByText(canonical.message);
-  expect(confirmed.closest("article")).toBe(own);
-  expect(own.dataset.postId).toBe(canonical.id);
-  expect(own.dataset.localId).toBe(pending.pendingId);
-  expect(within(pane).queryByText(pending.message)).toBeNull();
-  expect(within(pane).queryByText(/between these messages/)).toBeNull();
-  expect(connection.retireDeliveredPosts).toHaveBeenCalledWith([canonical.id]);
-  expect(
-    within(screen.getByRole("main")).queryByText(canonical.message),
-  ).toBeNull();
-});
+test.each([0, 86400000])(
+  "a confirmed own reply across a gap of %i ms keeps its day, row and focus",
+  async (dayOffset) => {
+    const connection = mount(true);
+    const canonical = {
+      ...reply,
+      id: "n".repeat(26),
+      createAt: 400 + dayOffset,
+      updateAt: 400 + dayOffset,
+      message: "Own canonical reply",
+    };
+    const pending: PendingPost = {
+      pendingId: "local-own-reply",
+      channelId: general,
+      rootId: root.id,
+      sequence: 1,
+      createdAt: 300 + dayOffset,
+      previousLogin: false,
+      attempt: 1,
+      refusal: null,
+      confirmedPostId: canonical.id,
+      message: "Own local reply",
+    };
+    connection.readPendingPosts.mockImplementation(async ({ rootId }) =>
+      rootId === root.id ? [pending] : [],
+    );
+    connection.readThreadPage
+      .mockResolvedValueOnce({
+        ...page,
+        next: { id: reply.id, createAt: reply.createAt },
+      })
+      .mockResolvedValueOnce({ ...page, replies: [canonical] });
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Open thread, 1 reply/ }),
+    );
+    const pane = await screen.findByRole("complementary", { name: "Thread" });
+    const first = await within(pane).findByText(reply.message);
+    const own = (await within(pane).findByText(pending.message)).closest(
+      "article",
+    );
+    if (!own) throw new Error("Missing own outgoing row");
+    const boundary = within(pane).getByRole("button", {
+      name: /between these messages.*Show replies/,
+    });
+    expect(
+      first.compareDocumentPosition(boundary) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      boundary.compareDocumentPosition(own) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    const before = first.closest(".timeline-day-group");
+    const after = own.closest(".timeline-day-group");
+    expect(before).toBeTruthy();
+    expect(boundary.closest(".timeline-day-group")).toBe(before);
+    if (dayOffset === 0) expect(after).toBe(before);
+    else {
+      expect(after).not.toBe(before);
+      const nextLabel = after?.querySelector("time");
+      if (!nextLabel) throw Error("Missing date after the history gap");
+      expect(
+        boundary.compareDocumentPosition(nextLabel) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+    own.focus();
+    fireEvent.click(boundary);
+    const confirmed = await within(pane).findByText(canonical.message);
+    expect(confirmed.closest("article")).toBe(own);
+    expect(document.activeElement).toBe(own);
+    expect(own.dataset.postId).toBe(canonical.id);
+    expect(own.dataset.localId).toBe(pending.pendingId);
+    expect(within(pane).queryByText(pending.message)).toBeNull();
+    expect(within(pane).queryByText(/between these messages/)).toBeNull();
+    expect(connection.retireDeliveredPosts).toHaveBeenCalledWith([
+      canonical.id,
+    ]);
+    expect(
+      within(screen.getByRole("main")).queryByText(canonical.message),
+    ).toBeNull();
+  },
+);
 
 test("retrying an earlier page keeps focus at the earlier edge while the other page arrives", async () => {
   const connection = mount(false);
@@ -760,7 +817,16 @@ test("retrying an earlier page keeps focus at the earlier edge while the other p
 });
 
 test("the workspace offers an explicit return after the last visible message is removed and preserves the channel draft", async () => {
-  const account = mount(true);
+  let releaseDraft!: () => void;
+  const draftRead = new Promise<void>((resolve) => {
+    releaseDraft = resolve;
+  });
+  const account = mount(true, true, { draftRead });
+  await account.saveDraft({
+    channelId: general,
+    message: "Stored before opening",
+    expectedRevision: null,
+  });
   const open = await screen.findByRole("button", {
     name: /Open thread, 1 reply/,
   });
@@ -774,9 +840,12 @@ test("the workspace offers an explicit return after the last visible message is 
   pane.scrollTop = 100;
   pane.getBoundingClientRect = () => new DOMRect(0, 0, 100, 100);
   row.getBoundingClientRect = () => new DOMRect(0, -8, 100, 36);
-  const draft = screen.getByRole<HTMLTextAreaElement>("textbox", {
+  expect(screen.getByText("Opening draft…")).toBeTruthy();
+  releaseDraft();
+  const draft = await screen.findByRole<HTMLTextAreaElement>("textbox", {
     name: "Message #General…",
   });
+  expect(draft.value).toBe("Stored before opening");
   fireEvent.change(draft, { target: { value: "Keep my draft" } });
   draft.focus();
   const networkCalls = account.refreshChannelHistory.mock.calls.length;
@@ -797,4 +866,247 @@ test("the workspace offers an explicit return after the last visible message is 
   expect(
     await screen.findByRole("button", { name: /Open thread, 1 reply/ }),
   ).toBeTruthy();
+});
+
+function handleEscape() {
+  const target = document.activeElement;
+  if (!target) throw Error("No focused control");
+  const unhandled = fireEvent.keyDown(target, { key: "Escape" });
+  // jsdom does not implement Escape's HTML dialog cancellation.
+  const modal = target.closest<HTMLDialogElement>("dialog[open]");
+  if (unhandled && modal)
+    fireEvent(modal, new Event("cancel", { cancelable: true }));
+}
+async function enterSearch() {
+  const trigger = screen.getByRole("button", { name: "Search" });
+  fireEvent.click(trigger);
+  const dialog = within(await screen.findByRole("dialog"));
+  fireEvent.change(dialog.getByRole("searchbox"), {
+    target: { value: "winter" },
+  });
+  fireEvent.click(dialog.getByRole("button", { name: "Search" }));
+  return {
+    trigger,
+    panel: await screen.findByRole("complementary", { name: "Search results" }),
+  };
+}
+test("one return at a time preserves search, thread and channel, including each draft", async () => {
+  const { readSearchTimezone, unmount } = mount(true);
+  const channelDraft = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Message #General…",
+  });
+  fireEvent.change(channelDraft, { target: { value: "Unsent channel text" } });
+  const opener = await screen.findByRole("button", {
+    name: /Open thread, 1 reply/,
+  });
+  fireEvent.click(opener);
+  const before = await screen.findByRole("complementary", { name: "Thread" });
+  const replyDraft = await within(before).findByRole("textbox", {
+    name: "Reply in thread…",
+  });
+  fireEvent.change(replyDraft, { target: { value: "Unsent thread reply" } });
+  const { trigger, panel } = await enterSearch();
+  await within(panel).findByText("Found in search");
+  const activeBack = androidBack;
+  if (process.env.TAURI_ENV_PLATFORM === "android")
+    expect(activeBack).toBeTypeOf("function");
+  fireEvent.keyDown(trigger, { key: "Escape", isComposing: true });
+  trigger.addEventListener("keydown", (event) => event.preventDefault(), {
+    once: true,
+  });
+  fireEvent.keyDown(trigger, { key: "Escape" });
+  expect(panel.isConnected).toBe(true);
+  const step = () => (activeBack ? act(() => activeBack()) : handleEscape());
+  fireEvent.click(within(panel).getByRole("button", { name: /Edit.*winter/i }));
+  const form = within(await screen.findByRole("dialog"));
+  fireEvent.change(form.getByRole("searchbox"), {
+    target: { value: "unsubmitted" },
+  });
+  expect(androidBack).toBe(activeBack);
+  step();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.getByRole("complementary", { name: "Search results" })).toBe(
+    panel,
+  );
+  expect(readSearchTimezone).toHaveBeenCalledOnce();
+  expect(document.activeElement).toBe(trigger);
+  step();
+  const restored = await screen.findByRole("complementary", { name: "Thread" });
+  expect(
+    (
+      await within(restored).findByRole<HTMLTextAreaElement>("textbox", {
+        name: "Reply in thread…",
+      })
+    ).value,
+  ).toBe("Unsent thread reply");
+  expect(document.activeElement).toBe(trigger);
+  step();
+  expect(screen.queryByRole("complementary", { name: "Thread" })).toBeNull();
+  expect(document.activeElement).toBe(opener);
+  expect(channelDraft.value).toBe("Unsent channel text");
+  fireEvent.click(opener);
+  expect(
+    (
+      await screen.findByRole<HTMLTextAreaElement>("textbox", {
+        name: "Reply in thread…",
+      })
+    ).value,
+  ).toBe("Unsent thread reply");
+  unmount();
+  if (activeBack) {
+    mount(true);
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Open thread, 1 reply/ }),
+    );
+    const next = await screen.findByRole("complementary", { name: "Thread" });
+    act(() => activeBack());
+    expect(next.isConnected).toBe(true);
+    expect(androidBack).not.toBe(activeBack);
+  }
+});
+
+test("canceling a pending search edit and the account dialog leaves the channel search results intact", async () => {
+  const { readSearchTimezone } = mount(true);
+  await screen.findByRole("textbox", { name: "Message #General…" });
+  const { trigger, panel } = await enterSearch();
+  const step = () =>
+    androidBack ? act(() => androidBack?.()) : handleEscape();
+  await within(panel).findByText("Found in search");
+  fireEvent.click(screen.getByRole("button", { name: /account/i }));
+  await screen.findByRole("dialog");
+  step();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.getByRole("complementary", { name: "Search results" })).toBe(
+    panel,
+  );
+  fireEvent.click(within(panel).getByRole("button", { name: /Edit.*winter/i }));
+  const form = within(await screen.findByRole("dialog"));
+  let finish!: (tz: string) => void;
+  readSearchTimezone.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  fireEvent.change(form.getByRole("searchbox"), {
+    target: { value: "pending" },
+  });
+  fireEvent.click(form.getByRole("button", { name: "Search" }));
+  await waitFor(() => expect(finish).toBeTypeOf("function"));
+  step();
+  await act(async () => finish("UTC"));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(within(panel).getByText("winter")).toBeTruthy();
+  step();
+  expect(panel.isConnected).toBe(false);
+  expect(document.activeElement).toBe(trigger);
+  expect(screen.queryByRole("complementary", { name: "Thread" })).toBeNull();
+});
+
+test("the selected platform owns Back only while its thread is open", async () => {
+  const listen = vi.mocked(onBackButtonPress);
+  listen.mockClear();
+  mount(true);
+  const opener = await screen.findByRole("button", {
+    name: /Open thread, 1 reply/,
+  });
+  expect(listen).not.toHaveBeenCalled();
+  fireEvent.click(opener);
+  const pane = await screen.findByRole("complementary", { name: "Thread" });
+
+  if (process.env.TAURI_ENV_PLATFORM === "android") {
+    expect(listen).toHaveBeenCalledOnce();
+    const [press] = listen.mock.calls[0];
+    const subscription = await listen.mock.results[0].value;
+    await act(() => press({ canGoBack: false }));
+    await waitFor(() => expect(subscription.unregister).toHaveBeenCalledOnce());
+
+    // A queued event from the old listener must not affect the reopened thread.
+    fireEvent.click(opener);
+    const reopened = await screen.findByRole("complementary", {
+      name: "Thread",
+    });
+    expect(listen).toHaveBeenCalledTimes(2);
+    await act(() => press({ canGoBack: false }));
+    expect(reopened.isConnected).toBe(true);
+    fireEvent.click(
+      within(reopened).getByRole("button", { name: "Close thread" }),
+    );
+  } else {
+    expect(listen).not.toHaveBeenCalled();
+    fireEvent.keyDown(pane, { key: "Escape" });
+  }
+  await waitFor(() =>
+    expect(screen.queryByRole("complementary", { name: "Thread" })).toBeNull(),
+  );
+  expect(document.activeElement).toBe(opener);
+});
+
+test("the directory opens from the sidebar, restores the draft on Back and selects the chosen membership", async () => {
+  const account = mount(true);
+  const draft = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Message #General…",
+  });
+  fireEvent.change(draft, { target: { value: "Keep my work" } });
+  const trigger = screen.getByRole("button", { name: "Directory" });
+  fireEvent.click(trigger);
+  const directory = await screen.findByRole("main", { name: "Directory" });
+  expect(
+    within(directory).getByRole("region", { name: "My channels" }),
+  ).toBeTruthy();
+  expect(
+    screen.queryByRole("textbox", { name: "Message #General…" }),
+  ).toBeNull();
+  expect(account.selectSidebarChannel).not.toHaveBeenCalled();
+  fireEvent.keyDown(window, { key: "Escape" });
+  await waitFor(() => expect(document.activeElement).toBe(trigger));
+  expect(
+    (
+      await screen.findByRole<HTMLTextAreaElement>("textbox", {
+        name: "Message #General…",
+      })
+    ).value,
+  ).toBe("Keep my work");
+  expect(account.selectSidebarChannel).not.toHaveBeenCalled();
+  fireEvent.click(trigger);
+  const list = within(await screen.findByRole("list", { name: "My channels" }));
+  fireEvent.click(list.getByRole("button", { name: /Design/ }));
+  await screen.findByRole("main", { name: "Design" });
+  expect(account.selectSidebarChannel).toHaveBeenCalledExactlyOnceWith(
+    team.id,
+    design,
+  );
+});
+
+test("global search returns to the same directory filter before leaving the catalog", async () => {
+  mount(true);
+  const draft = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Message #General…",
+  });
+  fireEvent.change(draft, { target: { value: "My pending message" } });
+  fireEvent.click(screen.getByRole("button", { name: "Directory" }));
+  const field = await screen.findByRole<HTMLInputElement>("searchbox", {
+    name: "Find a channel",
+  });
+  fireEvent.change(field, { target: { value: "Des" } });
+  const search = screen.getByRole("button", { name: "Search" });
+  fireEvent.click(search);
+  const form = await screen.findByRole("dialog");
+  fireEvent(form, new Event("cancel", { cancelable: true }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(screen.getByRole("searchbox", { name: "Find a channel" })).toBe(field);
+  const { panel } = await enterSearch();
+  await within(panel).findByText("Found in search");
+  fireEvent.keyDown(window, { key: "Escape" });
+  await waitFor(() => expect(panel.isConnected).toBe(false));
+  expect(screen.getByRole("searchbox", { name: "Find a channel" })).toBe(field);
+  expect(field.value).toBe("Des");
+  expect(
+    screen.getByRole("button", { name: "Design, Public channel" }),
+  ).toBeTruthy();
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(screen.getByRole("textbox", { name: "Message #General…" })).toBe(
+    draft,
+  );
+  expect(draft.value).toBe("My pending message");
 });

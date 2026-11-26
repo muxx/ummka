@@ -1,3 +1,4 @@
+export * from './BookmarksApi.js';
 export * from './ChannelsApi.js';
 export * from './CommandsApi.js';
 export * from './EmojiApi.js';
@@ -7,6 +8,7 @@ export * from './PostsApi.js';
 export * from './PreferencesApi.js';
 export * from './ReactionsApi.js';
 export * from './RolesApi.js';
+export * from './StatusApi.js';
 export * from './SystemApi.js';
 export * from './TeamsApi.js';
 export * from './ThreadsApi.js';

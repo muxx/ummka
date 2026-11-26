@@ -7,13 +7,11 @@ export function respondToAccount(
   url: URL,
   firstId: string,
   event: (name: string) => void,
+  browserToken = "fixture-browser-action",
 ): string | undefined {
   if (url.pathname === "/browser-action-check/api/v4/users/me") {
     assert.equal(request.method, "GET");
-    assert.equal(
-      request.headers.authorization,
-      "Bearer fixture-browser-action",
-    );
+    assert.equal(request.headers.authorization, `Bearer ${browserToken}`);
     assert.equal(request.headers.cookie, undefined);
     assert.equal(url.search, "");
     response.writeHead(200, { "Content-Type": "application/json" });
@@ -21,6 +19,7 @@ export function respondToAccount(
       JSON.stringify({
         id: "f".repeat(26),
         roles: "system_user",
+        notify_props: { desktop: "mention", push: "mention" },
         timezone: {
           useAutomaticTimezone: "false",
           manualTimezone: "Asia/Kathmandu",
@@ -32,10 +31,7 @@ export function respondToAccount(
   }
   if (url.pathname === "/browser-action-check/api/v4/users/logout") {
     assert.equal(request.method, "POST");
-    assert.equal(
-      request.headers.authorization,
-      "Bearer fixture-browser-action",
-    );
+    assert.equal(request.headers.authorization, `Bearer ${browserToken}`);
     response.writeHead(503, { "Content-Type": "application/json" });
     response.end(JSON.stringify({ id: "fixture.logout.unavailable" }));
     return "browser-entry-unconfirmed";
@@ -74,7 +70,7 @@ export function respondToAccount(
     assert.equal(request.method, "GET");
     assert.equal(
       request.headers.authorization,
-      publicRead ? undefined : "Bearer fixture-browser-action",
+      publicRead ? undefined : `Bearer ${browserToken}`,
     );
     assert.equal(request.headers.cookie, undefined);
     assert.equal(url.search, publicRead ? "?format=old" : "");

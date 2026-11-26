@@ -61,7 +61,17 @@ try {
         },
       );
       assert.match(result.stdout, /1 passed/);
-      await checkMacWebview(fixture.webviewPorts, dir, config);
+      try {
+        await checkMacWebview(
+          fixture.webviewPorts,
+          dir,
+          config,
+          fixture.onMacInputReady,
+        );
+      } catch (error) {
+        console.error("macOS WebView fixture:", fixture.webviewProgress());
+        throw error;
+      }
     }
     external?.verify();
     fixture.verify(platform === "android");

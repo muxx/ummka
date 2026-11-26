@@ -1,3 +1,5 @@
+import { openChannelDirectoryList } from "../../src/channels/open-channel-directory.ts";
+import { openDirectorySearch } from "../../src/channels/open-directory-search.ts";
 import type { openAccountRestConnection } from "../../src/mattermost/native-rest.ts";
 import {
   ChannelsApi,
@@ -6,15 +8,28 @@ import {
   GroupFromJSON,
   GroupsApi,
   PreferencesApi,
+  ResponseError,
   RolesApi,
   TeamsApi,
 } from "../../vendor/mattermost/index.js";
+import { checkDirectoryQuery } from "../contract/compatibility/directory-query.ts";
 import { checkGroupAssociations } from "./group-associations.ts";
 
 export async function checkTeamReads(
   rootAccount: Awaited<ReturnType<typeof openAccountRestConnection>>,
   prefixedAccount: Awaited<ReturnType<typeof openAccountRestConnection>>,
 ) {
+  const roster = await prefixedAccount.readChannelMemberDirectory(
+    "r".repeat(26),
+    { kind: "page", page: 0 },
+  );
+  if (
+    roster.nextPage !== null ||
+    roster.members.length !== 1 ||
+    roster.members[0].profile.username !== "roster-reader" ||
+    !roster.members[0].schemeAdmin
+  )
+    throw Error("Native account returned the wrong channel roster");
   const root = new Configuration(rootAccount);
   const prefixed = new Configuration(prefixedAccount);
   const entry = await new EmojiApi(prefixed).getEmojiByName({
@@ -109,6 +124,63 @@ export async function checkTeamReads(
     inspected.deleteAt !== 0
   )
     throw Error("generated signed channel by ID");
+  const open = await prefixedAccount.readChannelDirectoryPage({
+    teamId,
+    page: 1,
+    kind: "public",
+  });
+  const archiveList = openChannelDirectoryList(
+    prefixedAccount,
+    teamId,
+    "archived",
+  );
+  await archiveList.more();
+  const archive = archiveList.getSnapshot();
+  archiveList.close();
+  if (
+    open.items.length !== 1 ||
+    open.hasMore ||
+    open.items[0].id !== "o".repeat(26) ||
+    open.items[0].displayName !== "Systems" ||
+    open.items[0].deleteAt !== 0 ||
+    archive.status !== "ready" ||
+    archive.items.length !== 1 ||
+    archive.hasMore ||
+    archive.items[0].id !== "p".repeat(26) ||
+    archive.items[0].kind !== "P" ||
+    archive.items[0].deleteAt !== 42 ||
+    archive.items[0].purpose !== "Fixture design"
+  )
+    throw Error("signed account channel directory pages");
+  for (const operation of [
+    "getPublicChannelsForTeam",
+    "getDeletedChannelsForTeam",
+  ] as const) {
+    try {
+      await api[operation]({ teamId: "z".repeat(26), page: 0, perPage: 50 });
+      throw Error("Expected a forbidden directory response for " + operation);
+    } catch (error) {
+      if (!(error instanceof ResponseError) || error.response.status !== 403)
+        throw error;
+    }
+  }
+  const search = openDirectorySearch(prefixedAccount, teamId);
+  try {
+    const { items: found } = await checkDirectoryQuery(
+      search,
+      "  Northern lights  ",
+    );
+    if (
+      found.length !== 1 ||
+      found[0].id !== "p".repeat(26) ||
+      found[0].kind !== "P" ||
+      found[0].deleteAt !== 42 ||
+      found[0].displayName !== "Northern lights"
+    )
+      throw Error("signed open channel directory search");
+  } finally {
+    search.close();
+  }
   const managed = await api.getManagedCategories({ teamId });
   if (
     Object.keys(managed).length !== 2 ||
@@ -131,6 +203,16 @@ export async function checkTeamReads(
     channels[0].teamId !== teamId
   )
     throw Error("generated channel list");
+  const channelMatches = await api.autocompleteChannelsForTeam({
+    teamId,
+    name: "тест +&",
+  });
+  if (
+    channelMatches.length !== 1 ||
+    channelMatches[0]?.id !== channelId ||
+    channelMatches[0]?.teamId !== teamId
+  )
+    throw Error("signed team-scoped directory search");
   const stats = await api.getChannelStats({
     channelId,
     excludeFilesCount: true,
@@ -221,6 +303,8 @@ export async function checkTeamReads(
     bulk[other] !== 126
   )
     throw Error("generated channel read timestamps");
+  if (open.items[0].header !== "Current systems")
+    throw Error("signed public channel directory topic");
   const userId = "Abc01234567890123456789012";
   const notification = await api.updateChannelNotifyProps({
     channelId,

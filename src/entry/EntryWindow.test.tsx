@@ -12,6 +12,12 @@ test("keeps content in one main landmark and Back outside the drag target", () =
   expect(
     within(screen.getByRole("main")).getByRole("heading").textContent,
   ).toBe("Connect a server");
+  const mobile = ["android", "ios"].includes(
+    process.env.TAURI_ENV_PLATFORM ?? "",
+  );
+  expect(screen.getByRole("main").closest("[data-mobile]") !== null).toBe(
+    mobile,
+  );
   expect(screen.queryByRole("button")).toBeNull();
   rerender(
     <EntryWindow back={{ label: "Go back", activate: goBack }}>

@@ -24,10 +24,11 @@ import { checkSavedTeamWindow } from "./account-team-window.tsx";
 import { checkRefreshedAfterRestart } from "./channel-refresh.ts";
 import { checkDraftRestore } from "./composer-drafts.ts";
 import { verifyHistoryLoadsAfterRestart } from "./history-loads.ts";
-import { signInLinkServer } from "./link-examples.ts";
+import { postLinks, signInLinkServer } from "./link-examples.ts";
 import { checkOfflineWindows } from "./local-history.ts";
 import { checkSubmissionRestore } from "./submission.ts";
 import { checkSystemLinks } from "./system-links.ts";
+import { checkSystemPostApp, preserveSourceDraft } from "./system-post-app.tsx";
 import { checkRestoredTeamRoles } from "./team-role-storage.ts";
 
 const first = "https://chat.example.test";
@@ -63,11 +64,16 @@ export async function resumeRegistryCheck(): Promise<boolean> {
   }
   if (launch.status === "first_launch") return false;
   const urls = await listInstallations();
+  const port = String(import.meta.env.VITE_UMMKA_CHECK_PORTS).split(",")[0];
+  const { server } = postLinks(port);
+  if (urls.includes(server)) {
+    await checkSystemPostApp(server, second, first);
+    return true;
+  }
   if (urls.includes(signInLinkServer)) {
     await checkSystemLinks();
     return true;
   }
-  const port = String(import.meta.env.VITE_UMMKA_CHECK_PORTS).split(",")[0];
   const root = `https://127.0.0.1:${port}`;
   await checkOfflineWindows(root);
   await verifyHistoryLoadsAfterRestart(root);
@@ -258,4 +264,8 @@ export async function seedRegistry() {
   if (urls.length !== 2 || urls[0] !== first || urls[1] !== second) {
     throw Error("registry seed failed");
   }
+  const port = String(import.meta.env.VITE_UMMKA_CHECK_PORTS).split(",")[0];
+  await preserveSourceDraft(second, true);
+  await selectInstallation(second);
+  await rememberInstallation(postLinks(port).server);
 }

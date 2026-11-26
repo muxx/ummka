@@ -15,6 +15,9 @@ import type { MembershipTarget } from "../mattermost/own-membership.ts";
 import type { TeamSidebar } from "../mattermost/team-sidebar.ts";
 import type { EntryLanguage } from "./language.ts";
 
+import type { SystemPostRequest } from "./use-system-permalink";
+
+type SystemOrigin = { request: SystemPostRequest; chooseTeam: () => void };
 type Source = Parameters<typeof openPostNavigation>[1];
 type Consent = Parameters<Parameters<typeof openPostNavigation>[3]>[0];
 type Outcome = Awaited<
@@ -24,8 +27,9 @@ type Position = {
   request: Extract<TimelineRequest, { kind: "focus" }>;
   sidebar: TeamSidebar;
   membership: string;
+  system?: SystemPostRequest;
 };
-type Queue = (work: () => Promise<boolean>) => Promise<boolean>;
+type Queue = <T>(work: () => Promise<T>) => Promise<T>;
 type Modal =
   | { kind: "consent"; step: Consent; answer: (yes: boolean) => void }
   | { kind: "waiting" }
@@ -119,7 +123,7 @@ function DestinationDialog({
   const step = modal.kind === "consent" ? modal.step : null;
   return (
     <dialog
-      className="channels-search-dialog message-destination-dialog"
+      className="channels-search-dialog message-destination-dialog modal-layout"
       ref={node}
       aria-labelledby={title}
       aria-describedby={description}
@@ -155,57 +159,63 @@ function DestinationDialog({
               ? "Переход к сообщению"
               : "Open message"}
       </h2>
-      <p id={description} role={modal.kind === "error" ? "alert" : "status"}>
-        {step
-          ? [
-              step.team.displayName,
-              step.channel.displayName,
-              step.channel.kind === "P"
-                ? text.privateDetail(step.channel.displayName)
-                : null,
-            ]
-              .filter(Boolean)
-              .join(" · ")
-          : modal.kind === "error"
-            ? modal.text
-            : text.working}
-      </p>
-      {modal.kind === "consent" && (
-        <>
-          <button type="button" onClick={() => modal.answer(false)}>
-            {text.cancel}
-          </button>
+      {/* biome-ignore lint/a11y/noNoninteractiveTabindex: Keyboard users scroll this region even when it contains only text. */}
+      <section className="modal-scroll" aria-labelledby={title} tabIndex={0}>
+        <p id={description} role={modal.kind === "error" ? "alert" : "status"}>
+          {step
+            ? [
+                step.team.displayName,
+                step.channel.displayName,
+                step.channel.kind === "P"
+                  ? text.privateDetail(step.channel.displayName)
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")
+            : modal.kind === "error"
+              ? modal.text
+              : text.working}
+        </p>
+      </section>
+      <footer>
+        {modal.kind === "consent" && (
+          <>
+            <button type="button" onClick={() => modal.answer(false)}>
+              {text.cancel}
+            </button>
+            <button
+              ref={primary}
+              type="button"
+              onClick={() => modal.answer(true)}
+            >
+              {text.join}
+            </button>
+          </>
+        )}
+        {modal.kind === "error" && (
           <button
-            ref={primary}
             type="button"
-            onClick={() => modal.answer(true)}
+            ref={primary}
+            aria-describedby={description}
+            onClick={modal.close}
           >
-            {text.join}
+            {text.ok}
           </button>
-        </>
-      )}
-      {modal.kind === "error" && (
-        <button
-          type="button"
-          ref={primary}
-          aria-describedby={description}
-          onClick={modal.close}
-        >
-          {text.ok}
-        </button>
-      )}
+        )}
+      </footer>
     </dialog>
   );
 }
 
 export type MessageNavigation = {
+  dialogOpen: boolean;
   position: Position | null;
   open: (
     source: Source,
     signal: AbortSignal,
-    queue: Queue,
-    origin: HTMLElement,
+    origin: HTMLElement | SystemOrigin,
   ) => Promise<void>;
+  enqueue: Queue;
   clear: () => void;
 };
 export function useMessageNavigation(
@@ -214,6 +224,7 @@ export function useMessageNavigation(
   online: boolean,
   language: EntryLanguage,
   sessionIssue: (issue: "session" | "unauthorized") => void,
+  enqueue: Queue,
   selectTeam: (
     team: JoinedTeam,
     directory: JoinedTeams,
@@ -225,6 +236,7 @@ export function useMessageNavigation(
   const [modal, setModal] = useState<Modal | null>(null);
   const current = useRef<AbortController | null>(null);
   const counter = useRef(0);
+  const external = useRef<SystemPostRequest | null>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {
     if (modal || !returnFocus.current) return;
@@ -233,6 +245,8 @@ export function useMessageNavigation(
     returnFocus.current = null;
   }, [modal]);
   const clear = useCallback(() => {
+    external.current?.stop("paused");
+    external.current = null;
     current.current?.abort();
     current.current = null;
     returnFocus.current = null;
@@ -249,17 +263,20 @@ export function useMessageNavigation(
   async function open(
     source: Source,
     originSignal: AbortSignal,
-    queue: Queue,
-    origin: HTMLElement,
+    origin: HTMLElement | SystemOrigin,
   ) {
-    if (
-      !online ||
-      !connection ||
-      !directory?.selectedTeam ||
-      originSignal.aborted ||
-      current.current
-    )
+    const system = origin instanceof HTMLElement ? undefined : origin;
+    if (!connection || !directory || originSignal.aborted) return;
+    if (!online) {
+      system?.request.stop("paused");
       return;
+    }
+    if (current.current) {
+      if (!system) return;
+      current.current.abort();
+      setModal(null);
+    }
+    external.current = system?.request ?? null;
     const task = new AbortController(),
       { signal } = task;
     current.current = task;
@@ -272,7 +289,8 @@ export function useMessageNavigation(
     };
     originSignal.addEventListener("abort", abort, { once: true });
     const restore = () => {
-      returnFocus.current = origin;
+      if (origin instanceof HTMLElement) returnFocus.current = origin;
+      else origin.request.dismiss();
       setModal(null);
     };
     const text = copy[language];
@@ -306,10 +324,23 @@ export function useMessageNavigation(
             },
           });
         });
+      // A previous manual or dismissed link may still be committing the account's team.
+      // Resolve team-relative links against the resulting device selection.
+      const sourceDirectory = system
+        ? await enqueue(async () => {
+            signal.throwIfAborted();
+            return connection.readJoinedTeams();
+          })
+        : directory;
+      signal.throwIfAborted();
+      if (!sourceDirectory) {
+        error(text.missing);
+        return;
+      }
       const result = await openPostNavigation(
         connection,
         source,
-        directory.selectedTeam,
+        sourceDirectory.selectedTeam,
         confirm,
         signal,
       ).open();
@@ -317,6 +348,19 @@ export function useMessageNavigation(
       joined = result.joined;
       const target = result.target;
       if (target.kind !== "ready") {
+        if (target.kind === "selectTeam" && system) {
+          system.chooseTeam();
+          return;
+        }
+        if (
+          target.kind === "readFailed" &&
+          target.reason !== "forbidden" &&
+          system
+        ) {
+          setModal(null);
+          system.request.stop("failed", membershipDetail());
+          return;
+        }
         if (target.kind === "cancelled") {
           restore();
         } else if (
@@ -328,7 +372,7 @@ export function useMessageNavigation(
         } else error(failureMessage(target, language));
         return;
       }
-      let teams = directory;
+      let teams = sourceDirectory;
       if (!teams.teams.some((row) => row.id === target.teamId)) {
         await connection.refreshJoinedTeams(signal);
         signal.throwIfAborted();
@@ -367,8 +411,9 @@ export function useMessageNavigation(
         },
         sidebar,
         membership: membershipDetail(),
+        ...(system && { system: system.request }),
       };
-      const selected = await queue(() => {
+      const selected = await enqueue(() => {
         signal.throwIfAborted();
         return connection.selectSidebarChannel(team.id, target.channelId);
       });
@@ -382,11 +427,7 @@ export function useMessageNavigation(
         setModal(null);
         setPosition(destination);
       }
-      if (team.id === directory.selectedTeam) commit();
-      else if (
-        !(await selectTeam(team, teams, signal, commit)) &&
-        !signal.aborted
-      )
+      if (!(await selectTeam(team, teams, signal, commit)) && !signal.aborted)
         error(text.failed);
     } catch (cause) {
       if (signal.aborted) return;
@@ -394,6 +435,9 @@ export function useMessageNavigation(
       if (issue === "session" || issue === "unauthorized") {
         setModal(null);
         sessionIssue(issue);
+      } else if (system && issue !== "forbidden") {
+        setModal(null);
+        system.request.stop("failed", membershipDetail());
       } else error(issue === "forbidden" ? text.missing : text.failed);
     } finally {
       originSignal.removeEventListener("abort", abort);
@@ -401,7 +445,13 @@ export function useMessageNavigation(
     }
   }
   return {
-    navigation: { position, open, clear } satisfies MessageNavigation,
+    navigation: {
+      position,
+      open,
+      clear,
+      enqueue,
+      dialogOpen: Boolean(modal),
+    } satisfies MessageNavigation,
     dialog: modal && <DestinationDialog modal={modal} language={language} />,
   };
 }

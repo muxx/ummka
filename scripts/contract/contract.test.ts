@@ -36,6 +36,7 @@ import {
   correctCommandResponse,
   correctExecuteCommand,
 } from "./command-corrections.ts";
+import { correctConversationCreation } from "./conversation-creation-correction.ts";
 import { correctCustomEmoji } from "./custom-emoji-correction.ts";
 import { correctFileContent } from "./file-content-correction.ts";
 import {
@@ -207,6 +208,8 @@ const definitionPaths = [
   ["components", "schemas", "ChannelMember"],
   ["components", "schemas", "ChannelNotifyProps"],
   ["components", "schemas", "ChannelStats"],
+  ["components", "schemas", "ChannelBookmark"],
+  ["components", "schemas", "ChannelBookmarkWithFileInfo"],
   ["components", "schemas", "ChannelMemberCountByGroup"],
   ...["Emoji", "FileInfo", "PostAcknowledgement", "Reaction"].map((name) => [
     "components",
@@ -1053,6 +1056,31 @@ test("named channel lookup has the same parameters and Channel response in both 
   }
 });
 
+test("presence reads a JSON ID array and returns Status on both supported servers", () => {
+  for (const file of ["status.yaml", "status-12.1.0.yaml"]) {
+    const operation = object(
+      at(read(file), ["/api/v4/users/status/ids", "post"]),
+      "presence",
+    );
+    assert.equal(operation.operationId, "GetUsersStatusesByIds");
+    assert.equal(at(operation, ["requestBody", "required"]), true);
+    assert.deepEqual(
+      at(operation, ["requestBody", "content", "application/json", "schema"]),
+      { type: "array", items: { type: "string" } },
+    );
+    assert.deepEqual(
+      at(operation, [
+        "responses",
+        "200",
+        "content",
+        "application/json",
+        "schema",
+      ]),
+      { type: "array", items: { $ref: "#/components/schemas/Status" } },
+    );
+  }
+});
+
 test("one channel uses the same path, parameter and Channel response in both versions", () => {
   const path = "/api/v4/channels/{channel_id}";
   for (const file of ["channels.yaml", "channels-12.1.0.yaml"]) {
@@ -1080,6 +1108,29 @@ test("one channel uses the same path, parameter and Channel response in both ver
   }
 });
 
+test("rejects unreviewed channel bookmark model differences", () => {
+  const operation = catalog.filter(
+    ({ id }) => id === "ListChannelBookmarksForChannel",
+  );
+  assert.equal(operation.length, 1);
+  for (const file of ["definitions.yaml", "definitions-12.1.0.yaml"]) {
+    const modified = read(file);
+    const properties = object(
+      at(modified, ["components", "schemas", "ChannelBookmark", "properties"]),
+      "bookmark",
+    );
+    properties.type = { type: "integer" };
+    assert.throws(
+      () =>
+        buildSpecification(
+          (name) => (name === file ? modified : read(name)),
+          operation,
+        ),
+      /Review ChannelBookmark/,
+    );
+  }
+});
+
 test("retains the catalog operations, security and transitive models", () => {
   for (const { file, path, method } of catalog) {
     const key = [path, method.toLowerCase()];
@@ -1101,6 +1152,8 @@ test("retains the catalog operations, security and transitive models", () => {
     }
     const source = object(at(read(file), key), path);
     let expected = source;
+    if (source.operationId === "ListChannelBookmarksForChannel")
+      expected = object(at(read("bookmarks-12.1.0.yaml"), key), path);
     if (
       source.operationId === "UpdateThreadReadForUser" ||
       source.operationId === "UpdateThreadsReadForUser" ||
@@ -1126,6 +1179,15 @@ test("retains the catalog operations, security and transitive models", () => {
       );
     if (source.operationId === "SearchFiles")
       expected = correctFileSearch(path, source, read("files-12.1.0.yaml"));
+    if (
+      source.operationId === "CreateDirectChannel" ||
+      source.operationId === "CreateGroupChannel"
+    )
+      expected = correctConversationCreation(
+        source.operationId,
+        source,
+        object(at(read("channels-12.1.0.yaml"), key), path),
+      );
     if (source.operationId === "AddTeamMember")
       expected = correctTeamMemberRequest(source, read("teams-12.1.0.yaml"));
     if (source.operationId === "AddChannelMember")
@@ -1198,6 +1260,8 @@ test("retains the catalog operations, security and transitive models", () => {
     const source = at(definitions, path);
     const name = path[2];
     let expected = source;
+    if (name === "ChannelBookmark")
+      expected = at(read("definitions-12.1.0.yaml"), path);
     if (name === "FileInfo")
       expected = correctFileModel(
         name,
@@ -1285,6 +1349,8 @@ test("retains the catalog operations, security and transitive models", () => {
       "AutocompleteCommand",
       "AutocompleteSuggestion",
       "Channel",
+      "ChannelBookmark",
+      "ChannelBookmarkWithFileInfo",
       "ChannelMember",
       "ChannelMemberCountByGroup",
       "ChannelNotifyProps",
@@ -1308,6 +1374,7 @@ test("retains the catalog operations, security and transitive models", () => {
       "Reaction",
       "Role",
       "SidebarCategoryWithChannels",
+      "Status",
       "StatusOK",
       "SystemStatusResponse",
       "Team",
@@ -1813,6 +1880,7 @@ function copySources() {
     "teams-12.1.0.yaml",
     "users-12.1.0.yaml",
     "files-12.1.0.yaml",
+    "bookmarks-12.1.0.yaml",
     "groups-12.1.0.yaml",
     "preferences-12.1.0.yaml",
     "commands-12.1.0.yaml",
@@ -2808,3 +2876,84 @@ for (const { path, id } of nativeFiles) {
     );
   });
 }
+
+test("describes distinct conversation membership separately from raw array length", () => {
+  for (const [kind, id, minItems] of [
+    ["direct", "CreateDirectChannel", 1],
+    ["group", "CreateGroupChannel", 2],
+  ] as const) {
+    const route = `/api/v4/channels/${kind}`;
+    const schema = ["requestBody", "content", "application/json", "schema"];
+    const baseline = object(at(read("channels.yaml"), [route, "post"]), route);
+    const reference = object(
+      at(read("channels-12.1.0.yaml"), [route, "post"]),
+      route,
+    );
+    const original = structuredClone(baseline);
+    assert.deepEqual(at(contract, ["paths", route, "post", ...schema]), {
+      type: "array",
+      items: { type: "string" },
+      minItems,
+    });
+    correctConversationCreation(id, baseline, reference);
+    assert.deepEqual(baseline, original);
+    for (const field of ["minItems", "maxItems", "items"]) {
+      const drift = structuredClone(baseline);
+      object(at(drift, schema), route)[field] = null;
+      for (const [first, second] of [
+        [drift, reference],
+        [baseline, drift],
+        [drift, drift],
+      ]) {
+        assert.throws(
+          () => correctConversationCreation(id, first, second),
+          /Review both pinned/,
+        );
+      }
+    }
+  }
+});
+
+test("preserves directory scopes, paging and search fields used by the recipient picker in both releases", () => {
+  const list = ["/api/v4/users", "get"];
+  const search = ["/api/v4/users/search", "post"];
+  const json = ["content", "application/json", "schema"];
+  for (const file of ["users.yaml", "users-12.1.0.yaml"]) {
+    const source = read(file);
+    for (const route of [list, search]) {
+      const success = [...route, "responses", "200", ...json];
+      assert.deepEqual(
+        at(contract, ["paths", ...success]),
+        at(source, success),
+      );
+    }
+    const sourceParams = at(source, [...list, "parameters"]);
+    const publishedParams = at(contract, ["paths", ...list, "parameters"]);
+    assert.ok(Array.isArray(sourceParams) && Array.isArray(publishedParams));
+    for (const [key, type] of [
+      ["page", "integer"],
+      ["per_page", "integer"],
+      ["in_team", "string"],
+      ["active", "boolean"],
+    ]) {
+      const param = object(
+        sourceParams.find((p) => p.name === key),
+        key,
+      );
+      assert.equal(param.in, "query");
+      assert.equal(object(param.schema, key).type, type);
+      assert.deepEqual(
+        publishedParams.find((p) => p.name === key),
+        param,
+      );
+    }
+    const body = [...search, "requestBody", ...json];
+    assert.deepEqual(at(source, [...body, "required"]), ["term"]);
+    for (const field of ["term", "team_id", "allow_inactive", "limit"]) {
+      assert.deepEqual(
+        at(contract, ["paths", ...body, "properties", field]),
+        at(source, [...body, "properties", field]),
+      );
+    }
+  }
+});

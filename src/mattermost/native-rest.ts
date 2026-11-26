@@ -16,6 +16,12 @@ import { accountPostCollections } from "./account-post-collections.ts";
 import { accountPostReactions } from "./account-post-reactions.ts";
 import { accountSearch } from "./account-search.ts";
 import { accountChannelAudience } from "./channel-audience.ts";
+import { readChannelBookmarks } from "./channel-bookmarks.ts";
+import {
+  type DirectoryPageQuery,
+  readChannelDirectoryPage,
+  searchChannelDirectory,
+} from "./channel-directory-page.ts";
 import { createChannelHistoryChanges } from "./channel-history-changes.ts";
 import {
   type ChannelRefreshRequest,
@@ -23,6 +29,10 @@ import {
   refreshChannelHistory,
 } from "./channel-history-refresh.ts";
 import { readChannelIdentity } from "./channel-identity.ts";
+import {
+  type ChannelMemberQuery,
+  readChannelMemberDirectory,
+} from "./channel-member-directory.ts";
 import {
   readChannelNotifications,
   updateChannelNotifications,
@@ -38,6 +48,7 @@ import {
   executeSavedCommand,
 } from "./execute-saved-command.ts";
 import { type JoinedTeams, projectJoinedTeams } from "./joined-teams.ts";
+import { reopenKnownConversation } from "./known-conversation-visibility.ts";
 import type {
   ChannelWindowQuery,
   LocalChannelWindow,
@@ -45,6 +56,7 @@ import type {
 } from "./local-history.ts";
 import { accountMentionGroups } from "./mention-group-reads.ts";
 import { readFileAnchor, readPostAnchor } from "./message-anchors.ts";
+import { isMattermostId } from "./model-fields.ts";
 import { nativeFetch } from "./native-fetch.ts";
 import { loadAccountDirectory, loadTeamDirectory } from "./navigation-data.ts";
 import { refreshNavigation } from "./navigation-refresh.ts";
@@ -76,7 +88,10 @@ import {
   type SavedWorkspaceSettings,
   sidebarPreferences,
 } from "./workspace-preferences.ts";
-import { loadWorkspaceServerPolicy } from "./workspace-server.ts";
+import {
+  type AccountEventRoute,
+  loadWorkspaceConfiguration,
+} from "./workspace-server.ts";
 
 export async function getCurrentAccountId(
   serverUrl: string,
@@ -139,6 +154,7 @@ export async function openAccountRestConnection(
   const { rid } = connection;
   const config = new Configuration(connection);
   const posts = new PostsApi(config);
+  const channels = new ChannelsApi(config);
   const files = new FilesApi(config);
   const activity = createPostActivity();
   const historyChanges = createChannelHistoryChanges();
@@ -162,12 +178,17 @@ export async function openAccountRestConnection(
     signal?.throwIfAborted();
     return result;
   }
+  const readTeamSidebar = (teamId: string) =>
+    invoke<TeamSidebar | null>("read_team_sidebar", { rid, teamId });
+  const readWorkspaceSettings = () =>
+    invoke<SavedWorkspaceSettings>("read_workspace_settings", { rid });
   const delivery = accountDelivery(rid, readWhileOpen, posts, userId, activity);
   const commands = new CommandsApi(config);
+  let latestPolicyRead: symbol | undefined;
   return {
     ...connection,
     ...accountFollowedThreads(config, readWhileOpen),
-    ...accountPostCollections(config, readWhileOpen),
+    ...accountPostCollections(config, userId, readWhileOpen),
     ...accountCollectionActions(config, userId, readWhileOpen),
     ...accountPostReactions(config, userId, readWhileOpen),
     ...accountSearch(config, readWhileOpen),
@@ -214,7 +235,35 @@ export async function openAccountRestConnection(
     readFileAnchor(fileId: string, signal?: AbortSignal) {
       return readWhileOpen(() => readFileAnchor(files, fileId, signal), signal);
     },
+    searchChannelDirectory(teamId: string, name: string, signal?: AbortSignal) {
+      return readWhileOpen(
+        () => searchChannelDirectory(channels, teamId, name, signal),
+        signal,
+      );
+    },
+    readChannelDirectoryPage(query: DirectoryPageQuery, signal?: AbortSignal) {
+      return readWhileOpen(
+        () => readChannelDirectoryPage(channels, query, signal),
+        signal,
+      );
+    },
     ...accountChannelAudience(config, readWhileOpen),
+    readChannelBookmarks(channelId: string, signal?: AbortSignal) {
+      return readWhileOpen(
+        () => readChannelBookmarks(config, channelId, signal),
+        signal,
+      );
+    },
+    readChannelMemberDirectory(
+      channelId: string,
+      query: ChannelMemberQuery,
+      signal?: AbortSignal,
+    ) {
+      return readWhileOpen(
+        () => readChannelMemberDirectory(config, channelId, query, signal),
+        signal,
+      );
+    },
     ...accountChannelReadState(config, userId, readWhileOpen),
     readChannelNotifications(channelId: string, signal?: AbortSignal) {
       return readWhileOpen(
@@ -345,25 +394,64 @@ export async function openAccountRestConnection(
       );
     },
     readWorkspaceSettings() {
-      return readWhileOpen(() =>
-        invoke<SavedWorkspaceSettings>("read_workspace_settings", { rid }),
-      );
+      return readWhileOpen(readWorkspaceSettings);
     },
-    refreshWorkspaceServerPolicy(signal?: AbortSignal) {
-      return readWhileOpen(() =>
-        refreshNavigation(
-          signal,
-          () => invoke<number>("begin_workspace_policy_load", { rid }),
-          () => loadWorkspaceServerPolicy(config, signal),
-          (load, server) =>
-            invoke<boolean>("store_workspace_policy", { rid, load, server }),
-          (load) => invoke<void>("cancel_workspace_policy_load", { rid, load }),
-        ),
+    async refreshWorkspaceServerPolicy(
+      signal?: AbortSignal,
+      onEventRoute?: (route: AccountEventRoute) => void,
+    ) {
+      signal?.throwIfAborted();
+      const read = Symbol();
+      latestPolicyRead = read;
+      const route = await readWhileOpen(
+        () =>
+          refreshNavigation(
+            signal,
+            () => invoke<number>("begin_workspace_policy_load", { rid }),
+            () => loadWorkspaceConfiguration(config, signal),
+            (load, { server, eventAddress }) =>
+              invoke<AccountEventRoute | null>("store_workspace_policy", {
+                rid,
+                load,
+                server,
+                eventAddress,
+              }),
+            (load) =>
+              invoke<void>("cancel_workspace_policy_load", { rid, load }),
+          ),
+        signal,
       );
+      if (!route) return false;
+      if (!retired && latestPolicyRead === read && !signal?.aborted)
+        onEventRoute?.(route);
+      return true;
     },
     readTeamSidebar(teamId: string) {
-      return readWhileOpen(() =>
-        invoke<TeamSidebar | null>("read_team_sidebar", { rid, teamId }),
+      return readWhileOpen(() => readTeamSidebar(teamId));
+    },
+    async reopenKnownConversation(
+      teamId: string,
+      channelId: string,
+      signal?: AbortSignal,
+    ) {
+      signal?.throwIfAborted();
+      if (![userId, teamId, channelId].every(isMattermostId))
+        throw new TypeError("Invalid Mattermost conversation identity.");
+      const [sidebar, settings] = await readWhileOpen(
+        () => Promise.all([readTeamSidebar(teamId), readWorkspaceSettings()]),
+        signal,
+      );
+      return readWhileOpen(
+        () =>
+          reopenKnownConversation(
+            config,
+            userId,
+            channelId,
+            sidebar?.data,
+            settings.preferences,
+            signal,
+          ),
+        signal,
       );
     },
     selectSidebarChannel(teamId: string, channelId: string) {

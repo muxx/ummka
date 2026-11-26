@@ -17,13 +17,16 @@ import {
   FilesApi,
   type InitOverrideFunction,
   ResponseError,
+  StatusApi,
   SystemApi,
   ThreadsApi,
   UsersApi,
 } from "../../vendor/mattermost/index.js";
 import { checkAccountResponses } from "./account.ts";
 import { checkAccountThreadReadState } from "./account-thread-read-state.ts";
+import { checkChannelFormatting } from "./channel-formatting.tsx";
 import { checkChannelRefresh } from "./channel-refresh.ts";
+import { checkCollectionWindow } from "./collection-window.tsx";
 import { checkDraftWrites } from "./composer-drafts.ts";
 import { checkConnectServer } from "./connect-server.tsx";
 import { checkChannelHistory } from "./history.ts";
@@ -82,6 +85,7 @@ async function checkTeamLoadOwnership(rid: number, other: number) {
 
 export async function checkGeneratedRequests(ports: string[]) {
   const origin = `https://127.0.0.1:${ports[0]}`;
+  await checkCollectionWindow(`${origin}/collection-window`, ports[1]);
   await checkUnavailableHistoryServer(origin);
   await prepareHistoryLoads(origin);
   const root = await openNativeRestConnection(origin);
@@ -151,6 +155,16 @@ export async function checkGeneratedRequests(ports: string[]) {
     await observed("closed", `${name}-body`);
   }
   try {
+    await observed(
+      "format-times",
+      encodeURIComponent(
+        JSON.stringify(
+          await checkChannelFormatting((width) =>
+            observed("format-right", String(width)),
+          ),
+        ),
+      ),
+    );
     const atRoot = await new SystemApi(new Configuration(root)).getPing(query);
     check(atRoot.status === "OK", "generated-root");
     const first = await api.getPing(query);
@@ -216,6 +230,22 @@ export async function checkGeneratedRequests(ports: string[]) {
         profiles[0].firstName === "Юлия" &&
         profiles[1]?.id === userId,
       "generated-user-batch",
+    );
+    const statuses = await new StatusApi(signed).getUsersStatusesByIds({
+      requestBody: batch.requestBody,
+    });
+    const [peerStatus, selfStatus] = statuses;
+    check(
+      statuses.length === 2 &&
+        peerStatus?.userId === batch.requestBody[1] &&
+        peerStatus.status === "dnd" &&
+        peerStatus.manual === true &&
+        peerStatus.lastActivityAt === 1700000000123 &&
+        peerStatus.dndEndTime === 1700003600 &&
+        selfStatus?.userId === userId &&
+        selfStatus.status === "offline" &&
+        selfStatus.dndEndTime === 0,
+      "generated-presence-batch",
     );
     const unsignedBatch = await rejected(anonymousUser.getUsersByIdsRaw(batch));
     check(
@@ -311,6 +341,41 @@ export async function checkGeneratedRequests(ports: string[]) {
       "team-navigation-directory",
     );
     const teamId = "Team0123456789012345678901";
+    const recipientPage = await users.getUsers({
+      page: 1,
+      perPage: 20,
+      inTeam: teamId,
+      active: true,
+    });
+    const recipientSearch = await users.searchUsers({
+      searchUsersRequest: {
+        term: "ан",
+        teamId,
+        allowInactive: false,
+        limit: 12,
+      },
+    });
+    for (const profiles of [recipientPage, recipientSearch]) {
+      check(
+        profiles.length === 1 &&
+          profiles[0].id === userId &&
+          profiles[0].username === "anna" &&
+          profiles[0].firstName === "Анна",
+        "signed visible recipients",
+      );
+    }
+    for (const request of [
+      () => anonymousUser.getUsers({ page: 0 }),
+      () => anonymousUser.searchUsers({ searchUsersRequest: { term: "ан" } }),
+    ]) {
+      const denied = await rejected(request());
+      check(
+        denied instanceof FetchError &&
+          denied.cause instanceof TypeError &&
+          denied.cause.cause === "operation_denied",
+        "recipient-directory-denied-before-dispatch",
+      );
+    }
     const teamMembership = { kind: "team" as const, id: teamId };
     for (const change of ["join", "leave"] as const) {
       const result = await accountPrefix.changeOwnMembership(
@@ -504,6 +569,25 @@ export async function checkGeneratedRequests(ports: string[]) {
       await accountPrefix.selectSidebarChannel(teamId, channelId),
       "select-saved-room",
     );
+    const groupId = "g".repeat(26);
+    check(
+      (await accountPrefix.reopenKnownConversation(teamId, groupId)) ===
+        "confirmed",
+      "reopen-known-group-on-server",
+    );
+    check(
+      await accountPrefix.refreshJoinedTeams(),
+      "publish-updated-conversation-preferences",
+    );
+    const settingsAfterOpen = (await accountPrefix.readWorkspaceSettings())
+      .preferences;
+    check(
+      settingsAfterOpen?.groupShown[groupId] === true &&
+        settingsAfterOpen.viewTimes[groupId] > 0 &&
+        (await accountPrefix.reopenKnownConversation(teamId, groupId)) ===
+          "alreadyShown",
+      "known-group-visible-without-a-second-put",
+    );
     const catalog = await accountPrefix.readTeamSidebar(teamId);
     check(
       catalog?.selectedChannel === channelId &&
@@ -595,6 +679,16 @@ export async function checkGeneratedRequests(ports: string[]) {
     );
     await checkThreadList(threads, teamId, channelId, userId);
     await checkAccountThreadList(accountPrefix, teamId, channelId, userId);
+    await accountPrefix.setThreadFollowing(
+      teamId,
+      { id: postId, rootId: null },
+      true,
+    );
+    await accountPrefix.setThreadFollowing(
+      teamId,
+      { id: "r".repeat(26), rootId: postId },
+      false,
+    );
     const guestThreads = new ThreadsApi(new Configuration(prefixed));
     const timestamp = 1700000000123;
     await checkAccountThreadReadState(accountPrefix, teamId, postId, timestamp);
@@ -634,6 +728,45 @@ export async function checkGeneratedRequests(ports: string[]) {
       );
     }
     const categoryApi = new ChannelsApi(signed);
+    const direct = await categoryApi.createDirectChannelRaw({
+      requestBody: [userId],
+    });
+    const group = await categoryApi.createGroupChannelRaw({
+      requestBody: ["x".repeat(26), "y".repeat(26)],
+    });
+    const ownConversation = await direct.value();
+    const groupConversation = await group.value();
+    check(
+      direct.raw.status === 201 &&
+        ownConversation.id === "d".repeat(26) &&
+        ownConversation.type === "D" &&
+        ownConversation.teamId === "",
+      "signed self conversation",
+    );
+    check(
+      group.raw.status === 201 &&
+        groupConversation.id === "g".repeat(26) &&
+        groupConversation.type === "G" &&
+        groupConversation.teamId === "",
+      "signed group conversation",
+    );
+    const unsignedConversations = new ChannelsApi(new Configuration(prefixed));
+    for (const request of [
+      () =>
+        unsignedConversations.createDirectChannel({ requestBody: [userId] }),
+      () =>
+        unsignedConversations.createGroupChannel({
+          requestBody: ["x".repeat(26), "y".repeat(26)],
+        }),
+    ]) {
+      const denied = await rejected(request());
+      check(
+        denied instanceof FetchError &&
+          denied.cause instanceof TypeError &&
+          denied.cause.cause === "operation_denied",
+        "conversation-denied-before-dispatch",
+      );
+    }
     const categoryOwner = "Abc01234567890123456789012";
     const categoryId = `direct_messages_${categoryOwner.toLowerCase()}_${teamId.toLowerCase()}`;
     const categoryScope = { userId: "me", teamId };

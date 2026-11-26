@@ -1,3 +1,4 @@
+import "./empty-link-inbox.test-utils";
 import {
   act,
   cleanup,
@@ -62,7 +63,13 @@ test("opens offline in the preferred supported language", () => {
   expect(entryLanguage(["de", "ru-RU", "en"])).toBe("ru");
   expect(entryLanguage(["en-US", "ru"])).toBe("en");
   expect(entryLanguage(["fr-FR"])).toBe("en");
-  render(<ServerSignIn onAccountChanged={changed} language="ru" />);
+  render(
+    <ServerSignIn
+      connect={connectInstallation}
+      onAccountChanged={changed}
+      language="ru"
+    />,
+  );
   expect(
     screen.getByRole("heading", { name: "Подключите сервер Mattermost" }),
   ).toBeTruthy();
@@ -78,7 +85,13 @@ test("submits once, shows only the verified methods and restores the typed addre
         finish = resolve;
       }),
   );
-  render(<ServerSignIn onAccountChanged={changed} language="en" />);
+  render(
+    <ServerSignIn
+      connect={connectInstallation}
+      onAccountChanged={changed}
+      language="en"
+    />,
+  );
   const { field, form } = enter("Chat.example.org/Team/");
   expect(field.readOnly).toBe(true);
   expect(
@@ -109,7 +122,13 @@ test.each(["empty", "protocol", "extra-parts", "invalid"] as const)(
   "marks the %s address error and clears it on editing",
   async (issue) => {
     inspect.mockRejectedValueOnce(new InstallationAddressError(issue));
-    render(<ServerSignIn onAccountChanged={changed} language="ru" />);
+    render(
+      <ServerSignIn
+        connect={connectInstallation}
+        onAccountChanged={changed}
+        language="ru"
+      />,
+    );
     const { field } = enter("http:/chat");
     await screen.findByRole("alert");
     expect(field.getAttribute("aria-invalid")).toBe("true");
@@ -140,7 +159,13 @@ test.each([
       ssoProviders: ["office365", "openid", "saml", "google"],
       guestMagicLink: true,
     });
-    render(<ServerSignIn onAccountChanged={changed} language="en" />);
+    render(
+      <ServerSignIn
+        connect={connectInstallation}
+        onAccountChanged={changed}
+        language="en"
+      />,
+    );
     const { field, form } = enter("chat.example.org/Team");
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain(message);
@@ -165,7 +190,11 @@ test.each([
 test("reports a server with no methods and cancels an in-flight inspection when the window closes", async () => {
   inspect.mockResolvedValueOnce({ ...profile, ssoProviders: [] });
   const view = render(
-    <ServerSignIn onAccountChanged={changed} language="en" />,
+    <ServerSignIn
+      connect={connectInstallation}
+      onAccountChanged={changed}
+      language="en"
+    />,
   );
   enter("chat/Team");
   expect(

@@ -114,7 +114,7 @@ test.each(["routing", "navigation", "acknowledgement"])(
       errors,
       active.signal,
     );
-    await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(failure));
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(failure, "1"));
     const calls = read.mock.calls.length;
     wake();
     expect(read).toHaveBeenCalledTimes(calls);
@@ -136,6 +136,7 @@ test("a refused acknowledgement pauses delivery until the caller retries", async
   await vi.waitFor(() =>
     expect(errors).toHaveBeenCalledWith(
       new Error("System link was not acknowledged"),
+      "1",
     ),
   );
   wake();
@@ -143,7 +144,7 @@ test("a refused acknowledgement pauses delivery until the caller retries", async
   expect(read).toHaveBeenCalledTimes(2);
   observer.retry();
   await vi.waitFor(() => expect(queue).toHaveLength(0));
-  expect(delivered()).toEqual(["1", "1"]);
+  expect(delivered()).toEqual(["1"]);
 });
 
 test("disposal during account resolution leaves the destination for the next view", async () => {
@@ -169,4 +170,54 @@ test("aborting while subscribing releases the eventual listener without reading"
   await expect(started).rejects.toMatchObject({ name: "AbortError" });
   expect(unlisten).toHaveBeenCalledTimes(1);
   expect(read).not.toHaveBeenCalled();
+});
+
+test("skipping a failed route acknowledges only the observed head", async () => {
+  queue.push({ id: "1", href: url }, { id: "2", href: url });
+  route.mockRejectedValueOnce(Error("registry"));
+  const observer = await watchSystemChannelsLinks(
+    navigate,
+    errors,
+    active.signal,
+  );
+  await vi.waitFor(() => expect(errors).toHaveBeenCalledOnce());
+  observer.dismiss("2");
+  expect(delivered()).toEqual([]);
+  expect(queue).toHaveLength(2);
+  observer.dismiss("1");
+  await vi.waitFor(() => expect(queue).toHaveLength(0));
+  expect(delivered()).toEqual(["2"]);
+});
+test("a failed read before any ID was observed cannot be dismissed", async () => {
+  queue.push({ id: "1", href: url });
+  read.mockRejectedValueOnce(Error("storage"));
+  const observer = await watchSystemChannelsLinks(
+    navigate,
+    errors,
+    active.signal,
+  );
+  await vi.waitFor(() =>
+    expect(errors).toHaveBeenCalledWith(expect.any(Error), undefined),
+  );
+  observer.dismiss("1");
+  expect(queue).toHaveLength(1);
+  observer.retry();
+  await vi.waitFor(() => expect(queue).toHaveLength(0));
+  expect(delivered()).toEqual(["1"]);
+});
+test("a lost acknowledgement response does not suppress the new delivery with the same URL", async () => {
+  queue.push({ id: "1", href: url }, { id: "2", href: url });
+  read.mockResolvedValueOnce(queue[0]).mockImplementationOnce(async () => {
+    queue.shift();
+    throw Error("response lost");
+  });
+  const observer = await watchSystemChannelsLinks(
+    navigate,
+    errors,
+    active.signal,
+  );
+  await vi.waitFor(() => expect(errors).toHaveBeenCalledOnce());
+  observer.retry();
+  await vi.waitFor(() => expect(queue).toHaveLength(0));
+  expect(delivered()).toEqual(["1", "2"]);
 });

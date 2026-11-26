@@ -9,6 +9,7 @@ import type { Server, Socket } from "node:net";
 import { join } from "node:path";
 import { authPrefix, checkAuthVisits, handleAuth } from "./authentication.ts";
 import { eventFixture } from "./channel-events.ts";
+import { fileTransferFixture } from "./file-transfer.ts";
 import { mobileFilePolicyFixture } from "./mobile-file-policy.ts";
 import { webviewServers } from "./webview.ts";
 
@@ -168,10 +169,12 @@ export async function startFixture(dir: string) {
   const ok = (response: http.ServerResponse) => response.end("OK");
   const mobilePolicy = mobileFilePolicyFixture();
   const eventStream = eventFixture();
+  const fileTransfers = fileTransferFixture();
   const tls = https.createServer(certs.trusted, (request, response) => {
     const path = request.url;
     observe("https", path);
     if (eventStream.control(request, response)) return;
+    if (fileTransfers.handle(request, response)) return;
     if (mobilePolicy.handle(request, response)) return;
     const control = path?.match(
       /^\/auth-check\/([a-z-]+)\/(received|release)$/,
@@ -347,11 +350,14 @@ export async function startFixture(dir: string) {
       ports: ports.slice(0, native.length),
       webviewPorts: ports.slice(native.length),
       onAndroidInputReady: webview.onAndroidInputReady,
+      onMacInputReady: webview.onMacInputReady,
+      webviewProgress: webview.progress,
       ca: certs.ca,
       close,
       verify(android: boolean) {
         checkAuthVisits(authVisits);
         eventStream.verify();
+        fileTransfers.verify();
         mobilePolicy.verify();
         webview.verify(android ? "android" : "macos");
         assert.deepEqual(checkpoints, [

@@ -9,6 +9,7 @@ import { checkChannelsFrame } from "./channels-frame.tsx";
 import { checkEntryWindow } from "./entry-window.tsx";
 import { beginExchanges, finishExchangesAfterReload } from "./exchanges.ts";
 import { checkGeneratedRequests } from "./generated.ts";
+import { checkNotificationSoundAssets } from "./notification-sounds.ts";
 import { checkPaletteSurfaces } from "./palette.ts";
 
 import { resumeRegistryCheck, seedRegistry } from "./registry.ts";
@@ -43,6 +44,20 @@ function checkRoute(expected: number) {
   }
 }
 
+// WebKit reads autocorrect from the editor or its form, including for controls
+// React mounts after startup. Configure the focused test field before typing.
+document.addEventListener(
+  "focus",
+  (event) => {
+    if (
+      event.target instanceof HTMLInputElement ||
+      event.target instanceof HTMLTextAreaElement
+    )
+      event.target.setAttribute("autocorrect", "off");
+  },
+  true,
+);
+
 async function expectClosed(close: () => Promise<void>) {
   try {
     await close();
@@ -60,6 +75,7 @@ async function checkResources() {
       window.addEventListener("load", () => resolve(), { once: true }),
     );
   }
+  await checkNotificationSoundAssets();
   // A fresh offline process resumes the saved registry before the first-run UI probes.
   if (await resumeRegistryCheck()) return;
   await checkEntryWindow();
@@ -69,7 +85,7 @@ async function checkResources() {
     if (findStandardEmoji("thumbsup")?.glyph !== "👍")
       throw Error("standard-emoji-directory");
     await checkChannelsFrame();
-    checkChannelTimeline();
+    await checkChannelTimeline();
     const ports = String(import.meta.env.VITE_UMMKA_CHECK_PORTS).split(",");
     await checkGeneratedRequests(ports);
     const invalid = await openExternalPostLink("/relative").catch(
@@ -77,12 +93,13 @@ async function checkResources() {
     );
     if (invalid !== "invalid_url")
       throw Error("External URL validation failed");
-    const externalHref = navigator.userAgent.includes("Android")
-      ? "https://external.ummka.invalid/post/@bear?value=a%2Fb#anchor"
-      : import.meta.env.VITE_UMMKA_CHECK_EXTERNAL_HREF;
-    if (externalHref) await openExternalPostLink(externalHref);
+    const android = navigator.userAgent.includes("Android");
+    if (android)
+      await openExternalPostLink(
+        "https://external.ummka.invalid/post/@bear?value=a%2Fb#anchor",
+      );
     await checkBrowserAction(ports[0], ports[1]);
-    if (navigator.userAgent.includes("Android")) {
+    if (android) {
       await openExternalPostLink("mailto:probe@ummka.invalid");
       const missing = await openExternalPostLink(
         "mailto:unhandled@ummka.invalid",
@@ -91,6 +108,10 @@ async function checkResources() {
         throw Error("Missing Android mail handler was not reported");
     }
     await seedRegistry();
+    // LaunchServices activates the default browser. Finish work that needs the
+    // fixture window and keyboard focus before handing it the foreground.
+    const browserHref = import.meta.env.VITE_UMMKA_CHECK_EXTERNAL_HREF;
+    if (!android && browserHref) await openExternalPostLink(browserHref);
     location.replace("/ipc-result.html?pass");
     return;
   }

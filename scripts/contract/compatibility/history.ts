@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { latestReactionTarget } from "../../../src/channels/latest-reaction-target.ts";
 import { nextPostDestinationStep } from "../../../src/channels/post-destination-step.ts";
 import { accountChannelReadState } from "../../../src/mattermost/account-channel-read-state.ts";
+import { readChannelBookmarks } from "../../../src/mattermost/channel-bookmarks.ts";
 import { channelHistoryPage } from "../../../src/mattermost/channel-history-page.ts";
 import { readChannelIdentity } from "../../../src/mattermost/channel-identity.ts";
 import { channelPostChanges } from "../../../src/mattermost/channel-post-records.ts";
@@ -23,6 +24,7 @@ import {
 } from "../../../src/mattermost/thread-page.ts";
 import { loadVisibleProfiles } from "../../../src/mattermost/visible-profiles.ts";
 import {
+  BookmarksApi,
   ChannelsApi,
   Configuration,
   type Post,
@@ -37,20 +39,28 @@ import {
   checkBrowserSignIn,
 } from "./browser-sign-in.ts";
 import { checkChannelAudience } from "./channel-audience.ts";
+import { checkChannelDirectoryPages } from "./channel-directory-pages.ts";
+import {
+  checkChannelMemberDirectory,
+  checkChannelMemberRoles,
+} from "./channel-member-directory.ts";
 import {
   checkChannelNotifications,
   checkPersonalNotificationUpdate,
 } from "./channel-notifications.ts";
 import { checkCollectionActions } from "./collection-actions.ts";
 import { checkCommands } from "./commands.ts";
+import { checkConversationCreation } from "./conversation-creation.ts";
 import { checkCustomEmojiLookup } from "./custom-emoji.ts";
 import { checkEventActions } from "./event-actions.ts";
+import { checkEventConfiguration } from "./event-configuration.ts";
 import { checkEventStream } from "./event-stream.ts";
 import { checkFileContent } from "./file-content.ts";
 import { checkFileSearch } from "./file-search.ts";
 import { checkFocusedConversation } from "./focused-conversation.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
 import { checkJoinPostTarget } from "./join-post-target.ts";
+import { checkKnownConversationVisibility } from "./known-conversation-visibility.ts";
 import {
   checkChannelRoster,
   checkEmptyTeamDirectory,
@@ -78,11 +88,14 @@ import { checkPublishedPostDocument } from "./published-post-document.ts";
 import { checkReactionActions } from "./reaction-actions.ts";
 import { checkReactionLimit } from "./reaction-limit.ts";
 import { checkPostReactions } from "./reactions.ts";
+import { checkRecipientDirectory } from "./recipient-directory.ts";
 import { checkRoleReads } from "./role-reads.ts";
+import { checkSparseSavedPages } from "./saved-page-access.ts";
 import { checkSearchScopePolicy } from "./search-scope.ts";
 import { expectedNavigationPost } from "./search-target.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
+import { checkTeamChannelSearch } from "./team-channel-search.ts";
 import { checkThreadFollow } from "./thread-follow.ts";
 import { checkThreadList } from "./thread-list.ts";
 import { checkThreadPageTies } from "./thread-page-ties.ts";
@@ -91,6 +104,7 @@ import { checkThreadSummary } from "./thread-summary.ts";
 import { checkThreadWindow } from "./thread-window.ts";
 import { checkUnreadThreadWindow } from "./unread-thread-window.ts";
 import { checkUserNotifications } from "./user-notifications.ts";
+import { checkUserPresence } from "./user-presence.ts";
 import { checkUserTimezone } from "./user-timezone.ts";
 
 const base = "http://mattermost:8065";
@@ -303,6 +317,13 @@ const readerToken = (await create("users/login", readerLogin)).headers.get(
   "token",
 );
 assert.ok(readerToken);
+await checkChannelDirectoryPages(
+  base,
+  create,
+  token,
+  { token: readerToken, userId: reader.id },
+  version,
+);
 await checkRoleReads(base, readerToken, reader.id, version);
 const readerPosts = new PostsApi(
   new Configuration({ basePath: base, accessToken: readerToken }),
@@ -400,6 +421,37 @@ assert.equal(closedMember.userId, user.id);
 assert.equal(closedMember.channelId, closed.id);
 const closedReader = new ChannelsApi(
   new Configuration({ basePath: base, accessToken: readerToken }),
+);
+const bookmarkDirectory = new BookmarksApi(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+);
+const bookmarkFailure = await bookmarkDirectory
+  .listChannelBookmarksForChannel({ channelId: dm.id })
+  .catch((error: unknown) => error);
+assert.ok(bookmarkFailure instanceof ResponseError);
+assert.equal(bookmarkFailure.response.status, 501);
+assert.equal(
+  (await bookmarkFailure.response.json()).id,
+  "api.channel.bookmark.channel_bookmark.license.error",
+);
+assert.deepEqual(
+  await readChannelBookmarks(
+    new Configuration({ basePath: base, accessToken: readerToken }),
+    dm.id,
+  ),
+  { kind: "unlicensed" },
+);
+await checkChannelMemberDirectory(
+  base,
+  readerToken,
+  dm.id,
+  closed.id,
+  user.id,
+  reader.id,
+  username,
+);
+console.log(
+  `Mattermost ${version} verified channel member paging, search, roles and private access.`,
 );
 await checkChannelAudience(
   base,
@@ -880,10 +932,21 @@ const otherSaverLogin = await create("users/login", {
 const otherSaverToken = otherSaverLogin.headers.get("token");
 assert.ok(otherSaverToken);
 assert.equal(otherSaver.roles, "system_user");
+await checkUserPresence(
+  base,
+  { id: reader.id, token: readerToken },
+  { id: otherSaver.id, token: otherSaverToken },
+);
 await checkPostCollections(
   { session, id: user.id },
   { id: reader.id, token: readerToken },
-  new Configuration({ basePath: base, accessToken: otherSaverToken }),
+  {
+    session: new Configuration({
+      basePath: base,
+      accessToken: otherSaverToken,
+    }),
+    id: otherSaver.id,
+  },
   {
     channel: channelId,
     privateChannel: closed.id,
@@ -1167,6 +1230,26 @@ const group = await (
   await create("channels/group", [user.id, reader.id, bot.user_id], token)
 ).json();
 assert.equal(group.type, "G");
+const knownDirect = await (
+  await create("channels/direct", [reader.id, observer.id], readerToken)
+).json();
+const knownGroup = await (
+  await create("channels/group", [reader.id, observer.id, user.id], readerToken)
+).json();
+await checkKnownConversationVisibility(
+  {
+    config: new Configuration({ basePath: base, accessToken: readerToken }),
+    id: reader.id,
+  },
+  {
+    config: new Configuration({ basePath: base, accessToken: observerToken }),
+    id: observer.id,
+  },
+  team.id,
+  knownDirect.id,
+  knownGroup.id,
+  version,
+);
 for (const [source, expectedTeam, expectedName] of [
   [channel, team.id, channel.displayName],
   [dm, "", dm.display_name],
@@ -1276,10 +1359,18 @@ await checkPreviouslyAcceptedPost(
   version,
 );
 
+await checkTeamChannelSearch(
+  base,
+  create,
+  token,
+  { id: reader.id, token: readerToken },
+  version,
+);
 await checkSearchScopePolicy(base, token, readerToken, version);
+await checkEventConfiguration(base, token, readerToken, version);
 await checkPostEditWindow(base, token, readerToken);
 await checkMobileFilePolicy(base, token, readerToken);
-await checkPresencePolicy(base, token, readerToken);
+await checkPresencePolicy(base, token, readerToken, reader.id);
 await checkReactionLimit(base, token, user.id, readerToken, channelId);
 console.log(
   `Mattermost ${version} verified the signed reaction limit against adding a new emoji name.`,
@@ -1431,6 +1522,34 @@ await checkThreadReadState(
   version,
 );
 
+const hiddenSaved = await (
+  await create(
+    "channels",
+    {
+      team_id: team.id,
+      name: "saved-page-private",
+      display_name: "Saved page private",
+      type: "P",
+    },
+    readerToken,
+  )
+).json();
+await create(
+  `channels/${hiddenSaved.id}/members`,
+  { user_id: otherSaver.id },
+  readerToken,
+);
+await checkSparseSavedPages(
+  base,
+  token,
+  { id: otherSaver.id, token: otherSaverToken },
+  readerToken,
+  team.id,
+  channelId,
+  hiddenSaved.id,
+  version,
+);
+
 const secondLogin = await create("users/login", {
   login_id: username,
   password,
@@ -1499,6 +1618,59 @@ console.log(
   `Mattermost ${version} verified attachment representations, ranges and channel access.`,
 );
 await checkPublishedPostDocument(readerPosts, base, channelId, version);
+const conversationPeers: string[] = [observer.id, otherSaver.id, user.id];
+for (let i = conversationPeers.length; i < 8; i++) {
+  const name = `conversation-peer-${i}`;
+  const peer = await (
+    await create("users", {
+      username: name,
+      email: `${name}@example.test`,
+      password: `${randomBytes(24).toString("hex")}aA7!`,
+    })
+  ).json();
+  assert.equal(peer.roles, "system_user");
+  conversationPeers.push(peer.id);
+}
+assert.equal(reader.roles, "system_user");
+await checkConversationCreation(
+  base,
+  readerToken,
+  reader.id,
+  conversationPeers,
+  version,
+);
+const closedDirectoryTeam = await (
+  await create(
+    "teams",
+    {
+      name: "private-directory",
+      display_name: "Private recipient directory",
+      type: "I",
+    },
+    token,
+  )
+).json();
+const outsideDirectoryUserId = conversationPeers[3];
+await checkRecipientDirectory(
+  base,
+  readerToken,
+  team.id,
+  closedDirectoryTeam.id,
+  reader,
+  { id: outsideDirectoryUserId, username: "conversation-peer-3" },
+  async () => {
+    const result = await fetch(
+      `${base}/api/v4/users/${outsideDirectoryUserId}/active`,
+      {
+        method: "PUT",
+        headers: { ...authorization, "Content-Type": "application/json" },
+        body: JSON.stringify({ active: false }),
+      },
+    );
+    assert.equal(result.status, 200);
+  },
+  version,
+);
 await checkNamedRoutes(
   session,
   new Configuration({ basePath: base, accessToken: readerToken }),
@@ -1515,6 +1687,34 @@ await checkNamedRoutes(
 );
 console.log(
   `Mattermost ${version} verified team and channel names before and after invitation and archive.`,
+);
+const memberDirectoryChannel = await (
+  await create(
+    "channels",
+    {
+      team_id: team.id,
+      name: "roster-role-order",
+      display_name: "Roster role order",
+      type: "P",
+    },
+    token,
+  )
+).json();
+await create(
+  `channels/${memberDirectoryChannel.id}/members`,
+  { user_id: reader.id },
+  token,
+);
+await checkChannelMemberRoles(
+  base,
+  readerToken,
+  memberDirectoryChannel.id,
+  user.id,
+  reader.id,
+  observer,
+);
+console.log(
+  `Mattermost ${version} verified admin-first role order and excluded an existing outside profile from private channel search.`,
 );
 await allowFixtureBrowserSignIn(base, token);
 const logout = await fetch(`${base}/api/v4/users/logout`, {

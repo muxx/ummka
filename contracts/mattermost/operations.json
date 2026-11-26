@@ -64,6 +64,18 @@
   {
     "file": "channels.yaml",
     "method": "GET",
+    "path": "/api/v4/teams/{team_id}/channels",
+    "id": "GetPublicChannelsForTeam"
+  },
+  {
+    "file": "channels.yaml",
+    "method": "GET",
+    "path": "/api/v4/teams/{team_id}/channels/deleted",
+    "id": "GetDeletedChannelsForTeam"
+  },
+  {
+    "file": "channels.yaml",
+    "method": "GET",
     "path": "/api/v4/users/{user_id}/teams/{team_id}/channels",
     "id": "GetChannelsForTeamForUser"
   },
@@ -76,8 +88,30 @@
   {
     "file": "channels.yaml",
     "method": "GET",
+    "path": "/api/v4/teams/{team_id}/channels/autocomplete",
+    "id": "AutocompleteChannelsForTeam"
+  },
+  {
+    "file": "channels.yaml",
+    "method": "GET",
     "path": "/api/v4/users/{user_id}/teams/{team_id}/channels/members",
     "id": "GetChannelMembersForUser"
+  },
+  {
+    "file": "channels.yaml",
+    "method": "POST",
+    "path": "/api/v4/channels/direct",
+    "id": "CreateDirectChannel",
+    "body": "json",
+    "selfOnly": true
+  },
+  {
+    "file": "channels.yaml",
+    "method": "POST",
+    "path": "/api/v4/channels/group",
+    "id": "CreateGroupChannel",
+    "body": "json",
+    "selfOnly": true
   },
   {
     "file": "channels.yaml",
@@ -202,9 +236,31 @@
   },
   {
     "file": "users.yaml",
+    "method": "GET",
+    "path": "/api/v4/users",
+    "id": "GetUsers",
+    "selfOnly": true
+  },
+  {
+    "file": "users.yaml",
+    "method": "POST",
+    "path": "/api/v4/users/search",
+    "id": "SearchUsers",
+    "body": "json",
+    "selfOnly": true
+  },
+  {
+    "file": "users.yaml",
     "method": "POST",
     "path": "/api/v4/users/ids",
     "id": "GetUsersByIds",
+    "body": "json"
+  },
+  {
+    "file": "status.yaml",
+    "method": "POST",
+    "path": "/api/v4/users/status/ids",
+    "id": "GetUsersStatusesByIds",
     "body": "json"
   },
   {
@@ -465,5 +521,11 @@
     "path": "/api/v4/users/{user_id}/preferences/delete",
     "id": "DeletePreferences",
     "body": "json"
+  },
+  {
+    "file": "bookmarks.yaml",
+    "method": "GET",
+    "path": "/api/v4/channels/{channel_id}/bookmarks",
+    "id": "ListChannelBookmarksForChannel"
   }
 ]

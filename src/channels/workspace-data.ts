@@ -110,6 +110,7 @@ export function workspaceProfileQuery(
   sidebar: TeamSidebar | null,
   policy: WorkspacePreferences | null,
   page: LocalChannelWindow | null,
+  resultChannels?: ReadonlySet<string>,
 ): VisibleProfileQuery {
   const ids = new Set<string>([userId]),
     usernames = new Set<string>();
@@ -123,12 +124,13 @@ export function workspaceProfileQuery(
     for (const channel of sidebar.data.channels) {
       if (channel.kind !== "D" && channel.kind !== "G") continue;
       const current = sidebar.selectedChannel === channel.id;
-      if (channel.deleteAt && !current) continue;
+      const inView = current || resultChannels?.has(channel.id);
+      if (channel.deleteAt && !inView) continue;
       const peer =
         channel.kind === "D" ? directPartnerId(channel.name, userId) : null;
       const { unread } = channelUnreadCounts(channel, policy.collapsedThreads);
       if (
-        !current &&
+        !inView &&
         !unread &&
         !(peer ? policy.directShown[peer] : policy.groupShown[channel.id])
       )

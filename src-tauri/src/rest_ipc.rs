@@ -1,3 +1,5 @@
+#[cfg(all(feature = "native-http-check", any(test, target_os = "android")))]
+pub(crate) mod attachment_check;
 pub(crate) mod delivery;
 pub(crate) mod directory;
 pub(crate) mod drafts;
@@ -228,7 +230,9 @@ pub(crate) fn seed_check_sessions(
 ) -> Result<(), TransportError> {
     let root = format!("https://127.0.0.1:{port}");
     let prefixed = format!("{root}/team/chat");
+    let system_post = format!("{root}/system-post-check");
     let secondary = format!("{prefixed}/secondary");
+    let collections = format!("{root}/collection-window");
     let confirmed = format!("{prefixed}/confirmed");
     tauri::async_runtime::block_on(async {
         for (base, account, token) in [
@@ -243,9 +247,19 @@ pub(crate) fn seed_check_sessions(
                 "fixture-prefixed-session",
             ),
             (
+                system_post.as_str(),
+                "ffffffffffffffffffffffffff",
+                "fixture-system-post",
+            ),
+            (
                 secondary.as_str(),
                 "bbbbbbbbbbbbbbbbbbbbbbbbbb",
                 "fixture-second-session",
+            ),
+            (
+                collections.as_str(),
+                "ffffffffffffffffffffffffff",
+                "fixture-browser-action",
             ),
             (
                 confirmed.as_str(),
@@ -260,6 +274,14 @@ pub(crate) fn seed_check_sessions(
         ] {
             sessions.activate(base, account, token).await?;
         }
+        #[cfg(target_os = "macos")]
+        sessions
+            .activate(
+                &format!("{root}/browser-action-check"),
+                "ffffffffffffffffffffffffff",
+                "fixture-browser-action",
+            )
+            .await?;
         history_check::seed(sessions, &root).await?;
         #[cfg(target_os = "android")]
         sessions
@@ -281,8 +303,12 @@ pub(crate) fn report_check<R: Runtime>(webview: &Webview<R>, url: &tauri::Url) {
         _ => false,
     };
     if webview.label() == "main" && local && url.path() == "/ipc-result.html" {
-        if let Some(phase @ ("registry-removed" | "registry-confirmed" | "registry-unsupported")) =
-            url.query()
+        if let Some(
+            phase @ ("registry-removed"
+            | "registry-confirmed"
+            | "registry-unsupported"
+            | "system-posts-shown"),
+        ) = url.query()
         {
             println!("UMMKA_WEBVIEW_CHECK {phase}");
             #[cfg(not(target_os = "android"))]

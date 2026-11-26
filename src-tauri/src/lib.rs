@@ -2,6 +2,8 @@ mod app_error;
 pub mod authentication;
 mod browser_ipc;
 mod channels_links;
+#[cfg(all(feature = "webview-check", target_os = "macos"))]
+mod check_keyboard;
 pub mod credentials;
 mod external_post_link;
 pub mod history;
@@ -104,6 +106,10 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
             {
                 // Setup runs on the main thread. The Tauri window owns this NSWindow.
                 let native = unsafe { &*main.ns_window()?.cast::<objc2_app_kit::NSWindow>() };
+                if std::env::var_os("UMMKA_CHECK_KEY_INPUT").is_some() {
+                    main.set_focus()?;
+                    check_keyboard::listen(&main);
+                }
                 if native.minSize().width != 400.0 {
                     return Err("unexpected native minimum window width".into());
                 }
@@ -136,6 +142,25 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let config = context();
+    #[cfg(all(feature = "webview-check", target_os = "macos"))]
+    let config = {
+        let mut config = config;
+        if std::env::var_os("UMMKA_CHECK_SYSTEM_POST_WINDOW").is_some()
+            || std::env::var_os("UMMKA_CHECK_KEY_INPUT").is_some()
+        {
+            // Both interactive fixtures need a normally presented WKWebView from
+            // creation for AppKit focus, scrolling and foreground scheduling.
+            let main = config
+                .config_mut()
+                .app
+                .windows
+                .iter_mut()
+                .find(|window| window.label == "main")
+                .expect("missing main test window");
+            main.visible = true;
+        }
+        config
+    };
     #[cfg(all(feature = "webview-check", target_os = "macos"))]
     if std::env::var("UMMKA_CHECK_SEED_ACCOUNTS").as_deref() == Ok("1") {
         let port = config.config().plugins.0["ummkaFixture"]["dataPort"]

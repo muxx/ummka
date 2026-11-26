@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, expect, expectTypeOf, test, vi } from "vitest";
 import {
+  BookmarksApi,
+  type ChannelBookmarkWithFileInfo,
   ChannelsApi,
   type PostInfo,
   PostsApi,
@@ -21,6 +23,7 @@ import * as directory from "./navigation-data.ts";
 import * as membership from "./own-membership.ts";
 import * as searchClock from "./search-timezone.ts";
 import * as profiles from "./visible-profiles.ts";
+import * as workspace from "./workspace-server.ts";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const ipc = vi.mocked(invoke);
@@ -185,6 +188,35 @@ test("closing the signed account discards historical revisions already in flight
     expect(request).toHaveBeenCalledTimes(1);
   } finally {
     request.mockRestore();
+  }
+});
+
+test("closing the account discards a directory page already in flight", async () => {
+  ipc.mockResolvedValueOnce(41);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    "a".repeat(26),
+  );
+  const read = vi.spyOn(ChannelsApi.prototype, "getPublicChannelsForTeam");
+  let finish!: (rows: []) => void;
+  read.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  try {
+    const query = { teamId: "t".repeat(26), kind: "public", page: 0 } as const;
+    const pending = account.readChannelDirectoryPage(query);
+    await account.close();
+    finish([]);
+    await expect(pending).rejects.toBe("cancelled");
+    await expect(account.readChannelDirectoryPage(query)).rejects.toBe(
+      "unknown_connection",
+    );
+    expect(read).toHaveBeenCalledTimes(1);
+  } finally {
+    read.mockRestore();
   }
 });
 
@@ -478,6 +510,7 @@ test("passes the canonical installation and closes the exact native handle", asy
   expect("readPostEditHistory" in connection).toBe(false);
   expect("editOwnPostMessage" in connection).toBe(false);
   expect("deleteOwnPost" in connection).toBe(false);
+  expect("setThreadFollowing" in connection).toBe(false);
   expect("readPostReactions" in connection).toBe(false);
   expect("markFollowedThreadRead" in connection).toBe(false);
   expect("markTeamThreadsRead" in connection).toBe(false);
@@ -537,8 +570,11 @@ test("opens a native account by installation and user ID", async () => {
     "notifyChannelHistoryChanged",
     "readAccountDirectory",
     "readAssociatedMentionGroups",
+    "readChannelBookmarks",
+    "readChannelDirectoryPage",
     "readChannelIdentity",
     "readChannelMemberCount",
+    "readChannelMemberDirectory",
     "readChannelNotifications",
     "readChannelTimezoneCount",
     "readChannelWindow",
@@ -559,7 +595,9 @@ test("opens a native account by installation and user ID", async () => {
     "readPostSearchPage",
     "readRecentTeamSearches",
     "readSavedPost",
+    "readSavedPostUpperBound",
     "readSavedPosts",
+    "readSavedPostsAtOffset",
     "readSavedProfiles",
     "readSavedTeamRoles",
     "readSearchTimezone",
@@ -577,16 +615,19 @@ test("opens a native account by installation and user ID", async () => {
     "refreshWorkspaceServerPolicy",
     "rememberTeamSearch",
     "removeOwnReaction",
+    "reopenKnownConversation",
     "resendPost",
     "retireDeliveredPosts",
     "retryPendingPost",
     "rid",
     "saveDraft",
+    "searchChannelDirectory",
     "searchMentionGroups",
     "selectJoinedTeam",
     "selectSidebarChannel",
     "setPostPinned",
     "setPostSaved",
+    "setThreadFollowing",
     "signOut",
     "signOutOnDevice",
     "stagePost",
@@ -1126,6 +1167,35 @@ test("the signed connection supplies its own user and discards a late membership
   }
 });
 
+test("closing an account discards its pending bookmark list", async () => {
+  ipc.mockResolvedValueOnce(42);
+  const account = await openAccountRestConnection(
+    "https://fixture.test",
+    "u".repeat(26),
+  );
+  let finish!: (rows: ChannelBookmarkWithFileInfo[]) => void;
+  const response = new Promise<ChannelBookmarkWithFileInfo[]>((resolve) => {
+    finish = resolve;
+  });
+  const call = vi
+    .spyOn(BookmarksApi.prototype, "listChannelBookmarksForChannel")
+    .mockReturnValueOnce(response);
+  try {
+    const channelId = "c".repeat(26);
+    const pending = account.readChannelBookmarks(channelId);
+    expect(call).toHaveBeenCalledOnce();
+    await account.close();
+    finish([]);
+    await expect(pending).rejects.toBe("cancelled");
+    await expect(account.readChannelBookmarks(channelId)).rejects.toBe(
+      "unknown_connection",
+    );
+    expect(call).toHaveBeenCalledOnce();
+  } finally {
+    call.mockRestore();
+  }
+});
+
 test("a post destination from a retired account cannot open in the replacement window", async () => {
   ipc.mockResolvedValueOnce(42);
   const account = await openAccountRestConnection(
@@ -1302,3 +1372,75 @@ test("a closed account drops an in-flight channel identity", async () => {
     call.mockRestore();
   }
 });
+test.each(["newer", "abort", "close", "storage", "superseded"] as const)(
+  "only delivers an accepted event route to the current account read (%s)",
+  async (outcome) => {
+    ipc.mockResolvedValueOnce(41);
+    const account = await openAccountRestConnection(
+      "https://chat.example.test/prefix",
+      "u".repeat(26),
+    );
+    const config = vi
+      .spyOn(workspace, "loadWorkspaceConfiguration")
+      .mockResolvedValue({
+        server: {
+          collapsedThreads: "disabled",
+          separateUnreads: false,
+          nameFormat: "username",
+          lockNameFormat: false,
+          userStatusesEnabled: true,
+        },
+        eventAddress: { url: "", securePort: "443" },
+      });
+    const consumer = vi.fn();
+    const abort = new AbortController();
+    try {
+      let release!: (route: workspace.AccountEventRoute | null) => void;
+      let refuse!: (cause: string) => void;
+      const pending = new Promise<workspace.AccountEventRoute | null>(
+        (resolve, reject) => {
+          release = resolve;
+          refuse = reject;
+        },
+      );
+      ipc.mockResolvedValueOnce(10).mockReturnValueOnce(pending);
+      const first = account.refreshWorkspaceServerPolicy(
+        abort.signal,
+        consumer,
+      );
+      await vi.waitFor(() =>
+        expect(ipc).toHaveBeenCalledWith("store_workspace_policy", {
+          rid: 41,
+          load: 10,
+          server: expect.any(Object),
+          eventAddress: { url: "", securePort: "443" },
+        }),
+      );
+      if (outcome === "newer") {
+        ipc.mockResolvedValueOnce(11).mockResolvedValueOnce("unsupported");
+        await expect(
+          account.refreshWorkspaceServerPolicy(undefined, consumer),
+        ).resolves.toBe(true);
+      }
+      if (outcome === "abort") abort.abort("left settings");
+      if (outcome === "close") {
+        ipc.mockResolvedValueOnce(undefined);
+        await account.close();
+      }
+      if (outcome === "storage") refuse("invalid_directory");
+      else release(outcome === "superseded" ? null : "sameInstallation");
+      if (outcome === "abort")
+        await expect(first).rejects.toBe("left settings");
+      else if (outcome === "close")
+        await expect(first).rejects.toBe("cancelled");
+      else if (outcome === "storage")
+        await expect(first).rejects.toBe("invalid_directory");
+      else await expect(first).resolves.toBe(outcome === "newer");
+      expect(consumer.mock.calls).toEqual(
+        outcome === "newer" ? [["unsupported"]] : [],
+      );
+    } finally {
+      config.mockRestore();
+    }
+  },
+);

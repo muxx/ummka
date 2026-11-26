@@ -3,6 +3,7 @@ import {
   createRef,
   type ReactNode,
   useEffect,
+  useEffectEvent,
   useMemo,
   useRef,
   useState,
@@ -15,6 +16,7 @@ import {
 } from "../mattermost/channel-profiles.ts";
 import type { LocalPost } from "../mattermost/local-history.ts";
 import type { TimelineMessage } from "./conversation-rows.ts";
+import { TimelineDays } from "./TimelineDays.tsx";
 import {
   formatReplyCount,
   type TimelineAuthor,
@@ -75,6 +77,8 @@ type Props = {
   author: TimelineAuthor;
   nameFormat: NameFormat;
   sessionIssue: (issue: "session" | "unauthorized") => void;
+  onOpened?: () => void;
+  onUnavailable?: (reason: "forbidden" | "limited" | "failed") => void;
   renderComposer: (rootId: string, reader: Reader) => ReactNode;
 };
 
@@ -109,6 +113,8 @@ function ThreadContent({
   nameFormat,
   sessionIssue,
   renderComposer,
+  onOpened,
+  onUnavailable,
 }: Props & { reader: Reader }) {
   const state = useSyncExternalStore(reader.subscribe, reader.getSnapshot);
   const [savedRoot, setSavedRoot] = useState<LocalPost | null>(null);
@@ -117,8 +123,22 @@ function ThreadContent({
   > | null>(null);
   const text = copy[locale];
   const workspace = workspaceCopy[locale];
+  const reportOpen = useEffectEvent(() => {
+    const opened = reader.getSnapshot();
+    if (opened.unavailable) return;
+    if (opened.up.status === "error" || opened.down.status === "error")
+      onUnavailable?.("failed");
+    else onOpened?.();
+  });
   useEffect(() => {
-    if (online) void reader.open();
+    let active = true;
+    if (online)
+      void reader.open().then(() => {
+        if (active) reportOpen();
+      });
+    return () => {
+      active = false;
+    };
   }, [online, reader]);
   const inaccessible =
     state.unavailable ??
@@ -130,7 +150,9 @@ function ThreadContent({
   useEffect(() => {
     if (inaccessible === "session" || inaccessible === "unauthorized")
       sessionIssue(inaccessible);
-  }, [sessionIssue, inaccessible]);
+    if (inaccessible === "limited" || inaccessible === "forbidden")
+      onUnavailable?.(inaccessible);
+  }, [sessionIssue, inaccessible, onUnavailable]);
   useEffect(() => {
     if (!post.rootId || inaccessible || state.root) return;
     let active = true;
@@ -191,14 +213,12 @@ function ThreadContent({
     const person = profiles.profiles[id];
     return author(id) ?? (person && { name: teammateName(person, nameFormat) });
   }
-  const dates = useMemo(
-    () => ({
-      time: new Intl.DateTimeFormat(locale, {
+  const time = useMemo(
+    () =>
+      new Intl.DateTimeFormat(locale, {
         hour: "numeric",
         minute: "2-digit",
       }),
-      day: new Intl.DateTimeFormat(locale, { dateStyle: "full" }),
-    }),
     [locale],
   );
   if (inaccessible)
@@ -209,30 +229,18 @@ function ThreadContent({
     );
   const summary =
     collapsedThreads && (post.rootId ? savedRoot : post)?.threadSummary;
-  let lastDay: string | undefined;
   function renderReply(row: TimelineMessage) {
-    const when = new Date(row.createAt);
-    const day = Number.isFinite(when.getTime())
-      ? dates.day.format(when)
-      : text.unknownDate;
-    const separated = day !== lastDay;
-    lastDay = day;
     return (
       <div
         key={row.localId ?? row.id}
         className="thread-reply"
         data-selected={row.id === post.id || undefined}
       >
-        {separated && (
-          <div className="timeline-day">
-            <span>{day}</span>
-          </div>
-        )}
         <TimelinePost
           post={row}
           focusable
           locale={locale}
-          time={dates.time}
+          time={time}
           author={resolve}
           ownName={outgoing.ownName}
         >
@@ -241,19 +249,6 @@ function ThreadContent({
       </div>
     );
   }
-  const replyRows = [
-    ...outgoing.messages.map(renderReply),
-    <ThreadEdge
-      key="down"
-      reader={reader}
-      direction="down"
-      edge={state.down}
-      online={online}
-      locale={locale}
-      gap={outgoing.afterGap.length > 0}
-    />,
-    ...outgoing.afterGap.map(renderReply),
-  ];
   return (
     <div className="thread-window">
       <ThreadFeed
@@ -271,7 +266,7 @@ function ThreadContent({
             <TimelinePost
               post={root}
               locale={locale}
-              time={dates.time}
+              time={time}
               author={resolve}
             />
           </div>
@@ -294,7 +289,27 @@ function ThreadContent({
           locale={locale}
         />
         {outgoing.localNotice}
-        {replyRows}
+        <TimelineDays
+          messages={[...outgoing.messages, ...outgoing.afterGap]}
+          locale={locale}
+          unknownDate={text.unknownDate}
+          boundary={{
+            index: outgoing.messages.length,
+            node: (
+              <ThreadEdge
+                key="reply-window-boundary"
+                reader={reader}
+                direction="down"
+                edge={state.down}
+                online={online}
+                locale={locale}
+                gap={outgoing.afterGap.length > 0}
+              />
+            ),
+          }}
+        >
+          {renderReply}
+        </TimelineDays>
         {state.root &&
           state.up.status === "end" &&
           state.down.status === "end" &&

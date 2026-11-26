@@ -31,6 +31,8 @@ npm run contract:emoji -- "$cache/emoji-10.10.1.json" "$cache/emoji-12.1.0.json"
 
 download introduction.yaml "$upstream/introduction.yaml" 4b3786cc86ec1097c29f5b1bea8e9a32d09c4ddb6244140ec094425b6fdc5e09
 download system.yaml "$upstream/system.yaml" 10e9e11b14d34d30a661474269f69220f8ebdb05db64cd53e30cb199a665ae8e
+download status.yaml "$upstream/status.yaml" e1adcf4a377c13618d7229f5319bfaceeea1879810d17cec5887f88b4032cde7
+download status-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/status.yaml" e1adcf4a377c13618d7229f5319bfaceeea1879810d17cec5887f88b4032cde7
 download users.yaml "$upstream/users.yaml" 20d0c9cf9631682f3461c7b13a521321dbd2aa605b60922404183ec2735e8f28
 download teams.yaml "$upstream/teams.yaml" dc0723e5164d19b5d147ee9133db170fb83eedb3b884e320cd58ee36435cd3b3
 download teams-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/teams.yaml" a96864edb919a027e886752898e3e115ca997381af39f97b5a8e28186172893f
@@ -44,6 +46,8 @@ download channels.yaml "$upstream/channels.yaml" 34282bb7db184ae792493b97b384f9b
 download channels-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/channels.yaml" 57be9442965e8a747d88d579df013fdff377a5315cc91a8dc55f58eefeef2a6d
 download preferences-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/preferences.yaml" 3bf3c9734d69bfdf20e1dd4e71158a65a81fca9dd64ee1703269b460111625a2
 download preferences.yaml "$upstream/preferences.yaml" 3bf3c9734d69bfdf20e1dd4e71158a65a81fca9dd64ee1703269b460111625a2
+download bookmarks.yaml "$upstream/bookmarks.yaml" fc24c32a05a2cceeeb7d43dc8794827a5520ce1f44613b4d2e0e5b1847557257
+download bookmarks-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/bookmarks.yaml" 7b40fb9661f1e642ecc2fc60cd4e293493d7bb1776c1d186747014144ba088bb
 download files.yaml "$upstream/files.yaml" c204f5c97602b2ac5bb023c7d56cd02fae30b5bfc4094101ef59e6e1d0118652
 download files-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/files.yaml" 0a08b46860b5bf677fbcafecb97062ac53bf8a35e12cfa864a4dad26ff10b2ec
 download posts.yaml "$upstream/posts.yaml" 83400ef682b755f3f3830dd4b622373b659bcc5b4d2d159756a735752b3b19ff
@@ -117,6 +121,12 @@ attachments satisfies FileInfo[];
 // @ts-expect-error A post ID is required even when includeDeleted is absent.
 attachmentPosts.getFileInfosForPost({});
 declare const users: UsersApi;
+(await users.getUsers({page: 0, perPage: 20, inTeam: "team", active: true})) satisfies User[];
+(await users.searchUsers({searchUsersRequest: {term: "name", teamId: "team", limit: 20, allowInactive: false}})) satisfies User[];
+// @ts-expect-error The search term is required.
+users.searchUsers({searchUsersRequest: {teamId: "team"}});
+// @ts-expect-error The page number is numeric.
+users.getUsers({page: "0"});
 (await users.getUsersByUsernames({ requestBody: ["ada"] })) satisfies User[];
 (await users.getProfileImage({ userId: "user" })) satisfies Blob;
 // @ts-expect-error Usernames are strings.
@@ -152,6 +162,12 @@ const badCursor: GetPostThreadRequest = { postId: "a-post-id", fromCreateAt: "12
 declare const page: PostList;
 import type { ChannelsApi, Preference, PreferencesApi } from "./compiled/index.js";
 declare const channels: ChannelsApi;
+(await channels.createDirectChannel({ requestBody: ["self"] })).id satisfies string | undefined;
+(await channels.createGroupChannel({ requestBody: ["first", "second"] })).type satisfies string | undefined;
+// @ts-expect-error A conversation request contains user IDs.
+channels.createDirectChannel({ requestBody: [7] });
+// @ts-expect-error A group needs its participant array.
+channels.createGroupChannel({});
 const managed = await channels.getManagedCategories({ teamId: "team" });
 managed satisfies Record<string, string>;
 // @ts-expect-error The mapping belongs to one team.

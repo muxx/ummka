@@ -1,3 +1,4 @@
+import "./empty-link-inbox.test-utils";
 import {
   act,
   cleanup,
@@ -86,6 +87,7 @@ test("Back cancels a saved server even in the first visible frame", async () => 
     render(
       <>
         <ServerSignIn
+          connect={connectInstallation}
           savedServer={origin}
           language="en"
           onAccountChanged={vi.fn()}
