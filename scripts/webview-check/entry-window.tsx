@@ -49,6 +49,18 @@ export async function checkEntryWindow() {
       1
     )
       throw Error("entry-visible-brand");
+    if (import.meta.env.UMMKA_MOBILE === true) {
+      const visible = brands.find((image) => image.getClientRects().length);
+      if (!visible) throw Error("entry-missing-mobile-brand");
+      const logo = visible.getBoundingClientRect();
+      const viewport = scene.getBoundingClientRect();
+      if (
+        Math.abs(
+          logo.left + logo.width / 2 - viewport.left - viewport.width / 2,
+        ) > 1
+      )
+        throw Error("entry-mobile-brand-center");
+    }
     const cardBounds = card.getBoundingClientRect();
     if (
       cardBounds.left < 0 ||
@@ -56,7 +68,10 @@ export async function checkEntryWindow() {
       main.scrollWidth > main.clientWidth + 1
     )
       throw Error("entry-horizontal-overflow");
-    if (matchMedia("(min-width: 56rem) and (min-height: 37rem)").matches) {
+    if (
+      import.meta.env.UMMKA_MOBILE !== true &&
+      matchMedia("(min-width: 56rem) and (min-height: 37rem)").matches
+    ) {
       const logo = brands.find((img) => img.getBoundingClientRect().width > 0);
       if (!logo) throw Error("entry-large-brand");
       const center = (box: DOMRect) => (box.top + box.bottom) / 2;

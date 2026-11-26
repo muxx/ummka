@@ -5,7 +5,7 @@ import {
   useLayoutEffect,
   useRef,
 } from "react";
-import smallLockup from "../entry/brand/lockup-small.svg?no-inline";
+import smallMark from "../../src-tauri/icons/symbols/ummka-small.svg?no-inline";
 import "./frame.css";
 
 type FrameLabels = {
@@ -168,12 +168,24 @@ export function ChannelsFrame({
         lastFocus.current = event.target;
       }}
     >
-      <header className="channels-bar" data-surface="topbar">
+      <header
+        className="channels-bar"
+        data-surface="topbar"
+        data-tauri-drag-region={overlay || undefined}
+      >
         <div
           className="channels-bar-brand"
           data-tauri-drag-region={overlay || undefined}
         >
-          <img src={smallLockup} alt="ummka" width="83" height="25" />
+          {import.meta.env.UMMKA_MOBILE === true && (
+            <img
+              className="channels-brand-mark"
+              src={smallMark}
+              alt="ummka"
+              width="24"
+              height="24"
+            />
+          )}
         </div>
         {searchTrigger}
         <button
