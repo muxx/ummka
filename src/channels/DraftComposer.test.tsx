@@ -243,6 +243,39 @@ test("a late read cannot expose a previous room and an empty draft is editable o
   expect(connection.submitDraft).not.toHaveBeenCalled();
 });
 
+test("keeps the first queued keystrokes when a newly opened composer is reopened", async () => {
+  const { rows, connection } = storage();
+  const props = inputs(connection);
+  const typed = new Promise<HTMLTextAreaElement>((resolve) => {
+    // Deliver the queued input as soon as the native field can receive focus.
+    const observer = new MutationObserver(() => {
+      const input = props.fieldRef.current;
+      if (!input) return;
+      observer.disconnect();
+      input.focus();
+      for (const letter of "abc") {
+        fireEvent.input(input, {
+          data: letter,
+          inputType: "insertText",
+          target: { value: input.value + letter },
+        });
+      }
+      resolve(input);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  });
+  const view = render(<DraftComposer {...props} />);
+  const input = await typed;
+  expect(document.activeElement).toBe(input);
+  await waitFor(() => expect(input.value).toBe("abc"));
+  view.rerender(<DraftComposer {...props} channelId="B" />);
+  expect((await field()).value).toBe("");
+  await waitFor(() => expect(rows.get("A/")?.message).toBe("abc"));
+  view.rerender(<DraftComposer {...props} />);
+  expect((await field()).value).toBe("abc");
+  expect(connection.submitDraft).not.toHaveBeenCalled();
+});
+
 test("immediate return during a save keeps exact Markdown and typing can continue offline", async () => {
   const { rows, connection } = storage();
   const props = inputs(connection);
