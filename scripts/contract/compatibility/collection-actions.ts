@@ -8,6 +8,7 @@ import {
   PostsApi,
   PreferencesApi,
   ResponseError,
+  UsersApi,
 } from "../../../vendor/mattermost/index.js";
 
 export async function checkCollectionActions(
@@ -20,6 +21,15 @@ export async function checkCollectionActions(
   privatePostId: string,
   version: string,
 ) {
+  for (const [session, id] of [
+    [reader, readerId],
+    [observer, observerId],
+  ] as const) {
+    const user = await new UsersApi(session).getUser({ userId: "me" });
+    assert.equal(user.id, id);
+    assert.equal(user.roles, "system_user");
+  }
+  assert.notEqual(readerId, observerId);
   const posts = new PostsApi(reader);
   const preferences = new PreferencesApi(reader);
   const row = {
@@ -74,8 +84,14 @@ export async function checkCollectionActions(
   await actions.setPostPinned(postId, true);
   assert.deepEqual(await pinned(), [postId]);
   await assert.rejects(actions.setPostPinned(privatePostId, true), denied);
-  const readerLists = accountPostCollections(reader, (read) => read());
-  const observerLists = accountPostCollections(observer, (read) => read());
+  const readerLists = {
+    ...accountPostCollections(reader, (read) => read()),
+    ...actions,
+  };
+  const observerLists = {
+    ...accountPostCollections(observer, (read) => read()),
+    ...accountCollectionActions(observer, observerId, (write) => write()),
+  };
   const readerPins = openPostCollection(readerLists, {
     kind: "pins",
     channelId: direct,
@@ -102,11 +118,18 @@ export async function checkCollectionActions(
   await actions.setPostSaved(postId, true);
   await Promise.all(lists.map((view) => view.refresh()));
   assert.deepEqual(lists.map(ids), [[postId], [postId], [postId], []]);
-  await actions.setPostPinned(postId, false);
-  await Promise.all(lists.map((view) => view.refresh()));
+  assert.equal(await readerPins.remove(postId), "removed");
+  assert.deepEqual(ids(readerPins), []);
+  await observerPins.refresh();
   assert.deepEqual(lists.map(ids), [[], [], [postId], []]);
+  await observerLists.setPostSaved(postId, true);
+  await observerSaved.refresh();
+  assert.equal(await readerSaved.remove(postId), "removed");
+  assert.deepEqual(ids(readerSaved), []);
+  await Promise.all([readerSaved.refresh(), observerSaved.refresh()]);
+  assert.deepEqual(lists.map(ids), [[], [], [], [postId]]);
+  assert.equal(await observerSaved.remove(postId), "removed");
   for (const view of lists) view.close();
-  await actions.setPostSaved(postId, false);
   await actions.setPostPinned(postId, true);
   console.log(
     `Mattermost ${version} verified channel pins and personal saved preferences change independently.`,

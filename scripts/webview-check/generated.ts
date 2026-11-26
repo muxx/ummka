@@ -30,6 +30,7 @@ import { checkChannelHistory } from "./history.ts";
 import { prepareHistoryLoads } from "./history-loads.ts";
 import { checkUnavailableHistoryServer } from "./local-history.ts";
 import { checkOpenTimelineCommits } from "./open-timeline-commits.tsx";
+import { checkCollectionRemoval } from "./post-collections.ts";
 import { checkPostContext } from "./post-context.ts";
 import { checkPostMutations } from "./post-mutations.ts";
 import { checkPostReactions } from "./post-reactions.ts";
@@ -320,6 +321,7 @@ export async function checkGeneratedRequests(ports: string[]) {
     }
 
     const channelId = "c".repeat(26);
+    await checkCollectionRemoval(accountPrefix, channelId);
     const term = "from:fixture Привет";
     check(
       await accountPrefix.rememberTeamSearch(teamId, term),

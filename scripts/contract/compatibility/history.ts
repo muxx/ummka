@@ -893,16 +893,6 @@ await checkPostCollections(
   { older: plainPost.id, newer: taggedPost.id, direct: dmPost.id },
   version,
 );
-await checkCollectionActions(
-  new Configuration({ basePath: base, accessToken: readerToken }),
-  session,
-  reader.id,
-  user.id,
-  dm.id,
-  dmPost.id,
-  closedPost.id,
-  version,
-);
 await checkFileSearch(
   session,
   new Configuration({ basePath: base, accessToken: readerToken }),
@@ -1478,6 +1468,25 @@ await checkPostEditHistory(
   anonymous,
   reader.id,
   channelId,
+  version,
+);
+// Both participants act under their ordinary user sessions in a shared direct channel.
+const collectionPost = await (
+  await create(
+    "posts",
+    { channel_id: threadDirect.id, message: "Collection permissions" },
+    readerToken,
+  )
+).json();
+await readerPosts.pinPost({ postId: collectionPost.id });
+await checkCollectionActions(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  new Configuration({ basePath: base, accessToken: otherSaverToken }),
+  reader.id,
+  otherSaver.id,
+  threadDirect.id,
+  collectionPost.id,
+  closedPost.id,
   version,
 );
 // The focused-history check already removed this reader from the private channel.
