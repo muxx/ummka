@@ -1,6 +1,46 @@
 import { isDeepStrictEqual } from "node:util";
 import { type Fields, object } from "./objects.ts";
 
+// v10.10.1 implements the endpoint but only v12.1.0 publishes its OpenAPI operation.
+// https://github.com/mattermost/mattermost/blob/v10.10.1/server/channels/api4/post.go#L545-L575
+// https://github.com/mattermost/mattermost/blob/v12.1.0/api/v4/source/posts.yaml#L665-L698
+export function checkEditHistoryOperation(
+  baseline: Fields,
+  path: string,
+  reference: Fields,
+) {
+  const id = "GetEditHistoryForPost";
+  const op = object(reference.get, id);
+  const success = object(object(op.responses, id)["200"], id);
+  const media = object(object(success.content, id)["application/json"], id);
+  const parameters =
+    Array.isArray(op.parameters) &&
+    op.parameters.map((field) => {
+      const { description: _description, ...shape } = object(field, id);
+      return shape;
+    });
+  if (
+    Object.hasOwn(baseline, path) ||
+    Object.hasOwn(reference, "parameters") ||
+    Object.hasOwn(op, "security") ||
+    !isDeepStrictEqual(parameters, [
+      {
+        name: "post_id",
+        in: "path",
+        required: true,
+        schema: { type: "string" },
+      },
+    ]) ||
+    !isDeepStrictEqual(media.schema, {
+      type: "array",
+      items: { $ref: "#/components/schemas/Post" },
+    })
+  )
+    throw Error(
+      "Review the GetEditHistoryForPost contract against both pinned sources",
+    );
+}
+
 // Both handlers encode one PostList for the requesting user.
 // https://github.com/mattermost/mattermost/blob/v10.10.1/server/channels/api4/post.go#L361-L443
 // https://github.com/mattermost/mattermost/blob/v12.1.0/server/channels/api4/post.go#L489-L586
