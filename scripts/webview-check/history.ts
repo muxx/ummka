@@ -1,3 +1,5 @@
+import { publishedPostDocument } from "../../src/channels/published-post-document.ts";
+import { publishedPostExcerpt } from "../../src/channels/published-post-excerpt.ts";
 import { readFocusedNeighbors } from "../../src/mattermost/focused-history.ts";
 import {
   type Configuration,
@@ -36,6 +38,14 @@ export async function checkChannelHistory(
     page.firstInaccessiblePostTime !== 0
   )
     throw Error("generated channel history");
+  if (
+    typeof thread.message !== "string" ||
+    publishedPostExcerpt(publishedPostDocument({ message: thread.message })) !==
+      "Release notes Chart :wave:"
+  )
+    throw Error(
+      "Signed channel history did not yield the expected post excerpt",
+    );
 
   const collapsed = await new PostsApi(prefixed).getPostsForChannel({
     channelId,

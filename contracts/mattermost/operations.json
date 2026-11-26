@@ -76,6 +76,12 @@
   {
     "file": "channels.yaml",
     "method": "GET",
+    "path": "/api/v4/channels/{channel_id}",
+    "id": "GetChannel"
+  },
+  {
+    "file": "channels.yaml",
+    "method": "GET",
     "path": "/api/v4/channels/{channel_id}/members/{user_id}",
     "id": "GetChannelMember"
   },
@@ -249,6 +255,20 @@
     "method": "GET",
     "path": "/api/v4/users/{user_id}/teams/{team_id}/threads",
     "id": "GetUserThreads",
+    "selfOnly": true
+  },
+  {
+    "file": "users.yaml",
+    "method": "PUT",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/threads/{thread_id}/read/{timestamp}",
+    "id": "UpdateThreadReadForUser",
+    "selfOnly": true
+  },
+  {
+    "file": "users.yaml",
+    "method": "PUT",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/threads/read",
+    "id": "UpdateThreadsReadForUser",
     "selfOnly": true
   },
   {

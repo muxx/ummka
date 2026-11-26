@@ -27,6 +27,12 @@ export async function respondToThreadList(
     total_unread_mentions: 5,
     total_unread_urgent_mentions: 2,
   };
+  const noCounts = {
+    total: 0,
+    total_unread_threads: 0,
+    total_unread_mentions: 0,
+    total_unread_urgent_mentions: 0,
+  };
   const reply = (body: object, label: string) => {
     response
       .writeHead(200, { "Content-Type": "application/json" })
@@ -34,6 +40,10 @@ export async function respondToThreadList(
     return label;
   };
   if (query.totalsOnly) {
+    if (query.excludeDirect === undefined) {
+      assert.deepEqual(query, { totalsOnly: "true" });
+      return reply({ ...counters, threads: null }, "account-thread-totals");
+    }
     assert.deepEqual(query, { totalsOnly: "true", excludeDirect: "true" });
     return reply({ ...counters, threads: null }, "thread-list-totals");
   }
@@ -54,17 +64,37 @@ export async function respondToThreadList(
       "thread-list-empty",
     );
   }
-  assert.deepEqual(query, {
-    before: "n".repeat(26),
-    extended: "true",
-    unread: "true",
-    per_page: "25",
-    excludeDirect: "false",
-  });
+  const accountPage = query.threadsOnly === "true";
+  if (accountPage && query.before) {
+    assert.deepEqual(query, {
+      before: "p".repeat(26),
+      per_page: "1",
+      threadsOnly: "true",
+      extended: "true",
+      unread: "true",
+    });
+    return reply({ ...noCounts, threads: [] }, "account-thread-empty");
+  }
+  if (accountPage) {
+    assert.deepEqual(query, {
+      per_page: "1",
+      threadsOnly: "true",
+      extended: "true",
+      unread: "true",
+    });
+  } else {
+    assert.deepEqual(query, {
+      before: "n".repeat(26),
+      extended: "true",
+      unread: "true",
+      per_page: "25",
+      excludeDirect: "false",
+    });
+  }
   const postId = "p".repeat(26);
   return reply(
     {
-      ...counters,
+      ...(accountPage ? noCounts : counters),
       threads: [
         {
           id: postId,
@@ -81,10 +111,18 @@ export async function respondToThreadList(
             user_id: userId,
             channel_id: channelId,
             message: "Thread list fixture",
+            create_at: 70,
+            update_at: 70,
+            edit_at: 0,
+            delete_at: 0,
+            root_id: "",
+            type: "",
+            hashtags: "",
+            is_pinned: false,
           },
         },
       ],
     },
-    "thread-list-page",
+    accountPage ? "account-thread-page" : "thread-list-page",
   );
 }

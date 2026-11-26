@@ -14,6 +14,8 @@ type LicenseSettings = {
 };
 
 type Settings = {
+  EnableUserStatuses?: string;
+  RestrictDirectMessage?: string;
   EnableCrossTeamSearch?: string;
   EnableFileAttachments?: string;
   EnableFileSearch?: string;
@@ -180,6 +182,8 @@ function signedLimit(raw: string | undefined, field: string) {
 }
 
 export type ServerPolicy = {
+  userStatusesEnabled: boolean;
+  dmRecipientScope?: "any" | "team";
   uniqueReactionLimit?: string;
   postEditLimitSeconds?: string;
   mentions?: MentionSettings;
@@ -215,6 +219,10 @@ export function workspaceServerPolicy(
         ? editLimit
         : undefined;
   return {
+    userStatusesEnabled: config.EnableUserStatuses !== "false",
+    ...(config.RestrictDirectMessage !== undefined && {
+      dmRecipientScope: config.RestrictDirectMessage === "any" ? "any" : "team",
+    }),
     ...(mentions && { mentions }),
     ...(postEditLimitSeconds !== undefined && { postEditLimitSeconds }),
     ...(uniqueReactionLimit !== undefined && { uniqueReactionLimit }),

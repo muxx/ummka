@@ -10,7 +10,13 @@ import {
 type FixtureFrame = {
   event?: string;
   seq?: number;
-  data?: { connection_id?: string; post?: string };
+  data?: {
+    connection_id?: string;
+    post?: string;
+    user_id?: string;
+    parent_id?: string;
+    text?: string;
+  };
   broadcast?: { channel_id?: string };
   seq_reply?: number;
   status?: string;
@@ -21,7 +27,7 @@ const NodeWebSocket = WebSocket as typeof WebSocket & {
   new (url: string, init: { headers: { Authorization: string } }): WebSocket;
 };
 
-function subscribe(
+export function subscribe(
   base: string,
   token: string,
   id: string,
@@ -140,10 +146,24 @@ export async function checkEventStream(
   const missed = await createPost("Created between socket connections");
   assert.ok(missed.id);
   const resumed = subscribe(base, token, connectionId, first.nextSequence);
+  let unapplied: number;
   try {
     const delivered = await resumed.until(containsPost(missed.id));
     assert.equal(delivered.broadcast?.channel_id, channelId);
+    assert.ok(typeof delivered.seq === "number");
+    unapplied = delivered.seq;
   } finally {
     await resumed.close();
+  }
+
+  // Receiving a post and committing it locally are distinct. Resume at that
+  // post's own sequence to model losing the socket before its SQLite commit.
+  const replay = subscribe(base, token, connectionId, unapplied);
+  try {
+    const delivered = await replay.until(containsPost(missed.id));
+    assert.equal(delivered.seq, unapplied);
+    assert.equal(delivered.broadcast?.channel_id, channelId);
+  } finally {
+    await replay.close();
   }
 }

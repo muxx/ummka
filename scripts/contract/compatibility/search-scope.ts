@@ -23,7 +23,9 @@ export async function checkSearchScopePolicy(
     assert.ok(["true", "false"].includes(raw[name]), name);
     return raw[name] === "true";
   }
+  assert.ok(["any", "team"].includes(raw.RestrictDirectMessage));
   const original = {
+    recipientScope: String(raw.RestrictDirectMessage),
     allTeams: flag("EnableCrossTeamSearch"),
     attachments: flag("EnableFileAttachments"),
     fileSearch: !legacy && flag("EnableFileSearch"),
@@ -42,11 +44,12 @@ export async function checkSearchScopePolicy(
           ...(!legacy && { EnableFileSearch: settings.fileSearch }),
         },
         FileSettings: { EnableFileAttachments: settings.attachments },
-        ...(legacy && {
-          TeamSettings: {
+        TeamSettings: {
+          RestrictDirectMessage: settings.recipientScope,
+          ...(legacy && {
             ExperimentalViewArchivedChannels: settings.archivedChannels,
-          },
-        }),
+          }),
+        },
       }),
     });
     assert.equal(response.status, 200);
@@ -57,8 +60,17 @@ export async function checkSearchScopePolicy(
       [true, false, true, true],
       [true, true, true, true],
     ] as const) {
-      await configure({ allTeams, attachments, fileSearch, archivedChannels });
-      assert.deepEqual((await loadWorkspaceServerPolicy(member)).search, {
+      const recipientScope = allTeams ? "any" : "team";
+      await configure({
+        recipientScope,
+        allTeams,
+        attachments,
+        fileSearch,
+        archivedChannels,
+      });
+      const policy = await loadWorkspaceServerPolicy(member);
+      assert.equal(policy.dmRecipientScope, recipientScope);
+      assert.deepEqual(policy.search, {
         allTeams,
         files: attachments && (legacy || fileSearch),
         archivedChannels: !legacy || archivedChannels,

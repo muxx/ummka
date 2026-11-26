@@ -27,8 +27,18 @@ export function historyRefreshFixture(userId: string, onHold: () => void) {
     };
   }
   const records = {
-    [reply]: record(reply, 300, root),
-    [root]: record(root, 200),
+    [reply]: {
+      ...record(reply, 300, root),
+      file_ids: [],
+      metadata: { redacted_file_count: 2 },
+    },
+    [root]: {
+      ...record(root, 200),
+      file_ids: ["b".repeat(26), "a".repeat(26)],
+      metadata: {
+        files: [{ id: "a".repeat(26), name: "offline.txt", size: 0 }],
+      },
+    },
     [old]: record(old, 100),
   };
   function page(
@@ -72,6 +82,20 @@ export function historyRefreshFixture(userId: string, onHold: () => void) {
           JSON.stringify({
             order: [root, reply],
             posts: { [root]: records[root], [reply]: records[reply] },
+            has_next: false,
+          }),
+        );
+      } else if (thread && q.get("perPage") === "1") {
+        assert.deepEqual(Object.fromEntries(q), {
+          direction: "down",
+          perPage: "1",
+          collapsedThreads: "false",
+        });
+        calls.push("flat-root");
+        res.writeHead(200, { "Content-Type": "application/json" }).end(
+          JSON.stringify({
+            order: [root],
+            posts: { [root]: records[root] },
             has_next: false,
           }),
         );
@@ -137,6 +161,7 @@ export function historyRefreshFixture(userId: string, onHold: () => void) {
         [
           "plain",
           "replies",
+          "flat-root",
           "collapsed",
           "thread",
           "before",

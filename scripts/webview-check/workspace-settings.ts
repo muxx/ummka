@@ -56,6 +56,8 @@ export async function checkWorkspaceSettings(account: Account, other: Account) {
   if (
     effective.nameFormat !== "full_name" ||
     !effective.collapsedThreads ||
+    saved.server.dmRecipientScope !== "team" ||
+    saved.server.userStatusesEnabled !== false ||
     effective.limit !== 18 ||
     effective.viewTimes["c".repeat(26)] !== 310 ||
     Object.hasOwn(effective.viewTimes, "historical-channel-key")

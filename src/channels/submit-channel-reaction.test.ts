@@ -212,7 +212,7 @@ test.each<[Partial<ThreadState>, string]>([
     "historyUnknown",
   ],
   [{ root: null }, "historyUnknown"],
-  [{ up: { status: "inaccessible", since: 10 } }, "changed"],
+  [{ root: null, unavailable: "limited" }, "historyUnknown"],
   [{ replies: [], root: { ...root, type: "system_generic" } }, "noTarget"],
 ])(
   "only uses the root after examining every reply: %o",

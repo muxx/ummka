@@ -36,6 +36,7 @@ fn save(id: &str, channel: &str, root: Option<&str>, version: i64, text: &str) -
         hashtags: String::new(),
         is_pinned: false,
         thread_summary: None,
+        attachments: None,
     })
 }
 

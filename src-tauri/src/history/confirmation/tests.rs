@@ -61,6 +61,7 @@ fn saved(post: DeliveryPost) -> PostChange {
         hashtags: String::new(),
         is_pinned: false,
         thread_summary: None,
+        attachments: None,
     })
 }
 fn apply(view: &mut AccountHistory, change: PostChange) {

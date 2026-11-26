@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { channelManagementAccess } from "../../src/channels/channel-management-access.ts";
 import { channelComposerAccess } from "../../src/channels/composer-access.ts";
 import { savedChannelPermissions } from "../../src/mattermost/channel-permissions.ts";
 import { openAccountRestConnection } from "../../src/mattermost/native-rest.ts";
@@ -102,7 +103,8 @@ export async function checkRestoredTeamRoles(
     snapshot?.systemRoles !== "system_user" ||
     permissions.size !== 4 ||
     permissions.get("system_user")?.join() !== "create_direct_channel" ||
-    permissions.get("channel_user")?.join() !== "create_post" ||
+    permissions.get("channel_user")?.join() !==
+      "create_post,manage_public_channel_properties,delete_public_channel" ||
     permissions.get("team_guest")?.length !== 0 ||
     permissions.get("custom_writer")?.length !== 0
   )
@@ -116,6 +118,18 @@ export async function checkRestoredTeamRoles(
   const team = catalog?.teams.find((row) => row.id === teamId);
   const channel = sidebar?.data.channels[0];
   const check = savedChannelPermissions(snapshot, team?.roles);
+  const management = channelManagementAccess(check, channel);
+  if (
+    channel?.name !== "town-square" ||
+    management.editProperties !== "allowed" ||
+    management.createPublic !== "denied" ||
+    management.createPrivate !== "denied" ||
+    management.archive !== "denied" ||
+    management.restore !== "denied"
+  )
+    throw Error(
+      "Reopened channel management lost its role grants or default-channel protection",
+    );
   const policy = await account.readWorkspaceSettings();
   const access = channelComposerAccess({
     channel,
