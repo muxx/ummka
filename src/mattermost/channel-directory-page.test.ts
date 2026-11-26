@@ -1,6 +1,9 @@
 import { expect, test, vi } from "vitest";
 import type { Channel } from "../../vendor/mattermost/index.js";
-import { readChannelDirectoryPage } from "./channel-directory-page.ts";
+import {
+  readChannelDirectoryPage,
+  searchChannelDirectory,
+} from "./channel-directory-page.ts";
 
 const teamId = "t".repeat(26);
 const query = { teamId, page: 0, kind: "public" } as const;
@@ -141,4 +144,91 @@ test("preserves a transport refusal and discards a response after cancellation",
     readChannelDirectoryPage(closed, query, controller.signal),
   ).rejects.toMatchObject({ name: "AbortError" });
   expect(closed.getPublicChannelsForTeam).not.toHaveBeenCalled();
+});
+
+test("search preserves server order and archive state without claiming membership", async () => {
+  const rows = [
+    row(3),
+    { ...row(2), type: "P", deleteAt: 42 },
+    { ...row(1), type: "P" },
+  ];
+  const search = vi.fn(async () => rows);
+  const signal = new AbortController().signal;
+  const items = await searchChannelDirectory(
+    { autocompleteChannelsForTeam: search },
+    teamId,
+    "  тест +&  ",
+    signal,
+  );
+  expect(search).toHaveBeenCalledExactlyOnceWith(
+    { teamId, name: "тест +&" },
+    { signal },
+  );
+  expect(items.map((item) => [item.id, item.kind, item.deleteAt])).toEqual([
+    [rows[0].id, "O", 0],
+    [rows[1].id, "P", 42],
+    [rows[2].id, "P", 0],
+  ]);
+});
+test("search accepts an empty or full response and rejects an oversized, mixed-team or duplicate response", async () => {
+  const read = (rows: Channel[]) =>
+    searchChannelDirectory(
+      { autocompleteChannelsForTeam: async () => rows },
+      teamId,
+      "test",
+    );
+  await expect(read([])).resolves.toEqual([]);
+  await expect(
+    read(Array.from({ length: 50 }, (_, i) => row(i))),
+  ).resolves.toHaveLength(50);
+  await expect(
+    read(Array.from({ length: 51 }, (_, i) => row(i))),
+  ).rejects.toThrow();
+  await expect(
+    read([row(0), { ...row(1), teamId: "z".repeat(26) }]),
+  ).rejects.toThrow();
+  await expect(read([row(0), row(0)])).rejects.toThrow();
+});
+test("an invalid or cancelled directory search does not dispatch and a late response is discarded", async () => {
+  const controller = new AbortController();
+  const search = vi.fn(async () => {
+    controller.abort();
+    return [row(0)];
+  });
+  const api = { autocompleteChannelsForTeam: search };
+  await expect(searchChannelDirectory(api, teamId, "   ")).rejects.toThrow();
+  await expect(searchChannelDirectory(api, "", "ok")).rejects.toThrow();
+  expect(search).not.toHaveBeenCalled();
+  await expect(
+    searchChannelDirectory(api, teamId, "ok", controller.signal),
+  ).rejects.toMatchObject({ name: "AbortError" });
+  await expect(
+    searchChannelDirectory(api, teamId, "ok", controller.signal),
+  ).rejects.toMatchObject({ name: "AbortError" });
+  expect(search).toHaveBeenCalledTimes(1);
+  const refusal = new Error("refused");
+  search.mockRejectedValueOnce(refusal);
+  await expect(searchChannelDirectory(api, teamId, "ok")).rejects.toBe(refusal);
+});
+
+test("directory pages and name matches carry only a supplied text topic", async () => {
+  const raw = [
+    { ...row(1), header: "Release items" },
+    { ...row(2), header: "" },
+  ];
+  const page = await readChannelDirectoryPage(api(raw), query);
+  const search = await searchChannelDirectory(
+    { autocompleteChannelsForTeam: async () => raw },
+    teamId,
+    "design",
+  );
+  expect(search).toEqual(page.items);
+  expect(search[0].header).toBe("Release items");
+  expect(search[1]).not.toHaveProperty("header");
+  await expect(
+    readChannelDirectoryPage(
+      api([{ ...row(1), header: 42 as unknown as string }]),
+      query,
+    ),
+  ).rejects.toThrow(TypeError);
 });

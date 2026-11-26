@@ -20,6 +20,7 @@ import { readChannelBookmarks } from "./channel-bookmarks.ts";
 import {
   type DirectoryPageQuery,
   readChannelDirectoryPage,
+  searchChannelDirectory,
 } from "./channel-directory-page.ts";
 import { createChannelHistoryChanges } from "./channel-history-changes.ts";
 import {
@@ -226,6 +227,12 @@ export async function openAccountRestConnection(
     },
     readFileAnchor(fileId: string, signal?: AbortSignal) {
       return readWhileOpen(() => readFileAnchor(files, fileId, signal), signal);
+    },
+    searchChannelDirectory(teamId: string, name: string, signal?: AbortSignal) {
+      return readWhileOpen(
+        () => searchChannelDirectory(channels, teamId, name, signal),
+        signal,
+      );
     },
     readChannelDirectoryPage(query: DirectoryPageQuery, signal?: AbortSignal) {
       return readWhileOpen(
