@@ -58,6 +58,40 @@ export async function verifyWorkspaceBack(
   try {
     const { field: reply } = await findThreadDraft(host);
     flushSync(() => fireEvent.input(reply, { target: { value: threadText } }));
+    const palette = ui.getByRole("button", { name: "Appearance" });
+    flushSync(() => fireEvent.click(palette));
+    const appearance = within(
+      await ui.findByRole("dialog", { name: "Appearance" }),
+    );
+    const dark = appearance.getByRole("button", { name: "Dark" });
+    const light = appearance.getByRole("button", { name: "Light" });
+    const initialMode = appearance.getByRole("button", { pressed: true });
+    const next =
+      document.documentElement.dataset.appearance === "dark" ? light : dark;
+    flushSync(() => fireEvent.click(next));
+    await waitFor(() => {
+      if (
+        next.getAttribute("aria-pressed") !== "true" ||
+        document.documentElement.dataset.appearance !==
+          (next === dark ? "dark" : "light")
+      )
+        throw Error("The active workspace did not adopt the chosen appearance");
+    });
+    flushSync(() => fireEvent.click(initialMode));
+    await press("appearance");
+    await waitFor(() => {
+      if (
+        ui.queryByRole("dialog") ||
+        document.activeElement !== palette ||
+        !reply.isConnected ||
+        reply.value !== threadText ||
+        !channel.isConnected ||
+        channel.value !== channelText
+      )
+        throw Error(
+          "Appearance lost the active thread, composer drafts or toolbar focus",
+        );
+    });
     const search = ui.getByRole("button", { name: "Search" });
     flushSync(() => fireEvent.click(search));
     let form = within(await ui.findByRole("dialog"));

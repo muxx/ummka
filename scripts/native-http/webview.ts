@@ -71,6 +71,7 @@ export function webviewServers(
   let sendRight: (() => Promise<void>) | undefined;
   let prepareKeyboard: (() => Promise<void>) | undefined;
   const backSteps = [
+    "appearance",
     "dialog",
     "results",
     "thread",
