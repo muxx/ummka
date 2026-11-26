@@ -1,6 +1,10 @@
-import { type Configuration, UsersApi } from "../../vendor/mattermost/index.js";
+import {
+  type Configuration,
+  type User,
+  UsersApi,
+} from "../../vendor/mattermost/index.js";
 
-export async function readSearchTimezone(
+export async function readSearchProfile(
   config: Configuration,
   userId: string,
   signal?: AbortSignal,
@@ -10,6 +14,18 @@ export async function readSearchTimezone(
   signal?.throwIfAborted();
   if (user.id !== userId)
     throw new TypeError("Unexpected search profile owner.");
+  return user;
+}
+
+export async function readSearchTimezone(
+  config: Configuration,
+  userId: string,
+  signal?: AbortSignal,
+) {
+  return profileSearchTimezone(await readSearchProfile(config, userId, signal));
+}
+
+export function profileSearchTimezone(user: User) {
   const timezone = user.timezone;
   const selected =
     timezone?.useAutomaticTimezone === "true"

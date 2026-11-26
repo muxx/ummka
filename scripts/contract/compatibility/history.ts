@@ -87,6 +87,7 @@ import { checkPublishedPostDocument } from "./published-post-document.ts";
 import { checkReactionActions } from "./reaction-actions.ts";
 import { checkReactionLimit } from "./reaction-limit.ts";
 import { checkPostReactions } from "./reactions.ts";
+import { checkRecentMentions } from "./recent-mentions.ts";
 import { checkRecipientDirectory } from "./recipient-directory.ts";
 import { checkRoleReads } from "./role-reads.ts";
 import { checkSparseSavedPages } from "./saved-page-access.ts";
@@ -907,6 +908,7 @@ const extraTeam = await (
     token,
   )
 ).json();
+await checkRecentMentions(session, readerToken, channelId, closed.id);
 await checkPostSearch(
   session,
   new Configuration({ basePath: base, accessToken: readerToken }),
