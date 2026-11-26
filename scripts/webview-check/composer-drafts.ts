@@ -13,6 +13,22 @@ const channel = { channelId: "c".repeat(26) };
 const reply = { ...channel, rootId: "r".repeat(26) };
 const channelText = "  Черновик канала\n🐻‍❄️ ";
 const threadText = "Другой текст в треде";
+const outgoingText = "Исходящее после перезапуска";
+
+export async function readRestoredOutgoing(account: Account) {
+  const rows = await account.readPendingPosts({ ...channel, limit: 50 });
+  const saved = rows.filter((row) => row.message === outgoingText);
+  if (
+    saved.length !== 1 ||
+    saved[0].channelId !== channel.channelId ||
+    saved[0].rootId !== null ||
+    saved[0].confirmedPostId !== null
+  )
+    throw Error(
+      "The unconfirmed fixture post is missing or ambiguous in the restored account outbox",
+    );
+  return saved[0];
+}
 
 export async function checkDraftWrites(
   account: Account,
@@ -67,7 +83,7 @@ export async function checkDraftWrites(
     const outgoing = await account.saveDraft({
       ...channel,
       expectedRevision: first.draft.revision,
-      message: "Исходящее после перезапуска",
+      message: outgoingText,
     });
     if (outgoing.kind !== "saved" || !outgoing.draft.revision)
       throw Error("Could not prepare offline outgoing text");

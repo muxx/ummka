@@ -12,6 +12,7 @@ import {
   getCurrentAccountId,
   openAccountRestConnection,
 } from "../../src/mattermost/native-rest.ts";
+import { readRestoredOutgoing } from "./composer-drafts.ts";
 
 export function openChannelNavigation(element: HTMLElement, label: string) {
   const back = within(element).queryByRole("button", {
@@ -26,6 +27,7 @@ export async function checkSavedTeamWindow(
   removeOutgoing: boolean,
 ) {
   const original = await readInstallationSelection();
+  const observer = await openAccountRestConnection(serverUrl, userId);
   const element = document.createElement("div");
   document.body.append(element);
   const root = createRoot(element);
@@ -47,10 +49,22 @@ export async function checkSavedTeamWindow(
     const ui = within(element);
     const saved = () =>
       ui.findByText("Saved fixture room message", {}, { timeout: 7000 });
-    await saved();
-    const outgoingText = "Исходящее после перезапуска";
-    const outgoing = (await ui.findByText(outgoingText)).closest("article");
-    if (!outgoing?.textContent?.includes("Доставка не подтверждена"))
+    const stored = await readRestoredOutgoing(observer);
+    const [, outgoing] = await Promise.all([
+      saved(),
+      waitFor(
+        () => {
+          const row = ui.queryByText(stored.message)?.closest("article");
+          if (!row || row.dataset.postId !== stored.pendingId)
+            throw Error(
+              "The restored post is in SQLite but its row is missing from the offline timeline",
+            );
+          return row;
+        },
+        { container: element, timeout: 7000 },
+      ),
+    ]);
+    if (!outgoing.textContent?.includes("Доставка не подтверждена"))
       throw Error(
         "Offline startup lost the saved outgoing row or suggested an active send",
       );
@@ -154,7 +168,7 @@ export async function checkSavedTeamWindow(
     if (typeof navigator.clipboard?.writeText !== "function")
       throw Error("The packaged WebView cannot copy text");
     if (removeOutgoing) {
-      const current = ui.getByText(outgoingText).closest("article");
+      const current = ui.getByText(stored.message).closest("article");
       if (!current) throw Error("The saved outgoing row is missing");
       const remove = within(current).getByRole<HTMLButtonElement>("button", {
         name: "Удалить",
@@ -164,7 +178,7 @@ export async function checkSavedTeamWindow(
       await waitFor(
         () => {
           ui.getByText("Строка удалена только с устройства.");
-          if (ui.queryByText(outgoingText))
+          if (ui.queryByText(stored.message))
             throw Error("Removed outgoing row is still visible");
           if (
             document.activeElement !==
@@ -220,30 +234,24 @@ export async function checkSavedTeamWindow(
       }),
     );
     fireEvent.focusOut(restored);
-    const observer = await openAccountRestConnection(serverUrl, userId);
-    try {
-      const pending = await observer.readPendingPosts({
-        channelId: "c".repeat(26),
-        limit: 50,
-      });
-      const remains = pending.some(
-        (post) => post.pendingId === outgoing.dataset.postId,
+    const pending = await observer.readPendingPosts({
+      channelId: "c".repeat(26),
+      limit: 50,
+    });
+    const remains = pending.some((post) => post.pendingId === stored.pendingId);
+    if (remains === removeOutgoing)
+      throw Error(
+        "The saved outgoing row does not match the choice in the window",
       );
-      if (remains === removeOutgoing)
-        throw Error(
-          "The saved outgoing row does not match the choice in the window",
-        );
-      await waitFor(async () => {
-        const stored = await observer.readDraft({ channelId: "c".repeat(26) });
-        if (stored.message !== restored.value)
-          throw Error("the offline edit was not saved");
-      });
-    } finally {
-      await observer.close();
-    }
+    await waitFor(async () => {
+      const draft = await observer.readDraft({ channelId: "c".repeat(26) });
+      if (draft.message !== restored.value)
+        throw Error("the offline edit was not saved");
+    });
   } finally {
     flushSync(() => root.unmount());
     element.remove();
+    await observer.close();
     if (macOS) {
       if (previous) Object.defineProperty(navigator, "onLine", previous);
       else Reflect.deleteProperty(navigator, "onLine");
