@@ -9,6 +9,7 @@ import { checkChannelsFrame } from "./channels-frame.tsx";
 import { checkEntryWindow } from "./entry-window.tsx";
 import { beginExchanges, finishExchangesAfterReload } from "./exchanges.ts";
 import { checkGeneratedRequests } from "./generated.ts";
+import { checkNotificationSoundAssets } from "./notification-sounds.ts";
 import { checkPaletteSurfaces } from "./palette.ts";
 
 import { resumeRegistryCheck, seedRegistry } from "./registry.ts";
@@ -60,6 +61,7 @@ async function checkResources() {
       window.addEventListener("load", () => resolve(), { once: true }),
     );
   }
+  await checkNotificationSoundAssets();
   // A fresh offline process resumes the saved registry before the first-run UI probes.
   if (await resumeRegistryCheck()) return;
   await checkEntryWindow();
