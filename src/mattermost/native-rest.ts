@@ -165,7 +165,7 @@ export async function openAccountRestConnection(
   return {
     ...connection,
     ...accountFollowedThreads(config, readWhileOpen),
-    ...accountPostCollections(config, readWhileOpen),
+    ...accountPostCollections(config, userId, readWhileOpen),
     ...accountCollectionActions(config, userId, readWhileOpen),
     ...accountPostReactions(config, userId, readWhileOpen),
     ...accountSearch(config, readWhileOpen),

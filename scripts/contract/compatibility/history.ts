@@ -78,6 +78,7 @@ import { checkReactionActions } from "./reaction-actions.ts";
 import { checkReactionLimit } from "./reaction-limit.ts";
 import { checkPostReactions } from "./reactions.ts";
 import { checkRoleReads } from "./role-reads.ts";
+import { checkSparseSavedPages } from "./saved-page-access.ts";
 import { checkSearchScopePolicy } from "./search-scope.ts";
 import { expectedNavigationPost } from "./search-target.ts";
 import { checkSidebarReads } from "./sidebar.ts";
@@ -882,7 +883,13 @@ assert.equal(otherSaver.roles, "system_user");
 await checkPostCollections(
   { session, id: user.id },
   { id: reader.id, token: readerToken },
-  new Configuration({ basePath: base, accessToken: otherSaverToken }),
+  {
+    session: new Configuration({
+      basePath: base,
+      accessToken: otherSaverToken,
+    }),
+    id: otherSaver.id,
+  },
   {
     channel: channelId,
     privateChannel: closed.id,
@@ -1426,6 +1433,34 @@ await checkThreadReadState(
   readerLogin.login_id,
   { teamId: emptyTeam.id, channelId: threadRoom.id, directId: threadDirect.id },
   { teamId: team.id, channelId },
+  version,
+);
+
+const hiddenSaved = await (
+  await create(
+    "channels",
+    {
+      team_id: team.id,
+      name: "saved-page-private",
+      display_name: "Saved page private",
+      type: "P",
+    },
+    readerToken,
+  )
+).json();
+await create(
+  `channels/${hiddenSaved.id}/members`,
+  { user_id: otherSaver.id },
+  readerToken,
+);
+await checkSparseSavedPages(
+  base,
+  token,
+  { id: otherSaver.id, token: otherSaverToken },
+  readerToken,
+  team.id,
+  channelId,
+  hiddenSaved.id,
   version,
 );
 

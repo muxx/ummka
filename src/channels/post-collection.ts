@@ -1,5 +1,8 @@
 import { ResponseError } from "../../vendor/mattermost/index.js";
-import type { accountPostCollections } from "../mattermost/account-post-collections.ts";
+import {
+  type accountPostCollections,
+  savedPageSize,
+} from "../mattermost/account-post-collections.ts";
 import type { accountCollectionActions } from "../mattermost/post-collection-actions.ts";
 import { mayKeepCache, workspaceFailure } from "./workspace-data.ts";
 
@@ -31,7 +34,17 @@ export function openPostCollection(account: Account, source: Source) {
   const scope = { ...source };
   const listeners = new Set<() => void>();
   const removals = new Map<string, Promise<Removal>>();
-  let state: ReadState & { removing: readonly string[] } = {
+  type Continuation = "none" | "available" | "loading" | "network" | "storage";
+  let cursor: { offset: number; limit: number } | undefined;
+  let nextPage:
+    | { controller: AbortController; result: Promise<void> }
+    | undefined;
+  let pageIssue: "network" | "storage" | undefined;
+  let state: ReadState & {
+    removing: readonly string[];
+    continuation: Continuation;
+  } = {
+    continuation: "none",
     status: "idle",
     value: null,
     removing: [],
@@ -40,11 +53,24 @@ export function openPostCollection(account: Account, source: Source) {
   let pending: { result: Promise<void>; removed: Set<string> } | undefined;
 
   function publish(next: ReadState) {
-    state = { ...next, removing: [...removals.keys()] };
+    const continuation = nextPage
+      ? "loading"
+      : cursor && cursor.offset < cursor.limit
+        ? (pageIssue ?? "available")
+        : "none";
+    state = { ...next, removing: [...removals.keys()], continuation };
     for (const listener of listeners) listener();
   }
 
+  function cancelNextPage() {
+    nextPage?.controller.abort();
+    nextPage = undefined;
+    pageIssue = undefined;
+  }
+
   function cancelRequests() {
+    cancelNextPage();
+    cursor = undefined;
     requests.abort();
     requests = new AbortController();
     pending = undefined;
@@ -55,11 +81,23 @@ export function openPostCollection(account: Account, source: Source) {
     if (signal.aborted) return;
     let next: ReadState;
     try {
-      const value =
+      const [value, limit] =
         scope.kind === "pins"
-          ? await account.readPinnedChannelPosts(scope.channelId, signal)
-          : await account.readSavedPosts(scope, 0, signal);
+          ? ([
+              await account.readPinnedChannelPosts(scope.channelId, signal),
+              0,
+            ] as const)
+          : await Promise.all([
+              account.readSavedPosts(scope, 0, signal),
+              account.readSavedPostUpperBound(signal),
+            ]);
       if (signal.aborted) return;
+      // Concurrent removals might already be absent from the preference response.
+      // Keep its upper bound and overlap their raw positions on the next read.
+      cursor =
+        scope.kind === "pins"
+          ? undefined
+          : { offset: Math.max(0, savedPageSize - removed.size), limit };
       // A write confirmed after this read started takes precedence over its snapshot.
       next = {
         status: "ready",
@@ -78,6 +116,47 @@ export function openPostCollection(account: Account, source: Source) {
     }
     pending = undefined;
     publish(next);
+  }
+
+  async function append(
+    scope: SavedScope,
+    offset: number,
+    signal: AbortSignal,
+  ) {
+    if (signal.aborted) return;
+    try {
+      const page = await account.readSavedPostsAtOffset(scope, offset, signal);
+      if (signal.aborted || !cursor || !state.value) return;
+      const seen = new Set(state.value.items.map((row) => row.id));
+      const items = [
+        ...state.value.items,
+        ...page.items.filter((row) => !seen.has(row.id)),
+      ];
+      cursor.offset = offset + savedPageSize;
+      nextPage = undefined;
+      pageIssue = undefined;
+      publish({
+        status: "ready",
+        value: {
+          items,
+          firstInaccessiblePostTime: Math.max(
+            state.value.firstInaccessiblePostTime,
+            page.firstInaccessiblePostTime,
+          ),
+        },
+      });
+    } catch (error) {
+      if (signal.aborted) return;
+      const status = workspaceFailure(error, "network");
+      nextPage = undefined;
+      if (status === "network" || status === "storage") {
+        pageIssue = status;
+        publish(state);
+      } else {
+        cancelRequests();
+        publish({ status, value: null });
+      }
+    }
   }
 
   async function remove(postId: string, signal: AbortSignal): Promise<Removal> {
@@ -102,6 +181,11 @@ export function openPostCollection(account: Account, source: Source) {
     }
     if (signal.aborted) return "unavailable";
     removals.delete(postId);
+    if (cursor && state.value?.items.some((row) => row.id === postId)) {
+      cancelNextPage();
+      cursor.offset = Math.max(0, cursor.offset - 1);
+      cursor.limit = Math.max(0, cursor.limit - 1);
+    }
     pending?.removed.add(postId);
     const value = state.value;
     publish({
@@ -125,6 +209,7 @@ export function openPostCollection(account: Account, source: Source) {
     refresh() {
       if (state.status === "closed") return Promise.resolve();
       if (pending) return pending.result;
+      cancelNextPage();
       const { signal } = requests;
       const removed = new Set<string>();
       const result = Promise.resolve().then(() => read(signal, removed));
@@ -133,6 +218,25 @@ export function openPostCollection(account: Account, source: Source) {
         status: state.value ? "refreshing" : "loading",
         value: state.value,
       });
+      return result;
+    },
+    loadMore() {
+      if (nextPage) return nextPage.result;
+      if (
+        scope.kind === "pins" ||
+        pending ||
+        !cursor ||
+        !state.value ||
+        cursor.offset >= cursor.limit
+      )
+        return Promise.resolve();
+      const controller = new AbortController();
+      const offset = cursor.offset;
+      const result = Promise.resolve().then(() =>
+        append(scope, offset, controller.signal),
+      );
+      nextPage = { controller, result };
+      publish(state);
       return result;
     },
     remove(postId: string): Promise<Removal> {
