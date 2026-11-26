@@ -83,9 +83,17 @@ strict_tsc --declaration --removeComments --rootDir "$work/client" --outDir "$wo
 cat > "$work/transport-types.ts" <<'TS'
 import type { createRestTransport } from "../../src/mattermost/rest-transport.js";
 import type { ConfigurationParameters } from "./client/runtime.js";
-import type { UsersApi, GetPostInfoRequest, GetPostThreadRequest, GetPostsForChannelRequest, GetUsersByIdsRequest, Post, PostInfo, PostList, User } from "./compiled/index.js";
+import type { ThreadsApi, UserThread, UsersApi, GetPostInfoRequest, GetPostThreadRequest, GetPostsForChannelRequest, GetUsersByIdsRequest, Post, PostInfo, PostList, User } from "./compiled/index.js";
 declare const transport: ReturnType<typeof createRestTransport>;
 transport satisfies Required<Pick<ConfigurationParameters, "basePath" | "fetchApi">>;
+declare const threads: ThreadsApi;
+const followed = await threads.getUserThreads({ userId: "me", teamId: "team", before: "thread", perPage: 25, unread: true, threadsOnly: true });
+followed.threads satisfies UserThread[] | null | undefined;
+followed.threads?.[0].participants?.[0].username satisfies string | undefined;
+followed.threads?.[0].unreadReplies satisfies number | undefined;
+followed.totalUnreadUrgentMentions satisfies number | undefined;
+// @ts-expect-error The server takes thread IDs as cursors and ignores page numbers.
+threads.getUserThreads({ userId: "me", teamId: "team", page: 2 });
 declare const users: UsersApi;
 (await users.getUsersByUsernames({ requestBody: ["ada"] })) satisfies User[];
 (await users.getProfileImage({ userId: "user" })) satisfies Blob;

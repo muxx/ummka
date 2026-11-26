@@ -44,6 +44,7 @@ import { checkCommands } from "./commands.ts";
 import { checkCustomEmojiLookup } from "./custom-emoji.ts";
 import { checkEventStream } from "./event-stream.ts";
 import { checkFileSearch } from "./file-search.ts";
+import { checkFocusedConversation } from "./focused-conversation.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
 import { checkJoinPostTarget } from "./join-post-target.ts";
 import {
@@ -74,6 +75,7 @@ import { expectedNavigationPost } from "./search-target.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
 import { checkThreadFollow } from "./thread-follow.ts";
+import { checkThreadList } from "./thread-list.ts";
 import { checkThreadSummary } from "./thread-summary.ts";
 import { checkThreadWindow } from "./thread-window.ts";
 import { checkUserNotifications } from "./user-notifications.ts";
@@ -1223,9 +1225,47 @@ console.log(
   `Mattermost ${version} verified empty and populated reaction lists and post metadata.`,
 );
 
-await checkEventStream(base, token, session, team.id, channelId);
+await checkEventStream(
+  base,
+  readerToken,
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  reader.id,
+  team.id,
+  channelId,
+);
 console.log(
-  `Mattermost ${version} verified sequenced posts, command replies and replay of a post after reconnect.`,
+  `Mattermost ${version} verified an ordinary author's pending_post_id in posted, command replies and post replay after reconnect.`,
+);
+
+// Two ordinary users share a previously empty team and a new DM. Existing
+// thread subscriptions in the main fixture cannot change these page boundaries.
+await create(
+  `teams/${emptyTeam.id}/members`,
+  { team_id: emptyTeam.id, user_id: otherSaver.id },
+  readerToken,
+);
+const threadReader = new Configuration({
+  basePath: base,
+  accessToken: otherSaverToken,
+});
+const threadRoom = (
+  await new ChannelsApi(threadReader).getChannelsForTeamForUser({
+    userId: "me",
+    teamId: emptyTeam.id,
+  })
+).find((c) => c.name === "town-square");
+assert.ok(threadRoom?.id);
+const threadDirect = await (
+  await create("channels/direct", [reader.id, otherSaver.id], readerToken)
+).json();
+await checkThreadList(
+  { session: threadReader, username: otherSaverName },
+  { posts: readerPosts, id: reader.id, username: readerLogin.login_id },
+  new Configuration({ basePath: base }),
+  emptyTeam.id,
+  threadRoom.id,
+  threadDirect.id,
+  version,
 );
 
 await checkSavedPageBoundary(
@@ -1233,6 +1273,16 @@ await checkSavedPageBoundary(
   { id: reader.id, token: readerToken },
   dm.id,
   version,
+);
+
+await checkFocusedConversation(memberPosts, readerPosts, closed.id, () =>
+  new ChannelsApi(session).removeUserFromChannel({
+    channelId: closed.id,
+    userId: reader.id,
+  }),
+);
+console.log(
+  `Mattermost ${version} verified focused channel windows for roots and a reply beyond the first thread page, including subsequent loss of channel access.`,
 );
 
 const secondLogin = await create("users/login", {

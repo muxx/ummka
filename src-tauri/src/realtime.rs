@@ -3,6 +3,7 @@
 #[cfg(all(feature = "native-http-check", any(test, target_os = "android")))]
 pub(crate) mod checks;
 mod connection;
+mod delivery;
 pub use connection::{EventConnectionError, EventReader, EventSettings};
 
 use crate::rest::is_mattermost_id;
