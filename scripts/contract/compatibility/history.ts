@@ -4,6 +4,7 @@ import { latestReactionTarget } from "../../../src/channels/latest-reaction-targ
 import { nextPostDestinationStep } from "../../../src/channels/post-destination-step.ts";
 import { accountChannelReadState } from "../../../src/mattermost/account-channel-read-state.ts";
 import { channelHistoryPage } from "../../../src/mattermost/channel-history-page.ts";
+import { readChannelIdentity } from "../../../src/mattermost/channel-identity.ts";
 import { channelPostChanges } from "../../../src/mattermost/channel-post-records.ts";
 import {
   channelProfile,
@@ -418,7 +419,7 @@ for (const [caller, target, status] of [
   [new ChannelsApi(new Configuration({ basePath: base })), dm.id, 401],
 ] as const) {
   await assert.rejects(
-    caller.getChannel({ channelId: target }),
+    readChannelIdentity(caller, target),
     (error: unknown) =>
       error instanceof ResponseError && error.response.status === status,
   );
@@ -1166,14 +1167,15 @@ const group = await (
   await create("channels/group", [user.id, reader.id, bot.user_id], token)
 ).json();
 assert.equal(group.type, "G");
-for (const [source, expectedTeam] of [
-  [channel, team.id],
-  [dm, ""],
-  [group, ""],
+for (const [source, expectedTeam, expectedName] of [
+  [channel, team.id, channel.displayName],
+  [dm, "", dm.display_name],
+  [group, "", group.display_name],
 ] as const) {
-  const found = await closedReader.getChannel({ channelId: source.id });
+  const found = await readChannelIdentity(closedReader, source.id);
   assert.equal(found.id, source.id);
-  assert.equal(found.type, source.type);
+  assert.equal(found.kind, source.type);
+  assert.equal(found.displayName, expectedName);
   assert.equal(found.name, source.name);
   assert.equal(found.teamId, expectedTeam);
   assert.equal(found.deleteAt, 0);

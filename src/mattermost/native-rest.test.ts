@@ -537,6 +537,7 @@ test("opens a native account by installation and user ID", async () => {
     "notifyChannelHistoryChanged",
     "readAccountDirectory",
     "readAssociatedMentionGroups",
+    "readChannelIdentity",
     "readChannelMemberCount",
     "readChannelNotifications",
     "readChannelTimezoneCount",
@@ -1259,3 +1260,45 @@ test.each([
     }
   },
 );
+
+test("a closed account drops an in-flight channel identity", async () => {
+  ipc.mockResolvedValueOnce(27);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    "a".repeat(26),
+  );
+  const id = "c".repeat(26);
+  let complete = () => {};
+  const pendingReply = new Promise<void>((resolve) => {
+    complete = resolve;
+  });
+  const call = vi
+    .spyOn(ChannelsApi.prototype, "getChannelRaw")
+    .mockImplementation(async () => {
+      await pendingReply;
+      return {
+        raw: new Response(null),
+        value: async () => ({
+          id,
+          type: "D",
+          teamId: "",
+          name: "a".repeat(26) + "__" + "b".repeat(26),
+          displayName: "",
+          deleteAt: 0,
+        }),
+      };
+    });
+  try {
+    const pending = account.readChannelIdentity(id);
+    await account.close();
+    complete();
+    await expect(pending).rejects.toBe("cancelled");
+    await expect(account.readChannelIdentity(id)).rejects.toBe(
+      "unknown_connection",
+    );
+    expect(call).toHaveBeenCalledOnce();
+  } finally {
+    complete();
+    call.mockRestore();
+  }
+});

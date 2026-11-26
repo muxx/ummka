@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import {
   type ChannelNotifyProps,
+  ChannelsApi,
   CommandsApi,
   Configuration,
   FilesApi,
@@ -21,6 +22,7 @@ import {
   type ChannelRefreshResult,
   refreshChannelHistory,
 } from "./channel-history-refresh.ts";
+import { readChannelIdentity } from "./channel-identity.ts";
 import {
   readChannelNotifications,
   updateChannelNotifications,
@@ -197,6 +199,12 @@ export async function openAccountRestConnection(
     readSearchTimezone(signal?: AbortSignal) {
       return readWhileOpen(
         () => readSearchTimezone(config, userId, signal),
+        signal,
+      );
+    },
+    readChannelIdentity(channelId: string, signal?: AbortSignal) {
+      return readWhileOpen(
+        () => readChannelIdentity(new ChannelsApi(config), channelId, signal),
         signal,
       );
     },
