@@ -73,6 +73,8 @@ export function respondToPostContext(
           delete_at: 0,
           type: "",
           message: "Later reply",
+          file_ids: [],
+          metadata: { redacted_file_count: 2 },
           hashtags: "",
           is_pinned: true,
         }),
