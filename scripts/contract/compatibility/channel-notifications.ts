@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
-import { updateChannelNotifications } from "../../../src/mattermost/channel-notifications.ts";
+import { ChannelNotificationForm } from "../../../src/channels/channel-notification-form.ts";
+import {
+  readChannelNotifications,
+  updateChannelNotifications,
+} from "../../../src/mattermost/channel-notifications.ts";
 import type { ChannelNotifyProps } from "../../../vendor/mattermost/index.js";
 import {
   ChannelsApi,
   type Configuration,
   ResponseError,
+  UsersApi,
 } from "../../../vendor/mattermost/index.js";
 
 export async function checkChannelNotifications(
@@ -62,9 +67,16 @@ export async function checkPersonalNotificationUpdate(
   const original = await read();
   assert.equal(original.desktopThreads, "default");
   try {
-    await updateChannelNotifications(config, channelId, {
-      desktopThreads: "mention",
-    });
+    const user = await new UsersApi(config).getUser({ userId: "me" });
+    assert.ok(user.id);
+    const source = await readChannelNotifications(config, user.id, channelId);
+    const form = new ChannelNotificationForm("O", source);
+    assert.equal(form.section("desktop").threads.inherited, true);
+    assert.equal(form.section("desktop").threads.account, "all");
+    assert.deepEqual(form.changes, {});
+    form.setThreads("desktop", "mention");
+    assert.deepEqual(form.changes, { desktopThreads: "mention" });
+    await updateChannelNotifications(config, channelId, form.changes);
     assert.deepEqual(await read(), { ...original, desktopThreads: "mention" });
     await assert.rejects(
       updateChannelNotifications(config, unjoinedChannelId, {
