@@ -14,10 +14,16 @@ pub(crate) fn listen<R: Runtime>(window: &WebviewWindow<R>) {
             for down in [true, false] {
                 window
                     .with_webview(move |view| {
-                        use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventType, NSWindow};
+                        use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventType, NSResponder, NSWindow};
                         use objc2_foundation::{NSPoint, NSProcessInfo, ns_string};
                         // Tauri owns the window. with_webview runs on the UI thread.
                         let window = unsafe { &*view.ns_window().cast::<NSWindow>() };
+                        if down {
+                            // DOM focus can survive a reload without the WKWebView owning native input.
+                            // Wry's WebView::focus uses this same AppKit first-responder operation.
+                            let webview = unsafe { &*view.inner().cast::<NSResponder>() };
+                            assert!(window.makeFirstResponder(Some(webview)), "focus the keyboard fixture WebView");
+                        }
                         let kind = if down { NSEventType::KeyDown } else { NSEventType::KeyUp };
                         let key = ns_string!("\u{f703}");
                         let event = NSEvent::keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_characters_charactersIgnoringModifiers_isARepeat_keyCode(
