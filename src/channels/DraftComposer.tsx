@@ -5,7 +5,6 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
 import type { SidebarPreferences } from "../mattermost/workspace-preferences.ts";
@@ -145,7 +144,14 @@ function DraftField({
   afterRetry: boolean;
   switchedAt: number | undefined;
 }) {
-  const state = useSyncExternalStore(editor.subscribe, editor.getSnapshot);
+  const [state, setState] = useState(editor.getSnapshot);
+  useLayoutEffect(() => {
+    // Subscribe before autofocus so queued keystrokes update the controlled field immediately.
+    const refresh = () => setState(editor.getSnapshot());
+    const unsubscribe = editor.subscribe(refresh);
+    refresh();
+    return unsubscribe;
+  }, [editor]);
   const [announcement, setAnnouncement] = useState("");
   const [focusRequest, requestFocus] = useState(afterRetry ? 1 : 0);
   const retryButton = useRef<HTMLButtonElement>(null);

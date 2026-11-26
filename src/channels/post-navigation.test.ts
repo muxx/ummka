@@ -23,7 +23,21 @@ const ownTeam = { ...team, joined: true },
   privateChannel = { ...channel, kind: "P" } as const;
 const teamTarget = { kind: "team", id: teamId },
   channelTarget = { kind: "channel", id: channelId };
-const root = { postId, channelId, rootId: null },
+const post = {
+  id: postId,
+  channelId,
+  rootId: null,
+  userId: "u".repeat(26),
+  createAt: 100,
+  updateAt: 100,
+  editAt: 0,
+  type: "",
+  message: "Release announcement",
+  messageSource: null,
+  hashtags: "",
+  isPinned: false,
+};
+const root = { postId, channelId, rootId: null, post },
   ready = { kind: "ready", teamId, ...root };
 function fixture(initial: Destination) {
   const account = {

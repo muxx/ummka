@@ -184,6 +184,12 @@
   {
     "file": "posts-12.1.0.yaml",
     "method": "GET",
+    "path": "/api/v4/posts/{post_id}/edit_history",
+    "id": "GetEditHistoryForPost"
+  },
+  {
+    "file": "posts-12.1.0.yaml",
+    "method": "GET",
     "path": "/api/v4/posts/{post_id}/info",
     "id": "GetPostInfo"
   },
@@ -192,6 +198,20 @@
     "method": "GET",
     "path": "/api/v4/posts/{post_id}/thread",
     "id": "GetPostThread"
+  },
+  {
+    "file": "users.yaml",
+    "method": "PUT",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/threads/{thread_id}/following",
+    "id": "StartFollowingThread",
+    "selfOnly": true
+  },
+  {
+    "file": "users.yaml",
+    "method": "DELETE",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/threads/{thread_id}/following",
+    "id": "StopFollowingThread",
+    "selfOnly": true
   },
   {
     "file": "posts.yaml",

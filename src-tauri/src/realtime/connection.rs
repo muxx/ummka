@@ -13,6 +13,7 @@ pub enum EventConnectionError {
     Http(u16),
     Network,
     Protocol(StreamError),
+    History(crate::history::HistoryError),
 }
 
 impl std::fmt::Display for EventConnectionError {
@@ -25,6 +26,7 @@ impl std::fmt::Display for EventConnectionError {
             Self::Http(code) => write!(f, "Mattermost WebSocket returned HTTP {code}"),
             Self::Network => f.write_str("Mattermost WebSocket connection failed"),
             Self::Protocol(error) => write!(f, "Invalid Mattermost event: {error:?}"),
+            Self::History(error) => write!(f, "Could not apply Mattermost event: {error}"),
         }
     }
 }
