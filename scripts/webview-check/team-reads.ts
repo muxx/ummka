@@ -114,10 +114,12 @@ export async function checkTeamReads(
   )
     throw Error("generated signed channel by team and channel names");
   const location = "j".repeat(26);
-  const inspected = await api.getChannel({ channelId: location });
+  const inspected = await prefixedAccount.readChannelIdentity(location);
   if (
     inspected.id !== location ||
-    inspected.type !== "G" ||
+    inspected.kind !== "G" ||
+    inspected.name !== "fixture_group" ||
+    inspected.displayName !== "alex, robin" ||
     inspected.teamId !== "" ||
     inspected.deleteAt !== 0
   )

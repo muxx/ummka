@@ -28,6 +28,7 @@ import {
   type ChannelRefreshResult,
   refreshChannelHistory,
 } from "./channel-history-refresh.ts";
+import { readChannelIdentity } from "./channel-identity.ts";
 import {
   type ChannelMemberQuery,
   readChannelMemberDirectory,
@@ -234,6 +235,12 @@ export async function openAccountRestConnection(
     readSearchTimezone(signal?: AbortSignal) {
       return readWhileOpen(
         () => readSearchTimezone(config, userId, signal),
+        signal,
+      );
+    },
+    readChannelIdentity(channelId: string, signal?: AbortSignal) {
+      return readWhileOpen(
+        () => readChannelIdentity(new ChannelsApi(config), channelId, signal),
         signal,
       );
     },
