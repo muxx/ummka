@@ -94,6 +94,14 @@ followed.threads?.[0].unreadReplies satisfies number | undefined;
 followed.totalUnreadUrgentMentions satisfies number | undefined;
 // @ts-expect-error The server takes thread IDs as cursors and ignores page numbers.
 threads.getUserThreads({ userId: "me", teamId: "team", page: 2 });
+import type { FileInfo, PostsApi } from "./compiled/index.js";
+declare const attachmentPosts: PostsApi;
+const attachments = await attachmentPosts.getFileInfosForPost({ postId: "a-post" });
+attachments satisfies FileInfo[] | null;
+// @ts-expect-error The server may serialize an empty file list as null.
+attachments satisfies FileInfo[];
+// @ts-expect-error A post ID is required even when includeDeleted is absent.
+attachmentPosts.getFileInfosForPost({});
 declare const users: UsersApi;
 (await users.getUsersByUsernames({ requestBody: ["ada"] })) satisfies User[];
 (await users.getProfileImage({ userId: "user" })) satisfies Blob;

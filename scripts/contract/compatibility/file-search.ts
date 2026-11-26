@@ -98,6 +98,39 @@ export async function checkFileSearch(
     (error: unknown) =>
       error instanceof ResponseError && error.response.status === 403,
   );
+  const readerPosts = new PostsApi(readerSession);
+  const replyAttachments = await readerPosts.getFileInfosForPost({
+    postId: first.postId,
+  });
+  assert.ok(replyAttachments);
+  assert.equal(replyAttachments.length, 1);
+  const [replyFile] = replyAttachments;
+  assert.equal(replyFile.id, first.id);
+  assert.equal(replyFile.postId, first.postId);
+  assert.equal(replyFile.channelId, channelId);
+  assert.equal(replyFile.name, first.name);
+  assert.equal(
+    replyFile.size,
+    Buffer.byteLength("Synthetic file search fixture."),
+  );
+  assert.match(replyFile.mimeType ?? "", /^text\/plain\b/);
+  assert.deepEqual(
+    await readerPosts.getFileInfosForPost({ postId: root.id }),
+    version === "10.10.1" ? [] : null,
+  );
+  await assert.rejects(
+    readerPosts.getFileInfosForPost({ postId: second.postId }),
+    (error: unknown) =>
+      error instanceof ResponseError && error.response.status === 403,
+  );
+  const publicPosts = new PostsApi(
+    new Configuration({ basePath: session.basePath }),
+  );
+  await assert.rejects(
+    publicPosts.getFileInfosForPost({ postId: first.postId }),
+    (error: unknown) =>
+      error instanceof ResponseError && error.response.status === 401,
+  );
   const params = { terms, isOrSearch: false };
   const scope = (api: FilesApi, id: string) =>
     api.searchFiles({ teamId: id, searchFilesRequest: params });

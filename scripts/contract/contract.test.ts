@@ -363,6 +363,7 @@ for (const [id, file, path, method] of [
     "/api/v4/channels/{channel_id}/timezones",
     "get",
   ],
+  ["GetFileInfosForPost", "posts", "/api/v4/posts/{post_id}/files/info", "get"],
   ["GetRolesByNames", "roles", "/api/v4/roles/names", "post"],
   [
     "GetPreferences",
@@ -987,6 +988,7 @@ test("retains the catalog operations, security and transitive models", () => {
     if (source.operationId === "ExecuteCommand")
       expected = correctExecuteCommand(source, read("commands-12.1.0.yaml"));
     if (
+      source.operationId === "GetFileInfosForPost" ||
       source.operationId === "GetReactions" ||
       source.operationId === "GetRolesByNames" ||
       source.operationId === "GetPreferences" ||
