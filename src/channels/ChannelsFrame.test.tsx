@@ -53,7 +53,7 @@ test("keeps one named conversation and wires the team, account and navigation ac
   const { rerender } = render(<ChannelsFrame {...props} />);
   expect(screen.getByRole("main", { name: "General" })).toBeTruthy();
   const account = screen.getByRole("button", { name: labels.account });
-  expect(account.closest("[data-tauri-drag-region]")).toBeNull();
+  expect(account.hasAttribute("data-tauri-drag-region")).toBe(false);
   fireEvent.click(account);
   fireEvent.click(screen.getByRole("button", { name: "Switch team, Aurora" }));
   fireEvent.click(screen.getByRole("button", { name: labels.navigation }));

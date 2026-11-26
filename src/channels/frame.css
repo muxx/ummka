@@ -56,6 +56,9 @@
   transform: translateY(-2px);
   pointer-events: none;
 }
+.channels-bar-brand .channels-brand-mark {
+  display: none;
+}
 .channels-account,
 .channels-icon-action,
 .channels-team {
@@ -191,6 +194,48 @@
   }
 }
 @container (width <= 740px) {
+  .channels-bar {
+    --bar-inset: max(11px, env(safe-area-inset-left));
+    flex-basis: 41px;
+    gap: 7px;
+    padding-inline-end: max(11px, env(safe-area-inset-right));
+    background:
+      radial-gradient(
+        118px 41px at 23px 0,
+        #81c79d5c,
+        #66b29842 36%,
+        #388b8421 70%,
+        transparent
+      ),
+      var(--topbar);
+  }
+  .channels-frame[data-macos-overlay] .channels-bar {
+    flex-basis: 46px;
+  }
+  .channels-frame:has(.channels-panes[data-page="navigation"]) .channels-bar {
+    background:
+      radial-gradient(
+        118px 41px at 23px 0,
+        #81c79d5c,
+        #66b29842 36%,
+        #388b8421 70%,
+        transparent
+      ),
+      linear-gradient(to bottom, var(--topbar) 28%, var(--navigation)),
+      var(--topbar);
+  }
+  .channels-bar-brand .channels-brand-lockup {
+    display: none;
+  }
+  .channels-bar-brand .channels-brand-mark {
+    display: block;
+    height: 24px;
+    width: 24px;
+    transform: none;
+  }
+  .channels-account {
+    height: 100%;
+  }
   .channels-sidebar,
   .channels-conversation,
   .channels-thread {
