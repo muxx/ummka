@@ -509,5 +509,11 @@
     "path": "/api/v4/users/{user_id}/preferences/delete",
     "id": "DeletePreferences",
     "body": "json"
+  },
+  {
+    "file": "bookmarks.yaml",
+    "method": "GET",
+    "path": "/api/v4/channels/{channel_id}/bookmarks",
+    "id": "ListChannelBookmarksForChannel"
   }
 ]

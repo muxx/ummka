@@ -208,6 +208,8 @@ const definitionPaths = [
   ["components", "schemas", "ChannelMember"],
   ["components", "schemas", "ChannelNotifyProps"],
   ["components", "schemas", "ChannelStats"],
+  ["components", "schemas", "ChannelBookmark"],
+  ["components", "schemas", "ChannelBookmarkWithFileInfo"],
   ["components", "schemas", "ChannelMemberCountByGroup"],
   ...["Emoji", "FileInfo", "PostAcknowledgement", "Reaction"].map((name) => [
     "components",
@@ -1106,6 +1108,29 @@ test("one channel uses the same path, parameter and Channel response in both ver
   }
 });
 
+test("rejects unreviewed channel bookmark model differences", () => {
+  const operation = catalog.filter(
+    ({ id }) => id === "ListChannelBookmarksForChannel",
+  );
+  assert.equal(operation.length, 1);
+  for (const file of ["definitions.yaml", "definitions-12.1.0.yaml"]) {
+    const modified = read(file);
+    const properties = object(
+      at(modified, ["components", "schemas", "ChannelBookmark", "properties"]),
+      "bookmark",
+    );
+    properties.type = { type: "integer" };
+    assert.throws(
+      () =>
+        buildSpecification(
+          (name) => (name === file ? modified : read(name)),
+          operation,
+        ),
+      /Review ChannelBookmark/,
+    );
+  }
+});
+
 test("retains the catalog operations, security and transitive models", () => {
   for (const { file, path, method } of catalog) {
     const key = [path, method.toLowerCase()];
@@ -1127,6 +1152,8 @@ test("retains the catalog operations, security and transitive models", () => {
     }
     const source = object(at(read(file), key), path);
     let expected = source;
+    if (source.operationId === "ListChannelBookmarksForChannel")
+      expected = object(at(read("bookmarks-12.1.0.yaml"), key), path);
     if (
       source.operationId === "UpdateThreadReadForUser" ||
       source.operationId === "UpdateThreadsReadForUser" ||
@@ -1233,6 +1260,8 @@ test("retains the catalog operations, security and transitive models", () => {
     const source = at(definitions, path);
     const name = path[2];
     let expected = source;
+    if (name === "ChannelBookmark")
+      expected = at(read("definitions-12.1.0.yaml"), path);
     if (name === "FileInfo")
       expected = correctFileModel(
         name,
@@ -1320,6 +1349,8 @@ test("retains the catalog operations, security and transitive models", () => {
       "AutocompleteCommand",
       "AutocompleteSuggestion",
       "Channel",
+      "ChannelBookmark",
+      "ChannelBookmarkWithFileInfo",
       "ChannelMember",
       "ChannelMemberCountByGroup",
       "ChannelNotifyProps",
@@ -1849,6 +1880,7 @@ function copySources() {
     "teams-12.1.0.yaml",
     "users-12.1.0.yaml",
     "files-12.1.0.yaml",
+    "bookmarks-12.1.0.yaml",
     "groups-12.1.0.yaml",
     "preferences-12.1.0.yaml",
     "commands-12.1.0.yaml",

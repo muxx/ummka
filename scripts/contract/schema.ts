@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { parse } from "yaml";
 import nativeAuth from "../../contracts/mattermost/native-auth.json" with {
   type: "json",
@@ -171,7 +172,40 @@ export function buildSpecification(
       throw new Error(`Missing component ${kind}/${name}`);
     const source = object(upstream[name], `components/${kind}/${name}`);
     if (kind !== "schemas") group[name] = source;
-    else if (name === "Status")
+    else if (name === "ChannelBookmark") {
+      // v12 adds externally managed board bookmarks, without changing link or file rows.
+      // https://github.com/mattermost/mattermost/blob/v12.1.0/server/public/model/channel_bookmark.go#L14-L66
+      const schemas = object(
+        object(read("definitions-12.1.0.yaml").components, "components")
+          .schemas,
+        "schemas",
+      );
+      const newer = object(schemas.ChannelBookmark, name);
+      const fields = object(source.properties, name);
+      const { target_id, ...shared } = object(newer.properties, name);
+      if (
+        !isDeepStrictEqual(fields.type, {
+          type: "string",
+          enum: ["link", "file"],
+        }) ||
+        Object.hasOwn(fields, "target_id") ||
+        object(target_id, "target_id").type !== "string" ||
+        !isDeepStrictEqual(
+          {
+            ...source,
+            properties: {
+              ...fields,
+              type: { type: "string", enum: ["link", "file", "board"] },
+            },
+          },
+          { ...newer, properties: shared },
+        )
+      )
+        throw new Error(
+          "Review ChannelBookmark against both pinned server models",
+        );
+      group[name] = newer;
+    } else if (name === "Status")
       group[name] = correctUserStatus(source, read("definitions-12.1.0.yaml"));
     else if (name === "UserThreads" || name === "UserThread")
       group[name] = correctThreadListModel(
@@ -316,7 +350,20 @@ export function buildSpecification(
         originalOperation,
         read("files-12.1.0.yaml"),
       );
-    else if (nativeFiles.some((file) => file.id === id))
+    else if (id === "ListChannelBookmarksForChannel") {
+      // v10.10.1's handler encodes the list without writing a status (HTTP 200).
+      // https://github.com/mattermost/mattermost/blob/v10.10.1/server/channels/api4/channel_bookmark.go#L432-L441
+      const newerPath = object(read("bookmarks-12.1.0.yaml")[path], path);
+      const newer = object(newerPath.get, id);
+      const responses = object(originalOperation.responses, id);
+      const { "201": success, ...otherResponses } = responses;
+      operation = {
+        ...originalOperation,
+        responses: { ...otherResponses, "200": success },
+      };
+      if (!success || !isDeepStrictEqual(operation, newer))
+        throw new Error("Unrecognized channel bookmark list contract");
+    } else if (nativeFiles.some((file) => file.id === id))
       operation = correctFileContent(
         originalOperation,
         read("files-12.1.0.yaml"),
