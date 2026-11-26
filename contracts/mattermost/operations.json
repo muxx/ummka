@@ -286,6 +286,12 @@
     "id": "GetFileInfo"
   },
   {
+    "file": "posts.yaml",
+    "method": "GET",
+    "path": "/api/v4/posts/{post_id}/files/info",
+    "id": "GetFileInfosForPost"
+  },
+  {
     "file": "files.yaml",
     "method": "POST",
     "path": "/api/v4/teams/{team_id}/files/search",

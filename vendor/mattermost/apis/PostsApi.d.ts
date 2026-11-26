@@ -1,6 +1,7 @@
 import * as runtime from '../runtime.js';
 import { type ChannelUnreadAt } from '../models/ChannelUnreadAt.js';
 import { type CreatePostRequest } from '../models/CreatePostRequest.js';
+import { type FileInfo } from '../models/FileInfo.js';
 import { type PatchPostRequest } from '../models/PatchPostRequest.js';
 import { type Post } from '../models/Post.js';
 import { type PostInfo } from '../models/PostInfo.js';
@@ -19,6 +20,10 @@ export interface DeletePostRequest {
 }
 export interface GetEditHistoryForPostRequest {
     postId: string;
+}
+export interface GetFileInfosForPostRequest {
+    postId: string;
+    includeDeleted?: boolean;
 }
 export interface GetFlaggedPostsForUserRequest {
     userId: string;
@@ -90,6 +95,9 @@ export declare class PostsApi extends runtime.BaseAPI {
     getEditHistoryForPostRequestOpts(requestParameters: GetEditHistoryForPostRequest): Promise<runtime.RequestOpts>;
     getEditHistoryForPostRaw(requestParameters: GetEditHistoryForPostRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Array<Post>>>;
     getEditHistoryForPost(requestParameters: GetEditHistoryForPostRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Array<Post>>;
+    getFileInfosForPostRequestOpts(requestParameters: GetFileInfosForPostRequest): Promise<runtime.RequestOpts>;
+    getFileInfosForPostRaw(requestParameters: GetFileInfosForPostRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Array<FileInfo> | null>>;
+    getFileInfosForPost(requestParameters: GetFileInfosForPostRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Array<FileInfo> | null>;
     getFlaggedPostsForUserRequestOpts(requestParameters: GetFlaggedPostsForUserRequest): Promise<runtime.RequestOpts>;
     getFlaggedPostsForUserRaw(requestParameters: GetFlaggedPostsForUserRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<PostList>>;
     getFlaggedPostsForUser(requestParameters: GetFlaggedPostsForUserRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<PostList>;

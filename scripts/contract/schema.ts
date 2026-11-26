@@ -431,6 +431,7 @@ export function buildSpecification(
         read("commands-12.1.0.yaml"),
       );
     else if (
+      id === "GetFileInfosForPost" ||
       id === "GetReactions" ||
       id === "GetRolesByNames" ||
       id === "GetPreferences" ||
