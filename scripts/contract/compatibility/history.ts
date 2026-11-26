@@ -78,6 +78,7 @@ import { checkSearchScopePolicy } from "./search-scope.ts";
 import { expectedNavigationPost } from "./search-target.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
+import { checkTeamChannelSearch } from "./team-channel-search.ts";
 import { checkThreadFollow } from "./thread-follow.ts";
 import { checkThreadList } from "./thread-list.ts";
 import { checkThreadPageTies } from "./thread-page-ties.ts";
@@ -1272,6 +1273,13 @@ await checkPreviouslyAcceptedPost(
   version,
 );
 
+await checkTeamChannelSearch(
+  base,
+  create,
+  token,
+  { id: reader.id, token: readerToken },
+  version,
+);
 await checkSearchScopePolicy(base, token, readerToken, version);
 await checkPostEditWindow(base, token, readerToken);
 await checkMobileFilePolicy(base, token, readerToken);

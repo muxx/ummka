@@ -105,6 +105,16 @@ export async function checkTeamReads(
     channels[0].teamId !== teamId
   )
     throw Error("generated channel list");
+  const channelMatches = await api.autocompleteChannelsForTeam({
+    teamId,
+    name: "тест +&",
+  });
+  if (
+    channelMatches.length !== 1 ||
+    channelMatches[0]?.id !== channelId ||
+    channelMatches[0]?.teamId !== teamId
+  )
+    throw Error("signed team-scoped directory search");
   const stats = await api.getChannelStats({
     channelId,
     excludeFilesCount: true,
