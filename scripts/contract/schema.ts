@@ -81,11 +81,11 @@ import {
 } from "./sidebar-corrections.ts";
 import { correctSinglePost } from "./single-post-correction.ts";
 import { correctTeamMemberRequest } from "./team-member-correction.ts";
-import { correctThreadFollow } from "./thread-follow-correction.ts";
 import {
   correctThreadListModel,
   correctThreadListQuery,
 } from "./thread-list-corrections.ts";
+import { correctThreadMutation } from "./thread-mutation-correction.ts";
 
 const methods = new Set([
   "get",
@@ -354,8 +354,13 @@ export function buildSpecification(
         operation,
         object(object(read("users-12.1.0.yaml")[path], path)[method], id),
       );
-    else if (id === "StartFollowingThread" || id === "StopFollowingThread")
-      paths[path][method] = correctThreadFollow(
+    else if (
+      id === "UpdateThreadReadForUser" ||
+      id === "UpdateThreadsReadForUser" ||
+      id === "StartFollowingThread" ||
+      id === "StopFollowingThread"
+    )
+      paths[path][method] = correctThreadMutation(
         operation,
         object(object(read("users-12.1.0.yaml")[path], path)[method], id),
       );
@@ -431,6 +436,7 @@ export function buildSpecification(
         read("commands-12.1.0.yaml"),
       );
     else if (
+      id === "GetFileInfosForPost" ||
       id === "GetReactions" ||
       id === "GetRolesByNames" ||
       id === "GetPreferences" ||

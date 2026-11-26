@@ -18,6 +18,7 @@ export function respondToPostContext(
     : url.pathname;
   if (
     route !== fileInfo &&
+    route !== `${base}/files/info` &&
     route !== `${base}/info` &&
     route !== `${base}/thread` &&
     !(route === base && request.method === "GET")
@@ -31,6 +32,23 @@ export function respondToPostContext(
       ? "Bearer fixture-prefixed-session"
       : "Bearer fixture-root-session",
   );
+  if (route === `${base}/files/info`) {
+    assert.ok(prefixed);
+    assert.equal(url.search, "");
+    response.writeHead(200, { "Content-Type": "application/json" }).end(
+      JSON.stringify(
+        ["zebra.txt", "apple.txt"].map((name, index) => ({
+          id: String(index + 1).repeat(26),
+          post_id: post,
+          channel_id: channelId,
+          name,
+          size: 24 + index,
+          mime_type: "text/plain",
+        })),
+      ),
+    );
+    return "post-file-infos";
+  }
   if (route === fileInfo) {
     assert.equal(url.search, "");
     if (prefixed) {

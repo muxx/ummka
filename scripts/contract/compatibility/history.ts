@@ -68,6 +68,7 @@ import {
 } from "./post-mutations.ts";
 import { checkPostSearch } from "./post-search.ts";
 import { checkProfileReads } from "./profile-reads.ts";
+import { checkPublishedPostDocument } from "./published-post-document.ts";
 import { checkReactionActions } from "./reaction-actions.ts";
 import { checkReactionLimit } from "./reaction-limit.ts";
 import { checkPostReactions } from "./reactions.ts";
@@ -78,6 +79,7 @@ import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
 import { checkThreadFollow } from "./thread-follow.ts";
 import { checkThreadList } from "./thread-list.ts";
+import { checkThreadReadState } from "./thread-read-state.ts";
 import { checkThreadSummary } from "./thread-summary.ts";
 import { checkThreadWindow } from "./thread-window.ts";
 import { checkUserNotifications } from "./user-notifications.ts";
@@ -1364,6 +1366,22 @@ console.log(
   `Mattermost ${version} verified focused channel windows for roots and a reply beyond the first thread page, including subsequent loss of channel access.`,
 );
 
+// Both ordinary participants also need a shared channel in another team.
+await create(
+  `teams/${team.id}/members`,
+  { team_id: team.id, user_id: otherSaver.id },
+  token,
+);
+await checkThreadReadState(
+  threadReader,
+  otherSaverName,
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  readerLogin.login_id,
+  { teamId: emptyTeam.id, channelId: threadRoom.id, directId: threadDirect.id },
+  { teamId: team.id, channelId },
+  version,
+);
+
 const secondLogin = await create("users/login", {
   login_id: username,
   password,
@@ -1405,6 +1423,7 @@ await checkPostEditHistory(
   channelId,
   version,
 );
+await checkPublishedPostDocument(readerPosts, base, channelId, version);
 await allowFixtureBrowserSignIn(base, token);
 const logout = await fetch(`${base}/api/v4/users/logout`, {
   method: "POST",

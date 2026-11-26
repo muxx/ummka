@@ -16,6 +16,7 @@ import { respondToPostContext } from "./post-context.ts";
 import { respondToPostMutation } from "./post-mutations.ts";
 import { submissionFixture } from "./submit-post.ts";
 import { respondToThreadList } from "./thread-list.ts";
+import { respondToThreadRead } from "./thread-read-state.ts";
 import { respondToWorkspace } from "./workspace.ts";
 
 export function webviewServers(
@@ -475,6 +476,11 @@ export function webviewServers(
         .end(JSON.stringify(result));
       return;
     }
+    const readThread = await respondToThreadRead(req, res, url, teamId);
+    if (readThread) {
+      visits.push(readThread);
+      return;
+    }
     const threadList = await respondToThreadList(
       req,
       res,
@@ -846,6 +852,7 @@ export function webviewServers(
           setting[2] === "config"
             ? {
                 CollapsedThreads: "always_on",
+                RestrictDirectMessage: "team",
                 FeatureFlagEnableSharedChannelsDMs: "true",
                 EnableConfirmNotificationsToChannel: "false",
                 MaxNotificationsPerChannel: "9223372036854775807",
@@ -1088,6 +1095,8 @@ export function webviewServers(
         "custom-emoji-by-name",
         "empty-post-reactions",
         "post-reactions",
+        "read-thread",
+        "read-team-threads",
         "follow-thread",
         "unfollow-thread",
         "collapse-sidebar-category",
@@ -1143,6 +1152,7 @@ export function webviewServers(
         "single-file-info",
         "single-file-info",
         "single-file-retention",
+        "post-file-infos",
         "single-post-reply",
         "single-post-reply",
         "single-post-reply",

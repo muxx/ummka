@@ -39,7 +39,7 @@ fn allowed() -> Value {
 }
 
 fn migration(root: &Path) -> Result<(), HistoryError> {
-    let prior = &MIGRATIONS[..25];
+    let prior = &MIGRATIONS[..26];
     let identity = account(URL, ALICE);
     let mut old = HistoryDatabase::open_with(root, URL, prior)?;
     let owner = old.restore(&identity)?;
@@ -55,10 +55,10 @@ fn migration(root: &Path) -> Result<(), HistoryError> {
         .collect();
     interrupted.push(Migration {
         statements: &[
-            include_str!("../migrations/0026_post_attachment.sql"),
+            include_str!("../migrations/0027_post_attachment.sql"),
             "INSERT INTO missing_table VALUES(1)",
         ],
-        objects: MIGRATIONS[25].objects,
+        objects: MIGRATIONS[26].objects,
     });
     assert_eq!(
         HistoryDatabase::open_with(root, URL, &interrupted).err(),

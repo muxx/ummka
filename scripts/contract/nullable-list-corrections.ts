@@ -10,7 +10,15 @@ import { type Fields, object } from "./objects.ts";
 // https://github.com/mattermost/mattermost/blob/v12.1.0/server/channels/api4/channel.go#L2066-L2086
 // https://github.com/mattermost/mattermost/blob/v10.10.1/server/channels/api4/reaction.go#L54-L80
 // https://github.com/mattermost/mattermost/blob/v12.1.0/server/channels/api4/reaction.go#L56-L82
+// Mattermost 12.1 reads post files by ID and can return nil for an empty result.
+// https://github.com/mattermost/mattermost/blob/v12.1.0/server/channels/app/post.go#L2672-L2709
+// https://github.com/mattermost/mattermost/blob/v12.1.0/server/channels/store/sqlstore/file_info_store.go#L135-L165
 const lists = {
+  GetFileInfosForPost: {
+    path: "/api/v4/posts/{post_id}/files/info",
+    method: "get",
+    items: { $ref: "#/components/schemas/FileInfo" },
+  },
   GetReactions: {
     path: "/api/v4/posts/{post_id}/reactions",
     method: "get",

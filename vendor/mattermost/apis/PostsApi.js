@@ -1,6 +1,7 @@
 import * as runtime from '../runtime.js';
 import { ChannelUnreadAtFromJSON, } from '../models/ChannelUnreadAt.js';
 import { CreatePostRequestToJSON, } from '../models/CreatePostRequest.js';
+import { FileInfoFromJSON, } from '../models/FileInfo.js';
 import { PatchPostRequestToJSON, } from '../models/PatchPostRequest.js';
 import { PostFromJSON, } from '../models/Post.js';
 import { PostInfoFromJSON, } from '../models/PostInfo.js';
@@ -106,6 +107,40 @@ export class PostsApi extends runtime.BaseAPI {
     }
     async getEditHistoryForPost(requestParameters, initOverrides) {
         const response = await this.getEditHistoryForPostRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async getFileInfosForPostRequestOpts(requestParameters) {
+        if (requestParameters['postId'] == null) {
+            throw new runtime.RequiredError('postId', 'Required parameter "postId" was null or undefined when calling getFileInfosForPost().');
+        }
+        const queryParameters = {};
+        if (requestParameters['includeDeleted'] != null) {
+            queryParameters['include_deleted'] = requestParameters['includeDeleted'];
+        }
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/posts/{post_id}/files/info`;
+        urlPath = urlPath.replace('{post_id}', encodeURIComponent(String(requestParameters['postId'])));
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async getFileInfosForPostRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.getFileInfosForPostRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => jsonValue === null ? null : jsonValue.map(FileInfoFromJSON));
+    }
+    async getFileInfosForPost(requestParameters, initOverrides) {
+        const response = await this.getFileInfosForPostRaw(requestParameters, initOverrides);
         return await response.value();
     }
     async getFlaggedPostsForUserRequestOpts(requestParameters) {

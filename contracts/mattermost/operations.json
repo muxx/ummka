@@ -254,6 +254,20 @@
   {
     "file": "users.yaml",
     "method": "PUT",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/threads/{thread_id}/read/{timestamp}",
+    "id": "UpdateThreadReadForUser",
+    "selfOnly": true
+  },
+  {
+    "file": "users.yaml",
+    "method": "PUT",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/threads/read",
+    "id": "UpdateThreadsReadForUser",
+    "selfOnly": true
+  },
+  {
+    "file": "users.yaml",
+    "method": "PUT",
     "path": "/api/v4/users/{user_id}/teams/{team_id}/threads/{thread_id}/following",
     "id": "StartFollowingThread",
     "selfOnly": true
@@ -284,6 +298,12 @@
     "method": "GET",
     "path": "/api/v4/files/{file_id}/info",
     "id": "GetFileInfo"
+  },
+  {
+    "file": "posts.yaml",
+    "method": "GET",
+    "path": "/api/v4/posts/{post_id}/files/info",
+    "id": "GetFileInfosForPost"
   },
   {
     "file": "files.yaml",

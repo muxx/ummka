@@ -4,12 +4,14 @@ import {
   workspaceProfileQuery,
 } from "../../../src/channels/workspace-data.ts";
 import { indexChannelProfiles } from "../../../src/mattermost/channel-profiles.ts";
+import { prepareKnownConversationSearch } from "../../../src/mattermost/known-conversation-search.ts";
 import {
   loadAccountDirectory,
   loadTeamDirectory,
 } from "../../../src/mattermost/navigation-data.ts";
 import { visibleSidebar } from "../../../src/mattermost/sidebar-rows.ts";
 import { projectTeamSidebar } from "../../../src/mattermost/team-sidebar.ts";
+import { loadVisibleProfiles } from "../../../src/mattermost/visible-profiles.ts";
 import {
   effectiveWorkspacePreferences,
   sidebarPreferences,
@@ -356,6 +358,30 @@ export async function checkSidebarReads(
   );
   assert.ok(profiles.ids.includes(userId));
   assert.ok(!profiles.ids.includes(otherUserId));
+  const peers = await loadVisibleProfiles(config, {
+    ids: [otherUserId],
+    usernames: [],
+  });
+  assert.equal(peers[0]?.id, otherUserId);
+  const switchTo = prepareKnownConversationSearch(
+    selectedSnapshot,
+    {
+      userId,
+      preferences: policy,
+      profiles: indexChannelProfiles(peers),
+      locale: "en",
+    },
+    [],
+  );
+  assert.equal(switchTo("")[0]?.id, channelId);
+  assert.ok(
+    switchTo(`~${row.channel.name}`).some((match) => match.id === channelId),
+  );
+  assert.ok(
+    switchTo(`@${peers[0].username}`).some(
+      (match) => match.id === directIdToRead,
+    ),
+  );
   await fixture("PUT", "users/me/preferences", [
     {
       user_id: userId,

@@ -55,7 +55,11 @@ export function channelUnreadCounts(c: Channel, crt: boolean) {
     unread: mentions > 0 || (!c.muted && messages > 0),
   };
 }
-function sidebarRow(c: Channel, selected: string | null, ctx: Context) {
+export function conversationRow(
+  c: Channel,
+  selected: string | null,
+  ctx: Pick<Context, "userId" | "profiles" | "preferences" | "locale">,
+) {
   const counts = channelUnreadCounts(c, ctx.preferences.collapsedThreads);
   const partner = c.kind === "D" ? directPartnerId(c.name, ctx.userId) : null;
   const person = partner ? ctx.profiles.byId.get(partner) : undefined;
@@ -81,7 +85,7 @@ function sidebarRow(c: Channel, selected: string | null, ctx: Context) {
     deactivated: Boolean(person?.deleteAt),
   };
 }
-type Row = ReturnType<typeof sidebarRow>;
+type Row = ReturnType<typeof conversationRow>;
 type Ranked = {
   row: Row;
   shown: boolean;
@@ -102,7 +106,7 @@ type Section = {
 };
 
 function rank(c: Channel, selected: string | null, ctx: Context): Ranked {
-  const row = sidebarRow(c, selected, ctx);
+  const row = conversationRow(c, selected, ctx);
   const prefs = ctx.preferences;
   const partner = c.kind === "D" ? directPartnerId(c.name, ctx.userId) : null;
   const person = partner ? ctx.profiles.byId.get(partner) : undefined;
