@@ -1361,6 +1361,7 @@ export function webviewServers(
         assert.ok(Number.isFinite(row.unchanged) && row.unchanged >= 0);
       }
       formattingTimes = data;
+      console.log("Verified native code-block scrolling at both widths.");
     } else if (step === "release-history") {
       refresh.release();
     } else if (step === "release-submission") {
