@@ -1415,7 +1415,13 @@ export function webviewServers(
           "release-submission",
           "disconnect",
         ].includes(step));
-    const marker = knownStep ? step : "other";
+    const name = url.searchParams.get("case") ?? "";
+    const marker =
+      (step === "received" || step === "closed") && held.has(name)
+        ? `${step}(${name})`
+        : knownStep
+          ? step
+          : "other";
     controlProgress = `${controlId} ${marker} received`;
     if (step === "before") {
       assert.equal(
@@ -1478,7 +1484,6 @@ export function webviewServers(
       assert(disconnect);
       disconnect.destroy();
     } else {
-      const name = url.searchParams.get("case") ?? "";
       const wait = held.get(name);
       assert(wait);
       assert(step === "received" || step === "closed");

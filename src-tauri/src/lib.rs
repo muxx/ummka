@@ -107,9 +107,6 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
                 // Setup runs on the main thread. The Tauri window owns this NSWindow.
                 let native = unsafe { &*main.ns_window()?.cast::<objc2_app_kit::NSWindow>() };
                 if std::env::var_os("UMMKA_CHECK_KEY_INPUT").is_some() {
-                    // WKWebView can deliver a key to the DOM of a hidden window
-                    // without performing its native scroll action.
-                    main.show()?;
                     main.set_focus()?;
                     check_keyboard::listen(&main);
                 }
@@ -148,9 +145,11 @@ pub fn run() {
     #[cfg(all(feature = "webview-check", target_os = "macos"))]
     let config = {
         let mut config = config;
-        if std::env::var_os("UMMKA_CHECK_SYSTEM_POST_WINDOW").is_some() {
-            // LaunchServices opens the real client with a visible window. Construct
-            // that window normally so AppKit can give the WebView keyboard focus.
+        if std::env::var_os("UMMKA_CHECK_SYSTEM_POST_WINDOW").is_some()
+            || std::env::var_os("UMMKA_CHECK_KEY_INPUT").is_some()
+        {
+            // Both interactive fixtures need a normally presented WKWebView from
+            // creation for AppKit focus, scrolling and foreground scheduling.
             let main = config
                 .config_mut()
                 .app
