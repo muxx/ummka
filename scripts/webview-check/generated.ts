@@ -23,6 +23,7 @@ import {
 } from "../../vendor/mattermost/index.js";
 import { checkAccountResponses } from "./account.ts";
 import { checkAccountThreadReadState } from "./account-thread-read-state.ts";
+import { checkChannelFormatting } from "./channel-formatting.tsx";
 import { checkChannelRefresh } from "./channel-refresh.ts";
 import { checkDraftWrites } from "./composer-drafts.ts";
 import { checkConnectServer } from "./connect-server.tsx";
@@ -151,6 +152,14 @@ export async function checkGeneratedRequests(ports: string[]) {
     await observed("closed", `${name}-body`);
   }
   try {
+    await observed(
+      "format-times",
+      encodeURIComponent(
+        JSON.stringify(
+          await checkChannelFormatting(() => observed("format-right", "")),
+        ),
+      ),
+    );
     const atRoot = await new SystemApi(new Configuration(root)).getPing(query);
     check(atRoot.status === "OK", "generated-root");
     const first = await api.getPing(query);
