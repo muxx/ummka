@@ -1,3 +1,4 @@
+mod attachments;
 pub(crate) mod migrations;
 pub(crate) mod posts;
 pub(crate) mod reclamation;

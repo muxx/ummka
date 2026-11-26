@@ -129,6 +129,15 @@ export async function checkRefreshedAfterRestart(origin: string) {
   try {
     if ((await connection.readSavedPost(channelId, "m".repeat(26))) !== null)
       throw Error("Deleted post remained available by ID after restart");
+    const saved = await connection.readSavedPost(channelId, root);
+    if (
+      saved?.attachments?.fileIds?.join(",") !==
+        ["b".repeat(26), "a".repeat(26)].join(",") ||
+      saved.attachments.files?.length !== 1 ||
+      saved.attachments.files[0]?.name !== "offline.txt" ||
+      saved.attachments.files[0].size !== 0
+    )
+      throw Error("Saved post lost received attachment data after restart");
     for (const collapsedThreads of [false, true]) {
       const page = await connection.readChannelWindow({
         kind: "latest",
@@ -139,6 +148,11 @@ export async function checkRefreshedAfterRestart(origin: string) {
       const expected = (collapsedThreads ? [root] : [reply, root]).join(",");
       if (
         page?.posts.map((p) => p.id).join(",") !== expected ||
+        page.posts.find((post) => post.id === root)?.attachments?.files?.[0]
+          ?.id !== "a".repeat(26) ||
+        (!collapsedThreads &&
+          page.posts.find((post) => post.id === reply)?.attachments
+            ?.redactedFileCount !== 2) ||
         page.older.kind !== "end" ||
         page.newer.kind !== "end"
       )

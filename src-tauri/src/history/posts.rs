@@ -1,3 +1,4 @@
+use super::attachments::{self, PostAttachments};
 use super::thread_summary::{LAST_OBSERVATION, ThreadSummary};
 use super::{AccountHistory, ChannelHistoryPage, HistoryError, HistoryOwner, windows};
 use crate::rest::is_mattermost_id;
@@ -24,6 +25,8 @@ pub struct StoredPost {
     pub is_pinned: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_summary: Option<Box<ThreadSummary>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) attachments: Option<Box<PostAttachments>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -43,6 +46,7 @@ pub struct ChannelPostLoad {
     channel_id: String,
     revision: i64,
     observed_summary: i64,
+    observed_attachments: i64,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
@@ -63,8 +67,9 @@ pub enum PageWrite {
 pub(super) const READ: &str =
      "SELECT p.id, p.channel_id, p.user_id, p.root_id, p.create_at, p.update_at, p.edit_at,
               p.type, p.message, p.message_source, p.hashtags, p.is_pinned,
-              s.reply_count, s.last_reply_at, s.participant_ids
+              s.reply_count, s.last_reply_at, s.participant_ids, a.payload
        FROM history_post p LEFT JOIN history_thread_summary s ON s.post_id=p.id AND p.root_id IS NULL
+       LEFT JOIN history_post_attachment a ON a.post_id=p.id
        WHERE p.id=?1";
 pub(super) const REMOVE: &str =
     "DELETE FROM history_post WHERE channel_id = ?1 AND (id = ?2 OR root_id = ?2)";
@@ -92,6 +97,7 @@ impl StoredPost {
             hashtags: row.get(10)?,
             is_pinned: row.get(11)?,
             thread_summary: ThreadSummary::from_row(row)?.map(Box::new),
+            attachments: PostAttachments::from_row(row)?,
         })
     }
 }
@@ -133,10 +139,11 @@ impl AccountHistory {
         if !is_mattermost_id(channel_id) {
             return Err(HistoryError::InvalidPost);
         }
-        let (revision, observed_summary) = self.read(|tx| {
+        let (revision, observed_summary, observed_attachments) = self.read(|tx| {
             Ok((
                 deletion_revision(tx, channel_id)?,
                 tx.query_row(LAST_OBSERVATION, [], |row| row.get(0))?,
+                tx.query_row(attachments::LAST_OBSERVATION, [], |row| row.get(0))?,
             ))
         })?;
         Ok(ChannelPostLoad {
@@ -144,6 +151,7 @@ impl AccountHistory {
             channel_id: channel_id.to_owned(),
             revision,
             observed_summary,
+            observed_attachments,
         })
     }
 
@@ -244,6 +252,9 @@ fn write_changes(
                     }
                     summary.validate()?;
                 }
+                if let Some(attachments) = &p.attachments {
+                    attachments.validate()?;
+                }
                 let old_version = stored.as_ref().map(|(_, version, _)| *version);
                 if old_version.is_some_and(|version| version > p.update_at) {
                     continue;
@@ -267,6 +278,7 @@ fn write_changes(
                         p.is_pinned
                     ])?;
                 }
+                attachments::store(tx, p, load.observed_attachments)?;
                 if let Some(summary) = &p.thread_summary {
                     summary.store(tx, p, load.observed_summary)?;
                 }

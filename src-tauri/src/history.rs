@@ -6,6 +6,7 @@ use std::{fmt, fmt::Write, fs, path::Path};
 #[cfg(any(test, all(target_os = "android", feature = "native-http-check")))]
 pub(crate) mod checks;
 
+mod attachments;
 mod attempts;
 pub use attempts::{PostRefusal, RefusalScope, RetryPost};
 mod directory;
