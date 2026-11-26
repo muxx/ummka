@@ -4,6 +4,15 @@ use serde_json::Value;
 
 const MAX_ERROR_BYTES: usize = 64 * 1024;
 
+pub(crate) fn retention_marker(status: StatusCode, name: &str, value: &[u8]) -> bool {
+    status == StatusCode::FORBIDDEN
+        && matches!(
+            name,
+            "first-inaccessible-post-time" | "first-inaccessible-file-time"
+        )
+        && value == b"1"
+}
+
 #[derive(Debug, Eq, PartialEq, Serialize)]
 pub struct PublicError {
     pub status_code: u16,
