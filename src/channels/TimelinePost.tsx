@@ -3,6 +3,7 @@ import type { EntryLanguage } from "../entry/language.ts";
 import type { LocalPost } from "../mattermost/local-history.ts";
 import type { TimelineMessage } from "./conversation-rows.ts";
 import { PublishedPostBody } from "./PublishedPostBody.tsx";
+import { initials } from "./profile-initials.ts";
 
 const copy = {
   en: {
@@ -30,13 +31,6 @@ const plurals = {
 export type TimelineAuthor = (
   id: string,
 ) => { name: string; avatar?: ReactNode } | undefined;
-
-function initials(name: string) {
-  const words = name.trim().split(/\s+/u);
-  const first = Array.from(words[0])[0] ?? "";
-  const last = words.length > 1 ? Array.from(words[words.length - 1])[0] : "";
-  return (first + last).toLocaleUpperCase();
-}
 
 type ThreadSummary = NonNullable<LocalPost["threadSummary"]>;
 
