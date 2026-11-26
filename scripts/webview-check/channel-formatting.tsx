@@ -162,7 +162,7 @@ export async function checkChannelFormatting(pressRight: () => Promise<void>) {
           document.activeElement !== pre
         )
           throw Error(
-            `Code after native ArrowRight: trusted=${trustedRight} scroll=${pre.scrollLeft} focus=${document.activeElement === pre}`,
+            `Code after native ArrowRight at ${width}px: trusted=${trustedRight} scroll=${pre.scrollLeft} focus=${document.activeElement === pre} documentFocus=${document.hasFocus()} visibility=${document.visibilityState}`,
           );
       } finally {
         pre.removeEventListener("keydown", observeRight);
