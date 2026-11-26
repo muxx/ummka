@@ -855,6 +855,8 @@ export function webviewServers(
                 RestrictDirectMessage: "team",
                 FeatureFlagEnableSharedChannelsDMs: "true",
                 EnableConfirmNotificationsToChannel: "false",
+                WebsocketURL: "",
+                WebsocketSecurePort: "443",
                 MaxNotificationsPerChannel: "9223372036854775807",
                 UniqueEmojiReactionLimitPerPost: "-2",
                 PostEditTimeLimit: "9007199254740993",

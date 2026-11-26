@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { openAccountRestConnection } from "../../src/mattermost/native-rest.ts";
 import { effectiveWorkspacePreferences } from "../../src/mattermost/workspace-preferences.ts";
+import type { AccountEventRoute } from "../../src/mattermost/workspace-server.ts";
 
 type Account = Awaited<ReturnType<typeof openAccountRestConnection>>;
 export async function checkWorkspaceSettings(account: Account, other: Account) {
@@ -15,8 +16,13 @@ export async function checkWorkspaceSettings(account: Account, other: Account) {
     invoke<number>("begin_workspace_policy_load", { rid: account.rid });
   const old = await begin(),
     active = await begin();
-  async function publish(rid: number, load: number, server: unknown) {
-    return invoke<boolean>("store_workspace_policy", { rid, load, server });
+  async function publish(rid: number, load: number, server: unknown, url = "") {
+    return invoke<AccountEventRoute | null>("store_workspace_policy", {
+      rid,
+      load,
+      server,
+      eventAddress: { url, securePort: "443" },
+    });
   }
   const current = {
     collapsedThreads: "disabled",
@@ -44,7 +50,23 @@ export async function checkWorkspaceSettings(account: Account, other: Account) {
     publish(account.rid, active, current),
     "unknown_directory_load",
   );
-  if (!(await account.refreshWorkspaceServerPolicy()))
+  if (
+    (await publish(
+      account.rid,
+      await begin(),
+      current,
+      "wss://elsewhere.example.test",
+    )) !== "unsupported"
+  )
+    throw Error("separate WebSocket host was accepted");
+  const received: AccountEventRoute[] = [];
+  if (
+    !(await account.refreshWorkspaceServerPolicy(undefined, (route) =>
+      received.push(route),
+    )) ||
+    received.length !== 1 ||
+    received[0] !== "sameInstallation"
+  )
     throw Error("server policy not published");
   const saved = await account.readWorkspaceSettings();
   if (!saved.server || !saved.preferences)
@@ -56,6 +78,8 @@ export async function checkWorkspaceSettings(account: Account, other: Account) {
   if (
     effective.nameFormat !== "full_name" ||
     !effective.collapsedThreads ||
+    Object.hasOwn(saved.server, "eventAddress") ||
+    Object.hasOwn(saved.server, "eventRoute") ||
     saved.server.dmRecipientScope !== "team" ||
     effective.limit !== 18 ||
     effective.viewTimes["c".repeat(26)] !== 310 ||

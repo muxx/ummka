@@ -21,6 +21,7 @@ import * as directory from "./navigation-data.ts";
 import * as membership from "./own-membership.ts";
 import * as searchClock from "./search-timezone.ts";
 import * as profiles from "./visible-profiles.ts";
+import * as workspace from "./workspace-server.ts";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const ipc = vi.mocked(invoke);
@@ -1220,6 +1221,78 @@ test.each([
     } finally {
       request.mockRestore();
       unread.mockRestore();
+    }
+  },
+);
+
+test.each(["newer", "abort", "close", "storage", "superseded"] as const)(
+  "only delivers an accepted event route to the current account read (%s)",
+  async (outcome) => {
+    ipc.mockResolvedValueOnce(41);
+    const account = await openAccountRestConnection(
+      "https://chat.example.test/prefix",
+      "u".repeat(26),
+    );
+    const config = vi
+      .spyOn(workspace, "loadWorkspaceConfiguration")
+      .mockResolvedValue({
+        server: {
+          collapsedThreads: "disabled",
+          separateUnreads: false,
+          nameFormat: "username",
+          lockNameFormat: false,
+        },
+        eventAddress: { url: "", securePort: "443" },
+      });
+    const consumer = vi.fn();
+    const abort = new AbortController();
+    try {
+      let release!: (route: workspace.AccountEventRoute | null) => void;
+      let refuse!: (cause: string) => void;
+      const pending = new Promise<workspace.AccountEventRoute | null>(
+        (resolve, reject) => {
+          release = resolve;
+          refuse = reject;
+        },
+      );
+      ipc.mockResolvedValueOnce(10).mockReturnValueOnce(pending);
+      const first = account.refreshWorkspaceServerPolicy(
+        abort.signal,
+        consumer,
+      );
+      await vi.waitFor(() =>
+        expect(ipc).toHaveBeenCalledWith("store_workspace_policy", {
+          rid: 41,
+          load: 10,
+          server: expect.any(Object),
+          eventAddress: { url: "", securePort: "443" },
+        }),
+      );
+      if (outcome === "newer") {
+        ipc.mockResolvedValueOnce(11).mockResolvedValueOnce("unsupported");
+        await expect(
+          account.refreshWorkspaceServerPolicy(undefined, consumer),
+        ).resolves.toBe(true);
+      }
+      if (outcome === "abort") abort.abort("left settings");
+      if (outcome === "close") {
+        ipc.mockResolvedValueOnce(undefined);
+        await account.close();
+      }
+      if (outcome === "storage") refuse("invalid_directory");
+      else release(outcome === "superseded" ? null : "sameInstallation");
+      if (outcome === "abort")
+        await expect(first).rejects.toBe("left settings");
+      else if (outcome === "close")
+        await expect(first).rejects.toBe("cancelled");
+      else if (outcome === "storage")
+        await expect(first).rejects.toBe("invalid_directory");
+      else await expect(first).resolves.toBe(outcome === "newer");
+      expect(consumer.mock.calls).toEqual(
+        outcome === "newer" ? [["unsupported"]] : [],
+      );
+    } finally {
+      config.mockRestore();
     }
   },
 );

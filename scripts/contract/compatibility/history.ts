@@ -43,6 +43,7 @@ import {
 import { checkCollectionActions } from "./collection-actions.ts";
 import { checkCommands } from "./commands.ts";
 import { checkCustomEmojiLookup } from "./custom-emoji.ts";
+import { checkEventConfiguration } from "./event-configuration.ts";
 import { checkEventStream } from "./event-stream.ts";
 import { checkFileSearch } from "./file-search.ts";
 import { checkFocusedConversation } from "./focused-conversation.ts";
@@ -1245,6 +1246,7 @@ await checkPreviouslyAcceptedPost(
 );
 
 await checkSearchScopePolicy(base, token, readerToken, version);
+await checkEventConfiguration(base, token, readerToken, version);
 await checkPostEditWindow(base, token, readerToken);
 await checkReactionLimit(base, token, user.id, readerToken, channelId);
 console.log(

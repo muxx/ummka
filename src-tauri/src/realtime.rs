@@ -3,6 +3,8 @@
 #[cfg(all(feature = "native-http-check", any(test, target_os = "android")))]
 pub(crate) mod checks;
 mod connection;
+mod route;
+pub(crate) use route::{ClientEventAddress, EventRoute};
 mod delivery;
 pub use connection::{EventConnectionError, EventReader, EventSettings};
 
