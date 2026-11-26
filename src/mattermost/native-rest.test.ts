@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, expect, expectTypeOf, test, vi } from "vitest";
 import {
+  ChannelsApi,
   type PostInfo,
   PostsApi,
   type Reaction,
@@ -393,6 +394,7 @@ test("opens a native account by installation and user ID", async () => {
     "forgetTeamSearch",
     "getOutgoingPostState",
     "isPostSending",
+    "markChannelsRead",
     "readAccountDirectory",
     "readAssociatedMentionGroups",
     "readChannelMemberCount",
@@ -449,6 +451,7 @@ test("opens a native account by installation and user ID", async () => {
     "subscribeToPostActivity",
     "transitionDraftCommand",
     "updateChannelNotifications",
+    "viewChannel",
   ]);
 });
 
@@ -1043,3 +1046,43 @@ test("retiring an account hides its in-flight timezone", async () => {
     read.mockRestore();
   }
 });
+
+test.each(["close", "abort"])(
+  "discards signed channel view confirmations after %s",
+  async (action) => {
+    ipc.mockResolvedValueOnce(41);
+    const channel = "c".repeat(26);
+    const account = await openAccountRestConnection(
+      "https://example.test/prefix",
+      "u".repeat(26),
+    );
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const controller = new AbortController();
+    const request = vi
+      .spyOn(ChannelsApi.prototype, "viewChannelRaw")
+      .mockImplementation(async () => {
+        await gate;
+        return {
+          raw: new Response(null),
+          value: async () => ({
+            status: "OK",
+            lastViewedAtTimes: { [channel]: 10 },
+          }),
+        };
+      });
+    try {
+      const pending = account.viewChannel(channel, controller.signal);
+      if (action === "close") await account.close();
+      else controller.abort();
+      release();
+      if (action === "close") await expect(pending).rejects.toBe("cancelled");
+      else await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+      expect(request).toHaveBeenCalledTimes(1);
+    } finally {
+      request.mockRestore();
+    }
+  },
+);

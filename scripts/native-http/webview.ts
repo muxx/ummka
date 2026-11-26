@@ -1052,6 +1052,7 @@ export function webviewServers(
         "delete-post",
         "bulk-channel-view",
         "single-channel-view",
+        "clear-channel-view",
         "signed-slash-command",
         "saved-slash-command",
         "channel-stats",

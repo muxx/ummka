@@ -6,6 +6,7 @@ import {
   FilesApi,
   PostsApi,
 } from "../../vendor/mattermost/index.js";
+import { accountChannelViews } from "./account-channel-views.ts";
 import { readCustomEmoji } from "./account-custom-emoji.ts";
 import { accountDelivery } from "./account-delivery.ts";
 import { atDirectoryStep } from "./account-directory-error.ts";
@@ -173,6 +174,7 @@ export async function openAccountRestConnection(
       return readWhileOpen(() => readFileAnchor(files, fileId, signal), signal);
     },
     ...accountChannelAudience(config, readWhileOpen),
+    ...accountChannelViews(config, readWhileOpen),
     readChannelNotifications(channelId: string, signal?: AbortSignal) {
       return readWhileOpen(
         () => readChannelNotifications(config, userId, channelId, signal),

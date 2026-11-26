@@ -238,7 +238,7 @@ export async function checkGeneratedRequests(ports: string[]) {
     await checkAccountResponses(accountPrefix, userId, observed);
     await checkChannelRefresh(accountPrefix, observed);
     await checkPostReactions(accountRoot, accountPrefix);
-    await checkTeamReads(rootSession, signed);
+    await checkTeamReads(accountRoot, accountPrefix);
     const prepared = await resolveComposerSubmission(
       { message: "-:fixture+wave:", hasAttachments: false, scheduled: false },
       accountPrefix,
