@@ -105,7 +105,11 @@ export function useWorkspaceSearch(
     setError(null);
     setForm(currentQuery());
   }
-  async function run(query: SearchInput, origin?: AbortSignal) {
+  async function run(
+    query: SearchInput,
+    origin?: AbortSignal,
+    onOpened?: () => void,
+  ) {
     if (request.current || origin?.aborted) return false;
     const token = new AbortController();
     const leaveOrigin = () => {
@@ -148,6 +152,7 @@ export function useWorkspaceSearch(
       });
       result.current?.close();
       result.current = session;
+      onOpened?.();
       setEntry({ query, result: session, policyKey });
       setForm(null);
       void session.select(query.kind);
@@ -168,12 +173,17 @@ export function useWorkspaceSearch(
     }
   }
   return {
-    async fromCommand(terms: string, origin: AbortSignal) {
+    async fromCommand(
+      terms: string,
+      origin: AbortSignal,
+      onOpened: () => void,
+    ) {
       if (request.current || origin.aborted) return false;
       const query = { ...currentQuery(), terms: terms.trim() };
       setError(null);
+      if (!query.terms) onOpened();
       setForm(query);
-      return query.terms ? run(query, origin) : true;
+      return query.terms ? run(query, origin, onOpened) : true;
     },
     trigger: (
       <button

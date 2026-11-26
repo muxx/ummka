@@ -1,3 +1,5 @@
+pub mod mobile_file_policy;
+
 use crate::installation_url::{has_credentials, parse_canonical};
 use crate::native_http::NativeHttp;
 pub use crate::native_http::TransportError;
@@ -190,6 +192,16 @@ impl RestConnection {
             .clone()
             .ok_or(TransportError::SessionUnavailable)?;
         sessions.forget_current(session).await
+    }
+
+    /// Start a new event consumer bound to this login and an empty confirmed position.
+    pub fn account_events(
+        &self,
+    ) -> Result<crate::realtime::AccountEvents<'_>, crate::realtime::EventConnectionError> {
+        if self.account.is_none() {
+            return Err(crate::realtime::EventConnectionError::SessionUnavailable);
+        }
+        Ok(crate::realtime::AccountEvents::new(self))
     }
 
     pub(crate) fn event_route(

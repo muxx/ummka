@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { publishedPostDocument } from "../../../src/channels/published-post-document.ts";
+import { publishedPostExcerpt } from "../../../src/channels/published-post-excerpt.ts";
 import { channelHistoryPage } from "../../../src/mattermost/channel-history-page.ts";
 import type { PostsApi } from "../../../vendor/mattermost/index.js";
 
@@ -27,7 +28,8 @@ export async function checkPublishedPostDocument(
   proxy.searchParams.set("url", imageUrl);
   assert.equal(row.message, message.replace(imageUrl, proxy.href));
   assert.equal(row.messageSource, message);
-  assert.deepEqual(publishedPostDocument(row), [
+  const document = publishedPostDocument(row);
+  assert.deepEqual(document, [
     {
       kind: "heading",
       level: 1,
@@ -75,6 +77,10 @@ export async function checkPublishedPostDocument(
       ],
     },
   ]);
+  assert.equal(
+    publishedPostExcerpt(document),
+    "Release notes Ready & tested Read the notes Cost € price &copy;",
+  );
   console.log(
     `Mattermost ${version} returned the published Markdown post in channel history and preserved its document structure.`,
   );

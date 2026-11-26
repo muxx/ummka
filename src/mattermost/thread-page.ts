@@ -99,6 +99,7 @@ export async function readThreadPage(
     )
       throw new TypeError("Invalid visible Mattermost thread post.");
     const row = { ...post, id, createAt: post.createAt };
+    if (!collapsedThreads || id !== rootId) delete row.isFollowing;
     if (id !== rootId) {
       if (previous && !follows(row, previous, direction))
         throw new TypeError("Mattermost thread replies did not advance.");
@@ -107,6 +108,12 @@ export async function readThreadPage(
     return row;
   });
   const [root, ...replies] = rows;
+  if (collapsedThreads) {
+    if (root.isFollowing !== undefined && typeof root.isFollowing !== "boolean")
+      throw new TypeError("Invalid Mattermost thread subscription.");
+    // The collapsed query joins membership against the root, even before its first reply.
+    root.isFollowing ??= false;
+  }
   const edge = rows[rows.length - 1];
   // Flat pagination includes the root in the database's sorted rows, even for imported threads.
   if (

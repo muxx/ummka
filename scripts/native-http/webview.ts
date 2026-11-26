@@ -6,6 +6,7 @@ import https from "node:https";
 import type { Socket } from "node:net";
 import { json, text } from "node:stream/consumers";
 import { respondToAccount } from "./account.ts";
+import type { SendAndroidKey } from "./android-webview.ts";
 import { respondToChannelMembers } from "./channel-members.ts";
 import { respondToChannelView } from "./channel-view.ts";
 import { respondToGroupAssociations } from "./group-associations.ts";
@@ -56,6 +57,7 @@ export function webviewServers(
   let connections = 0;
   let before = false;
   let prepareKeyboard: (() => Promise<void>) | undefined;
+  let pressThreadBack: (() => Promise<void>) | undefined;
   let disconnect: Socket | undefined;
   let pingSocket: Socket | undefined;
   const settings = new Map<string, ServerResponse>();
@@ -70,6 +72,13 @@ export function webviewServers(
   const teamId = "Team0123456789012345678901";
   const channelId = "c".repeat(26);
   const teamReads = new Map<string, { name: string; body: object | null }>([
+    [
+      `/team/chat/api/v4/channels/${"j".repeat(26)}`,
+      {
+        name: "signed-single-channel",
+        body: { id: "j".repeat(26), type: "G", team_id: "", delete_at: 0 },
+      },
+    ],
     [
       `/team/chat/api/v4/teams/${teamId}/channels/managed_categories`,
       {
@@ -991,6 +1000,15 @@ export function webviewServers(
         "prepared, cancelled and refused requests must not open a socket",
       );
       before = true;
+    } else if (step === "thread-back") {
+      assert(
+        pressThreadBack,
+        "expected a single Back event on the disposable Android device",
+      );
+      const press = pressThreadBack;
+      pressThreadBack = undefined;
+      await press();
+      visits.push("android-thread-back");
     } else if (step === "release-history") {
       refresh.release();
     } else if (step === "release-submission") {
@@ -1020,8 +1038,9 @@ export function webviewServers(
   });
   return {
     servers: [data, control, foreign],
-    onKeyboardReady(sendTab: () => Promise<void>) {
-      prepareKeyboard = sendTab;
+    onAndroidInputReady(send: SendAndroidKey) {
+      prepareKeyboard = () => send("KEYCODE_TAB");
+      pressThreadBack = () => send("KEYCODE_BACK");
     },
     verify(platform: "macos" | "android") {
       refresh.verify();
@@ -1035,6 +1054,7 @@ export function webviewServers(
       assert.equal(entrySettings.size, 2);
       assert.equal(untrustedRequests, 0);
       const expected = [
+        "signed-single-channel",
         "managed-category-mappings",
         "bytes",
         "204",
@@ -1106,6 +1126,9 @@ export function webviewServers(
         "thread-list-page",
         "thread-list-totals",
         "thread-list-empty",
+        "account-thread-page",
+        "account-thread-empty",
+        "account-thread-totals",
         "patch-post",
         "post-edit-history",
         "post-edit-history",
@@ -1203,6 +1226,10 @@ export function webviewServers(
           "live-members",
           "live-categories",
           "live-window-send",
+          "live-window-thread",
+          "android-thread-back",
+          "live-window-thread",
+          "live-window-send-reply",
           "live-window-command-repeat",
           "browser-action-confirmed",
           "live-search-posts",

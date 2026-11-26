@@ -71,7 +71,7 @@ async function checkResources() {
     checkChannelTimeline();
     const ports = String(import.meta.env.VITE_UMMKA_CHECK_PORTS).split(",");
     await checkGeneratedRequests(ports);
-    await checkBrowserAction(ports[0]);
+    await checkBrowserAction(ports[0], ports[1]);
     await seedRegistry();
     location.replace("/ipc-result.html?pass");
     return;

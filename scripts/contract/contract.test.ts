@@ -983,6 +983,33 @@ test("both thread read operations expose their actual response and guard the tim
   }
 });
 
+test("one channel uses the same path, parameter and Channel response in both versions", () => {
+  const path = "/api/v4/channels/{channel_id}";
+  for (const file of ["channels.yaml", "channels-12.1.0.yaml"]) {
+    const operation = object(at(read(file), [path, "get"]), path);
+    assert.equal(operation.operationId, "GetChannel");
+    assert.ok(Array.isArray(operation.parameters));
+    assert.deepEqual(
+      operation.parameters.map((item) => {
+        const parameter = object(item, "channel id");
+        return [parameter.in, parameter.name, parameter.required];
+      }),
+      [["path", "channel_id", true]],
+    );
+    assert.equal(
+      at(operation, [
+        "responses",
+        "200",
+        "content",
+        "application/json",
+        "schema",
+        "$ref",
+      ]),
+      "#/components/schemas/Channel",
+    );
+  }
+});
+
 test("retains the catalog operations, security and transitive models", () => {
   for (const { file, path, method } of catalog) {
     const key = [path, method.toLowerCase()];

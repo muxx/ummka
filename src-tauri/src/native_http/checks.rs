@@ -80,7 +80,8 @@ async fn check_scope(
     const PING: &str = "api/v4/system/ping";
     const HISTORY: &str =
         "api/v4/channels/Channel0123456789012345678/posts?page=0&per_page=60&collapsedThreads=true";
-    const READ_ROUTES: [&str; 16] = [
+    const READ_ROUTES: [&str; 17] = [
+        "api/v4/channels/Channel0123456789012345678",
         "api/v4/config/client?format=old",
         "api/v4/license/client?format=old",
         "api/v4/users/me",
@@ -169,6 +170,7 @@ async fn check_scope(
             selected,
             "api/v4/channels/Channel0123456789012345678/posts/unread",
         ),
+        get(selected, "api/v4/channels/short"),
         get(selected, "api/v4/channels/short/pinned"),
         get(selected, "api/v4/users/short/posts/flagged"),
         history_with_body,
@@ -290,6 +292,7 @@ async fn check_wire(
     )
     .await?;
     crate::realtime::checks::wire(&client, &base).await?;
+    crate::rest_ipc::mobile_file_policy_check::wire(&client, &base).await?;
     let prefix = "/Teams/Blue%20Sky//A%2FB";
     let selected = format!("https://127.0.0.1:{selected}{prefix}");
     let other = format!("https://127.0.0.1:{other}{prefix}");

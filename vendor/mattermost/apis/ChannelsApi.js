@@ -89,6 +89,37 @@ export class ChannelsApi extends runtime.BaseAPI {
         const response = await this.createSidebarCategoryForTeamForUserRaw(requestParameters, initOverrides);
         return await response.value();
     }
+    async getChannelRequestOpts(requestParameters) {
+        if (requestParameters['channelId'] == null) {
+            throw new runtime.RequiredError('channelId', 'Required parameter "channelId" was null or undefined when calling getChannel().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/channels/{channel_id}`;
+        urlPath = urlPath.replace('{channel_id}', encodeURIComponent(String(requestParameters['channelId'])));
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async getChannelRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.getChannelRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => ChannelFromJSON(jsonValue));
+    }
+    async getChannel(requestParameters, initOverrides) {
+        const response = await this.getChannelRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
     async getChannelMemberRequestOpts(requestParameters) {
         if (requestParameters['channelId'] == null) {
             throw new runtime.RequiredError('channelId', 'Required parameter "channelId" was null or undefined when calling getChannelMember().');
