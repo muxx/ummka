@@ -61,6 +61,69 @@ test("a local read uses only this account's native resource and keeps an unknown
   await expect(account.readChannelWindow(localQuery)).resolves.toEqual(empty);
 });
 
+test.each(["edit", "delete"])(
+  "closing the account drops a late %s confirmation",
+  async (action) => {
+    ipc.mockResolvedValueOnce(41);
+    const userId = "a".repeat(26);
+    const account = await openAccountRestConnection(
+      "https://chat.example.test",
+      userId,
+    );
+    const target = {
+      id: "p".repeat(26),
+      channelId: "c".repeat(26),
+      userId,
+      rootId: null,
+    };
+    const response =
+      action === "edit"
+        ? {
+            id: target.id,
+            userId,
+            channelId: target.channelId,
+            rootId: "",
+            createAt: 1,
+            updateAt: 2,
+            editAt: 2,
+            deleteAt: 0,
+            type: "",
+            hashtags: "",
+            isPinned: false,
+            message: "server",
+          }
+        : { status: "OK" };
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const request = vi
+      .spyOn(
+        PostsApi.prototype,
+        action === "edit" ? "patchPostRaw" : "deletePostRaw",
+      )
+      .mockImplementationOnce(async () => {
+        await pending;
+        return { raw: Response.json(response), value: async () => response };
+      });
+    const run = () =>
+      action === "edit"
+        ? account.editOwnPostMessage(target, "changed")
+        : account.deleteOwnPost(target);
+    try {
+      const operation = run();
+      expect(request).toHaveBeenCalledOnce();
+      await account.close();
+      finish();
+      await expect(operation).rejects.toBe("cancelled");
+      await expect(run()).rejects.toBe("unknown_connection");
+      expect(request).toHaveBeenCalledTimes(1);
+    } finally {
+      request.mockRestore();
+    }
+  },
+);
+
 test("closing the signed account discards historical revisions already in flight", async () => {
   ipc.mockResolvedValueOnce(41);
   const userId = "a".repeat(26);
@@ -387,6 +450,8 @@ test("passes the canonical installation and closes the exact native handle", asy
   expect("readChannelWindow" in connection).toBe(false);
   expect("stagePost" in connection).toBe(false);
   expect("readPostEditHistory" in connection).toBe(false);
+  expect("editOwnPostMessage" in connection).toBe(false);
+  expect("deleteOwnPost" in connection).toBe(false);
   expect("readPostReactions" in connection).toBe(false);
   expect("changeOwnMembership" in connection).toBe(false);
   expect("addOwnReaction" in connection).toBe(false);
@@ -427,7 +492,9 @@ test("opens a native account by installation and user ID", async () => {
     "changeOwnMembership",
     "close",
     "confirmPostDelivery",
+    "deleteOwnPost",
     "dismissPendingPost",
+    "editOwnPostMessage",
     "executeServerCommand",
     "fetchApi",
     "forgetTeamSearch",

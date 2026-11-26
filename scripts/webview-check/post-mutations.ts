@@ -71,12 +71,13 @@ export async function checkPostMutations(
     throw Error(
       "Post edit history lost its ordered revisions or original identity",
     );
-  const revisions = await account.readPostEditHistory({
+  const target = {
     id: reply.id,
     userId,
     channelId,
     rootId: post.id,
-  });
+  };
+  const revisions = await account.readPostEditHistory(target);
   if (
     revisions.length !== 2 ||
     revisions[0].id !== history[0].id ||
@@ -89,6 +90,16 @@ export async function checkPostMutations(
     throw Error(
       "The signed account lost a historical message or its timestamp",
     );
-  if ((await api.deletePost({ postId: reply.id })).status !== "OK")
-    throw Error("post deletion was not confirmed");
+  const changed = await account.editOwnPostMessage(
+    target,
+    "Правка **через аккаунт**\nСо второй строки",
+  );
+  if (
+    changed.id !== reply.id ||
+    changed.message !== "Rendered edit" ||
+    changed.messageSource !== "Правка **через аккаунт**\nСо второй строки" ||
+    changed.editAt !== 302
+  )
+    throw Error("The signed account lost the server's canonical post edit");
+  await account.deleteOwnPost(target);
 }
