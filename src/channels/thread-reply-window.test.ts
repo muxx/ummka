@@ -349,3 +349,98 @@ test("a subscriber can request the next page when the first page finishes", asyn
   expect(messages(view)).toEqual(["a", "b"]);
   expect(readThreadPage).toHaveBeenCalledTimes(2);
 });
+
+test("the read boundary includes tied read rows and waits beyond own replies for the first other author", async () => {
+  const original = { lastViewedAt: 100, userId: "u".repeat(26) };
+  const read1 = local("a", 100),
+    read2 = local("b", 100),
+    own = local("c", 101);
+  const foreign = { ...local("d", 101), userId: "v".repeat(26) };
+  const readThreadPage = vi.fn(async (q: ThreadPageRequest) => {
+    if (q.direction === "up") return page([read2, read1]);
+    return q.cursor ? page([foreign]) : page([own], cursor(own));
+  });
+  const view = openThreadReplyWindow({ readThreadPage }, scope, original);
+  original.lastViewedAt = 101;
+  expect(view.getUnreadPosition()).toEqual({ kind: "pending" });
+  await view.open();
+  expect(readThreadPage.mock.calls.map(([q]) => q)).toEqual([
+    { ...scope, direction: "up", fromCreateAt: 101 },
+    { ...scope, direction: "down", fromCreateAt: 100 },
+  ]);
+  expect(view.getSnapshot().replies.map((p) => p.id)).toEqual([
+    read1.id,
+    read2.id,
+    own.id,
+  ]);
+  expect(view.getUnreadPosition()).toEqual({ kind: "pending" });
+  await view.more("down");
+  expect(readThreadPage.mock.lastCall?.[0].cursor).toEqual(cursor(own));
+  expect(view.getUnreadPosition()).toEqual({
+    kind: "found",
+    postId: foreign.id,
+  });
+  view.close();
+  expect(view.getUnreadPosition()).toBe(null);
+});
+test.each([
+  [0, "down"],
+  [Number.MAX_SAFE_INTEGER, "up"],
+] as const)(
+  "boundary %s has only one reachable direction",
+  async (lastViewedAt, direction) => {
+    const readThreadPage = vi.fn(async (_query: ThreadPageRequest) =>
+      page([local("a", 50)]),
+    );
+    const view = openThreadReplyWindow({ readThreadPage }, scope, {
+      lastViewedAt,
+      userId: "u".repeat(26),
+    });
+    await view.open();
+    expect(readThreadPage).toHaveBeenCalledExactlyOnceWith(
+      { ...scope, direction, cursor: undefined },
+      expect.any(AbortSignal),
+    );
+    expect(view.getUnreadPosition()).toEqual({ kind: "none" });
+    view.close();
+  },
+);
+test("failed unread lookup is not a confirmed end and a late response cannot publish after close", async () => {
+  const delayed = pendingPage();
+  const readThreadPage = vi.fn(async (query: ThreadPageRequest) =>
+    query.direction === "up" ? page([]) : Promise.reject(Error("offline")),
+  );
+  const view = openThreadReplyWindow({ readThreadPage }, scope, {
+    lastViewedAt: 200,
+    userId: "u".repeat(26),
+  });
+  await view.open();
+  expect(view.getSnapshot().down.status).toBe("error");
+  expect(view.getUnreadPosition()).toEqual({ kind: "pending" });
+  readThreadPage.mockImplementation(() => delayed.promise);
+  const retry = view.retry("down");
+  await Promise.resolve();
+  view.close();
+  delayed.resolve(page([{ ...local("z", 201), userId: "v".repeat(26) }]));
+  await retry;
+  expect(view.getSnapshot().replies).toEqual([]);
+  expect(view.getUnreadPosition()).toBe(null);
+});
+
+test("an inaccessible unread window exposes the server limit without claiming no foreign answers", async () => {
+  const readThreadPage = vi
+    .fn()
+    .mockResolvedValue({ kind: "inaccessible", firstInaccessiblePostTime: 33 });
+  const view = openThreadReplyWindow({ readThreadPage }, scope, {
+    lastViewedAt: 100,
+    userId: "u".repeat(26),
+  });
+  await view.open();
+  expect(view.getUnreadPosition()).toBe(null);
+  expect(view.getSnapshot()).toMatchObject({
+    unavailable: "limited",
+    firstInaccessiblePostTime: 33,
+    root: null,
+    replies: [],
+  });
+});

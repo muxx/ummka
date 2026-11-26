@@ -237,3 +237,48 @@ test("rejects backward continuations, reversed replies and an impossible root-on
     ).rejects.toThrow();
   }
 });
+
+test.each(["up", "down"] as const)(
+  "time-only %s page enforces its strict side even at equal timestamps",
+  async (direction) => {
+    const read = vi
+      .fn()
+      .mockResolvedValueOnce(page([rootId, idA], true))
+      .mockResolvedValueOnce(page([rootId, idA]));
+    const api = { getPostThread: read };
+    const edge = direction === "up" ? 1001 : 999;
+    const received = await readThreadPage(api, {
+      ...request,
+      direction,
+      fromCreateAt: edge,
+    });
+    expect(read.mock.calls[0][0]).toMatchObject({
+      fromCreateAt: edge,
+      fromPost: undefined,
+      direction,
+    });
+    expect(received.kind === "page" && received.next).toEqual({
+      id: idA,
+      createAt: 1000,
+    });
+    await expect(
+      readThreadPage(api, { ...request, direction, fromCreateAt: 1000 }),
+    ).rejects.toThrow(/advance/);
+  },
+);
+test("rejects ambiguous, unsupported or zero time-only boundaries before issuing requests", async () => {
+  const api = { getPostThread: vi.fn() };
+  for (const fromCreateAt of [-1, 0, 0.5, Number.MAX_SAFE_INTEGER + 1]) {
+    await expect(
+      readThreadPage(api, { ...request, fromCreateAt }),
+    ).rejects.toThrow();
+  }
+  await expect(
+    readThreadPage(api, {
+      ...request,
+      fromCreateAt: 123,
+      cursor: { id: idA, createAt: 100 },
+    }),
+  ).rejects.toThrow();
+  expect(api.getPostThread).not.toHaveBeenCalled();
+});

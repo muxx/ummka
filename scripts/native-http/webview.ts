@@ -13,6 +13,7 @@ import { respondToGroupAssociations } from "./group-associations.ts";
 import { respondToGroupAudience } from "./group-audience.ts";
 import { respondToHistory } from "./history.ts";
 import { historyRefreshFixture } from "./history-refresh.ts";
+import { collectionFixture } from "./post-collections.ts";
 import { respondToPostContext } from "./post-context.ts";
 import { respondToPostMutation } from "./post-mutations.ts";
 import { submissionFixture } from "./submit-post.ts";
@@ -71,7 +72,34 @@ export function webviewServers(
   );
   const teamId = "Team0123456789012345678901";
   const channelId = "c".repeat(26);
+  const collections = collectionFixture(channelId, userId);
   const teamReads = new Map<string, { name: string; body: object | null }>([
+    [
+      "/team/chat/api/v4/teams/name/fixture-team",
+      {
+        name: "signed-named-team",
+        body: {
+          id: teamId,
+          name: "fixture-team",
+          type: "O",
+          allow_open_invite: true,
+          delete_at: 0,
+        },
+      },
+    ],
+    [
+      "/team/chat/api/v4/teams/name/fixture-team/channels/name/old_room?include_deleted=true",
+      {
+        name: "signed-named-channel",
+        body: {
+          id: channelId,
+          team_id: teamId,
+          name: "old_room",
+          type: "O",
+          delete_at: 41,
+        },
+      },
+    ],
     [
       `/team/chat/api/v4/channels/${"j".repeat(26)}`,
       {
@@ -84,6 +112,13 @@ export function webviewServers(
       {
         name: "managed-category-mappings",
         body: { [channelId]: "Release", ["d".repeat(26)]: "Release" },
+      },
+    ],
+    [
+      `/team/chat/api/v4/teams/${teamId}/channels/autocomplete?name=%D1%82%D0%B5%D1%81%D1%82%20%2B%26`,
+      {
+        name: "team-channel-search",
+        body: [{ id: channelId, team_id: teamId }],
       },
     ],
     [
@@ -342,6 +377,11 @@ export function webviewServers(
       res
         .writeHead(200, { "Content-Type": "application/json" })
         .end(JSON.stringify({ status: "OK" }));
+      return;
+    }
+    const collection = await collections(req, res, url);
+    if (collection) {
+      visits.push(collection);
       return;
     }
     if (url.pathname === "/team/chat/api/v4/users/usernames") {
@@ -1060,7 +1100,10 @@ export function webviewServers(
       assert.equal(untrustedRequests, 0);
       const expected = [
         "signed-single-channel",
+        "signed-named-channel",
+        "signed-named-team",
         "managed-category-mappings",
+        "team-channel-search",
         "bytes",
         "204",
         "205",
@@ -1117,11 +1160,20 @@ export function webviewServers(
         "create-post-reply",
         "save-post-reaction",
         "delete-post-reaction",
+        "list-pins",
+        "list-pins",
+        "list-pins",
+        "list-saved",
+        "list-saved",
+        "remove-pin",
+        "remove-saved",
         "custom-emoji-by-name",
         "custom-emoji-by-name",
         "custom-emoji-by-name",
         "empty-post-reactions",
         "post-reactions",
+        "read-thread",
+        "read-team-threads",
         "read-thread",
         "read-team-threads",
         "follow-thread",

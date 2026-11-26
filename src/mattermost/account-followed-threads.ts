@@ -33,23 +33,36 @@ function visibleRoot(row: UserThread, id: string): LocalPost | null {
   return root;
 }
 
-function threadRow(row: UserThread) {
+function threadReadState(row: UserThread) {
   if (
     !row ||
     !isMattermostId(row.id) ||
+    !isMattermostTime(row.lastViewedAt, 0) ||
+    !isMattermostTime(row.unreadReplies, 0) ||
+    !isMattermostTime(row.unreadMentions, 0)
+  )
+    throw new TypeError("Invalid Mattermost thread read state.");
+  return {
+    id: row.id,
+    lastViewedAt: row.lastViewedAt,
+    unreadReplies: row.unreadReplies,
+    unreadMentions: row.unreadMentions,
+  };
+}
+
+function threadRow(row: UserThread) {
+  const read = threadReadState(row);
+  if (
     !isMattermostTime(row.deleteAt, 0) ||
     !isMattermostTime(row.replyCount, 0) ||
     !isMattermostTime(row.lastReplyAt, 0) ||
-    !isMattermostTime(row.lastViewedAt, 0) ||
-    !isMattermostTime(row.unreadReplies, 0) ||
-    !isMattermostTime(row.unreadMentions, 0) ||
     typeof row.isUrgent !== "boolean" ||
     !Array.isArray(row.participants)
   )
     throw new TypeError("Invalid Mattermost followed thread.");
   return {
-    id: row.id,
-    post: visibleRoot(row, row.id),
+    ...read,
+    post: visibleRoot(row, read.id),
     participantIds: row.participants.map((participant) => {
       if (!isMattermostId(participant?.id))
         throw new TypeError("Invalid Mattermost thread participant.");
@@ -57,9 +70,6 @@ function threadRow(row: UserThread) {
     }),
     replyCount: row.replyCount,
     lastReplyAt: row.lastReplyAt,
-    lastViewedAt: row.lastViewedAt,
-    unreadReplies: row.unreadReplies,
-    unreadMentions: row.unreadMentions,
     isUrgent: row.isUrgent,
   };
 }
@@ -70,6 +80,47 @@ export function accountFollowedThreads(
 ) {
   const api = new ThreadsApi(config);
   return {
+    markFollowedThreadRead(
+      teamId: string,
+      threadId: string,
+      timestamp: number,
+      signal?: AbortSignal,
+    ) {
+      return whileOpen(async () => {
+        signal?.throwIfAborted();
+        if (!isMattermostId(threadId) || !isMattermostTime(timestamp, 1))
+          throw new TypeError("Invalid Mattermost thread read target.");
+        const response = await api.updateThreadReadForUserRaw(
+          { ...scope(teamId), threadId, timestamp },
+          { signal },
+        );
+        const result = threadReadState(await response.value());
+        signal?.throwIfAborted();
+        if (
+          response.raw.status !== 200 ||
+          result.id !== threadId ||
+          result.lastViewedAt !== timestamp
+        )
+          throw new TypeError(
+            "Mattermost did not confirm the requested thread read state.",
+          );
+        return result;
+      }, signal);
+    },
+    markTeamThreadsRead(teamId: string, signal?: AbortSignal) {
+      return whileOpen(async () => {
+        signal?.throwIfAborted();
+        const response = await api.updateThreadsReadForUserRaw(scope(teamId), {
+          signal,
+        });
+        const result = await response.value();
+        signal?.throwIfAborted();
+        if (response.raw.status !== 200 || result?.status !== "OK")
+          throw new TypeError(
+            "Mattermost did not confirm team thread read state.",
+          );
+      }, signal);
+    },
     readFollowedThreads(query: PageQuery, signal?: AbortSignal) {
       return whileOpen(async () => {
         signal?.throwIfAborted();

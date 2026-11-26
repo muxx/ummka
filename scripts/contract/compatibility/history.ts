@@ -59,6 +59,7 @@ import {
 import { checkMentionLimit } from "./mention-limit.ts";
 import { checkMentionText } from "./mention-text.ts";
 import { checkMobileFilePolicy } from "./mobile-file-policy.ts";
+import { checkNamedRoutes } from "./named-channel.ts";
 import {
   checkPostCollections,
   checkSavedPageBoundary,
@@ -81,12 +82,14 @@ import { checkSearchScopePolicy } from "./search-scope.ts";
 import { expectedNavigationPost } from "./search-target.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
+import { checkTeamChannelSearch } from "./team-channel-search.ts";
 import { checkThreadFollow } from "./thread-follow.ts";
 import { checkThreadList } from "./thread-list.ts";
 import { checkThreadPageTies } from "./thread-page-ties.ts";
 import { checkThreadReadState } from "./thread-read-state.ts";
 import { checkThreadSummary } from "./thread-summary.ts";
 import { checkThreadWindow } from "./thread-window.ts";
+import { checkUnreadThreadWindow } from "./unread-thread-window.ts";
 import { checkUserNotifications } from "./user-notifications.ts";
 import { checkUserTimezone } from "./user-timezone.ts";
 
@@ -756,6 +759,13 @@ await checkThreadWindow(readerPosts, channelId, imported.id, [
   ...[early.id, tied.id].sort(),
   late.id,
 ]);
+await checkUnreadThreadWindow(
+  readerPosts,
+  reader.id,
+  channelId,
+  message,
+  version,
+);
 console.log(
   `Mattermost ${version} verified ordinary-member thread pagination and reply anchors in both modes.`,
 );
@@ -882,16 +892,6 @@ await checkPostCollections(
     otherTeam: extraTeam.id,
   },
   { older: plainPost.id, newer: taggedPost.id, direct: dmPost.id },
-  version,
-);
-await checkCollectionActions(
-  new Configuration({ basePath: base, accessToken: readerToken }),
-  session,
-  reader.id,
-  user.id,
-  dm.id,
-  dmPost.id,
-  closedPost.id,
   version,
 );
 await checkFileSearch(
@@ -1275,6 +1275,13 @@ await checkPreviouslyAcceptedPost(
   version,
 );
 
+await checkTeamChannelSearch(
+  base,
+  create,
+  token,
+  { id: reader.id, token: readerToken },
+  version,
+);
 await checkSearchScopePolicy(base, token, readerToken, version);
 await checkPostEditWindow(base, token, readerToken);
 await checkMobileFilePolicy(base, token, readerToken);
@@ -1471,6 +1478,25 @@ await checkPostEditHistory(
   channelId,
   version,
 );
+// Both participants act under their ordinary user sessions in a shared direct channel.
+const collectionPost = await (
+  await create(
+    "posts",
+    { channel_id: threadDirect.id, message: "Collection permissions" },
+    readerToken,
+  )
+).json();
+await readerPosts.pinPost({ postId: collectionPost.id });
+await checkCollectionActions(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  new Configuration({ basePath: base, accessToken: otherSaverToken }),
+  reader.id,
+  otherSaver.id,
+  threadDirect.id,
+  collectionPost.id,
+  closedPost.id,
+  version,
+);
 // The focused-history check already removed this reader from the private channel.
 await checkFileContent(session, authorization, readerToken, closed.id, () =>
   create(`channels/${closed.id}/members`, { user_id: reader.id }, token),
@@ -1479,6 +1505,23 @@ console.log(
   `Mattermost ${version} verified attachment representations, ranges and channel access.`,
 );
 await checkPublishedPostDocument(readerPosts, base, channelId, version);
+await checkNamedRoutes(
+  session,
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  reader.id,
+  team,
+  extraTeam,
+  joinable,
+  (route, body) => create(route, body, token),
+  (id) =>
+    fetch(`${base}/api/v4/channels/${id}`, {
+      method: "DELETE",
+      headers: authorization,
+    }),
+);
+console.log(
+  `Mattermost ${version} verified team and channel names before and after invitation and archive.`,
+);
 await allowFixtureBrowserSignIn(base, token);
 const logout = await fetch(`${base}/api/v4/users/logout`, {
   method: "POST",

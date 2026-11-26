@@ -9,6 +9,8 @@ import { afterEach, expect, test, vi } from "vitest";
 import type { LocalChannelWindow } from "../mattermost/local-history.ts";
 import { ChannelTimeline } from "./ChannelTimeline.tsx";
 
+import "./workspace-dom.test-utils.ts";
+
 afterEach(cleanup);
 const base = {
   channelId: "general",
