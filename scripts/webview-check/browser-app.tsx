@@ -8,6 +8,7 @@ import {
   openNativeRestConnection,
 } from "../../src/mattermost/native-rest.ts";
 import { openChannelNavigation } from "./account-team-window.tsx";
+import { checkModalScroll } from "./modal-scroll.ts";
 import { checkPendingCommandActions } from "./pending-command-actions.ts";
 import { findThreadDraft, verifyWorkspaceBack } from "./workspace-back.tsx";
 
@@ -214,6 +215,7 @@ export async function checkBrowserApp(server: string, controlPort: string) {
     const terms = dialog.getByRole<HTMLInputElement>("searchbox");
     if (document.activeElement !== terms)
       throw Error("The online search dialog did not focus the query");
+    checkModalScroll(terms);
     flushSync(() =>
       fireEvent.input(terms, { target: { value: "window fixture" } }),
     );

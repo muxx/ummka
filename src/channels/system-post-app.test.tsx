@@ -239,6 +239,9 @@ test("retention or deletion leaves the head until the explanation is closed", as
     ),
   );
   const dialog = within(await screen.findByRole("dialog"));
+  const explanation = dialog.getByRole("region", { name: "Open message" });
+  expect(explanation.contains(dialog.getByRole("alert"))).toBe(true);
+  expect(explanation.tabIndex).toBe(0);
   expect(dialog.getByRole("alert").textContent).toMatch(/available history/);
   expect(acks).toHaveLength(0);
   expect(screen.queryByText(root.message)).toBeNull();

@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useId,
@@ -7,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { AppearanceMark } from "../appearance/AppearanceMark.tsx";
 import { isMobile } from "../build-platform.ts";
 import { AccountSessionWindow } from "../entry/AccountSessionWindow.tsx";
 import type { TeamWorkspace } from "../entry/AccountTeamWindow.tsx";
@@ -43,6 +46,10 @@ import { useWorkspaceSearch } from "./use-workspace-search.tsx";
 import { workspaceCopy } from "./workspace-copy.ts";
 import { openingChannel, workspaceProfileQuery } from "./workspace-data.ts";
 import "./workspace.css";
+
+const AppearanceDialog = lazy(
+  () => import("../appearance/AppearanceDialog.tsx"),
+);
 
 type Sections = ReturnType<typeof visibleSidebar>;
 function Sidebar({
@@ -194,6 +201,17 @@ export function ChannelsWorkspace({
   const draftField = useRef<HTMLTextAreaElement>(null);
   const replyField = useRef<HTMLTextAreaElement>(null);
   const [accountOpen, setAccountOpen] = useState(false);
+  const appearanceButton = useRef<HTMLButtonElement>(null);
+  const [appearanceInput, setAppearanceInput] = useState<
+    "pointer" | "keyboard" | null
+  >(null);
+  const [appearanceNotice, setAppearanceNotice] = useState("");
+  const appearanceLabel = language === "ru" ? "Оформление" : "Appearance";
+  useEffect(() => {
+    if (!appearanceNotice) return;
+    const timeout = window.setTimeout(() => setAppearanceNotice(""), 2600);
+    return () => window.clearTimeout(timeout);
+  }, [appearanceNotice]);
   const collections = useWorkspaceCollections(connection, online);
   const collectionLabels = collectionCopy[language];
   const channelMenuButton = useRef<HTMLButtonElement>(null);
@@ -655,6 +673,7 @@ export function ChannelsWorkspace({
   const manualThread =
     activeThread && closedRequest === position?.request.requestId;
   function workspaceBack() {
+    if (appearanceInput) return () => setAppearanceInput(null);
     if (channelMenuOpen)
       return () => {
         setChannelMenuOpen(false);
@@ -850,6 +869,20 @@ export function ChannelsWorkspace({
               {knownSaves.complete && knownSaves.ids.size > 0 && (
                 <small aria-hidden="true">{knownSaves.ids.size}</small>
               )}
+            </button>
+            <button
+              ref={appearanceButton}
+              type="button"
+              className="channels-icon-action appearance-trigger"
+              title={appearanceLabel}
+              aria-label={appearanceLabel}
+              aria-haspopup="dialog"
+              onClick={(event) => {
+                setAppearanceNotice("");
+                setAppearanceInput(event.detail ? "pointer" : "keyboard");
+              }}
+            >
+              <AppearanceMark name="palette" />
             </button>
           </>
         }
@@ -1091,6 +1124,23 @@ export function ChannelsWorkspace({
           )}
       </ChannelsFrame>
       {search.dialog}
+      {appearanceInput && (
+        <Suspense fallback={null}>
+          <AppearanceDialog
+            language={language}
+            close={() => setAppearanceInput(null)}
+            opener={appearanceButton}
+            applied={setAppearanceNotice}
+            initialInput={appearanceInput}
+          />
+        </Suspense>
+      )}
+      {appearanceNotice && (
+        <div className="appearance-notice" role="status">
+          <AppearanceMark name="check" />
+          {appearanceNotice}
+        </div>
+      )}
       {accountOpen && (
         <AccountSessionWindow
           workspace={workspace}
