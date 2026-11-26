@@ -567,7 +567,30 @@ export async function checkGeneratedRequests(ports: string[]) {
     );
     await checkThreadList(threads, teamId, channelId, userId);
     const guestThreads = new ThreadsApi(new Configuration(prefixed));
+    const timestamp = 1700000000123;
+    const readThread = await threads.updateThreadReadForUser({
+      ...follow,
+      timestamp,
+    });
+    check(
+      readThread.id === postId &&
+        readThread.post?.id === postId &&
+        readThread.lastViewedAt === timestamp &&
+        readThread.unreadReplies === 3 &&
+        readThread.unreadMentions === 2,
+      "signed single thread read",
+    );
+    check(
+      (await threads.updateThreadsReadForUser({ userId: "me", teamId }))
+        .status === "OK",
+      "signed team thread read",
+    );
     for (const request of [
+      () => guestThreads.updateThreadReadForUser({ ...follow, timestamp }),
+      () => guestThreads.updateThreadsReadForUser({ userId: "me", teamId }),
+      () => threads.updateThreadReadForUser({ ...follow, timestamp: 1.5 }),
+      () =>
+        threads.updateThreadsReadForUser({ userId: "b".repeat(26), teamId }),
       () => guestThreads.startFollowingThread(follow),
       () => threads.stopFollowingThread({ ...follow, userId: "b".repeat(26) }),
       () => threads.startFollowingThread({ ...follow, threadId: "short" }),
@@ -577,7 +600,7 @@ export async function checkGeneratedRequests(ports: string[]) {
         denied instanceof FetchError &&
           denied.cause instanceof TypeError &&
           denied.cause.cause === "operation_denied",
-        "thread-follow-denied-before-dispatch",
+        "thread-mutation-denied-before-dispatch",
       );
     }
     for (const request of [

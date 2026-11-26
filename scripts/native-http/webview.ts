@@ -16,6 +16,7 @@ import { respondToPostContext } from "./post-context.ts";
 import { respondToPostMutation } from "./post-mutations.ts";
 import { submissionFixture } from "./submit-post.ts";
 import { respondToThreadList } from "./thread-list.ts";
+import { respondToThreadRead } from "./thread-read-state.ts";
 import { respondToWorkspace } from "./workspace.ts";
 
 export function webviewServers(
@@ -428,6 +429,11 @@ export function webviewServers(
           status_code: 503,
         }),
       );
+      return;
+    }
+    const readThread = await respondToThreadRead(req, res, url, teamId);
+    if (readThread) {
+      visits.push(readThread);
       return;
     }
     const threadList = await respondToThreadList(
@@ -1041,6 +1047,8 @@ export function webviewServers(
         "custom-emoji-by-name",
         "empty-post-reactions",
         "post-reactions",
+        "read-thread",
+        "read-team-threads",
         "follow-thread",
         "unfollow-thread",
         "thread-list-page",

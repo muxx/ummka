@@ -75,6 +75,7 @@ import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
 import { checkThreadFollow } from "./thread-follow.ts";
 import { checkThreadList } from "./thread-list.ts";
+import { checkThreadReadState } from "./thread-read-state.ts";
 import { checkThreadSummary } from "./thread-summary.ts";
 import { checkThreadWindow } from "./thread-window.ts";
 import { checkUserNotifications } from "./user-notifications.ts";
@@ -1264,6 +1265,22 @@ await checkSavedPageBoundary(
   base,
   { id: reader.id, token: readerToken },
   dm.id,
+  version,
+);
+
+// Both ordinary participants also need a shared channel in another team.
+await create(
+  `teams/${team.id}/members`,
+  { team_id: team.id, user_id: otherSaver.id },
+  token,
+);
+await checkThreadReadState(
+  threadReader,
+  otherSaverName,
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  readerLogin.login_id,
+  { teamId: emptyTeam.id, channelId: threadRoom.id, directId: threadDirect.id },
+  { teamId: team.id, channelId },
   version,
 );
 

@@ -88,12 +88,12 @@ import {
 } from "./sidebar-corrections.ts";
 import { correctSinglePost } from "./single-post-correction.ts";
 import { correctTeamMemberRequest } from "./team-member-correction.ts";
-import { correctThreadFollow } from "./thread-follow-correction.ts";
 import {
   correctThreadListModel,
   correctThreadListQuery,
   threadListPath,
 } from "./thread-list-corrections.ts";
+import { correctThreadMutation } from "./thread-mutation-correction.ts";
 
 const sources = process.env.UMMKA_CONTRACT_SOURCES;
 const work = process.env.UMMKA_CONTRACT_WORK;
@@ -913,9 +913,69 @@ test("both thread follow verbs return StatusOK and stop on upstream response cha
       ...source,
       responses: { "200": { description: "changed" } },
     };
-    assert.throws(() => correctThreadFollow(source, changed), /Review both/);
-    assert.throws(() => correctThreadFollow(changed, newer), /Review both/);
-    assert.throws(() => correctThreadFollow(changed, changed), /Review both/);
+    assert.throws(() => correctThreadMutation(source, changed), /Review both/);
+    assert.throws(() => correctThreadMutation(changed, newer), /Review both/);
+    assert.throws(() => correctThreadMutation(changed, changed), /Review both/);
+  }
+});
+
+test("both thread read operations expose their actual response and guard the timestamp on both pins", () => {
+  for (const [suffix, model] of [
+    ["/read", "StatusOK"],
+    ["/{thread_id}/read/{timestamp}", "UserThread"],
+  ]) {
+    const path = threadListPath + suffix;
+    const key = [path, "put"];
+    assert.equal(
+      at(contract, [
+        "paths",
+        ...key,
+        "responses",
+        "200",
+        "content",
+        "application/json",
+        "schema",
+        "$ref",
+      ]),
+      `#/components/schemas/${model}`,
+    );
+    const source = object(at(read("users.yaml"), key), path);
+    const newer = object(at(read("users-12.1.0.yaml"), key), path);
+    const changed = {
+      ...source,
+      responses: { "200": { description: "upstream changed" } },
+    };
+    assert.throws(() => correctThreadMutation(changed, newer), /Review both/);
+    assert.throws(() => correctThreadMutation(source, changed), /Review both/);
+    assert.throws(() => correctThreadMutation(changed, changed), /Review both/);
+    if (model === "UserThread") {
+      const params = at(contract, ["paths", ...key, "parameters"]);
+      assert.ok(Array.isArray(params) && Array.isArray(source.parameters));
+      assert.deepEqual(params.find((p) => p.name === "timestamp")?.schema, {
+        type: "integer",
+        format: "int64",
+        minimum: 1,
+        maximum: Number.MAX_SAFE_INTEGER,
+      });
+      const newTimestamp = {
+        ...source,
+        parameters: source.parameters.map((p) =>
+          p.name === "timestamp" ? { ...p, schema: { type: "integer" } } : p,
+        ),
+      };
+      assert.throws(
+        () => correctThreadMutation(source, newTimestamp),
+        /Review both/,
+      );
+      assert.throws(
+        () => correctThreadMutation(newTimestamp, newer),
+        /Review both/,
+      );
+      assert.throws(
+        () => correctThreadMutation(newTimestamp, newTimestamp),
+        /timestamp/,
+      );
+    }
   }
 });
 
@@ -941,10 +1001,12 @@ test("retains the catalog operations, security and transitive models", () => {
     const source = object(at(read(file), key), path);
     let expected = source;
     if (
+      source.operationId === "UpdateThreadReadForUser" ||
+      source.operationId === "UpdateThreadsReadForUser" ||
       source.operationId === "StartFollowingThread" ||
       source.operationId === "StopFollowingThread"
     )
-      expected = correctThreadFollow(
+      expected = correctThreadMutation(
         source,
         object(at(read("users-12.1.0.yaml"), key), path),
       );
