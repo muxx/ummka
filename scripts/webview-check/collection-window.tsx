@@ -61,7 +61,9 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
       throw Error("Wrong collection layout for the native window");
     click(row);
     const thread = await findPane("Thread");
-    await thread.findByText("Reply visible only inside Town’s thread");
+    await thread.findByText(
+      "Reply visible only inside Town’s thread for @reader",
+    );
     await back("saved-reply");
     saved = await findPane("Saved messages");
     const returned = await saved.findByRole("button", {
@@ -171,6 +173,28 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
       throw Error(
         "The channel opener or unsent draft did not survive both collections",
       );
+    const mentions = ui.getByRole("button", { name: "Mentions" });
+    click(mentions);
+    const mentionPane = await findPane("Mentions");
+    const mentioned = await mentionPane.findByRole("button", {
+      name: /for @reader/,
+    });
+    click(mentioned);
+    await (await findPane("Thread")).findByText(
+      "Reply visible only inside Town’s thread for @reader",
+    );
+    await back("mentioned-reply");
+    const restoredMention = await (await findPane("Mentions")).findByRole(
+      "button",
+      { name: /for @reader/ },
+    );
+    await waitFor(() => {
+      if (document.activeElement !== restoredMention)
+        throw Error("Lost mentioned reply on return");
+    });
+    await back("mentions-list");
+    if (document.activeElement !== mentions)
+      throw Error("Lost the mentions opener on close");
   } finally {
     await driver.close();
     flushSync(() => root.unmount());

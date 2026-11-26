@@ -36,6 +36,7 @@ import { channelComposerAccess } from "./composer-access.ts";
 import { DraftComposer } from "./DraftComposer.tsx";
 import { draftCopy } from "./draft-copy.ts";
 import { channelDirectoryCopy } from "./JoinedChannelDirectory.tsx";
+import { MentionMark, MentionsPane, mentionCopy } from "./MentionsPane.tsx";
 import { CollectionMark, PostCollectionPane } from "./PostCollectionPane.tsx";
 import { PrivateChannelIcon } from "./PrivateChannelIcon.tsx";
 import type { ReactionThread } from "./submit-channel-reaction.ts";
@@ -202,6 +203,8 @@ export function ChannelsWorkspace({
     return () => window.clearTimeout(timeout);
   }, [appearanceNotice]);
   const collections = useWorkspaceCollections(connection, online);
+  const mentionLabels = mentionCopy[language];
+  const archivePolicy = policy.server.value?.search?.archivedChannels;
   const collectionLabels = collectionCopy[language];
   const channelMenuButton = useRef<HTMLButtonElement>(null);
   const directoryButton = useRef<HTMLButtonElement>(null);
@@ -228,7 +231,7 @@ export function ChannelsWorkspace({
     complete: boolean;
   }>(() => ({ ids: new Set(), complete: false }));
   const savedValue =
-    collections.view?.source.kind === "all" ? collections.state : null;
+    collections.view?.kind === "all" ? collections.state : null;
   const savedItems = savedValue?.value?.items;
   const hasSavedView = Boolean(savedValue);
   const complete =
@@ -368,9 +371,10 @@ export function ChannelsWorkspace({
         : null,
     [snapshot, chosen, directoryOpen],
   );
-  const savedChannelIds = useMemo(
-    () => new Set(savedItems?.map((post) => post.channelId)),
-    [savedItems],
+  const mentionItems = collections.mentionState?.items;
+  const resultChannelIds = useMemo(
+    () => new Set((savedItems ?? mentionItems)?.map((post) => post.channelId)),
+    [savedItems, mentionItems],
   );
   const profileQuery = useMemo(() => {
     const query = workspaceProfileQuery(
@@ -378,10 +382,12 @@ export function ChannelsWorkspace({
       current,
       settings,
       timeline.page,
-      savedChannelIds,
+      resultChannelIds,
     );
     const ids = new Set(query.ids);
     for (const post of collections.state?.value?.items ?? [])
+      if (isMattermostId(post.userId)) ids.add(post.userId);
+    for (const post of collections.mentionState?.items ?? [])
       if (isMattermostId(post.userId)) ids.add(post.userId);
     return { ...query, ids: [...ids] };
   }, [
@@ -390,7 +396,8 @@ export function ChannelsWorkspace({
     settings,
     timeline.page,
     collections.state?.value,
-    savedChannelIds,
+    resultChannelIds,
+    collections.mentionState?.items,
   ]);
   const saved = useWorkspaceProfiles(
     connection,
@@ -416,11 +423,11 @@ export function ChannelsWorkspace({
     [current, settings, userId, profiles, language, compact],
   );
   const channels = snapshot?.data.channels;
-  const savedRooms = useMemo(() => {
+  const resultRooms = useMemo(() => {
     const result = new Map<string, { title: string; kind: string }>();
-    if (!channels || !savedChannelIds.size) return result;
+    if (!channels || !resultChannelIds.size) return result;
     for (const room of channels) {
-      if (!savedChannelIds.has(room.id)) continue;
+      if (!resultChannelIds.has(room.id)) continue;
       const title = conversationName(
         room,
         userId,
@@ -433,7 +440,7 @@ export function ChannelsWorkspace({
     return result;
   }, [
     channels,
-    savedChannelIds,
+    resultChannelIds,
     userId,
     profiles,
     settings?.nameFormat,
@@ -592,7 +599,7 @@ export function ChannelsWorkspace({
     },
   );
   function showCollection(
-    source: { kind: "all" } | { kind: "pins"; channelId: string },
+    source: Parameters<typeof collections.open>[0],
     opener: HTMLButtonElement,
   ) {
     setChannelMenuOpen(false);
@@ -700,9 +707,7 @@ export function ChannelsWorkspace({
       : null;
   if (thread && !activeThread) setThread(null);
   const pinsSource =
-    collections.view?.source.kind === "pins"
-      ? collections.view.source.channelId
-      : null;
+    collections.view?.kind === "pins" ? collections.view.channelId : null;
   const pinsAvailable =
     !pinsSource ||
     (!["forbidden", "session", "unauthorized"].includes(
@@ -714,6 +719,21 @@ export function ChannelsWorkspace({
   useEffect(() => {
     if (!pinsAvailable) collections.close(false);
   }, [pinsAvailable, collections.close]);
+  const mentionPolicyChanged =
+    collections.view?.kind === "mentions" &&
+    collections.view.archivedChannels !== archivePolicy;
+  useEffect(() => {
+    if (mentionPolicyChanged) collections.close();
+  }, [mentionPolicyChanged, collections.close]);
+  function openCollectionRow(
+    id: string,
+    origin: HTMLButtonElement,
+    scroll: number,
+  ) {
+    void collections.activate({ id, channelId: chosen, scroll }, (signal) =>
+      workspace.messages.open({ kind: "post", id }, signal, origin),
+    );
+  }
   const visibleSearchPanel = position ? null : search.panel;
   const canReturnToResults = Boolean(
     position && !position.system && search.origin,
@@ -917,6 +937,26 @@ export function ChannelsWorkspace({
             {search.trigger}
             <button
               type="button"
+              className="channels-icon-action mentions-trigger"
+              aria-label={mentionLabels.title}
+              title={mentionLabels.title}
+              disabled={archivePolicy === undefined}
+              onClick={(event) => {
+                if (archivePolicy !== undefined)
+                  showCollection(
+                    {
+                      kind: "mentions",
+                      archivedChannels: archivePolicy,
+                      standalone: !chosen,
+                    },
+                    event.currentTarget,
+                  );
+              }}
+            >
+              <MentionMark />
+            </button>
+            <button
+              type="button"
               className="channels-icon-action collection-saved-trigger"
               aria-label={collectionLabels.saved}
               title={collectionLabels.saved}
@@ -976,17 +1016,43 @@ export function ChannelsWorkspace({
         }
         sidePanel={
           position ? null : collections.view &&
+            collections.mentionState &&
+            !mentionPolicyChanged &&
+            collections.view.kind === "mentions" ? (
+            <MentionsPane
+              key={collections.view.key}
+              state={collections.mentionState}
+              model={collections.view.model}
+              language={language}
+              team={team.displayName || team.name}
+              online={online}
+              standalone={collections.view.standalone}
+              authorName={(id) => author(id)?.name}
+              channelName={(id) => {
+                const room = resultRooms.get(id);
+                if (!room) return undefined;
+                return room.kind === "O" || room.kind === "P"
+                  ? `# ${room.title}`
+                  : room.title;
+              }}
+              openRow={openCollectionRow}
+              restore={collections.restore}
+              close={() => collections.close()}
+              sessionIssue={sessionIssue}
+            />
+          ) : collections.view &&
+            collections.view.kind !== "mentions" &&
             collections.state &&
             pinsAvailable ? (
             <PostCollectionPane
               key={collections.view.key}
               model={collections.view.model}
               state={collections.state}
-              kind={collections.view.source.kind}
+              kind={collections.view.kind}
               language={language}
               online={online}
               canRemove={
-                collections.view.source.kind === "all" ||
+                collections.view.kind === "all" ||
                 Boolean(
                   channel &&
                     !channel.deleteAt &&
@@ -998,22 +1064,12 @@ export function ChannelsWorkspace({
                           "allowed")),
                 )
               }
-              channelInfo={(id) => savedRooms.get(id)}
+              channelInfo={(id) => resultRooms.get(id)}
               authorName={(id) => author(id)?.name}
               savedIds={knownSaves.ids}
               sessionIssue={sessionIssue}
               restore={collections.restore}
-              openRow={(id, origin, scroll) =>
-                void collections.activate(
-                  { id, channelId: chosen, scroll },
-                  (signal) =>
-                    workspace.messages.open(
-                      { kind: "post", id },
-                      signal,
-                      origin,
-                    ),
-                )
-              }
+              openRow={openCollectionRow}
               close={() => collections.close()}
             />
           ) : (
@@ -1034,9 +1090,11 @@ export function ChannelsWorkspace({
                   className="search-return"
                   onClick={returnToCollection}
                 >
-                  {collectionDestination.source.kind === "all"
-                    ? collectionLabels.savedBack
-                    : collectionLabels.pinsBack}
+                  {collectionDestination.kind === "mentions"
+                    ? mentionLabels.back
+                    : collectionDestination.kind === "all"
+                      ? collectionLabels.savedBack
+                      : collectionLabels.pinsBack}
                 </button>
               )}
               {search.origin && !position.system && (

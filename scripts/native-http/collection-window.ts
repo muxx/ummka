@@ -39,7 +39,7 @@ export function collectionWindowFixture() {
     update_at: id === reply ? 561 : id === root ? 560 : 1,
     message:
       id === reply
-        ? "Reply visible only inside Town’s thread"
+        ? "Reply visible only inside Town’s thread for @reader"
         : id === root
           ? "Town fixture message"
           : id === oldest
@@ -76,7 +76,28 @@ export function collectionWindowFixture() {
       res.writeHead(204).end();
       return true;
     }
-    if (path === "users/me/preferences") {
+    if (path === "users/me") {
+      send({
+        id: user,
+        username: "reader",
+        roles: "system_user",
+        notify_props: { channel: "false", mention_keys: "" },
+        timezone: { useAutomaticTimezone: "false", manualTimezone: "UTC" },
+      });
+    } else if (path === "posts/search") {
+      const query = await requestJson(req);
+      assert(query && typeof query === "object" && "page" in query);
+      assert.deepEqual(query, {
+        terms: '"@reader"',
+        is_or_search: true,
+        per_page: 20,
+        page: query.page,
+        include_deleted_channels: true,
+        time_zone_offset: 0,
+      });
+      assert(query.page === 0 || query.page === 1);
+      send({ ...posts(query.page === 0 ? [reply] : []), matches: {} }, "POST");
+    } else if (path === "users/me/preferences") {
       send(
         raw.map((name) => ({
           user_id: user,
