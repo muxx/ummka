@@ -82,6 +82,16 @@ export async function checkFileSearch(
   });
   assert.ok(root.id);
   const first = await attach(channelId, 1, root.id);
+  const attachedPost = await new PostsApi(readerSession).getPostRaw({
+    postId: first.postId,
+  });
+  const wire = await attachedPost.raw.clone().json();
+  const displayed = await attachedPost.value();
+  assert.ok(!Object.hasOwn(wire.metadata, "redacted_file_count"));
+  assert.equal(displayed.metadata?.redactedFileCount, undefined);
+  assert.deepEqual(displayed.fileIds, [first.id]);
+  assert.equal(wire.metadata.files[0].id, first.id);
+  assert.equal(displayed.metadata?.files?.[0]?.name, first.name);
   assert.equal(first.post.rootId, root.id);
   const second = await attach(other.id, 2);
   const reader = new FilesApi(readerSession);
