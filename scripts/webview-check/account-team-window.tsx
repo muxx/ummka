@@ -31,11 +31,15 @@ export async function checkSavedTeamWindow(
   const root = createRoot(element);
   // The macOS test host retains loopback while exercising the application's offline route.
   const previous = Object.getOwnPropertyDescriptor(navigator, "onLine");
-  Object.defineProperty(navigator, "onLine", {
-    configurable: true,
-    value: false,
-  });
+  const macOS = import.meta.env.UMMKA_MACOS_OVERLAY;
+  if (macOS)
+    Object.defineProperty(navigator, "onLine", {
+      configurable: true,
+      value: false,
+    });
   try {
+    if (navigator.onLine)
+      throw Error("The offline system WebView reported an active network");
     await connectInstallation(serverUrl);
     if ((await getCurrentAccountId(serverUrl)) !== userId)
       throw Error("offline account changed");
@@ -164,8 +168,10 @@ export async function checkSavedTeamWindow(
   } finally {
     flushSync(() => root.unmount());
     element.remove();
-    if (previous) Object.defineProperty(navigator, "onLine", previous);
-    else Reflect.deleteProperty(navigator, "onLine");
+    if (macOS) {
+      if (previous) Object.defineProperty(navigator, "onLine", previous);
+      else Reflect.deleteProperty(navigator, "onLine");
+    }
     if (!original.installations.includes(serverUrl))
       await forgetInstallation(serverUrl);
     if (original.selected && original.selected !== serverUrl)
