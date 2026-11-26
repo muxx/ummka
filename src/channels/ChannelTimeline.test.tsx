@@ -8,8 +8,14 @@ import {
 import { afterEach, expect, test, vi } from "vitest";
 import type { LocalChannelWindow } from "../mattermost/local-history.ts";
 import { ChannelTimeline } from "./ChannelTimeline.tsx";
+import * as markdownDocument from "./published-post-document.ts";
 
-afterEach(cleanup);
+import "./workspace-dom.test-utils.ts";
+
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 const base = {
   channelId: "general",
   locale: "en" as const,
@@ -64,9 +70,10 @@ test("renders oldest first, preserves tie order, local calendar days and escaped
   ]);
   expect(within(rows[0]).getByText("Unknown user")).toBeTruthy();
   expect(rows[1].querySelector("img")).toBeNull();
-  expect(rows[1].querySelector("p")?.textContent).toBe(
-    "<img src=x>\nSecond line (edited)",
+  expect(rows[1].querySelector(".published-post")?.textContent).toBe(
+    "<img src=x>\nSecond line",
   );
+  expect(within(rows[1]).getByText("edited")).toBeTruthy();
   expect(within(rows[1]).getByText("Pinned")).toBeTruthy();
   expect(rows[1].querySelector("time")?.dateTime).toBe(
     new Date(midnight).toISOString(),
@@ -283,4 +290,139 @@ test("restores the channel reader when a compact thread hides the feed across up
   rerender(feed(true, updated));
   rerender(feed(false, updated));
   expect(pane.scrollTop).toBe(240);
+});
+
+test("tight Markdown list items keep inline text beside their nested list; loose items keep paragraphs", () => {
+  const message =
+    "1. Mobile\n   - Light\n   - Dark\n2. Desktop\n\n---\n\n- First paragraph\n\n  Second paragraph\n";
+  const { container } = render(
+    <ChannelTimeline
+      {...base}
+      page={page({ ...post("layout", 1000), message })}
+    />,
+  );
+  const body = container.querySelector(".published-post");
+  if (!body) throw Error("Missing published post");
+  expect(body.querySelector("ol > li")?.firstChild?.textContent).toBe("Mobile");
+  expect(body.querySelector("ol > li")?.firstElementChild?.tagName).toBe("UL");
+  expect(
+    [...body.querySelectorAll(".post-loose-list > li > p")].map(
+      (el) => el.textContent,
+    ),
+  ).toEqual(["First paragraph", "Second paragraph"]);
+});
+
+test("reads the published body with native headings, labeled tasks, lists and code; raw text stays inert", () => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
+  const message = [
+    "# Notes",
+    "## Release",
+    "### Read",
+    "#### Four",
+    "##### Five",
+    "###### Six",
+    "",
+    "> **Bold** *soft* ~~old~~ `inline`",
+    "> > Nested",
+    "",
+    "3. Third",
+    "   - [x] Test light theme",
+    "   - [ ] Check dark theme",
+    "",
+    "---",
+    "",
+    "Line  ",
+    "next",
+    "",
+    "~~~ts",
+    "  const mark = '&amp;';",
+    "~~~",
+    "",
+    "Read [docs](https://example.test/docs) ![](https://example.test/image)",
+    "",
+    "<small>HTML</small>",
+    "",
+    "| a | b |",
+    "| - | - |",
+    "| c | d |",
+  ].join("\n");
+  const saved = Object.freeze({
+    ...post("formatted", 6),
+    message,
+    messageSource: "Original Markdown for editing",
+  });
+  const data = page(saved);
+  const { container, rerender } = render(
+    <ChannelTimeline {...base} page={data} />,
+  );
+  const row = screen.getByRole("article");
+  for (let level = 1; level <= 6; level++)
+    expect(within(row).getByRole("heading", { level })).toBeTruthy();
+  expect(row.querySelector("blockquote blockquote")?.textContent).toBe(
+    "Nested",
+  );
+  expect(row.querySelector("ol")?.start).toBe(3);
+  for (const [index, input] of within(row)
+    .getAllByRole<HTMLInputElement>("checkbox")
+    .entries()) {
+    expect(input.disabled).toBe(true);
+    expect(input.checked).toBe(index === 0);
+  }
+  expect(
+    within(row).getByRole("checkbox", { name: "Test light theme" }),
+  ).toBeTruthy();
+  expect(within(row).getByRole("separator")).toBeTruthy();
+  expect(row.querySelector("strong:not(header strong)")?.textContent).toBe(
+    "Bold",
+  );
+  expect(row.querySelector("del")?.textContent).toBe("old");
+  expect(row.querySelector("em")?.textContent).toBe("soft");
+  expect([...row.querySelectorAll("code")].map((n) => n.textContent)).toEqual([
+    "inline",
+    "  const mark = '&amp;';",
+  ]);
+  expect(row.querySelector("br")).toBeTruthy();
+  expect(row.textContent).toContain("Read docs Image");
+  expect(row.textContent).toContain("<small>HTML</small>");
+  expect(row.textContent).toContain("| a | b |\n| - | - |\n| c | d |");
+  expect(row.textContent).not.toContain("Original Markdown for editing");
+  expect(row.querySelector("a,img,small,table,iframe")).toBeNull();
+  expect(container.querySelector(".published-post [tabindex]")).toBeNull();
+  rerender(<ChannelTimeline {...base} page={data} locale="ru" />);
+  expect(row.textContent).toContain("Read docs Изображение");
+  expect(saved.messageSource).toBe("Original Markdown for editing");
+});
+
+test("parses 60 mounted canonical bodies once and only reparses the changed message", () => {
+  const parse = vi.spyOn(markdownDocument, "publishedPostDocument");
+  const history = Array.from({ length: 60 }, (_, i) => ({
+    ...post("post-" + i, 100 + i),
+    message: `**Body ${i}**`,
+  }));
+  const { rerender } = render(
+    <ChannelTimeline {...base} page={page(...history)} />,
+  );
+  expect(parse).toHaveBeenCalledTimes(60);
+  parse.mockClear();
+  rerender(
+    <ChannelTimeline
+      {...base}
+      page={page(...history.map((p) => ({ ...p })))}
+      author={() => ({ name: "Known author" })}
+      locale="ru"
+    />,
+  );
+  expect(parse).not.toHaveBeenCalled();
+  const edited = history.map((p, i) =>
+    i === 20 ? { ...p, message: "_Changed_" } : p,
+  );
+  rerender(<ChannelTimeline {...base} page={page(...edited)} />);
+  expect(parse).toHaveBeenCalledExactlyOnceWith({ message: "_Changed_" });
+  expect(screen.getByText("Changed").tagName).toBe("EM");
 });

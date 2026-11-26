@@ -28,6 +28,7 @@ serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.154"
 sha2 = { version = "=0.11.1", default-features = false }
 tauri = { version = "=2.12.7", features = [] }
+tauri-plugin-opener = "=2.7.3"
 tokio = { version = "=1.54.1", features = ["macros", "rt", "sync", "time"] }
 uuid = { version = "=1.29.3", features = ["v4"] }
 tokio-util = { version = "=0.7.20", features = ["rt"] }
@@ -39,8 +40,8 @@ rustls-platform-verifier = "=0.7.1"
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "=0.6.2"
 objc2 = "=0.6.5"
-objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSResponder", "NSWindow"] }
-objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSError", "NSObject", "NSString", "NSURL"] }
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSEvent", "NSResponder", "NSWindow"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSError", "NSProcessInfo", "NSObject", "NSString", "NSURL"] }
 objc2-authentication-services = { version = "=0.3.2", default-features = false, features = ["std", "ASFoundation", "ASWebAuthenticationSession", "block2"] }
 core-foundation = "=0.10.1"
 dirs = "=7.0.0"

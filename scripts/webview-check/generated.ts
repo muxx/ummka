@@ -22,6 +22,8 @@ import {
   UsersApi,
 } from "../../vendor/mattermost/index.js";
 import { checkAccountResponses } from "./account.ts";
+import { checkAccountThreadReadState } from "./account-thread-read-state.ts";
+import { checkChannelFormatting } from "./channel-formatting.tsx";
 import { checkChannelRefresh } from "./channel-refresh.ts";
 import { checkDraftWrites } from "./composer-drafts.ts";
 import { checkConnectServer } from "./connect-server.tsx";
@@ -29,6 +31,7 @@ import { checkChannelHistory } from "./history.ts";
 import { prepareHistoryLoads } from "./history-loads.ts";
 import { checkUnavailableHistoryServer } from "./local-history.ts";
 import { checkOpenTimelineCommits } from "./open-timeline-commits.tsx";
+import { checkCollectionRemoval } from "./post-collections.ts";
 import { checkPostContext } from "./post-context.ts";
 import { checkPostMutations } from "./post-mutations.ts";
 import { checkPostReactions } from "./post-reactions.ts";
@@ -36,6 +39,7 @@ import { checkSubmissions } from "./submission.ts";
 import { checkTeamReads } from "./team-reads.ts";
 import { checkRoleStorage } from "./team-role-storage.ts";
 import { checkAccountThreadList, checkThreadList } from "./thread-list.ts";
+import { checkUnreadThread } from "./unread-thread.ts";
 import { checkWorkspaceSettings } from "./workspace-settings.ts";
 
 function check(value: unknown, message: string): asserts value {
@@ -148,6 +152,14 @@ export async function checkGeneratedRequests(ports: string[]) {
     await observed("closed", `${name}-body`);
   }
   try {
+    await observed(
+      "format-times",
+      encodeURIComponent(
+        JSON.stringify(
+          await checkChannelFormatting(() => observed("format-right", "")),
+        ),
+      ),
+    );
     const atRoot = await new SystemApi(new Configuration(root)).getPing(query);
     check(atRoot.status === "OK", "generated-root");
     const first = await api.getPing(query);
@@ -241,6 +253,7 @@ export async function checkGeneratedRequests(ports: string[]) {
     await checkAccountResponses(accountPrefix, userId, observed);
     await checkChannelRefresh(accountPrefix, observed);
     await checkOpenTimelineCommits(accountPrefix);
+    await checkUnreadThread(accountPrefix, userId);
     await checkPostReactions(accountRoot, accountPrefix);
     await checkTeamReads(accountRoot, accountPrefix);
     const prepared = await resolveComposerSubmission(
@@ -317,6 +330,7 @@ export async function checkGeneratedRequests(ports: string[]) {
     }
 
     const channelId = "c".repeat(26);
+    await checkCollectionRemoval(accountPrefix, channelId);
     const term = "from:fixture Привет";
     check(
       await accountPrefix.rememberTeamSearch(teamId, term),
@@ -592,6 +606,7 @@ export async function checkGeneratedRequests(ports: string[]) {
     await checkAccountThreadList(accountPrefix, teamId, channelId, userId);
     const guestThreads = new ThreadsApi(new Configuration(prefixed));
     const timestamp = 1700000000123;
+    await checkAccountThreadReadState(accountPrefix, teamId, postId, timestamp);
     const readThread = await threads.updateThreadReadForUser({
       ...follow,
       timestamp,

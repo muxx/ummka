@@ -216,34 +216,36 @@ async function checkWidth(account: Account, width: number) {
         "Expected a published row entirely above the reading position",
       );
     const oldHeight = precedingRow.getBoundingClientRect().height;
-    const extraLines = Array.from(
-      { length: 8 },
-      (_, n) => `Expanded paragraph ${n + 1}`,
-    ).join("\n");
-    await commit({ kind: "since", since: 1 }, [
-      {
-        ...preceding,
-        message: extraLines,
-        editAt: 450,
-        updateAt: 450,
-      },
-    ]);
-    await until(
-      () =>
-        article(preceding.id)?.textContent?.includes("Expanded paragraph 8") ===
-        true,
-      "preceding text edit",
-    );
-    const newHeight =
-      article(preceding.id)?.getBoundingClientRect().height ?? 0;
-    if (
-      newHeight - oldHeight <= 20 ||
-      Math.abs(offset(id(63)) - before) > 1 ||
-      atBottom()
-    )
-      throw Error(
-        "Editing the height of an earlier row displaced the visible post",
+    for (let count = 8; count <= 12; count++) {
+      const lastLine = `Expanded paragraph ${count}`;
+      const extraLines = Array.from(
+        { length: count },
+        (_, n) => `Expanded paragraph ${n + 1}`,
+      ).join("\n");
+      await commit({ kind: "since", since: 1 }, [
+        {
+          ...preceding,
+          message: extraLines,
+          editAt: 450 + count,
+          updateAt: 450 + count,
+        },
+      ]);
+      await until(
+        () => article(preceding.id)?.textContent?.includes(lastLine) === true,
+        "preceding text edit",
       );
+      const newHeight =
+        article(preceding.id)?.getBoundingClientRect().height ?? 0;
+      const after = offset(id(63));
+      if (
+        newHeight - oldHeight <= 20 ||
+        Math.abs(after - before) > 1 ||
+        atBottom()
+      )
+        throw Error(
+          `Earlier post edit at ${width}px: height ${oldHeight} -> ${newHeight}, anchor ${before} -> ${after}, bottom ${atBottom()}`,
+        );
+    }
     host.style.display = "none";
     const hidden = saved(63);
     if (hidden.kind !== "save") throw Error("Missing fixture post");

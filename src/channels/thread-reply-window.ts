@@ -42,13 +42,18 @@ function visibleRow(channelId: string, post: Post & { id: string }): LocalPost {
 export function openThreadReplyWindow(
   account: Account,
   scope: Scope,
-  focused?: LocalPost,
+  start?: LocalPost | { lastViewedAt: number; userId: string },
 ) {
   const { channelId, rootId, collapsedThreads } = scope;
+  const unread = start && "lastViewedAt" in start ? { ...start } : undefined;
+  const focused = start && "id" in start ? start : undefined;
   if (
     !isMattermostId(channelId) ||
     !isMattermostId(rootId) ||
     typeof collapsedThreads !== "boolean" ||
+    (unread &&
+      (!isMattermostTime(unread.lastViewedAt, 0) ||
+        !isMattermostId(unread.userId))) ||
     (focused &&
       (focused.channelId !== channelId ||
         focused.rootId !== rootId ||
@@ -60,6 +65,16 @@ export function openThreadReplyWindow(
   }
   const focus = focused && { ...focused };
   const anchor = focus && { id: focus.id, createAt: focus.createAt };
+  const time = unread?.lastViewedAt;
+  // A strict upper query from t + 1 includes every reply at t. Zero is the
+  // server's unbounded-time sentinel; never send an imprecise maximum + 1.
+  const initialTime = {
+    up:
+      time !== undefined && time < Number.MAX_SAFE_INTEGER
+        ? time + 1
+        : undefined,
+    down: time || undefined,
+  };
   const cursors: Record<Direction, ThreadPageRequest["cursor"]> = {
     up: anchor,
     down: anchor,
@@ -71,8 +86,8 @@ export function openThreadReplyWindow(
   let state: ReplyWindow = {
     root: null,
     replies: focus ? [focus] : [],
-    up: { status: focus ? "ready" : "end" },
-    down: { status: "ready" },
+    up: { status: focus || (time !== undefined && time > 0) ? "ready" : "end" },
+    down: { status: time === Number.MAX_SAFE_INTEGER ? "end" : "ready" },
   };
   const seen = new Set(focus ? [focus.id] : []);
   function publish(next: ReplyWindow) {
@@ -110,7 +125,9 @@ export function openThreadReplyWindow(
           rootId,
           collapsedThreads,
           direction,
-          cursor: cursors[direction],
+          ...(cursors[direction] || initialTime[direction] === undefined
+            ? { cursor: cursors[direction] }
+            : { fromCreateAt: initialTime[direction] }),
         },
         signal,
       );
@@ -178,6 +195,17 @@ export function openThreadReplyWindow(
   }
   return {
     getSnapshot: () => state,
+    getUnreadPosition() {
+      if (!unread || lifetime.signal.aborted) return null;
+      const first = state.replies.find(
+        (row) =>
+          row.createAt > unread.lastViewedAt && row.userId !== unread.userId,
+      );
+      if (first) return { kind: "found" as const, postId: first.id };
+      return state.down.status === "end"
+        ? { kind: "none" as const }
+        : { kind: "pending" as const };
+    },
     subscribe(listener: () => void) {
       if (!lifetime.signal.aborted) listeners.add(listener);
       return () => {

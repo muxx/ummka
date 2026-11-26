@@ -81,6 +81,7 @@ function mount(
     writable?: boolean;
     type?: string;
     second?: boolean;
+    draftRead?: Promise<void>;
   } = {},
 ) {
   const data = projectTeamSidebar({
@@ -192,10 +193,10 @@ function mount(
     readSavedPost: vi
       .fn<Connection["readSavedPost"]>()
       .mockResolvedValue(rows[0]),
-    readDraft: vi.fn<Connection["readDraft"]>(
-      async (place) =>
-        drafts.get(draftKey(place)) ?? { message: "", revision: null },
-    ),
+    readDraft: vi.fn<Connection["readDraft"]>(async (place) => {
+      if (options.draftRead) await options.draftRead;
+      return drafts.get(draftKey(place)) ?? { message: "", revision: null };
+    }),
     saveDraft: vi.fn<Connection["saveDraft"]>(async (place) => {
       const key = draftKey(place);
       const existing = drafts.get(key) ?? { message: "", revision: null };
@@ -765,7 +766,16 @@ test("retrying an earlier page keeps focus at the earlier edge while the other p
 });
 
 test("the workspace offers an explicit return after the last visible message is removed and preserves the channel draft", async () => {
-  const account = mount(true);
+  let releaseDraft!: () => void;
+  const draftRead = new Promise<void>((resolve) => {
+    releaseDraft = resolve;
+  });
+  const account = mount(true, true, { draftRead });
+  await account.saveDraft({
+    channelId: general,
+    message: "Stored before opening",
+    expectedRevision: null,
+  });
   const open = await screen.findByRole("button", {
     name: /Open thread, 1 reply/,
   });
@@ -779,9 +789,12 @@ test("the workspace offers an explicit return after the last visible message is 
   pane.scrollTop = 100;
   pane.getBoundingClientRect = () => new DOMRect(0, 0, 100, 100);
   row.getBoundingClientRect = () => new DOMRect(0, -8, 100, 36);
-  const draft = screen.getByRole<HTMLTextAreaElement>("textbox", {
+  expect(screen.getByText("Opening draft…")).toBeTruthy();
+  releaseDraft();
+  const draft = await screen.findByRole<HTMLTextAreaElement>("textbox", {
     name: "Message #General…",
   });
+  expect(draft.value).toBe("Stored before opening");
   fireEvent.change(draft, { target: { value: "Keep my draft" } });
   draft.focus();
   const networkCalls = account.refreshChannelHistory.mock.calls.length;

@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { buildWebviewFixture } from "../webview-check/build.ts";
 import { checkMacWebview } from "../webview-check/macos.ts";
 import { checkAndroid } from "./android.ts";
+import { macExternalLinkReceiver } from "./external-link.ts";
 import { startFixture } from "./fixture.ts";
 
 const platform = process.argv[2];
@@ -15,6 +16,7 @@ assert(
   "expected macos or android",
 );
 const dir = await mkdtemp(join(tmpdir(), "ummka-http-"));
+const external = platform === "macos" ? await macExternalLinkReceiver() : null;
 try {
   const fixture = await startFixture(dir);
   try {
@@ -22,6 +24,7 @@ try {
       dir,
       fixture.webviewPorts,
       platform,
+      external?.href,
     );
     if (platform === "android")
       await checkAndroid(
@@ -62,9 +65,10 @@ try {
         fixture.webviewPorts,
         dir,
         config,
-        fixture.onMacEscapeReady,
+        fixture.onMacInputReady,
       );
     }
+    external?.verify();
     fixture.verify(platform === "android");
     console.log(
       `Generated Mattermost requests verified in the ${platform} WebView: installation profile, users, team channels, channel history and JSON profile batches, HTTP states, TLS and abort.`,
@@ -76,5 +80,6 @@ try {
     fixture.close();
   }
 } finally {
+  external?.close();
   await rm(dir, { recursive: true, force: true });
 }

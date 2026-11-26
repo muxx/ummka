@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { openExternalPostLink } from "../../src/mattermost/external-post-link.ts";
 import { openNativeRestConnection } from "../../src/mattermost/native-rest.ts";
 import { findStandardEmoji } from "../../src/mattermost/standard-emoji.ts";
 import { checkAppearance } from "./appearance.ts";
@@ -68,10 +69,27 @@ async function checkResources() {
     if (findStandardEmoji("thumbsup")?.glyph !== "👍")
       throw Error("standard-emoji-directory");
     await checkChannelsFrame();
-    checkChannelTimeline();
+    await checkChannelTimeline();
     const ports = String(import.meta.env.VITE_UMMKA_CHECK_PORTS).split(",");
     await checkGeneratedRequests(ports);
+    const invalid = await openExternalPostLink("/relative").catch(
+      (reason: unknown) => reason,
+    );
+    if (invalid !== "invalid_url")
+      throw Error("External URL validation failed");
+    const externalHref = navigator.userAgent.includes("Android")
+      ? "https://external.ummka.invalid/post/@bear?value=a%2Fb#anchor"
+      : import.meta.env.VITE_UMMKA_CHECK_EXTERNAL_HREF;
+    if (externalHref) await openExternalPostLink(externalHref);
     await checkBrowserAction(ports[0], ports[1]);
+    if (navigator.userAgent.includes("Android")) {
+      await openExternalPostLink("mailto:probe@ummka.invalid");
+      const missing = await openExternalPostLink(
+        "mailto:unhandled@ummka.invalid",
+      ).catch((reason: unknown) => reason);
+      if (missing !== "handler_unavailable")
+        throw Error("Missing Android mail handler was not reported");
+    }
     await seedRegistry();
     location.replace("/ipc-result.html?pass");
     return;

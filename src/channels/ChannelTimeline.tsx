@@ -74,16 +74,20 @@ type ScrollProps = {
   children: ReactNode;
   viewport?: TimelineViewport;
   historical: boolean;
+  hasRows: boolean;
 };
 type Place = ReturnType<typeof measureTimeline>;
 class TimelineScroller extends Component<ScrollProps> {
   private readonly pane = createRef<HTMLElement>();
+  private readonly frame = createRef<HTMLDivElement>();
+  private resize?: ResizeObserver;
   focusPost(id: string) {
     const pane = this.pane.current,
       row = pane?.querySelector<HTMLElement>(
         `[data-post-id="${CSS.escape(id)}"]`,
       );
     if (!pane || !row) return false;
+    this.lastCorrection = undefined;
     row.focus({ preventScroll: true });
     const bounds = row.getBoundingClientRect();
     pane.scrollTop +=
@@ -93,14 +97,38 @@ class TimelineScroller extends Component<ScrollProps> {
     return true;
   }
   private hiddenPlace: Place | null | undefined = null;
+  private lastCorrection?: { top: number; remainder: number };
 
   componentDidMount() {
     const pane = this.pane.current;
     if (this.props.viewport) this.props.viewport.current = pane;
-    if (pane) pane.scrollTop = pane.scrollHeight;
+    const frame = this.frame.current;
+    if (!pane || !frame) return;
+    const size = frame.getBoundingClientRect();
+    this.fitPane(pane, size);
+    pane.scrollTop = pane.scrollHeight;
+    this.resize = new ResizeObserver(([entry]) => {
+      if (!this.pane.current || !entry) return;
+      this.fitPane(pane, entry.contentRect);
+    });
+    this.resize.observe(frame);
+  }
+
+  // Keep the old line wrapping until the reading position has been measured.
+  // The outer frame gets its bounds from layout; only its observer sizes the scroller.
+  private fitPane(pane: HTMLElement, { width, height }: DOMRectReadOnly) {
+    if (!width || !height) return;
+    const inline = `${width}px`;
+    const block = `${height}px`;
+    if (pane.style.width === inline && pane.style.height === block) return;
+    const place = this.place(pane, this.props.historical);
+    pane.style.width = inline;
+    pane.style.height = block;
+    this.restore(pane, place);
   }
 
   componentWillUnmount() {
+    this.resize?.disconnect();
     if (this.props.viewport) this.props.viewport.current = null;
   }
 
@@ -109,8 +137,12 @@ class TimelineScroller extends Component<ScrollProps> {
     const pane = this.pane.current;
     if (!pane || previous.channelId !== this.props.channelId) return null;
     if (!pane.clientHeight) return "hidden";
-    const place = measureTimeline(pane, !previous.historical);
-    return place.atBottom && !previous.historical ? null : place;
+    return this.place(pane, previous.historical);
+  }
+
+  private place(pane: HTMLElement, historical: boolean) {
+    const place = measureTimeline(pane, !historical);
+    return place.atBottom && !historical ? null : place;
   }
 
   componentDidUpdate(
@@ -131,7 +163,12 @@ class TimelineScroller extends Component<ScrollProps> {
     }
     const place = snapshot === "hidden" ? this.hiddenPlace : snapshot;
     this.hiddenPlace = undefined;
-    if (place === undefined) return;
+    if (place !== undefined) this.restore(pane, place);
+  }
+
+  private restore(pane: HTMLElement, place: Place | null) {
+    const correction = this.lastCorrection;
+    this.lastCorrection = undefined;
     if (!place) {
       pane.scrollTop = pane.scrollHeight;
       return;
@@ -142,7 +179,22 @@ class TimelineScroller extends Component<ScrollProps> {
         `[data-post-id="${CSS.escape(anchor.id)}"],[data-local-id="${CSS.escape(anchor.id)}"]`,
       );
       if (row) {
-        pane.scrollTop += row.getBoundingClientRect().top - top - anchor.offset;
+        // WebKit quantizes scrollTop. Carry the unapplied fraction while the reader stays put.
+        const remainder =
+          correction?.top === place.top ? correction.remainder : 0;
+        const desired =
+          pane.scrollTop +
+          row.getBoundingClientRect().top -
+          top -
+          anchor.offset +
+          remainder;
+        const target = Math.min(
+          Math.max(0, desired),
+          pane.scrollHeight - pane.clientHeight,
+        );
+        pane.scrollTop = target;
+        const actual = pane.scrollTop;
+        this.lastCorrection = { top: actual, remainder: target - actual };
         return;
       }
     }
@@ -151,15 +203,20 @@ class TimelineScroller extends Component<ScrollProps> {
 
   render() {
     return (
-      <section
-        className="timeline-scroll"
-        // biome-ignore lint/a11y/noNoninteractiveTabindex: This scrollable region is a keyboard target for Page and arrow keys.
-        tabIndex={0}
-        ref={this.pane}
-        aria-label={this.props.label}
-      >
-        {this.props.children}
-      </section>
+      <div className="timeline-frame" ref={this.frame}>
+        <section
+          className="timeline-scroll"
+          data-latest={
+            (!this.props.historical && this.props.hasRows) || undefined
+          }
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: This scrollable region is a keyboard target for Page and arrow keys.
+          tabIndex={0}
+          ref={this.pane}
+          aria-label={this.props.label}
+        >
+          {this.props.children}
+        </section>
+      </div>
     );
   }
 }
@@ -280,6 +337,7 @@ export function ChannelTimeline({
         channelId={channelId}
         label={text.history}
         viewport={viewport}
+        hasRows={rows.length > 0}
         historical={!!page && page.newer.kind !== "end"}
       >
         {limited && <div className="timeline-limit">{text.limited}</div>}

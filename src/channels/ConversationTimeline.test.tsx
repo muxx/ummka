@@ -21,6 +21,8 @@ import { useConversationOutgoing } from "./use-conversation-outgoing.tsx";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
 import { channelPageSize } from "./workspace-data.ts";
 
+import "./workspace-dom.test-utils.ts";
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -234,7 +236,7 @@ test("opens the bounded tail and reads an earlier page only on request", async (
 
 test("restores native status, retires only a matched canonical post and ignores a late response from the previous room", async () => {
   const store = account([
-    pending(3, { message: "local copy", confirmedPostId: "canonical" }),
+    pending(3, { message: "**local copy**", confirmedPostId: "canonical" }),
     pending(2, { message: "still uncertain" }),
     pending(1, { channelId: "other", message: "other room" }),
   ]);
@@ -242,21 +244,32 @@ test("restores native status, retires only a matched canonical post and ignores 
   const active = render(
     <ConversationTimeline {...view} connection={store.connection} />,
   );
-  await screen.findByText("local copy");
+  const outgoing = (await screen.findByText("**local copy**")).closest(
+    "article",
+  );
+  expect(outgoing?.querySelector(".published-post")).toBeNull();
   active.rerender(
     <ConversationTimeline
       {...view}
       connection={store.connection}
-      page={page(server("canonical", 3, { message: "server copy" }))}
+      page={page(
+        server("canonical", 3, {
+          message: "**server copy**",
+          messageSource: "Original before formatting",
+        }),
+      )}
     />,
   );
-  await screen.findByText("server copy");
+  const delivered = await screen.findByText("server copy");
+  expect(delivered.tagName).toBe("STRONG");
+  expect(delivered.closest("article")).toBe(outgoing);
+  expect(screen.queryByText("Original before formatting")).toBeNull();
   await waitFor(() =>
     expect(store.saved.some((p) => p.confirmedPostId === "canonical")).toBe(
       false,
     ),
   );
-  expect(screen.queryByText("local copy")).toBeNull();
+  expect(screen.queryByText("**local copy**")).toBeNull();
   expect(store.connection.retireDeliveredPosts).toHaveBeenCalledWith([
     "canonical",
   ]);
