@@ -4,6 +4,24 @@ import { createRoot } from "react-dom/client";
 import { App } from "../../src/App.tsx";
 import { openNativeRestConnection } from "../../src/mattermost/native-rest.ts";
 
+export function findThreadDraft(host: HTMLElement) {
+  const ui = within(host);
+  // History and the native draft store finish independently. Wait for the
+  // loaded reply and its editor in the same currently mounted thread.
+  return waitFor(
+    () => {
+      const pane = ui.getByRole("complementary", { name: "Thread" });
+      const thread = within(pane);
+      thread.getByText("Reply visible only inside Town’s thread");
+      const field = thread.getByRole<HTMLTextAreaElement>("textbox", {
+        name: "Reply in thread…",
+      });
+      return { pane, thread, field };
+    },
+    { timeout: 10_000 },
+  );
+}
+
 export async function verifyWorkspaceBack(
   host: HTMLElement,
   port: string,
@@ -37,11 +55,7 @@ export async function verifyWorkspaceBack(
       );
   }
   try {
-    const pane = await ui.findByRole("complementary", { name: "Thread" });
-    const reply = await within(pane).findByRole<HTMLTextAreaElement>(
-      "textbox",
-      { name: "Reply in thread…" },
-    );
+    const { field: reply } = await findThreadDraft(host);
     flushSync(() => fireEvent.input(reply, { target: { value: threadText } }));
     const search = ui.getByRole("button", { name: "Search" });
     flushSync(() => fireEvent.click(search));
@@ -90,10 +104,8 @@ export async function verifyWorkspaceBack(
         );
     });
     await press("results");
-    const restored = await ui.findByRole("complementary", { name: "Thread" });
-    const restoredField = await within(
-      restored,
-    ).findByRole<HTMLTextAreaElement>("textbox", { name: "Reply in thread…" });
+    const { pane: restored, field: restoredField } =
+      await findThreadDraft(host);
     await waitFor(() => {
       if (
         resultsNode.isConnected ||
@@ -118,10 +130,8 @@ export async function verifyWorkspaceBack(
         );
     });
     flushSync(() => fireEvent.click(opener));
-    const reopened = await ui.findByRole("complementary", { name: "Thread" });
-    const reopenedField = await within(
-      reopened,
-    ).findByRole<HTMLTextAreaElement>("textbox", { name: "Reply in thread…" });
+    const { pane: reopened, field: reopenedField } =
+      await findThreadDraft(host);
     await waitFor(() => {
       if (reopenedField.value !== threadText)
         throw Error("The saved thread draft did not reopen");
