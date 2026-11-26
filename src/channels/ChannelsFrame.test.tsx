@@ -51,6 +51,10 @@ function frame() {
 test("keeps one named conversation and wires the team, account and navigation actions", () => {
   const props = frame();
   const { rerender } = render(<ChannelsFrame {...props} />);
+  const mobile = ["android", "ios"].includes(
+    process.env.TAURI_ENV_PLATFORM ?? "",
+  );
+  expect(Boolean(screen.queryByRole("img", { name: "ummka" }))).toBe(mobile);
   expect(screen.getByRole("main", { name: "General" })).toBeTruthy();
   const account = screen.getByRole("button", { name: labels.account });
   expect(account.hasAttribute("data-tauri-drag-region")).toBe(false);

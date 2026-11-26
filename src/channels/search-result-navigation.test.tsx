@@ -21,6 +21,9 @@ import {
 } from "../mattermost/workspace-preferences.ts";
 import "./workspace-dom.test-utils.ts";
 
+vi.mock("@tauri-apps/api/app", () => ({
+  onBackButtonPress: vi.fn(async () => ({ unregister: vi.fn() })),
+}));
 vi.mock("../mattermost/device-launch.ts", () => ({
   getDeviceLaunchContext: vi.fn(),
 }));

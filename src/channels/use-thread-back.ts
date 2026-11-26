@@ -1,17 +1,17 @@
 import { onBackButtonPress } from "@tauri-apps/api/app";
 import { useEffect, useEffectEvent } from "react";
+import { isAndroid } from "../build-platform.ts";
 
 export function useThreadBack(active: boolean, close: () => void) {
   const back = useEffectEvent(close);
   useEffect(() => {
     if (!active) return;
     let listening = true;
-    const listener =
-      import.meta.env.UMMKA_ANDROID === true
-        ? onBackButtonPress(() => {
-            if (listening) back();
-          })
-        : undefined;
+    const listener = isAndroid
+      ? onBackButtonPress(() => {
+          if (listening) back();
+        })
+      : undefined;
     function handleEscape(event: KeyboardEvent) {
       if (event.key !== "Escape" || event.defaultPrevented || event.isComposing)
         return;
