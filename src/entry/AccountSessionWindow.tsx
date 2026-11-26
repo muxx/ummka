@@ -107,6 +107,7 @@ export function AccountSessionWindow({
             : text[page]}
         </h1>
       </header>
+      {/* biome-ignore lint/a11y/noNoninteractiveTabindex: Keyboard users scroll this region even when it contains only text. */}
       <section className="modal-scroll" aria-labelledby={titleId} tabIndex={0}>
         <p className="entry-address" dir="ltr">
           {workspace.serverUrl}

@@ -159,6 +159,7 @@ function DestinationDialog({
               ? "Переход к сообщению"
               : "Open message"}
       </h2>
+      {/* biome-ignore lint/a11y/noNoninteractiveTabindex: Keyboard users scroll this region even when it contains only text. */}
       <section className="modal-scroll" aria-labelledby={title} tabIndex={0}>
         <p id={description} role={modal.kind === "error" ? "alert" : "status"}>
           {step
