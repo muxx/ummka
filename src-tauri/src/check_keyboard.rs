@@ -14,6 +14,7 @@ pub(crate) fn listen<R: Runtime>(window: &WebviewWindow<R>) {
             // WebKit scrolls while the key is down. Deliver both physical phases on
             // separate UI turns, holding the key for an ordinary keyboard press.
             for down in [true, false] {
+                let (sent, dispatched) = std::sync::mpsc::channel();
                 window
                     .with_webview(move |view| {
                         use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventType, NSResponder, NSWindow};
@@ -39,12 +40,18 @@ pub(crate) fn listen<R: Runtime>(window: &WebviewWindow<R>) {
                         } else {
                             webview.keyUp(&event);
                         }
+                        let _ = sent.send(());
                     })
                     .expect("deliver fixture keyboard input to its window");
+                // with_webview enqueues work. Start the hold only after AppKit received keyDown.
+                if dispatched.recv().is_err() {
+                    return;
+                }
                 if down && key_code == 124 {
                     std::thread::sleep(std::time::Duration::from_millis(160));
                 }
             }
+            println!("UMMKA_KEY_DISPATCHED {line}");
         }
     });
 }
