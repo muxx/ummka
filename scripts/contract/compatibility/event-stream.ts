@@ -10,7 +10,13 @@ import {
 type FixtureFrame = {
   event?: string;
   seq?: number;
-  data?: { connection_id?: string; post?: string };
+  data?: {
+    connection_id?: string;
+    post?: string;
+    user_id?: string;
+    parent_id?: string;
+    text?: string;
+  };
   broadcast?: { channel_id?: string };
   seq_reply?: number;
   status?: string;
@@ -21,7 +27,7 @@ const NodeWebSocket = WebSocket as typeof WebSocket & {
   new (url: string, init: { headers: { Authorization: string } }): WebSocket;
 };
 
-function subscribe(
+export function subscribe(
   base: string,
   token: string,
   id: string,

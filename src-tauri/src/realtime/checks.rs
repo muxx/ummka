@@ -32,10 +32,71 @@ async fn signed(
         .await?)
 }
 
+async fn check_actions(
+    reader: &mut EventReader,
+    check_typing: bool,
+) -> Result<(), EventConnectionError> {
+    let Some(IncomingFrame::Event { after: hello, .. }) = reader.next_frame(None).await? else {
+        panic!("expected the action fixture hello");
+    };
+    let channel = "c".repeat(26);
+    assert_eq!(
+        reader.send_typing("invalid", None).await,
+        Err(EventConnectionError::InvalidAction)
+    );
+    assert_eq!(
+        reader.send_typing(&channel, Some("")).await,
+        Err(EventConnectionError::InvalidAction)
+    );
+    let ping = reader.send_ping().await?;
+    assert_eq!(ping, 1);
+    let Some(IncomingFrame::Event { event, after, .. }) = reader.next_frame(Some(&hello)).await?
+    else {
+        panic!("expected the typing event before pong");
+    };
+    let typing = event
+        .typing()
+        .expect("valid fixture event")
+        .expect("peer is typing");
+    let root = "r".repeat(26);
+    assert_eq!(typing.channel_id, channel);
+    assert_eq!(typing.user_id, "p".repeat(26));
+    assert_eq!(typing.root_id, Some(root.as_str()));
+    let reply = reader.next_frame(Some(&after)).await?.expect("pong reply");
+    assert!(reply.confirms_ping(ping));
+    assert!(!reply.confirms_ping(2));
+    if check_typing {
+        for (seq, parent, status) in [
+            (2, None, super::ReplyStatus::Ok),
+            (3, Some(root.as_str()), super::ReplyStatus::Fail),
+        ] {
+            assert_eq!(reader.send_typing(&channel, parent).await?, seq);
+            let reply = reader
+                .next_frame(Some(&after))
+                .await?
+                .expect("typing reply");
+            assert!(!reply.confirms_ping(seq));
+            assert!(
+                matches!(reply, IncomingFrame::Reply { request_sequence, status: actual, .. } if request_sequence == seq && actual == status)
+            );
+        }
+    }
+    assert_eq!(after.next_sequence(), 2);
+    Ok(())
+}
+
 pub(crate) async fn wire(client: &NativeHttp, base: &str) -> CheckResult {
     let sessions = using(Arc::new(TestVault::default()));
     applied::check(client, &sessions, base).await?;
     activity::check(client, &sessions, base).await?;
+    let actions = signed(client, &sessions, base, "actions").await?;
+    for check_typing in [true, false] {
+        actions
+            .with_event_stream(EventSettings::default(), None, async |reader| {
+                check_actions(reader, check_typing).await
+            })
+            .await?;
+    }
     let connection = signed(client, &sessions, base, "events").await?;
     let cursor = connection
         .with_event_stream(EventSettings::default(), None, async |reader| match reader

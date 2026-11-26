@@ -7,6 +7,7 @@ import { json } from "node:stream/consumers";
 
 import { activityEventsFixture } from "./activity-events.ts";
 import { appliedEventsFixture } from "./applied-events.ts";
+import { actionFixture } from "./channel-event-actions.ts";
 
 const fixtureId = "e".repeat(26);
 const prefix = "/Event%20Site//";
@@ -22,6 +23,7 @@ export function eventFixture() {
   const visits: string[] = [];
   const applied = appliedEventsFixture(frame);
   const activity = activityEventsFixture(frame);
+  const actions = actionFixture();
   const events = new EventEmitter();
   const arrived = once(events, "arrived");
   const closed = once(events, "closed");
@@ -99,6 +101,11 @@ export function eventFixture() {
             "&sequence_number=" +
             (resumed ? 1 : 0),
         );
+      if (mode === "actions") {
+        assert(!resumed);
+        actions.upgrade(req, socket);
+        return;
+      }
       if (mode === "hold") {
         socket.once("close", () => events.emit("closed"));
         socket.on("end", () => socket.end());
@@ -161,9 +168,12 @@ export function eventFixture() {
     verify() {
       applied.verify();
       activity.verify();
+      actions.verify();
       assert.equal(accepted, 1);
       assert.deepEqual(visits, [
         "delivery",
+        "actions",
+        "actions",
         "events",
         "events",
         "closed",
