@@ -65,6 +65,7 @@ export function webviewServers(
   let formattingTimes:
     | { width: number; first: number; unchanged: number }[]
     | undefined;
+  const formatKeyWidths: number[] = [];
   let sendRight: (() => Promise<void>) | undefined;
   let prepareKeyboard: (() => Promise<void>) | undefined;
   const backSteps = ["dialog", "results", "thread", "reopened"];
@@ -1419,8 +1420,15 @@ export function webviewServers(
       stepIndex++;
     } else if (step === "format-right") {
       assert(sendRight, "Missing native keyboard driver");
+      const width = Number(url.searchParams.get("case"));
+      assert.equal(width, [320, 820][formatKeyWidths.length]);
+      formatKeyWidths.push(width);
+      console.log(
+        `Sending native ArrowRight to the ${width}px formatting fixture.`,
+      );
       await sendRight();
     } else if (step === "format-times") {
+      assert.deepEqual(formatKeyWidths, [320, 820]);
       const data = JSON.parse(url.searchParams.get("case") ?? "null");
       assert.ok(Array.isArray(data));
       assert.deepEqual(
@@ -1432,6 +1440,7 @@ export function webviewServers(
         assert.ok(Number.isFinite(row.unchanged) && row.unchanged >= 0);
       }
       formattingTimes = data;
+      console.log("Verified native code-block scrolling at both widths.");
     } else if (step === "release-history") {
       refresh.release();
     } else if (step === "release-submission") {

@@ -92,6 +92,30 @@ test("renders oldest first, preserves tie order, local calendar days and escaped
   expect(screen.getByRole("region").tabIndex).toBe(0);
 });
 
+test("keeps different years separate when their compact labels match", () => {
+  const pageAcrossYears = page(
+    post("new", Date.UTC(2026, 6, 1)),
+    post("old", Date.UTC(2020, 6, 1)),
+  );
+  const { container, rerender } = render(
+    <ChannelTimeline {...base} page={pageAcrossYears} />,
+  );
+  const labels = () => [...container.querySelectorAll(".timeline-day time")];
+  expect(labels().map((el) => el.textContent)).toEqual([
+    "Wednesday, July 1",
+    "Wednesday, July 1",
+  ]);
+  expect(labels().map((el) => el.getAttribute("title"))).toEqual([
+    "Wednesday, July 1, 2020",
+    "Wednesday, July 1, 2026",
+  ]);
+  rerender(<ChannelTimeline {...base} locale="ru" page={pageAcrossYears} />);
+  expect(labels().map((el) => el.textContent)).toEqual([
+    "среда, 1 июля",
+    "среда, 1 июля",
+  ]);
+});
+
 test("distinguishes cold, empty, offline, capped and missing parts without claiming a missing author or page", () => {
   const { rerender } = render(
     <ChannelTimeline {...base} page={null} offline />,

@@ -23,7 +23,7 @@
   overflow: auto;
   overflow-anchor: none;
   overscroll-behavior: contain;
-  padding-block: 8px 14px;
+  padding-block-end: 14px;
 }
 .timeline-scroll > * {
   flex: none;
@@ -56,32 +56,37 @@
 .timeline-empty {
   padding-block: 32px;
 }
-.timeline-day {
-  z-index: 1;
-  position: sticky;
-  top: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 4px 16px;
-  pointer-events: none;
+.timeline-day-group {
+  position: relative;
 }
-.timeline-day::before,
-.timeline-day::after {
+.timeline-day-group::before {
   content: "";
-  flex: 1;
+  position: absolute;
+  inset-inline: 0;
+  top: calc(10px + 0.5 * 1.45 * 0.69rem);
   height: 1px;
   background: var(--divider);
+  pointer-events: none;
 }
-.timeline-day span {
-  padding: 3px 10px;
+.timeline-day {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  display: flex;
+  justify-content: center;
+  padding: 6px 0 5px;
+  pointer-events: none;
+}
+.timeline-day > * {
+  padding: 3px 11px;
   border: 1px solid var(--divider);
-  border-radius: 12px;
+  border-radius: 16px;
   background: var(--canvas);
   color: var(--muted);
-  font-weight: 600;
-  font-size: 0.75rem;
+  font-weight: 650;
+  font-size: 0.69rem;
+  line-height: 1.45;
+  pointer-events: auto;
 }
 .timeline-post {
   display: grid;
