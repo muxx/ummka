@@ -1,4 +1,11 @@
-import { Component, createRef, type ReactNode, useMemo } from "react";
+import {
+  Component,
+  createRef,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+} from "react";
 import type { PendingPost } from "../mattermost/account-delivery.ts";
 import type {
   LocalChannelWindow,
@@ -50,6 +57,7 @@ export type TimelineProps = {
   onOpenThread?: (post: LocalPost) => void;
   openThreadPostId?: string;
   collapsedThreads?: boolean;
+  address?: { requestId: number; anchorId: string };
   onReadEdge?: (direction: Direction, postId: string) => void;
   messages?: readonly TimelineMessage[];
   renderOutgoing?: (post: PendingPost) => ReactNode;
@@ -62,6 +70,20 @@ type ScrollProps = { channelId: string; label: string; children: ReactNode };
 type Place = { top: number; anchors: { id: string; offset: number }[] };
 class TimelineScroller extends Component<ScrollProps> {
   private readonly pane = createRef<HTMLElement>();
+  focusPost(id: string) {
+    const pane = this.pane.current,
+      row = pane?.querySelector<HTMLElement>(
+        `[data-post-id="${CSS.escape(id)}"]`,
+      );
+    if (!pane || !row) return false;
+    row.focus({ preventScroll: true });
+    const bounds = row.getBoundingClientRect();
+    pane.scrollTop +=
+      bounds.top -
+      pane.getBoundingClientRect().top -
+      (pane.clientHeight - bounds.height) / 2;
+    return true;
+  }
   private hiddenPlace: Place | null | undefined = null;
 
   componentDidMount() {
@@ -146,6 +168,7 @@ export function ChannelTimeline({
   onOpenThread,
   openThreadPostId,
   collapsedThreads,
+  address,
   onReadEdge,
   messages,
   renderOutgoing,
@@ -153,6 +176,20 @@ export function ChannelTimeline({
   localNotice,
   waitingMessage,
 }: TimelineProps) {
+  const scroller = useRef<TimelineScroller>(null);
+  const positioned = useRef<number | null>(null);
+  useEffect(() => {
+    if (!address) {
+      positioned.current = null;
+      return;
+    }
+    if (
+      positioned.current !== address.requestId &&
+      page &&
+      scroller.current?.focusPost(address.anchorId)
+    )
+      positioned.current = address.requestId;
+  }, [address, page]);
   const text = copy[locale];
   const dates = useMemo(
     () => ({
@@ -207,6 +244,8 @@ export function ChannelTimeline({
       <TimelinePost
         key={post.localId ?? post.id}
         post={post}
+        highlighted={address?.anchorId === post.id}
+        focusable={address?.anchorId === post.id}
         locale={locale}
         author={author}
         time={dates.time}
@@ -228,7 +267,11 @@ export function ChannelTimeline({
           {page ? text.savedOffline : text.offline}
         </div>
       )}
-      <TimelineScroller channelId={channelId} label={text.history}>
+      <TimelineScroller
+        ref={scroller}
+        channelId={channelId}
+        label={text.history}
+      >
         {limited && <div className="timeline-limit">{text.limited}</div>}
         {boundary("older")}
         {localNotice}

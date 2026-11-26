@@ -211,6 +211,7 @@ function mount(
     subscribeToPostActivity: vi.fn(() => () => {}),
   };
   const workspace: TeamWorkspace = {
+    messages: { open: vi.fn(), clear: vi.fn(), position: null },
     connection: connection as unknown as Connection,
     serverUrl: "https://chat.example.test",
     userId,

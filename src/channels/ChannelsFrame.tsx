@@ -30,6 +30,8 @@ type FrameProps = {
   children: ReactNode;
   searchTrigger?: ReactNode;
   searchPanel?: ReactNode;
+  resultReturn?: ReactNode;
+  returnInThread?: boolean;
   composer?: ReactNode;
   draftRef?: RefObject<HTMLElement | null>;
   thread?: {
@@ -74,6 +76,8 @@ export function ChannelsFrame({
   children,
   searchTrigger,
   searchPanel,
+  resultReturn,
+  returnInThread,
   composer,
   draftRef,
   thread,
@@ -92,11 +96,13 @@ export function ChannelsFrame({
   const channelId = channel?.id;
   const openThread = thread?.id;
   const replyRef = thread?.replyRef;
+  const showingSearch = Boolean(searchPanel);
   const previous = useRef({ page, channelId, openThread });
 
   useLayoutEffect(() => {
     const old = previous.current;
     previous.current = { page, channelId, openThread };
+    if (showingSearch) return;
     function focusNavigation() {
       const current = sidebar.current?.querySelector<HTMLElement>(
         '[aria-current="page"]',
@@ -151,7 +157,7 @@ export function ChannelsFrame({
     });
     observer.observe(scene);
     return () => observer.disconnect();
-  }, [page, channelId, openThread, draftRef, replyRef]);
+  }, [page, channelId, openThread, draftRef, replyRef, showingSearch]);
 
   return (
     <div
@@ -235,6 +241,7 @@ export function ChannelsFrame({
               {channel?.title ?? emptyTitle}
             </h1>
           </header>
+          {!returnInThread && resultReturn}
           <div className="channels-conversation-body">{children}</div>
           {composer}
         </main>
@@ -269,6 +276,7 @@ export function ChannelsFrame({
                 </svg>
               </button>
             </header>
+            {returnInThread && resultReturn}
             <div className="channels-pane-body">{thread.content}</div>
           </aside>
         )}
