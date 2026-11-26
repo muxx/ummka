@@ -21,6 +21,7 @@ import {
   search,
   secondFile,
   summer,
+  user,
   winter,
 } from "./navigation-app.test-utils.tsx";
 
@@ -1066,4 +1067,122 @@ test("keyboard pagination returns to retry after a refusal and focuses the first
   const item = await pane.findByRole("button", { name: /Earlier mention/ });
   expect(document.activeElement).toBe(item);
   expect(readPage.mock.calls.map(([index]) => index)).toEqual([0, 1, 1]);
+});
+
+test("mentions paint immediately, resolve a repeated outside channel once and forget a previous view's late name", async () => {
+  const { account } = fixture();
+  const outside = "v".repeat(26);
+  const identity = {
+    id: outside,
+    kind: "P" as const,
+    teamId: summer,
+    name: "release",
+    displayName: "Release team",
+    deleteAt: 0,
+  };
+  let finish!: (value: typeof identity) => void;
+  account.readChannelIdentity.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  account.openRecentMentions.mockResolvedValue({
+    readPage: vi.fn().mockResolvedValue({
+      items: [
+        { ...root, channelId: outside },
+        { ...reply, channelId: outside },
+      ],
+      nextPage: null,
+      firstInaccessiblePostTime: 0,
+    }),
+  });
+  const open = await screen.findByRole("button", { name: "Mentions" });
+  await waitFor(() => expect(open.hasAttribute("disabled")).toBe(false));
+  fireEvent.click(open);
+  await screen.findByText(root.message);
+  await screen.findByText(reply.message);
+  expect(account.readChannelIdentity).toHaveBeenCalledTimes(1);
+  const old = account.readChannelIdentity.mock.calls[0][1];
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(old?.aborted).toBe(true);
+  account.readChannelIdentity.mockResolvedValueOnce({
+    ...identity,
+    displayName: "New team",
+  });
+  fireEvent.click(open);
+  const pane = within(
+    await screen.findByRole("complementary", { name: "Mentions" }),
+  );
+  await waitFor(() => expect(pane.getAllByText(/# New team/)).toHaveLength(2));
+  await act(async () => finish(identity));
+  expect(pane.queryByText(/Release team/)).toBeNull();
+  expect(account.readChannelIdentity).toHaveBeenCalledTimes(2);
+});
+
+test("saved messages resolve an unlisted direct conversation using the peer profile", async () => {
+  const { account } = fixture();
+  const outside = "v".repeat(26),
+    peer = "z".repeat(26);
+  account.readChannelIdentity.mockResolvedValue({
+    id: outside,
+    kind: "D",
+    teamId: "",
+    name: [user, peer].join("__"),
+    displayName: "",
+    deleteAt: 0,
+  });
+  account.readSavedProfiles.mockImplementation(
+    async (query: { ids: string[] }) => ({
+      profiles: query.ids.includes(peer)
+        ? { [peer]: channelProfile({ id: peer, username: "aurora" }) }
+        : {},
+      usernames: {},
+    }),
+  );
+  account.readSavedPosts.mockResolvedValue({
+    items: [{ id: root.id, channelId: outside, message: "Saved outside" }],
+    firstInaccessiblePostTime: 0,
+  });
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Saved messages" }),
+  );
+  const pane = within(
+    await screen.findByRole("complementary", { name: "Saved messages" }),
+  );
+  await pane.findByText(/aurora/);
+  expect(pane.queryByText(/__/)).toBeNull();
+  expect(account.readChannelIdentity).toHaveBeenCalledTimes(1);
+});
+
+test("search labels an outside channel and retains its result when another channel refuses metadata", async () => {
+  const { account } = fixture();
+  const outside = "v".repeat(26),
+    unavailable = "z".repeat(26);
+  account.readPostSearchPage.mockResolvedValue({
+    items: [
+      { id: root.id, channelId: outside, message: "Release note" },
+      { id: reply.id, channelId: unavailable, message: "Other note" },
+    ],
+    matches: null,
+    isEnd: true,
+    firstInaccessiblePostTime: 0,
+  });
+  account.readChannelIdentity.mockImplementation(async (id) => {
+    if (id === unavailable)
+      throw new ResponseError(new Response(null, { status: 403 }));
+    return {
+      id,
+      kind: "O",
+      name: "release",
+      displayName: "Shared releases",
+      teamId: summer,
+      deleteAt: 0,
+    };
+  });
+  const results = await search();
+  await results.findByText("Shared releases");
+  expect(results.getByRole("button", { name: "Other note" })).toBeTruthy();
+  expect(results.queryByText(unavailable)).toBeNull();
+  expect(account.readChannelIdentity).toHaveBeenCalledTimes(2);
 });

@@ -179,6 +179,7 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
     const mentioned = await mentionPane.findByRole("button", {
       name: /for @reader/,
     });
+    await mentionPane.findByText(/# Outside releases/);
     click(mentioned);
     await (await findPane("Thread")).findByText(
       "Reply visible only inside Town’s thread for @reader",
