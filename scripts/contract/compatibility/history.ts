@@ -43,6 +43,7 @@ import {
 import { checkCollectionActions } from "./collection-actions.ts";
 import { checkCommands } from "./commands.ts";
 import { checkCustomEmojiLookup } from "./custom-emoji.ts";
+import { checkEventActions } from "./event-actions.ts";
 import { checkEventStream } from "./event-stream.ts";
 import { checkFileContent } from "./file-content.ts";
 import { checkFileSearch } from "./file-search.ts";
@@ -58,6 +59,7 @@ import {
 import { checkMentionLimit } from "./mention-limit.ts";
 import { checkMentionText } from "./mention-text.ts";
 import { checkMobileFilePolicy } from "./mobile-file-policy.ts";
+import { checkNamedRoutes } from "./named-channel.ts";
 import {
   checkPostCollections,
   checkSavedPageBoundary,
@@ -69,6 +71,7 @@ import {
   checkPreviouslyAcceptedPost,
 } from "./post-mutations.ts";
 import { checkPostSearch } from "./post-search.ts";
+import { checkPresencePolicy } from "./presence-policy.ts";
 import { checkProfileReads } from "./profile-reads.ts";
 import { checkPublishedPostDocument } from "./published-post-document.ts";
 import { checkReactionActions } from "./reaction-actions.ts";
@@ -1276,6 +1279,7 @@ await checkPreviouslyAcceptedPost(
 await checkSearchScopePolicy(base, token, readerToken, version);
 await checkPostEditWindow(base, token, readerToken);
 await checkMobileFilePolicy(base, token, readerToken);
+await checkPresencePolicy(base, token, readerToken);
 await checkReactionLimit(base, token, user.id, readerToken, channelId);
 console.log(
   `Mattermost ${version} verified the signed reaction limit against adding a new emoji name.`,
@@ -1350,6 +1354,15 @@ await checkThreadPageTies(
   new Configuration({ basePath: base, accessToken: readerToken }),
   team.id,
   message,
+  version,
+);
+await checkEventActions(
+  base,
+  emptyTeam.id,
+  threadRoom.id,
+  { token: otherSaverToken, id: otherSaver.id },
+  { token: readerToken, id: reader.id },
+  create,
   version,
 );
 
@@ -1467,6 +1480,23 @@ console.log(
   `Mattermost ${version} verified attachment representations, ranges and channel access.`,
 );
 await checkPublishedPostDocument(readerPosts, base, channelId, version);
+await checkNamedRoutes(
+  session,
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  reader.id,
+  team,
+  extraTeam,
+  joinable,
+  (route, body) => create(route, body, token),
+  (id) =>
+    fetch(`${base}/api/v4/channels/${id}`, {
+      method: "DELETE",
+      headers: authorization,
+    }),
+);
+console.log(
+  `Mattermost ${version} verified team and channel names before and after invitation and archive.`,
+);
 await allowFixtureBrowserSignIn(base, token);
 const logout = await fetch(`${base}/api/v4/users/logout`, {
   method: "POST",

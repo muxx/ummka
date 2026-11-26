@@ -42,6 +42,12 @@ impl Operation<'_> {
                 "{team_id}" | "{channel_id}" | "{post_id}" | "{thread_id}" | "{file_id}" => {
                     is_mattermost_id(actual)
                 }
+                "{name}" | "{team_name}" | "{channel_name}" => {
+                    (1..=64).contains(&actual.len())
+                        && actual
+                            .bytes()
+                            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_'))
+                }
                 "{category_id}" => valid_category_id(actual),
                 "{timestamp}" => {
                     // The generated SDK passes Unix milliseconds as a JavaScript number.
@@ -198,6 +204,16 @@ impl RestConnection {
         sessions.forget_current(session).await
     }
 
+    /// Start a new event consumer bound to this login and an empty confirmed position.
+    pub fn account_events(
+        &self,
+    ) -> Result<crate::realtime::AccountEvents<'_>, crate::realtime::EventConnectionError> {
+        if self.account.is_none() {
+            return Err(crate::realtime::EventConnectionError::SessionUnavailable);
+        }
+        Ok(crate::realtime::AccountEvents::new(self))
+    }
+
     /// Run one native event connection for the signed account. Dropping the caller's
     /// future or retiring this login closes the socket, including during the handshake.
     pub async fn with_event_stream<T>(
@@ -328,6 +344,33 @@ mod tests {
             .filter(|op| op.path.contains("/channels/categories") && op.method != "GET")
         {
             assert!(op.self_only);
+        }
+    }
+
+    #[test]
+    fn named_channel_requires_two_bounded_name_segments() {
+        let get = reqwest::Method::GET;
+        let route = |team: &str, channel: &str| {
+            format!("/api/v4/teams/name/{team}/channels/name/{channel}")
+        };
+        let operation = OPERATIONS
+            .iter()
+            .find(|op| op.allows(&get, &route("team-a", "room_1")))
+            .unwrap();
+        let team_route = |team: &str| format!("/api/v4/teams/name/{team}");
+        let team_operation = OPERATIONS
+            .iter()
+            .find(|op| op.allows(&get, &team_route("team-a")))
+            .unwrap();
+        let limit = "r".repeat(64);
+        assert!(team_operation.allows(&get, &team_route(&limit)));
+        assert!(!team_operation.allows(&reqwest::Method::POST, &team_route("team-a")));
+        assert!(operation.allows(&get, &route(&limit, &limit)));
+        assert!(!operation.allows(&reqwest::Method::POST, &route("team-a", "room_1")));
+        for bad in ["", "two/names", "a%2Fb", "with.dot", "☃", &"a".repeat(65)] {
+            assert!(!team_operation.allows(&get, &team_route(bad)), "{bad}");
+            assert!(!operation.allows(&get, &route(bad, "room_1")), "{bad}");
+            assert!(!operation.allows(&get, &route("team-a", bad)), "{bad}");
         }
     }
 

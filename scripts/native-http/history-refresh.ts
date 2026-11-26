@@ -27,8 +27,18 @@ export function historyRefreshFixture(userId: string, onHold: () => void) {
     };
   }
   const records = {
-    [reply]: record(reply, 300, root),
-    [root]: record(root, 200),
+    [reply]: {
+      ...record(reply, 300, root),
+      file_ids: [],
+      metadata: { redacted_file_count: 2 },
+    },
+    [root]: {
+      ...record(root, 200),
+      file_ids: ["b".repeat(26), "a".repeat(26)],
+      metadata: {
+        files: [{ id: "a".repeat(26), name: "offline.txt", size: 0 }],
+      },
+    },
     [old]: record(old, 100),
   };
   function page(

@@ -1,14 +1,15 @@
 import { onBackButtonPress } from "@tauri-apps/api/app";
-import { useEffect } from "react";
+import { useEffect, useEffectEvent } from "react";
 
 export function useThreadBack(active: boolean, close: () => void) {
+  const back = useEffectEvent(close);
   useEffect(() => {
     if (!active) return;
     let listening = true;
     const listener =
       import.meta.env.UMMKA_ANDROID === true
         ? onBackButtonPress(() => {
-            if (listening) close();
+            if (listening) back();
           })
         : undefined;
     function handleEscape(event: KeyboardEvent) {
@@ -16,7 +17,7 @@ export function useThreadBack(active: boolean, close: () => void) {
         return;
       if (document.querySelector("dialog[open], [aria-modal='true']")) return;
       event.preventDefault();
-      close();
+      back();
     }
     window.addEventListener("keydown", handleEscape);
     return () => {
@@ -24,5 +25,5 @@ export function useThreadBack(active: boolean, close: () => void) {
       window.removeEventListener("keydown", handleEscape);
       void listener?.then((subscription) => subscription.unregister());
     };
-  }, [active, close]);
+  }, [active]);
 }

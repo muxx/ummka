@@ -1,6 +1,7 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { ResponseError } from "../../vendor/mattermost/index.js";
+import { createChannelHistoryChanges } from "../mattermost/channel-history-changes.ts";
 import type {
   LocalChannelWindow,
   LocalPost,
@@ -47,8 +48,11 @@ function focus(
   return { kind: "focus", rid: 1, teamId, post, requestId };
 }
 function account(rid = 1) {
+  const changes = createChannelHistoryChanges();
   return {
     rid,
+    subscribeToChannelHistory: changes.subscribe,
+    notify: changes.notify,
     readChannelWindow: vi.fn<TimelineAccount["readChannelWindow"]>(),
     refreshChannelHistory: vi
       .fn<TimelineAccount["refreshChannelHistory"]>()
@@ -567,4 +571,171 @@ test("an old cached row cannot reopen a refused focused destination on retry or 
   view.rerender({ request: focus(root, 2) });
   await waitFor(() => expect(view.result.current.focus?.requestId).toBe(2));
   expect(view.result.current.page).toBe(initial);
+});
+
+function viewport(ids: string[], atBottom = false) {
+  const pane = document.createElement("section");
+  Object.defineProperties(pane, {
+    scrollHeight: { value: 400 },
+    clientHeight: { value: 100 },
+  });
+  pane.scrollTop = atBottom ? 300 : 80;
+  pane.getBoundingClientRect = () => new DOMRect(0, 0, 100, 100);
+  for (const [index, id] of ids.entries()) {
+    const row = document.createElement("article");
+    row.dataset.postId = id;
+    row.getBoundingClientRect = () => new DOMRect(0, index * 27 - 3, 100, 27);
+    pane.append(row);
+  }
+  return pane;
+}
+const end = (...posts: LocalPost[]): LocalChannelWindow => ({
+  ...page(...posts),
+  newer: { kind: "end" },
+});
+
+test("notifies only the scoped open account and coalesces commits during local reads", async () => {
+  const native = account(),
+    other = account(2);
+  const one = end(root),
+    two = end(newer, root);
+  native.readChannelWindow.mockResolvedValue(one);
+  native.refreshChannelHistory.mockImplementation(async (_request, signal) => {
+    native.notify(channelId, signal);
+    return { kind: "applied" };
+  });
+  const view = open(native);
+  await waitFor(() => expect(view.result.current.status).toBe("ready"));
+  expect(native.readChannelWindow).toHaveBeenCalledTimes(2);
+  view.result.current.viewport.current = viewport([root.id], true);
+  const first = deferred<LocalChannelWindow>();
+  native.readChannelWindow
+    .mockResolvedValue(two)
+    .mockImplementationOnce(() => first.promise);
+  act(() => {
+    other.notify(channelId);
+    native.notify("another-channel");
+  });
+  expect(native.readChannelWindow).toHaveBeenCalledTimes(2);
+  act(() => {
+    native.notify(channelId);
+    native.notify(channelId);
+    native.notify(channelId);
+  });
+  expect(native.readChannelWindow).toHaveBeenCalledTimes(3);
+  await act(async () => first.resolve(one));
+  expect(view.result.current.page).toBe(two);
+  expect(native.readChannelWindow).toHaveBeenCalledTimes(4);
+  expect(native.refreshChannelHistory).toHaveBeenCalledTimes(1);
+});
+
+test("an outgoing row anchors scrolling without being queried as a published post", async () => {
+  const native = account();
+  const initial = end(root);
+  native.readChannelWindow.mockResolvedValue(initial);
+  const view = open(native, { online: false });
+  await waitFor(() => expect(view.result.current.page).toBe(initial));
+  const localId = "pending-on-this-device";
+  for (const mixed of [true, false]) {
+    const pane = viewport(mixed ? [localId, root.id] : [localId]);
+    pane.querySelector("article")?.setAttribute("data-outgoing", "");
+    view.result.current.viewport.current = pane;
+    native.readChannelWindow.mockClear();
+    await act(async () => native.notify(channelId));
+    expect(
+      native.readChannelWindow.mock.calls.map(([q]) =>
+        q.kind === "around" ? q.postId : q.kind,
+      ),
+    ).toEqual([mixed ? root.id : "latest"]);
+    expect(view.result.current.page).toBe(initial);
+    expect(view.result.current.status).toBe("offline");
+  }
+  expect(native.refreshChannelHistory).not.toHaveBeenCalled();
+});
+
+test("an edge of an older slice retains the next visible surviving post; losing every row requires explicit navigation", async () => {
+  const native = account();
+  const before = page(root, old),
+    kept = page(old);
+  native.readChannelWindow.mockResolvedValue(before);
+  const view = open(native, { online: false });
+  await waitFor(() => expect(view.result.current.page).toBe(before));
+  view.result.current.viewport.current = viewport([root.id, old.id], true);
+  native.readChannelWindow
+    .mockResolvedValueOnce(null)
+    .mockResolvedValueOnce(kept);
+  await act(async () => native.notify(channelId));
+  expect(view.result.current.page).toBe(kept);
+  view.rerender({ online: true });
+  expect(view.result.current.page).toBe(kept);
+  expect(native.refreshChannelHistory).not.toHaveBeenCalled();
+  view.rerender({ online: false });
+  expect(
+    native.readChannelWindow.mock.calls
+      .slice(-2)
+      .map(([q]) => q.kind === "around" && q.postId),
+  ).toEqual([root.id, old.id]);
+  view.result.current.viewport.current = viewport([old.id]);
+  native.readChannelWindow.mockResolvedValue(null);
+  await act(async () => native.notify(channelId));
+  expect(view.result.current.status).toBe("positionLost");
+  expect(view.result.current.page).toBeNull();
+  expect(native.refreshChannelHistory).not.toHaveBeenCalled();
+  const latest = end(newer);
+  native.readChannelWindow.mockResolvedValue(latest);
+  await act(async () => view.result.current.showLatest());
+  expect(view.result.current.page).toBe(latest);
+  expect(native.readChannelWindow.mock.calls.at(-1)?.[0].kind).toBe("latest");
+});
+
+test("a scroll while SQLite is reading picks the new visible anchor and ignores an old session error after navigation", async () => {
+  const native = account();
+  const original = end(root, old),
+    next = page(old);
+  native.readChannelWindow.mockResolvedValue(original);
+  const view = open(native);
+  await waitFor(() => expect(view.result.current.status).toBe("ready"));
+  const slow = deferred<LocalChannelWindow>();
+  view.result.current.viewport.current = viewport([root.id]);
+  native.readChannelWindow
+    .mockImplementationOnce(() => slow.promise)
+    .mockResolvedValue(next);
+  act(() => native.notify(channelId));
+  view.result.current.viewport.current = viewport([old.id]);
+  await act(async () => slow.resolve(original));
+  expect(view.result.current.page).toBe(next);
+  expect(native.readChannelWindow.mock.calls.at(-1)?.[0]).toMatchObject({
+    kind: "around",
+    postId: old.id,
+  });
+  const late = deferred<LocalChannelWindow>();
+  native.readChannelWindow.mockImplementationOnce(() => late.promise);
+  act(() => native.notify(channelId));
+  view.rerender({ channelId: newer.channelId.replaceAll("c", "z") });
+  await act(async () => late.reject("session_unavailable"));
+  expect(view.ended).not.toHaveBeenCalled();
+  const calls = native.readChannelWindow.mock.calls.length;
+  view.unmount();
+  native.notify(channelId);
+  expect(native.readChannelWindow).toHaveBeenCalledTimes(calls);
+});
+
+test("retrying an unavailable local store keeps the same reading position and uses only SQLite", async () => {
+  const native = account();
+  const original = end(root);
+  native.readChannelWindow.mockResolvedValue(original);
+  const view = open(native, { online: false });
+  await waitFor(() => expect(view.result.current.page).toBe(original));
+  view.result.current.viewport.current = viewport([root.id]);
+  native.readChannelWindow.mockRejectedValueOnce("history_storage_unavailable");
+  await act(async () => native.notify(channelId));
+  expect(view.result.current.notice).toBe("storage");
+  expect(view.result.current.page).toBe(original);
+  await act(async () => view.result.current.retry());
+  expect(view.result.current.notice).toBeNull();
+  expect(native.readChannelWindow.mock.calls.at(-1)?.[0]).toMatchObject({
+    kind: "around",
+    postId: root.id,
+  });
+  expect(native.refreshChannelHistory).not.toHaveBeenCalled();
 });

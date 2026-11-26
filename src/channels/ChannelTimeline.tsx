@@ -1,4 +1,11 @@
-import { Component, createRef, type ReactNode, useMemo } from "react";
+import {
+  Component,
+  createRef,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+} from "react";
 import type { PendingPost } from "../mattermost/account-delivery.ts";
 import type {
   LocalChannelWindow,
@@ -6,6 +13,7 @@ import type {
 } from "../mattermost/local-history.ts";
 import type { TimelineMessage } from "./conversation-rows.ts";
 import { type TimelineAuthor, TimelinePost } from "./TimelinePost.tsx";
+import { measureTimeline, type TimelineViewport } from "./timeline-viewport.ts";
 import "./timeline.css";
 
 const copy = {
@@ -40,6 +48,7 @@ const copy = {
 } as const;
 type Direction = "older" | "newer";
 export type TimelineProps = {
+  viewport?: TimelineViewport;
   channelId: string;
   page: LocalChannelWindow | null;
   locale: keyof typeof copy;
@@ -50,6 +59,7 @@ export type TimelineProps = {
   onOpenThread?: (post: LocalPost) => void;
   openThreadPostId?: string;
   collapsedThreads?: boolean;
+  address?: { requestId: number; anchorId: string };
   onReadEdge?: (direction: Direction, postId: string) => void;
   messages?: readonly TimelineMessage[];
   renderOutgoing?: (post: PendingPost) => ReactNode;
@@ -58,15 +68,40 @@ export type TimelineProps = {
   waitingMessage?: string;
 };
 
-type ScrollProps = { channelId: string; label: string; children: ReactNode };
-type Place = { top: number; anchors: { id: string; offset: number }[] };
+type ScrollProps = {
+  channelId: string;
+  label: string;
+  children: ReactNode;
+  viewport?: TimelineViewport;
+  historical: boolean;
+};
+type Place = ReturnType<typeof measureTimeline>;
 class TimelineScroller extends Component<ScrollProps> {
   private readonly pane = createRef<HTMLElement>();
+  focusPost(id: string) {
+    const pane = this.pane.current,
+      row = pane?.querySelector<HTMLElement>(
+        `[data-post-id="${CSS.escape(id)}"]`,
+      );
+    if (!pane || !row) return false;
+    row.focus({ preventScroll: true });
+    const bounds = row.getBoundingClientRect();
+    pane.scrollTop +=
+      bounds.top -
+      pane.getBoundingClientRect().top -
+      (pane.clientHeight - bounds.height) / 2;
+    return true;
+  }
   private hiddenPlace: Place | null | undefined = null;
 
   componentDidMount() {
     const pane = this.pane.current;
+    if (this.props.viewport) this.props.viewport.current = pane;
     if (pane) pane.scrollTop = pane.scrollHeight;
+  }
+
+  componentWillUnmount() {
+    if (this.props.viewport) this.props.viewport.current = null;
   }
 
   // Measure the previous DOM immediately before React replaces it. Scrolling itself needs no listener.
@@ -74,26 +109,20 @@ class TimelineScroller extends Component<ScrollProps> {
     const pane = this.pane.current;
     if (!pane || previous.channelId !== this.props.channelId) return null;
     if (!pane.clientHeight) return "hidden";
-    if (pane.scrollHeight - pane.clientHeight - pane.scrollTop <= 2)
-      return null;
-    const bounds = pane.getBoundingClientRect();
-    const anchors: Place["anchors"] = [];
-    for (const row of pane.querySelectorAll<HTMLElement>("[data-post-id]")) {
-      const box = row.getBoundingClientRect();
-      if (box.top >= bounds.bottom) break;
-      const id = row.dataset.postId;
-      if (id && box.bottom > bounds.top)
-        anchors.push({ id, offset: box.top - bounds.top });
-    }
-    return { top: pane.scrollTop, anchors };
+    const place = measureTimeline(pane, !previous.historical);
+    return place.atBottom && !previous.historical ? null : place;
   }
 
   componentDidUpdate(
-    _previous: ScrollProps,
+    previous: ScrollProps,
     _state: unknown,
     snapshot: Place | null | "hidden",
   ) {
     const pane = this.pane.current;
+    if (previous.viewport !== this.props.viewport) {
+      if (previous.viewport) previous.viewport.current = null;
+      if (this.props.viewport) this.props.viewport.current = pane;
+    }
     if (!pane) return;
     if (!pane.clientHeight) {
       // The compact frame hides the channel while its thread or navigation is visible.
@@ -136,6 +165,7 @@ class TimelineScroller extends Component<ScrollProps> {
 }
 
 export function ChannelTimeline({
+  viewport,
   channelId,
   page,
   locale,
@@ -146,6 +176,7 @@ export function ChannelTimeline({
   onOpenThread,
   openThreadPostId,
   collapsedThreads,
+  address,
   onReadEdge,
   messages,
   renderOutgoing,
@@ -153,6 +184,20 @@ export function ChannelTimeline({
   localNotice,
   waitingMessage,
 }: TimelineProps) {
+  const scroller = useRef<TimelineScroller>(null);
+  const positioned = useRef<number | null>(null);
+  useEffect(() => {
+    if (!address) {
+      positioned.current = null;
+      return;
+    }
+    if (
+      positioned.current !== address.requestId &&
+      page &&
+      scroller.current?.focusPost(address.anchorId)
+    )
+      positioned.current = address.requestId;
+  }, [address, page]);
   const text = copy[locale];
   const dates = useMemo(
     () => ({
@@ -207,6 +252,8 @@ export function ChannelTimeline({
       <TimelinePost
         key={post.localId ?? post.id}
         post={post}
+        highlighted={address?.anchorId === post.id}
+        focusable={address?.anchorId === post.id}
         locale={locale}
         author={author}
         time={dates.time}
@@ -228,7 +275,13 @@ export function ChannelTimeline({
           {page ? text.savedOffline : text.offline}
         </div>
       )}
-      <TimelineScroller channelId={channelId} label={text.history}>
+      <TimelineScroller
+        ref={scroller}
+        channelId={channelId}
+        label={text.history}
+        viewport={viewport}
+        historical={!!page && page.newer.kind !== "end"}
+      >
         {limited && <div className="timeline-limit">{text.limited}</div>}
         {boundary("older")}
         {localNotice}

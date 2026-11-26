@@ -2,13 +2,14 @@
 
 use super::{EventCursor, IncomingFrame, StreamError, read_frame};
 use crate::{installation_url::has_credentials, native_http::NativeHttp, sessions::SessionToken};
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use reqwest::{Method, Request, StatusCode, Url};
 use reqwest_websocket::{Message, Upgrade, WebSocket};
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum EventConnectionError {
     UnsupportedConfiguration,
+    InvalidAction,
     SessionUnavailable,
     Http(u16),
     Network,
@@ -22,6 +23,7 @@ impl std::fmt::Display for EventConnectionError {
             Self::UnsupportedConfiguration => {
                 f.write_str("Unsupported Mattermost WebSocket address")
             }
+            Self::InvalidAction => f.write_str("Invalid Mattermost event action"),
             Self::SessionUnavailable => f.write_str("Mattermost session is unavailable"),
             Self::Http(code) => write!(f, "Mattermost WebSocket returned HTTP {code}"),
             Self::Network => f.write_str("Mattermost WebSocket connection failed"),
@@ -34,7 +36,7 @@ impl std::error::Error for EventConnectionError {}
 
 /// Values from the installation's client configuration. An explicit URL takes
 /// precedence over the port setting in both supported official web clients.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct EventSettings<'a> {
     pub websocket_url: Option<&'a str>,
     pub secure_port: Option<u16>,
@@ -91,7 +93,10 @@ impl EventSettings<'_> {
 }
 
 /// The consumer supplies its last applied cursor. Reading cannot acknowledge a frame.
-pub struct EventReader(Option<WebSocket>);
+pub struct EventReader {
+    socket: Option<WebSocket>,
+    last_request: i64,
+}
 
 impl EventReader {
     pub(crate) async fn run<T>(
@@ -114,19 +119,72 @@ impl EventReader {
             .into_websocket()
             .await
             .map_err(|_| EventConnectionError::Network)?;
-        consume(&mut Self(Some(socket))).await
+        consume(&mut Self {
+            socket: Some(socket),
+            last_request: 0,
+        })
+        .await
+    }
+
+    /// Send an application ping on this socket. Its reply does not advance the event cursor.
+    pub async fn send_ping(&mut self) -> Result<i64, EventConnectionError> {
+        self.send_action(|seq| serde_json::json!({"seq": seq, "action": "ping"}))
+            .await
+    }
+
+    pub async fn send_typing(
+        &mut self,
+        channel_id: &str,
+        root_id: Option<&str>,
+    ) -> Result<i64, EventConnectionError> {
+        if !crate::rest::is_mattermost_id(channel_id)
+            || root_id.is_some_and(|id| !crate::rest::is_mattermost_id(id))
+        {
+            return Err(EventConnectionError::InvalidAction);
+        }
+        self.send_action(|seq| {
+            serde_json::json!({
+                "seq": seq, "action": "user_typing",
+                "data": {"channel_id": channel_id, "parent_id": root_id.unwrap_or("")}
+            })
+        })
+        .await
+    }
+
+    async fn send_action(
+        &mut self,
+        message: impl FnOnce(i64) -> serde_json::Value,
+    ) -> Result<i64, EventConnectionError> {
+        let socket = self.socket.as_mut().ok_or(EventConnectionError::Network)?;
+        let seq = self
+            .last_request
+            .checked_add(1)
+            .ok_or(EventConnectionError::Protocol(
+                StreamError::SequenceExhausted,
+            ))?;
+        // A cancelled write may already have put bytes on the wire. Its number is spent.
+        self.last_request = seq;
+        if socket
+            .send(Message::Text(message(seq).to_string()))
+            .await
+            .is_err()
+        {
+            self.socket = None;
+            return Err(EventConnectionError::Network);
+        }
+        Ok(seq)
     }
 
     pub async fn next_frame(
         &mut self,
         applied: Option<&EventCursor>,
     ) -> Result<Option<IncomingFrame>, EventConnectionError> {
-        let Some(socket) = self.0.as_mut() else {
+        let Some(socket) = self.socket.as_mut() else {
             return Ok(None);
         };
         let result = read_next(socket, applied).await;
         if !matches!(result, Ok(Some(_))) {
-            self.0 = None;
+            self.socket = None;
         }
         result
     }

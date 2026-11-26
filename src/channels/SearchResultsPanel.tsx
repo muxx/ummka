@@ -18,6 +18,8 @@ export function SearchResultsPanel({
   channelName,
   authorName,
   sessionIssue,
+  activate,
+  restore,
 }: {
   session: SearchSession;
   terms: string;
@@ -29,6 +31,12 @@ export function SearchResultsPanel({
   channelName: (id: string) => string | undefined;
   authorName: (id: string) => string | undefined;
   sessionIssue: (issue: "unauthorized") => void;
+  activate: (
+    source: { kind: "post" | "file"; id: string },
+    button: HTMLButtonElement,
+    scroll: number,
+  ) => void;
+  restore: { id: string; scroll: number } | null;
 }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const selected = state.selected;
@@ -36,11 +44,22 @@ export function SearchResultsPanel({
   const text = searchCopy[language];
   const id = useId();
   const heading = useRef<HTMLHeadingElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const opening = useRef(restore);
   const status =
     tab.error instanceof ResponseError ? tab.error.response.status : null;
   const denied = status === 401 || status === 403 || status === 404;
   useEffect(() => {
-    heading.current?.focus();
+    const destination = opening.current;
+    const row =
+      destination &&
+      list.current?.querySelector<HTMLButtonElement>(
+        `[data-search-result="${CSS.escape(destination.id)}"]`,
+      );
+    if (list.current && destination && row) {
+      list.current.scrollTop = destination.scroll;
+      row.focus({ preventScroll: true });
+    } else heading.current?.focus();
   }, []);
   useEffect(() => {
     if (status === 401) sessionIssue("unauthorized");
@@ -49,12 +68,14 @@ export function SearchResultsPanel({
     selected === "posts"
       ? state.posts.items.map((row) => ({
           id: row.id,
+          jump: true,
           title: row.message || text.attachment,
           name: row.userId && authorName(row.userId),
           channel: channelName(row.channelId),
         }))
       : state.files.items.map((row) => ({
           id: row.id,
+          jump: Boolean(row.postId),
           title: row.name || text.unnamed,
           name: row.userId && authorName(row.userId),
           channel: channelName(row.channelId),
@@ -99,6 +120,7 @@ export function SearchResultsPanel({
         </fieldset>
       )}
       <div
+        ref={list}
         className="channels-pane-body search-result-list"
         aria-busy={tab.status === "loading"}
       >
@@ -113,7 +135,30 @@ export function SearchResultsPanel({
                     {[row.channel, row.name].filter(Boolean).join(" · ")}
                   </small>
                 )}
-                <p>{row.title}</p>
+                {selected === "files" && <p>{row.title}</p>}
+                {row.jump && (
+                  <button
+                    type="button"
+                    className="search-open-result"
+                    data-search-result={row.id}
+                    aria-disabled={!online}
+                    onClick={(event) => {
+                      if (online)
+                        activate(
+                          {
+                            kind: selected === "posts" ? "post" : "file",
+                            id: row.id,
+                          },
+                          event.currentTarget,
+                          list.current?.scrollTop ?? 0,
+                        );
+                    }}
+                  >
+                    {selected === "posts"
+                      ? row.title
+                      : text.filePost(row.title)}
+                  </button>
+                )}
               </li>
             ))}
           </ul>

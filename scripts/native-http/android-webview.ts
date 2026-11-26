@@ -141,6 +141,31 @@ export async function checkWebviewProcesses(
     "android.app.role.BROWSER",
     app,
   );
+  // These synthetic addresses may only reach the test activity or have no receiver.
+  const resolve = (href: string) =>
+    adb(
+      "shell",
+      "cmd",
+      "package",
+      "resolve-activity",
+      "--brief",
+      "-a",
+      "android.intent.action.VIEW",
+      "-d",
+      href,
+    );
+  for (const href of [
+    "https://external.ummka.invalid",
+    "mailto:probe@ummka.invalid",
+  ])
+    assert(
+      (await resolve(href)).trim().endsWith(`${component}BrowserCheckActivity`),
+      "Fixture is not the selected external link handler",
+    );
+  assert.match(
+    await resolve("mailto:unhandled@ummka.invalid"),
+    /No activity found/u,
+  );
   // Instrumentation may outlast the screen timeout on the disposable emulator.
   await adb("shell", "svc", "power", "stayon", "true");
   await adb("shell", "input", "keyevent", "KEYCODE_WAKEUP");
@@ -151,6 +176,23 @@ export async function checkWebviewProcesses(
     activity,
     "browser-checked",
     onAndroidInputReady,
+  );
+  const external = await adb(
+    "logcat",
+    "-d",
+    `--pid=${seeded}`,
+    "-s",
+    "UmmkaPostLink:I",
+  );
+  assert.equal(
+    external.match(/received external web/gu)?.length,
+    1,
+    "Android did not deliver exactly one external link to the fixture handler",
+  );
+  assert.equal(
+    external.match(/received external mail/gu)?.length,
+    1,
+    "Android did not deliver exactly one mail link to the fixture handler",
   );
   // Android protects the device owner from force-stop. TLS checks have finished
   // using its test CA, so release ownership before testing process restarts.
