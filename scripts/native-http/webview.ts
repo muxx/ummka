@@ -1123,6 +1123,8 @@ export function webviewServers(
         "post-reactions",
         "read-thread",
         "read-team-threads",
+        "read-thread",
+        "read-team-threads",
         "follow-thread",
         "unfollow-thread",
         "collapse-sidebar-category",

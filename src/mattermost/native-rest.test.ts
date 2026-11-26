@@ -479,6 +479,8 @@ test("passes the canonical installation and closes the exact native handle", asy
   expect("editOwnPostMessage" in connection).toBe(false);
   expect("deleteOwnPost" in connection).toBe(false);
   expect("readPostReactions" in connection).toBe(false);
+  expect("markFollowedThreadRead" in connection).toBe(false);
+  expect("markTeamThreadsRead" in connection).toBe(false);
   expect("readFollowedThreads" in connection).toBe(false);
   expect("readFollowedThreadTotals" in connection).toBe(false);
   expect("changeOwnMembership" in connection).toBe(false);
@@ -529,7 +531,9 @@ test("opens a native account by installation and user ID", async () => {
     "getOutgoingPostState",
     "isPostSending",
     "markChannelsRead",
+    "markFollowedThreadRead",
     "markPostUnread",
+    "markTeamThreadsRead",
     "notifyChannelHistoryChanged",
     "readAccountDirectory",
     "readAssociatedMentionGroups",

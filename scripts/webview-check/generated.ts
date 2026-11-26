@@ -21,6 +21,7 @@ import {
   UsersApi,
 } from "../../vendor/mattermost/index.js";
 import { checkAccountResponses } from "./account.ts";
+import { checkAccountThreadReadState } from "./account-thread-read-state.ts";
 import { checkChannelRefresh } from "./channel-refresh.ts";
 import { checkDraftWrites } from "./composer-drafts.ts";
 import { checkConnectServer } from "./connect-server.tsx";
@@ -575,6 +576,7 @@ export async function checkGeneratedRequests(ports: string[]) {
     await checkAccountThreadList(accountPrefix, teamId, channelId, userId);
     const guestThreads = new ThreadsApi(new Configuration(prefixed));
     const timestamp = 1700000000123;
+    await checkAccountThreadReadState(accountPrefix, teamId, postId, timestamp);
     const readThread = await threads.updateThreadReadForUser({
       ...follow,
       timestamp,
