@@ -1,4 +1,5 @@
 import { openChannelDirectoryList } from "../../src/channels/open-channel-directory.ts";
+import { openDirectorySearch } from "../../src/channels/open-directory-search.ts";
 import type { openAccountRestConnection } from "../../src/mattermost/native-rest.ts";
 import {
   ChannelsApi,
@@ -11,6 +12,7 @@ import {
   RolesApi,
   TeamsApi,
 } from "../../vendor/mattermost/index.js";
+import { checkDirectoryQuery } from "../contract/compatibility/directory-query.ts";
 import { checkGroupAssociations } from "./group-associations.ts";
 
 export async function checkTeamReads(
@@ -160,18 +162,23 @@ export async function checkTeamReads(
         throw error;
     }
   }
-  const found = await prefixedAccount.searchChannelDirectory(
-    teamId,
-    "  Northern lights  ",
-  );
-  if (
-    found.length !== 1 ||
-    found[0].id !== "p".repeat(26) ||
-    found[0].kind !== "P" ||
-    found[0].deleteAt !== 42 ||
-    found[0].displayName !== "Northern lights"
-  )
-    throw Error("signed account channel directory search");
+  const search = openDirectorySearch(prefixedAccount, teamId);
+  try {
+    const { items: found } = await checkDirectoryQuery(
+      search,
+      "  Northern lights  ",
+    );
+    if (
+      found.length !== 1 ||
+      found[0].id !== "p".repeat(26) ||
+      found[0].kind !== "P" ||
+      found[0].deleteAt !== 42 ||
+      found[0].displayName !== "Northern lights"
+    )
+      throw Error("signed open channel directory search");
+  } finally {
+    search.close();
+  }
   const managed = await api.getManagedCategories({ teamId });
   if (
     Object.keys(managed).length !== 2 ||
