@@ -74,6 +74,7 @@ import { expectedNavigationPost } from "./search-target.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
 import { checkThreadFollow } from "./thread-follow.ts";
+import { checkThreadList } from "./thread-list.ts";
 import { checkThreadSummary } from "./thread-summary.ts";
 import { checkThreadWindow } from "./thread-window.ts";
 import { checkUserNotifications } from "./user-notifications.ts";
@@ -1233,6 +1234,37 @@ await checkEventStream(
 );
 console.log(
   `Mattermost ${version} verified an ordinary author's pending_post_id in posted, command replies and post replay after reconnect.`,
+);
+
+// Two ordinary users share a previously empty team and a new DM. Existing
+// thread subscriptions in the main fixture cannot change these page boundaries.
+await create(
+  `teams/${emptyTeam.id}/members`,
+  { team_id: emptyTeam.id, user_id: otherSaver.id },
+  readerToken,
+);
+const threadReader = new Configuration({
+  basePath: base,
+  accessToken: otherSaverToken,
+});
+const threadRoom = (
+  await new ChannelsApi(threadReader).getChannelsForTeamForUser({
+    userId: "me",
+    teamId: emptyTeam.id,
+  })
+).find((c) => c.name === "town-square");
+assert.ok(threadRoom?.id);
+const threadDirect = await (
+  await create("channels/direct", [reader.id, otherSaver.id], readerToken)
+).json();
+await checkThreadList(
+  { session: threadReader, username: otherSaverName },
+  { posts: readerPosts, id: reader.id, username: readerLogin.login_id },
+  new Configuration({ basePath: base }),
+  emptyTeam.id,
+  threadRoom.id,
+  threadDirect.id,
+  version,
 );
 
 await checkSavedPageBoundary(
