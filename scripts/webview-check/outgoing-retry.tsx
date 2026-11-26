@@ -12,12 +12,20 @@ export async function retryFromTimeline(
 ) {
   const host = document.body.appendChild(document.createElement("div"));
   const root = createRoot(host);
+  const observed: { retry?: ReturnType<typeof connection.resendPost> } = {};
+  const account = {
+    ...connection,
+    resendPost(...args: Parameters<typeof connection.resendPost>) {
+      observed.retry = connection.resendPost(...args);
+      return observed.retry;
+    },
+  };
   try {
     flushSync(() =>
       root.render(
         <ConversationTimeline
           channelId={post.channelId}
-          connection={connection}
+          connection={account}
           userId={userId}
           latest
           offline={false}
@@ -50,6 +58,16 @@ export async function retryFromTimeline(
       throw Error("Cancelling did not restore retry focus");
     flushSync(() => fireEvent.click(repeat()));
     flushSync(() => fireEvent.click(confirm()));
+    const retry = await observed.retry;
+    if (retry?.kind !== "sending")
+      throw Error(
+        `The confirmed retry did not start: ${retry?.kind ?? "no request"}`,
+      );
+    const outcome = await retry.completion;
+    if (outcome.kind !== "unconfirmed" || outcome.retryRefusal?.status !== 403)
+      throw Error(
+        `The retry did not record the fixture refusal: ${outcome.kind}`,
+      );
     await waitFor(
       () => {
         if (
