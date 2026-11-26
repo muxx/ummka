@@ -43,6 +43,20 @@ function checkRoute(expected: number) {
   }
 }
 
+// WebKit reads autocorrect from the editor or its form, including for controls
+// React mounts after startup. Configure the focused test field before typing.
+document.addEventListener(
+  "focus",
+  (event) => {
+    if (
+      event.target instanceof HTMLInputElement ||
+      event.target instanceof HTMLTextAreaElement
+    )
+      event.target.setAttribute("autocorrect", "off");
+  },
+  true,
+);
+
 async function expectClosed(close: () => Promise<void>) {
   try {
     await close();
