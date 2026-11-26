@@ -642,66 +642,88 @@ test.each(["burn_on_read", "system_fake_parent_deleted"])(
   },
 );
 
-test("a confirmed own reply beyond a gap stays after the lower boundary and becomes the server row once", async () => {
-  const connection = mount(true);
-  const canonical = {
-    ...reply,
-    id: "n".repeat(26),
-    createAt: 400,
-    updateAt: 400,
-    message: "Own canonical reply",
-  };
-  const pending: PendingPost = {
-    pendingId: "local-own-reply",
-    channelId: general,
-    rootId: root.id,
-    sequence: 1,
-    createdAt: 300,
-    previousLogin: false,
-    attempt: 1,
-    refusal: null,
-    confirmedPostId: canonical.id,
-    message: "Own local reply",
-  };
-  connection.readPendingPosts.mockImplementation(async ({ rootId }) =>
-    rootId === root.id ? [pending] : [],
-  );
-  connection.readThreadPage
-    .mockResolvedValueOnce({
-      ...page,
-      next: { id: reply.id, createAt: reply.createAt },
-    })
-    .mockResolvedValueOnce({ ...page, replies: [canonical] });
-  fireEvent.click(
-    await screen.findByRole("button", { name: /Open thread, 1 reply/ }),
-  );
-  const pane = await screen.findByRole("complementary", { name: "Thread" });
-  const first = await within(pane).findByText(reply.message);
-  const own = (await within(pane).findByText(pending.message)).closest(
-    "article",
-  );
-  if (!own) throw new Error("Missing own outgoing row");
-  const boundary = within(pane).getByRole("button", {
-    name: /between these messages.*Show replies/,
-  });
-  expect(
-    first.compareDocumentPosition(boundary) & Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
-  expect(
-    boundary.compareDocumentPosition(own) & Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
-  fireEvent.click(boundary);
-  const confirmed = await within(pane).findByText(canonical.message);
-  expect(confirmed.closest("article")).toBe(own);
-  expect(own.dataset.postId).toBe(canonical.id);
-  expect(own.dataset.localId).toBe(pending.pendingId);
-  expect(within(pane).queryByText(pending.message)).toBeNull();
-  expect(within(pane).queryByText(/between these messages/)).toBeNull();
-  expect(connection.retireDeliveredPosts).toHaveBeenCalledWith([canonical.id]);
-  expect(
-    within(screen.getByRole("main")).queryByText(canonical.message),
-  ).toBeNull();
-});
+test.each([0, 86400000])(
+  "a confirmed own reply across a gap of %i ms keeps its day, row and focus",
+  async (dayOffset) => {
+    const connection = mount(true);
+    const canonical = {
+      ...reply,
+      id: "n".repeat(26),
+      createAt: 400 + dayOffset,
+      updateAt: 400 + dayOffset,
+      message: "Own canonical reply",
+    };
+    const pending: PendingPost = {
+      pendingId: "local-own-reply",
+      channelId: general,
+      rootId: root.id,
+      sequence: 1,
+      createdAt: 300 + dayOffset,
+      previousLogin: false,
+      attempt: 1,
+      refusal: null,
+      confirmedPostId: canonical.id,
+      message: "Own local reply",
+    };
+    connection.readPendingPosts.mockImplementation(async ({ rootId }) =>
+      rootId === root.id ? [pending] : [],
+    );
+    connection.readThreadPage
+      .mockResolvedValueOnce({
+        ...page,
+        next: { id: reply.id, createAt: reply.createAt },
+      })
+      .mockResolvedValueOnce({ ...page, replies: [canonical] });
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Open thread, 1 reply/ }),
+    );
+    const pane = await screen.findByRole("complementary", { name: "Thread" });
+    const first = await within(pane).findByText(reply.message);
+    const own = (await within(pane).findByText(pending.message)).closest(
+      "article",
+    );
+    if (!own) throw new Error("Missing own outgoing row");
+    const boundary = within(pane).getByRole("button", {
+      name: /between these messages.*Show replies/,
+    });
+    expect(
+      first.compareDocumentPosition(boundary) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      boundary.compareDocumentPosition(own) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    const before = first.closest(".timeline-day-group");
+    const after = own.closest(".timeline-day-group");
+    expect(before).toBeTruthy();
+    expect(boundary.closest(".timeline-day-group")).toBe(before);
+    if (dayOffset === 0) expect(after).toBe(before);
+    else {
+      expect(after).not.toBe(before);
+      const nextLabel = after?.querySelector("time");
+      if (!nextLabel) throw Error("Missing date after the history gap");
+      expect(
+        boundary.compareDocumentPosition(nextLabel) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+    own.focus();
+    fireEvent.click(boundary);
+    const confirmed = await within(pane).findByText(canonical.message);
+    expect(confirmed.closest("article")).toBe(own);
+    expect(document.activeElement).toBe(own);
+    expect(own.dataset.postId).toBe(canonical.id);
+    expect(own.dataset.localId).toBe(pending.pendingId);
+    expect(within(pane).queryByText(pending.message)).toBeNull();
+    expect(within(pane).queryByText(/between these messages/)).toBeNull();
+    expect(connection.retireDeliveredPosts).toHaveBeenCalledWith([
+      canonical.id,
+    ]);
+    expect(
+      within(screen.getByRole("main")).queryByText(canonical.message),
+    ).toBeNull();
+  },
+);
 
 test("retrying an earlier page keeps focus at the earlier edge while the other page arrives", async () => {
   const connection = mount(false);

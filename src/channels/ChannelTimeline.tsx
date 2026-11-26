@@ -12,6 +12,7 @@ import type {
   LocalPost,
 } from "../mattermost/local-history.ts";
 import type { TimelineMessage } from "./conversation-rows.ts";
+import { TimelineDays } from "./TimelineDays.tsx";
 import { type TimelineAuthor, TimelinePost } from "./TimelinePost.tsx";
 import { measureTimeline, type TimelineViewport } from "./timeline-viewport.ts";
 import "./timeline.css";
@@ -256,15 +257,13 @@ export function ChannelTimeline({
       positioned.current = address.requestId;
   }, [address, page]);
   const text = copy[locale];
-  const dates = useMemo(
-    () => ({
-      day: new Intl.DateTimeFormat(locale, { dateStyle: "full", timeZone }),
-      time: new Intl.DateTimeFormat(locale, {
+  const time = useMemo(
+    () =>
+      new Intl.DateTimeFormat(locale, {
         hour: "numeric",
         minute: "2-digit",
         timeZone,
       }),
-    }),
     [locale, timeZone],
   );
   const limited = Boolean(
@@ -289,40 +288,8 @@ export function ChannelTimeline({
       </div>
     );
   }
-  let previousDay = "";
-  const rows: ReactNode[] = [];
   const ordered: readonly TimelineMessage[] =
     messages ?? [...(page?.posts ?? [])].reverse();
-  for (const post of ordered) {
-    const when = new Date(post.createAt);
-    const dated = Number.isFinite(when.getTime());
-    const day = dated ? dates.day.format(when) : text.unknownDate;
-    if (day !== previousDay) {
-      rows.push(
-        <div key={`day-${post.id}`} className="timeline-day">
-          <span>{day}</span>
-        </div>,
-      );
-      previousDay = day;
-    }
-    rows.push(
-      <TimelinePost
-        key={post.localId ?? post.id}
-        post={post}
-        highlighted={address?.anchorId === post.id}
-        focusable={address?.anchorId === post.id}
-        locale={locale}
-        author={author}
-        time={dates.time}
-        ownName={ownName}
-        onOpenThread={onOpenThread}
-        expanded={openThreadPostId === post.id}
-        collapsedThreads={collapsedThreads}
-      >
-        {post.outgoing && renderOutgoing?.(post.outgoing)}
-      </TimelinePost>,
-    );
-  }
   const empty =
     page?.older.kind === "end" && page.newer.kind === "end" && !limited;
   return (
@@ -337,14 +304,37 @@ export function ChannelTimeline({
         channelId={channelId}
         label={text.history}
         viewport={viewport}
-        hasRows={rows.length > 0}
+        hasRows={ordered.length > 0}
         historical={!!page && page.newer.kind !== "end"}
       >
         {limited && <div className="timeline-limit">{text.limited}</div>}
         {boundary("older")}
         {localNotice}
-        {rows}
-        {!rows.length && (page || !limited) && (
+        <TimelineDays
+          messages={ordered}
+          locale={locale}
+          timeZone={timeZone}
+          unknownDate={text.unknownDate}
+        >
+          {(post) => (
+            <TimelinePost
+              key={post.localId ?? post.id}
+              post={post}
+              highlighted={address?.anchorId === post.id}
+              focusable={address?.anchorId === post.id}
+              locale={locale}
+              author={author}
+              time={time}
+              ownName={ownName}
+              onOpenThread={onOpenThread}
+              expanded={openThreadPostId === post.id}
+              collapsedThreads={collapsedThreads}
+            >
+              {post.outgoing && renderOutgoing?.(post.outgoing)}
+            </TimelinePost>
+          )}
+        </TimelineDays>
+        {!ordered.length && (page || !limited) && (
           <p className="timeline-empty">
             {waitingMessage ??
               (!page ? text.cold : empty ? text.empty : text.partial)}

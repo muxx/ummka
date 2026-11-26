@@ -15,6 +15,7 @@ export async function checkChannelTimeline() {
     top: number,
     bottom: number,
     historical = false,
+    multipleDays = false,
   ) {
     const posts: LocalChannelWindow["posts"] = [];
     for (let n = top; n >= bottom; n--)
@@ -23,7 +24,8 @@ export async function checkChannelTimeline() {
         channelId,
         userId: "ada",
         rootId: null,
-        createAt: stamp + n * 1000,
+        createAt:
+          stamp + n * 1000 + (multipleDays ? Math.floor(n / 6) * 86400000 : 0),
         updateAt: stamp + n * 1000,
         editAt: 0,
         isPinned: false,
@@ -159,6 +161,33 @@ export async function checkChannelTimeline() {
       !pane.textContent?.includes("Later messages")
     )
       throw Error("Older page with a continuation followed the live end");
+    draw("several-days", 46, 1, false, true);
+    for (const width of [390, 820]) {
+      await resize(width, 260);
+      for (const id of [20, 32, 14]) {
+        pane.scrollTop += offset(id);
+        const day = pane
+          .querySelector(`[data-post-id="${id}"]`)
+          ?.closest(".timeline-day-group");
+        const tag = day?.querySelector(".timeline-day");
+        if (!day || !tag) throw Error("Reading day missing");
+        const top = pane.getBoundingClientRect().top;
+        const pinned = [...pane.querySelectorAll(".timeline-day")].filter(
+          (el) => Math.abs(el.getBoundingClientRect().top - top) <= 1,
+        );
+        if (pinned.length !== 1 || pinned[0] !== tag)
+          throw Error("Only the day being read should stay at the top");
+        const line = getComputedStyle(day, "::before");
+        if (
+          line.position !== "absolute" ||
+          Math.abs(parseFloat(line.width) - pane.clientWidth) > 1 ||
+          day.getBoundingClientRect().top >= top - 1
+        )
+          throw Error(
+            "Date rule should scroll with its section and reach both edges",
+          );
+      }
+    }
     draw("empty", 0, 1);
     const empty = pane
       .querySelector(".timeline-empty")
