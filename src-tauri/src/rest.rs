@@ -194,6 +194,16 @@ impl RestConnection {
         sessions.forget_current(session).await
     }
 
+    /// Start a new event consumer bound to this login and an empty confirmed position.
+    pub fn account_events(
+        &self,
+    ) -> Result<crate::realtime::AccountEvents<'_>, crate::realtime::EventConnectionError> {
+        if self.account.is_none() {
+            return Err(crate::realtime::EventConnectionError::SessionUnavailable);
+        }
+        Ok(crate::realtime::AccountEvents::new(self))
+    }
+
     /// Run one native event connection for the signed account. Dropping the caller's
     /// future or retiring this login closes the socket, including during the handshake.
     pub async fn with_event_stream<T>(
