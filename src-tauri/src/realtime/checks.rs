@@ -111,7 +111,76 @@ pub(crate) async fn wire(client: &NativeHttp, base: &str) -> CheckResult {
             .await?;
         control("event-handshake-closed").await
     };
-    let (result, cleanup) = tokio::join!(handshake, retire);
-    assert_eq!(result, Err(EventConnectionError::SessionUnavailable));
-    cleanup
+    let verify_retirement = async {
+        match handshake.await {
+            Err(EventConnectionError::SessionUnavailable) => Ok(()),
+            Err(error) => Err(error.into()),
+            Ok(()) => Err("held handshake completed before the session retired".into()),
+        }
+    };
+    tokio::try_join!(verify_retirement, retire)?;
+    Ok(())
+}
+
+#[cfg(any(target_os = "android", target_os = "macos"))]
+pub(crate) async fn posted_delivery(
+    client: &NativeHttp,
+    sessions: &AccountSessions,
+    base: &str,
+) -> CheckResult {
+    use crate::history::{DraftSave, StagePost};
+    use crate::rest::TransportError;
+    const CHANNEL: &str = "cccccccccccccccccccccccccc";
+    const ROOT: &str = "rrrrrrrrrrrrrrrrrrrrrrrrrr";
+    const POST: &str = "pppppppppppppppppppppppppp";
+    let connection = signed(client, sessions, base, "delivery").await?;
+    let mut history = connection.open_history(sessions).await?;
+    let DraftSave::Saved(draft) = history.save_draft(CHANNEL, Some(ROOT), None, "fixture reply")?
+    else {
+        panic!("fixture draft was not saved");
+    };
+    let StagePost::Created { post, .. } =
+        history.stage_post(CHANNEL, Some(ROOT), draft.revision.as_deref().unwrap())?
+    else {
+        panic!("fixture reply was not staged");
+    };
+    let mut send = Request::new(
+        Method::POST,
+        format!("{base}/Event%20Site//delivery/api/v4/posts").parse()?,
+    );
+    send.headers_mut()
+        .insert("content-type", "application/json".parse()?);
+    *send.body_mut() = Some(serde_json::json!({
+        "channel_id": post.channel_id, "root_id": post.root_id, "message": post.message, "pending_post_id": post.pending_id
+    }).to_string().into());
+    connection
+        .with_event_stream(EventSettings::default(), None, async |reader| {
+            let Some(IncomingFrame::Event { event, after, .. }) = reader.next_frame(None).await?
+            else {
+                panic!("expected hello");
+            };
+            assert_eq!(event.name, "hello");
+            // The server accepts the signed POST and deliberately drops its HTTP response.
+            assert_eq!(
+                connection.send(send).await.unwrap_err(),
+                TransportError::Network
+            );
+            let Some(IncomingFrame::Event { event, .. }) = reader.next_frame(Some(&after)).await?
+            else {
+                panic!("expected posted");
+            };
+            assert!(event.confirm_delivery(&mut history)?);
+            assert!(event.confirm_delivery(&mut history)?);
+            Ok(())
+        })
+        .await?;
+    drop(history);
+    let mut reopened = connection.open_history(sessions).await?;
+    let rows = reopened.pending_posts(CHANNEL, Some(ROOT), 0, 4)?;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].pending_id, post.pending_id);
+    assert_eq!(rows[0].confirmed_post_id.as_deref(), Some(POST));
+    assert!(reopened.read_post(POST)?.is_none());
+    connection.sign_out_on_device(sessions).await?;
+    Ok(())
 }

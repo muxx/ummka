@@ -13,15 +13,47 @@ export async function respondToPostMutation(
   const root = "v".repeat(26);
   const replyId = "j".repeat(26);
   const replyPath = `/team/chat/api/v4/posts/${replyId}`;
-  if (url.pathname === replyPath || url.pathname === `${replyPath}/patch`) {
+  const history = url.pathname === `${replyPath}/edit_history`;
+  if (
+    history ||
+    url.pathname === replyPath ||
+    url.pathname === `${replyPath}/patch`
+  ) {
     const patch = url.pathname.endsWith("/patch");
-    assert.equal(req.method, patch ? "PUT" : "DELETE");
+    assert.equal(req.method, history ? "GET" : patch ? "PUT" : "DELETE");
     assert.equal(req.headers.authorization, "Bearer fixture-prefixed-session");
     assert.equal(req.headers.cookie, undefined);
     assert.equal(url.search, "");
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk);
     const body = Buffer.concat(chunks);
+    if (history) {
+      assert.equal(body.length, 0);
+      const earlier = {
+        id: "b".repeat(26),
+        original_id: replyId,
+        user_id: user,
+        channel_id: channel,
+        root_id: root,
+        create_at: 100,
+        edit_at: 0,
+        delete_at: 200,
+        message: "First revision",
+      };
+      res.writeHead(200, { "Content-Type": "application/json" }).end(
+        JSON.stringify([
+          {
+            ...earlier,
+            id: "d".repeat(26),
+            edit_at: 200,
+            delete_at: 300,
+            message: "Second revision",
+          },
+          earlier,
+        ]),
+      );
+      return "post-edit-history";
+    }
     if (patch) {
       assert.equal(req.headers["content-type"], "application/json");
       const expected = { message: "Отредактировано ✎", props: { note: true } };

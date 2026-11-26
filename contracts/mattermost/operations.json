@@ -62,6 +62,12 @@
     "id": "GetChannelsForTeamForUser"
   },
   {
+    "file": "channels-12.1.0.yaml",
+    "method": "GET",
+    "path": "/api/v4/teams/{team_id}/channels/managed_categories",
+    "id": "GetManagedCategories"
+  },
+  {
     "file": "channels.yaml",
     "method": "GET",
     "path": "/api/v4/users/{user_id}/teams/{team_id}/channels/members",
@@ -184,6 +190,12 @@
   {
     "file": "posts-12.1.0.yaml",
     "method": "GET",
+    "path": "/api/v4/posts/{post_id}/edit_history",
+    "id": "GetEditHistoryForPost"
+  },
+  {
+    "file": "posts-12.1.0.yaml",
+    "method": "GET",
     "path": "/api/v4/posts/{post_id}/info",
     "id": "GetPostInfo"
   },
@@ -192,6 +204,13 @@
     "method": "GET",
     "path": "/api/v4/posts/{post_id}/thread",
     "id": "GetPostThread"
+  },
+  {
+    "file": "users.yaml",
+    "method": "GET",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/threads",
+    "id": "GetUserThreads",
+    "selfOnly": true
   },
   {
     "file": "users.yaml",

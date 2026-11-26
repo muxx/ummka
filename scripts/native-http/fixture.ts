@@ -169,7 +169,7 @@ export async function startFixture(dir: string) {
   const tls = https.createServer(certs.trusted, (request, response) => {
     const path = request.url;
     observe("https", path);
-    if (eventStream.control(path, response)) return;
+    if (eventStream.control(request, response)) return;
     const control = path?.match(
       /^\/auth-check\/([a-z-]+)\/(received|release)$/,
     );

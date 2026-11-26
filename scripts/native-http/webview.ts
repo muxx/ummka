@@ -15,6 +15,7 @@ import { historyRefreshFixture } from "./history-refresh.ts";
 import { respondToPostContext } from "./post-context.ts";
 import { respondToPostMutation } from "./post-mutations.ts";
 import { submissionFixture } from "./submit-post.ts";
+import { respondToThreadList } from "./thread-list.ts";
 import { respondToWorkspace } from "./workspace.ts";
 
 export function webviewServers(
@@ -68,6 +69,13 @@ export function webviewServers(
   const teamId = "Team0123456789012345678901";
   const channelId = "c".repeat(26);
   const teamReads = new Map<string, { name: string; body: object | null }>([
+    [
+      `/team/chat/api/v4/teams/${teamId}/channels/managed_categories`,
+      {
+        name: "managed-category-mappings",
+        body: { [channelId]: "Release", ["d".repeat(26)]: "Release" },
+      },
+    ],
     [
       `/api/v4/posts/${"p".repeat(26)}/reactions`,
       { name: "empty-post-reactions", body: null },
@@ -427,6 +435,18 @@ export function webviewServers(
           status_code: 503,
         }),
       );
+      return;
+    }
+    const threadList = await respondToThreadList(
+      req,
+      res,
+      url,
+      teamId,
+      channelId,
+      userId,
+    );
+    if (threadList) {
+      visits.push(threadList);
       return;
     }
     if (
@@ -792,6 +812,7 @@ export function webviewServers(
                 EnableConfirmNotificationsToChannel: "false",
                 MaxNotificationsPerChannel: "9223372036854775807",
                 UniqueEmojiReactionLimitPerPost: "-2",
+                PostEditTimeLimit: "9007199254740993",
                 EnableCrossTeamSearch: "true",
                 EnableFileAttachments: "true",
                 EnableFileSearch: "false",
@@ -967,6 +988,7 @@ export function webviewServers(
       assert.equal(entrySettings.size, 2);
       assert.equal(untrustedRequests, 0);
       const expected = [
+        "managed-category-mappings",
         "bytes",
         "204",
         "205",
@@ -1030,7 +1052,11 @@ export function webviewServers(
         "post-reactions",
         "follow-thread",
         "unfollow-thread",
+        "thread-list-page",
+        "thread-list-totals",
+        "thread-list-empty",
         "patch-post",
+        "post-edit-history",
         "delete-post",
         "bulk-channel-view",
         "single-channel-view",

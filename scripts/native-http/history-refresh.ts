@@ -106,9 +106,11 @@ export function historyRefreshFixture(userId: string, onHold: () => void) {
         delayed = res;
         onHold();
       } else if (q.get("before") === root) {
+        assert.equal(q.get("per_page"), "30");
         calls.push("before");
         page(res, [old], "", root);
       } else if (q.get("after") === root) {
+        assert.equal(q.get("per_page"), "30");
         calls.push("after");
         page(res, [reply], root, "");
       } else {

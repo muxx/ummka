@@ -1,6 +1,9 @@
 import { expect, test, vi } from "vitest";
 import { Configuration } from "../../vendor/mattermost/index.js";
-import { workspaceServerPolicy } from "./workspace-preferences.ts";
+import {
+  postEditWindow,
+  workspaceServerPolicy,
+} from "./workspace-preferences.ts";
 import { loadWorkspaceServerPolicy } from "./workspace-server.ts";
 
 const basePath = "https://chat.example.test/teams/north";
@@ -15,6 +18,7 @@ test("projects display and mention policy from the old config and license endpoi
           EnableCustomGroups: "true",
           MaxNotificationsPerChannel: "6",
           UniqueEmojiReactionLimitPerPost: "-2",
+          PostEditTimeLimit: "9007199254740993",
           EnableCrossTeamSearch: "true",
           EnableFileAttachments: "true",
           ExperimentalViewArchivedChannels: "false",
@@ -48,6 +52,7 @@ test("projects display and mention policy from the old config and license endpoi
     sharedChannelDMs: true,
     search: { allTeams: true, files: true, archivedChannels: false },
     uniqueReactionLimit: "-2",
+    postEditLimitSeconds: "9007199254740993",
     mentions: {
       confirmNotifications: false,
       maxNotificationsPerChannel: "6",
@@ -242,4 +247,96 @@ test("keeps the exact signed limit and distinguishes an absent value", () => {
       workspaceServerPolicy({ UniqueEmojiReactionLimitPerPost: value }, {}),
     ).toThrow(TypeError);
   }
+});
+
+test.each([
+  ["true", "1", "1"],
+  ["true", "-1", "-1"],
+  ["true", undefined, undefined],
+  [undefined, "1", undefined],
+  ["false", "1", "-1"],
+  ["false", undefined, "-1"],
+] as const)(
+  "projects the edit window for license %s and limit %s",
+  (licensed, limit, expected) => {
+    const result = workspaceServerPolicy(
+      { PostEditTimeLimit: limit },
+      { IsLicensed: licensed },
+    );
+    expect(result.postEditLimitSeconds).toBe(expected);
+    expect(Object.hasOwn(result, "postEditLimitSeconds")).toBe(
+      expected !== undefined,
+    );
+  },
+);
+
+test.each([
+  "",
+  "01",
+  "-0",
+  "+1",
+  "1.5",
+  "1\n",
+  "9223372036854775808",
+  "-9223372036854775809",
+])(
+  "rejects malformed edit policy %j even for an unlicensed server",
+  (limit) => {
+    expect(() =>
+      workspaceServerPolicy(
+        { PostEditTimeLimit: limit },
+        { IsLicensed: "false" },
+      ),
+    ).toThrow(TypeError);
+  },
+);
+
+test("rejects invalid edit-limit wire types before publishing policy", async () => {
+  for (const value of [null, 0, true]) {
+    const fetchApi: typeof fetch = async (url) =>
+      Response.json(
+        String(url).includes("/config/")
+          ? { PostEditTimeLimit: value }
+          : { IsLicensed: "true" },
+      );
+    await expect(
+      loadWorkspaceServerPolicy(new Configuration({ basePath, fetchApi })),
+    ).rejects.toThrow(TypeError);
+  }
+});
+
+test("compares integer milliseconds with the creation time and expires at the cutoff", () => {
+  const policy = (limit: string) =>
+    workspaceServerPolicy({ PostEditTimeLimit: limit }, { IsLicensed: "true" });
+  expect(postEditWindow(null, 1000, 1001)).toBe("unknown");
+  expect(postEditWindow(workspaceServerPolicy({}, {}), 1000, 1001)).toBe(
+    "unknown",
+  );
+  expect(postEditWindow(policy("2"), 1000, 2999)).toBe("open");
+  expect(postEditWindow(policy("2"), 1000, 3000)).toBe("expired");
+  expect(postEditWindow(policy("2"), 1000, 3001)).toBe("expired");
+  expect(postEditWindow(policy("0"), 1000, 1000)).toBe("expired");
+  expect(postEditWindow(policy("-2"), 1000, 1000)).toBe("expired");
+  expect(postEditWindow(policy("-1"), 1000, Number.MAX_SAFE_INTEGER)).toBe(
+    "open",
+  );
+  expect(
+    postEditWindow(
+      policy("9223372036854775807"),
+      1000,
+      Number.MAX_SAFE_INTEGER,
+    ),
+  ).toBe("open");
+  expect(
+    postEditWindow(policy("-9223372036854775808"), Number.MAX_SAFE_INTEGER, 0),
+  ).toBe("expired");
+  expect(
+    postEditWindow(
+      policy("1"),
+      Number.MAX_SAFE_INTEGER - 999,
+      Number.MAX_SAFE_INTEGER,
+    ),
+  ).toBe("open");
+  expect(() => postEditWindow(policy("1"), NaN, 0)).toThrow(TypeError);
+  expect(() => postEditWindow(policy("1"), 0, 0.5)).toThrow(TypeError);
 });
