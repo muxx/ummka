@@ -75,6 +75,7 @@ export function fixture({
   cross = false,
   direct = false,
   archivedHome = false,
+  homeKind = "O",
   initialTeam = winter,
   launch,
 }: {
@@ -82,6 +83,7 @@ export function fixture({
   cross?: boolean;
   direct?: boolean;
   archivedHome?: boolean;
+  homeKind?: "O" | "P" | "D" | "G";
   initialTeam?: string | null;
   launch?: typeof getDeviceLaunchContext;
 } = {}) {
@@ -127,7 +129,7 @@ export function fixture({
           name:
             direct && id === design ? [user, "z".repeat(26)].join("__") : name,
           displayName: direct && id === design ? "" : name,
-          type: direct && id === design ? "D" : "O",
+          type: id === home ? homeKind : direct && id === design ? "D" : "O",
           deleteAt: archivedHome && id === home ? 1 : 0,
         },
         membership: { userId: user, channelId: id, roles: "writer" },
@@ -181,6 +183,10 @@ export function fixture({
       return true;
     }),
     readTeamSidebar: vi.fn(readSidebar),
+    readChannelNotifications: vi
+      .fn<Account["readChannelNotifications"]>()
+      .mockResolvedValue({ account: {}, channel: {} }),
+    updateChannelNotifications: vi.fn<Account["updateChannelNotifications"]>(),
     refreshTeamSidebar: vi.fn().mockResolvedValue(true),
     selectSidebarChannel: vi.fn(async (t: string, c: string) => {
       selected.set(t, c);

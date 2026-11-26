@@ -3,6 +3,7 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { App } from "../../src/App.tsx";
 import { openNativeRestConnection } from "../../src/mattermost/native-rest.ts";
+import { checkChannelNotificationsWindow } from "./channel-notifications-window.ts";
 
 export function findThreadDraft(host: HTMLElement) {
   const ui = within(host);
@@ -142,6 +143,7 @@ export async function verifyWorkspaceBack(
       if (reopened.isConnected || document.activeElement !== opener)
         throw Error("The reopened thread did not return to the same post");
     });
+    await checkChannelNotificationsWindow(host, () => press("notifications"));
   } finally {
     window.removeEventListener("keydown", observed, true);
     await control.close();

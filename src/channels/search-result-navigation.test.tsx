@@ -614,7 +614,7 @@ test("opens pins in the selected channel, distinguishes a confirmed personal mar
   const menu = screen.getByRole("button", { name: "Channel menu, Home" });
   const pins = async () => {
     fireEvent.click(menu);
-    const item = screen.getByRole("button", { name: "Pinned messages" });
+    const item = screen.getByRole("menuitem", { name: "Pinned messages" });
     expect(document.activeElement).toBe(item);
     fireEvent.click(item);
     return within(
@@ -681,7 +681,7 @@ test.each(["saved", "pins"] as const)(
           screen.getByRole("button", { name: "Channel menu, Home" }),
         );
         fireEvent.click(
-          screen.getByRole("button", { name: "Pinned messages" }),
+          screen.getByRole("menuitem", { name: "Pinned messages" }),
         );
       }
       const name = kind === "saved" ? "Saved messages" : "Pinned messages";
@@ -816,12 +816,101 @@ test("a hidden saved page remains traversable, preserves the previous rows on re
   expect(pane.queryByText("Oldest visible")).toBeNull();
 });
 
+test.each(["O", "P", "G"] as const)(
+  "opens personal notifications from an active %s channel title",
+  async (homeKind) => {
+    const { account } = fixture({ homeKind });
+    fireEvent.click(
+      await screen.findByRole("button", { name: /^Channel menu,/ }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Notifications" }));
+    const form = within(
+      await screen.findByRole("dialog", { name: "Notifications" }),
+    );
+    await form.findByRole("checkbox", {
+      name: homeKind === "G" ? /Mute conversation/ : /Mute channel/,
+    });
+    expect(account.readChannelNotifications).toHaveBeenCalledWith(
+      home,
+      expect.any(AbortSignal),
+    );
+  },
+);
+
+test("a direct conversation keeps pins available and excludes channel notifications", async () => {
+  const { account } = fixture({ homeKind: "D" });
+  fireEvent.click(
+    await screen.findByRole("button", { name: /^Channel menu,/ }),
+  );
+  expect(
+    screen.getByRole("menuitem", { name: "Pinned messages" }),
+  ).toBeTruthy();
+  expect(screen.queryByRole("menuitem", { name: "Notifications" })).toBeNull();
+  expect(account.readChannelNotifications).not.toHaveBeenCalled();
+});
+
+test("revoked channel history closes its notifications and cancels the pending read", async () => {
+  const { account } = fixture();
+  let rejectRefresh!: (reason: Error) => void;
+  account.refreshChannelHistory.mockImplementation(
+    () =>
+      new Promise((_resolve, reject) => {
+        rejectRefresh = reject;
+      }),
+  );
+  account.readChannelNotifications.mockImplementation(
+    () => new Promise(() => {}),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Channel menu, Home" }),
+  );
+  fireEvent.click(screen.getByRole("menuitem", { name: "Notifications" }));
+  await screen.findByRole("dialog", { name: "Notifications" });
+  const signal = account.readChannelNotifications.mock.calls[0]?.[1];
+  expect(signal?.aborted).toBe(false);
+  await waitFor(() => expect(account.refreshChannelHistory).toHaveBeenCalled());
+  await act(async () =>
+    rejectRefresh(new ResponseError(new Response(null, { status: 403 }))),
+  );
+  await waitFor(() => expect(signal?.aborted).toBe(true));
+  expect(screen.queryByRole("dialog", { name: "Notifications" })).toBeNull();
+  expect(
+    screen.queryByRole("button", { name: "Channel menu, Home" }),
+  ).toBeNull();
+  expect(account.updateChannelNotifications).not.toHaveBeenCalled();
+});
+
+test("removing the selected channel from the joined sidebar closes its notification form", async () => {
+  const { account } = fixture();
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Channel menu, Home" }),
+  );
+  fireEvent.click(screen.getByRole("menuitem", { name: "Notifications" }));
+  const form = await screen.findByRole("dialog", { name: "Notifications" });
+  await within(form).findByRole("checkbox", { name: /Mute channel/ });
+  const before = await account.readTeamSidebar(winter);
+  account.readTeamSidebar.mockResolvedValue({
+    selectedChannel: null,
+    data: { ...before.data, channels: [] },
+  });
+  const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+  try {
+    act(() => window.dispatchEvent(new Event("offline")));
+    await waitFor(() => expect(form.isConnected).toBe(false));
+    expect(screen.queryByRole("button", { name: /^Channel menu,/ })).toBeNull();
+    expect(account.updateChannelNotifications).not.toHaveBeenCalled();
+  } finally {
+    online.mockRestore();
+  }
+});
+
 test("archived channels show the pinned messages and keep the shared action hidden", async () => {
   const { account } = fixture({ archivedHome: true });
   fireEvent.click(
     await screen.findByRole("button", { name: "Channel menu, Home" }),
   );
-  fireEvent.click(screen.getByRole("button", { name: "Pinned messages" }));
+  expect(screen.queryByRole("menuitem", { name: "Notifications" })).toBeNull();
+  fireEvent.click(screen.getByRole("menuitem", { name: "Pinned messages" }));
   const pins = within(
     await screen.findByRole("complementary", { name: "Pinned messages" }),
   );
@@ -865,7 +954,7 @@ test("the channel heading can receive WebKit's pointer focus before a pin-menu c
     name: "Channel menu, Home",
   });
   fireEvent.click(menu);
-  const item = screen.getByRole("button", { name: "Pinned messages" });
+  const item = screen.getByRole("menuitem", { name: "Pinned messages" });
   fireEvent.pointerDown(item);
   fireEvent.mouseDown(item);
   const heading = screen.getByRole("heading", { level: 1, name: "Home" });
