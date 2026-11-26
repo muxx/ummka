@@ -834,3 +834,26 @@ test("a manual server choice wins an earlier native link selection and keeps the
   expect(selected).toBe(nested);
   expect(writes).toEqual([nested, manual, nested]);
 });
+
+test("a fresh system delivery to the same saved post owns navigation", async () => {
+  boot();
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Saved messages" }),
+  );
+  const panel = await screen.findByRole("complementary", {
+    name: "Saved messages",
+  });
+  fireEvent.click(
+    await within(panel).findByRole("button", { name: /Saved root preview/ }),
+  );
+  expect(
+    await screen.findByRole("button", { name: "Back to saved messages" }),
+  ).toBeTruthy();
+  act(() => enqueue("1", href(root.id)));
+  await waitFor(() =>
+    expect(acks).toEqual([{ id: "1", row: root.id, thread: false }]),
+  );
+  expect(
+    screen.queryByRole("button", { name: "Back to saved messages" }),
+  ).toBeNull();
+});
