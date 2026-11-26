@@ -82,54 +82,63 @@ export function AccountSessionWindow({
   return (
     <dialog
       ref={dialog}
-      className="workspace-account-menu"
+      className="workspace-account-menu modal-layout"
       aria-labelledby={titleId}
       onCancel={(event) => {
         event.preventDefault();
         if (page === "account" && !working.current) onDismiss();
       }}
     >
-      {page === "account" && (
-        <button
-          type="button"
-          className="workspace-menu-close"
-          aria-label={workspaceCopy[language].close}
-          disabled={!!busy}
-          onClick={onDismiss}
-        >
-          ×
-        </button>
-      )}
-      <h1 id={titleId} tabIndex={-1} ref={heading}>
-        {page === "account"
-          ? workspace.team.displayName || workspace.team.name
-          : text[page]}
-      </h1>
-      <p className="entry-address" dir="ltr">
-        {workspace.serverUrl}
-      </p>
-      {page === "account" && workspace.directoryNotice && (
-        <p role="status">
-          {teamText[language][workspace.directoryNotice]}
-          {workspace.directoryCode && (
-            <>
-              {" "}
-              <code dir="ltr">{workspace.directoryCode}</code>
-            </>
-          )}
+      <header>
+        {page === "account" && (
+          <button
+            type="button"
+            className="workspace-menu-close"
+            aria-label={workspaceCopy[language].close}
+            disabled={!!busy}
+            onClick={onDismiss}
+          >
+            ×
+          </button>
+        )}
+        <h1 id={titleId} tabIndex={-1} ref={heading}>
+          {page === "account"
+            ? workspace.team.displayName || workspace.team.name
+            : text[page]}
+        </h1>
+      </header>
+      <div className="modal-scroll">
+        <p className="entry-address" dir="ltr">
+          {workspace.serverUrl}
         </p>
-      )}
-      {page !== "account" && (
-        <p className="entry-lead">
-          {page === "confirmed" ? text.remaining : text.explain}
-        </p>
-      )}
-      {failed && (
-        <p className="entry-error" role="alert">
-          {text.error}
-        </p>
-      )}
-      <div className="entry-session-actions">
+        {page === "account" && workspace.directoryNotice && (
+          <p role="status">
+            {teamText[language][workspace.directoryNotice]}
+            {workspace.directoryCode && (
+              <>
+                {" "}
+                <code dir="ltr">{workspace.directoryCode}</code>
+              </>
+            )}
+          </p>
+        )}
+        {page !== "account" && (
+          <p className="entry-lead">
+            {page === "confirmed" ? text.remaining : text.explain}
+          </p>
+        )}
+        {failed && (
+          <p className="entry-error" role="alert">
+            {text.error}
+          </p>
+        )}
+        {busy && (
+          <p role="status">
+            {busy === "server" ? text.pending : text.pendingLocal}
+          </p>
+        )}
+      </div>
+      <footer className="entry-session-actions">
         {page === "account" ? (
           <>
             <button
@@ -172,12 +181,7 @@ export function AccountSessionWindow({
             </button>
           </>
         )}
-      </div>
-      {busy && (
-        <p role="status">
-          {busy === "server" ? text.pending : text.pendingLocal}
-        </p>
-      )}
+      </footer>
     </dialog>
   );
 }

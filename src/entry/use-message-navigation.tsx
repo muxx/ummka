@@ -123,7 +123,7 @@ function DestinationDialog({
   const step = modal.kind === "consent" ? modal.step : null;
   return (
     <dialog
-      className="channels-search-dialog message-destination-dialog"
+      className="channels-search-dialog message-destination-dialog modal-layout"
       ref={node}
       aria-labelledby={title}
       aria-describedby={description}
@@ -159,45 +159,49 @@ function DestinationDialog({
               ? "Переход к сообщению"
               : "Open message"}
       </h2>
-      <p id={description} role={modal.kind === "error" ? "alert" : "status"}>
-        {step
-          ? [
-              step.team.displayName,
-              step.channel.displayName,
-              step.channel.kind === "P"
-                ? text.privateDetail(step.channel.displayName)
-                : null,
-            ]
-              .filter(Boolean)
-              .join(" · ")
-          : modal.kind === "error"
-            ? modal.text
-            : text.working}
-      </p>
-      {modal.kind === "consent" && (
-        <>
-          <button type="button" onClick={() => modal.answer(false)}>
-            {text.cancel}
-          </button>
+      <div className="modal-scroll">
+        <p id={description} role={modal.kind === "error" ? "alert" : "status"}>
+          {step
+            ? [
+                step.team.displayName,
+                step.channel.displayName,
+                step.channel.kind === "P"
+                  ? text.privateDetail(step.channel.displayName)
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")
+            : modal.kind === "error"
+              ? modal.text
+              : text.working}
+        </p>
+      </div>
+      <footer>
+        {modal.kind === "consent" && (
+          <>
+            <button type="button" onClick={() => modal.answer(false)}>
+              {text.cancel}
+            </button>
+            <button
+              ref={primary}
+              type="button"
+              onClick={() => modal.answer(true)}
+            >
+              {text.join}
+            </button>
+          </>
+        )}
+        {modal.kind === "error" && (
           <button
-            ref={primary}
             type="button"
-            onClick={() => modal.answer(true)}
+            ref={primary}
+            aria-describedby={description}
+            onClick={modal.close}
           >
-            {text.join}
+            {text.ok}
           </button>
-        </>
-      )}
-      {modal.kind === "error" && (
-        <button
-          type="button"
-          ref={primary}
-          aria-describedby={description}
-          onClick={modal.close}
-        >
-          {text.ok}
-        </button>
-      )}
+        )}
+      </footer>
     </dialog>
   );
 }
