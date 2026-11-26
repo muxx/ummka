@@ -18,7 +18,9 @@ const bodies = [
   "A paragraph with ordinary readable text.\n\n~~~\nlet value;\n~~~",
 ];
 
-export async function checkChannelFormatting(pressRight: () => Promise<void>) {
+export async function checkChannelFormatting(
+  pressRight: (width: number) => Promise<void>,
+) {
   const author = () => ({ name: "Ada" });
   const posts: LocalChannelWindow["posts"] = Array.from(
     { length: 60 },
@@ -138,34 +140,42 @@ export async function checkChannelFormatting(pressRight: () => Promise<void>) {
       pre.focus();
       if (document.activeElement !== pre || pre.scrollLeft !== 0)
         throw Error("Scrollable code did not receive initial focus");
-      let trustedRight = false;
+      const phases = new Set<string>();
+      const observed: string[] = [];
       const observeRight = (event: KeyboardEvent) => {
+        const element =
+          event.target instanceof Element ? event.target.tagName : "window";
+        observed.push(`${event.type}/${event.code}/${element}`);
         if (
           event.key === "ArrowRight" &&
           event.isTrusted &&
           event.target === pre
         )
-          trustedRight = true;
+          phases.add(event.type);
       };
-      pre.addEventListener("keydown", observeRight);
+      window.addEventListener("keydown", observeRight, true);
+      window.addEventListener("keyup", observeRight, true);
       try {
-        await pressRight();
+        await pressRight(width);
+        // Keep this focused code block mounted until both halves of the
+        // physical press arrive, including the release after native scrolling.
         const deadline = performance.now() + 2500;
         while (
-          !(trustedRight && pre.scrollLeft > 0) &&
+          (phases.size < 2 || pre.scrollLeft === 0) &&
           performance.now() < deadline
         )
           await new Promise((resolve) => setTimeout(resolve, 20));
         if (
-          !trustedRight ||
+          phases.size !== 2 ||
           pre.scrollLeft <= 0 ||
           document.activeElement !== pre
         )
           throw Error(
-            `Code after native ArrowRight at ${width}px: trusted=${trustedRight} scroll=${pre.scrollLeft} focus=${document.activeElement === pre} documentFocus=${document.hasFocus()} visibility=${document.visibilityState}`,
+            `Code after native ArrowRight at ${width}px: events=${observed.join(",")} scroll=${pre.scrollLeft} focus=${document.activeElement === pre}`,
           );
       } finally {
-        pre.removeEventListener("keydown", observeRight);
+        window.removeEventListener("keydown", observeRight, true);
+        window.removeEventListener("keyup", observeRight, true);
       }
       const range = document.createRange();
       range.selectNodeContents(label);

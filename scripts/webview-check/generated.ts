@@ -157,7 +157,9 @@ export async function checkGeneratedRequests(ports: string[]) {
       "format-times",
       encodeURIComponent(
         JSON.stringify(
-          await checkChannelFormatting(() => observed("format-right", "")),
+          await checkChannelFormatting((width) =>
+            observed("format-right", String(width)),
+          ),
         ),
       ),
     );
