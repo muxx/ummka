@@ -5,6 +5,7 @@ import {
   auroraColors,
   resolvePalette,
 } from "../../src/appearance/palette.ts";
+import { usesMacOSOverlay } from "../../src/build-platform.ts";
 import { EntryWindow } from "../../src/entry/EntryWindow.tsx";
 
 export async function checkEntryWindow() {
@@ -31,7 +32,7 @@ export async function checkEntryWindow() {
     const card = host.querySelector<HTMLElement>(".entry-card");
     const action = main?.querySelector("button");
     if (!scene || !card || !main || !action) throw Error("entry-landmarks");
-    if (import.meta.env.UMMKA_MACOS_OVERLAY === true) {
+    if (usesMacOSOverlay) {
       const back = host.querySelector(".entry-back")?.getBoundingClientRect();
       if (!back) throw Error("entry-back-missing");
       const bounds = scene.getBoundingClientRect();

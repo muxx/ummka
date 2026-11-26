@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { usesMacOSOverlay } from "../build-platform.ts";
 import lockup from "./brand/lockup.svg?no-inline";
 import smallLockup from "./brand/lockup-small.svg?no-inline";
 import "./window.css";
@@ -12,7 +13,7 @@ export function EntryWindow({
   children: ReactNode;
   back?: BackAction;
 }) {
-  const overlay = import.meta.env.UMMKA_MACOS_OVERLAY === true;
+  const overlay = usesMacOSOverlay;
   return (
     <div className="entry-window" data-macos-overlay={overlay || undefined}>
       <header

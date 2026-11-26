@@ -5,6 +5,7 @@ import {
   useLayoutEffect,
   useRef,
 } from "react";
+import { usesMacOSOverlay } from "../build-platform.ts";
 import smallLockup from "../entry/brand/lockup-small.svg?no-inline";
 import "./frame.css";
 
@@ -92,7 +93,7 @@ export function ChannelsFrame({
   const lastFocus = useRef<HTMLElement>(null);
   const headingId = useId();
   const threadId = useId();
-  const overlay = import.meta.env.UMMKA_MACOS_OVERLAY === true;
+  const overlay = usesMacOSOverlay;
   const channelId = channel?.id;
   const openThread = thread?.id;
   const replyRef = thread?.replyRef;

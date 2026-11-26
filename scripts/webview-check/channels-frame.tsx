@@ -2,6 +2,7 @@ import { createRef } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { applyPalette, resolvePalette } from "../../src/appearance/palette.ts";
+import { usesMacOSOverlay } from "../../src/build-platform.ts";
 import { ChannelsFrame } from "../../src/channels/ChannelsFrame.tsx";
 
 export async function checkChannelsFrame() {
@@ -112,7 +113,7 @@ export async function checkChannelsFrame() {
     const bar = control(".channels-bar");
     const account = control(".channels-account");
     const scene = control(".channels-frame");
-    const overlay = import.meta.env.UMMKA_MACOS_OVERLAY === true;
+    const overlay = usesMacOSOverlay;
     if (
       Boolean(brand.closest("[data-tauri-drag-region]")) !== overlay ||
       account.closest("[data-tauri-drag-region]")
