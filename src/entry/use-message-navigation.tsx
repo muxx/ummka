@@ -159,7 +159,7 @@ function DestinationDialog({
               ? "Переход к сообщению"
               : "Open message"}
       </h2>
-      <div className="modal-scroll">
+      <section className="modal-scroll" aria-labelledby={title} tabIndex={0}>
         <p id={description} role={modal.kind === "error" ? "alert" : "status"}>
           {step
             ? [
@@ -175,7 +175,7 @@ function DestinationDialog({
               ? modal.text
               : text.working}
         </p>
-      </div>
+      </section>
       <footer>
         {modal.kind === "consent" && (
           <>
