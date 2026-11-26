@@ -87,6 +87,7 @@ class TimelineScroller extends Component<ScrollProps> {
         `[data-post-id="${CSS.escape(id)}"]`,
       );
     if (!pane || !row) return false;
+    this.lastCorrection = undefined;
     row.focus({ preventScroll: true });
     const bounds = row.getBoundingClientRect();
     pane.scrollTop +=
@@ -96,6 +97,7 @@ class TimelineScroller extends Component<ScrollProps> {
     return true;
   }
   private hiddenPlace: Place | null | undefined = null;
+  private lastCorrection?: { top: number; remainder: number };
 
   componentDidMount() {
     const pane = this.pane.current;
@@ -165,6 +167,8 @@ class TimelineScroller extends Component<ScrollProps> {
   }
 
   private restore(pane: HTMLElement, place: Place | null) {
+    const correction = this.lastCorrection;
+    this.lastCorrection = undefined;
     if (!place) {
       pane.scrollTop = pane.scrollHeight;
       return;
@@ -175,7 +179,22 @@ class TimelineScroller extends Component<ScrollProps> {
         `[data-post-id="${CSS.escape(anchor.id)}"],[data-local-id="${CSS.escape(anchor.id)}"]`,
       );
       if (row) {
-        pane.scrollTop += row.getBoundingClientRect().top - top - anchor.offset;
+        // WebKit quantizes scrollTop. Carry the unapplied fraction while the reader stays put.
+        const remainder =
+          correction?.top === place.top ? correction.remainder : 0;
+        const desired =
+          pane.scrollTop +
+          row.getBoundingClientRect().top -
+          top -
+          anchor.offset +
+          remainder;
+        const target = Math.min(
+          Math.max(0, desired),
+          pane.scrollHeight - pane.clientHeight,
+        );
+        pane.scrollTop = target;
+        const actual = pane.scrollTop;
+        this.lastCorrection = { top: actual, remainder: target - actual };
         return;
       }
     }

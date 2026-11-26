@@ -4,7 +4,7 @@ import { coldLink, warmLink } from "../webview-check/link-examples.ts";
 
 type Adb = (...args: string[]) => Promise<string>;
 export type SendAndroidKey = (
-  key: "KEYCODE_TAB" | "KEYCODE_BACK",
+  key: "KEYCODE_TAB" | "KEYCODE_BACK" | "KEYCODE_DPAD_RIGHT",
 ) => Promise<void>;
 export type OnAndroidInputReady = (send: SendAndroidKey) => void;
 

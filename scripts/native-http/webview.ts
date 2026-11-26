@@ -57,6 +57,10 @@ export function webviewServers(
   let offlineHistoryRequests = 0;
   let connections = 0;
   let before = false;
+  let formattingTimes:
+    | { width: number; first: number; unchanged: number }[]
+    | undefined;
+  let sendRight: (() => Promise<void>) | undefined;
   let prepareKeyboard: (() => Promise<void>) | undefined;
   let pressAndroidBack: (() => Promise<void>) | undefined;
   let disconnect: Socket | undefined;
@@ -1054,6 +1058,21 @@ export function webviewServers(
       );
       visits.push(marker);
       await pressAndroidBack();
+    } else if (step === "format-right") {
+      assert(sendRight, "Missing native keyboard driver");
+      await sendRight();
+    } else if (step === "format-times") {
+      const data = JSON.parse(url.searchParams.get("case") ?? "null");
+      assert.ok(Array.isArray(data));
+      assert.deepEqual(
+        data.map((row) => row.width),
+        [320, 820],
+      );
+      for (const row of data) {
+        assert.ok(Number.isFinite(row.first) && row.first >= 0);
+        assert.ok(Number.isFinite(row.unchanged) && row.unchanged >= 0);
+      }
+      formattingTimes = data;
     } else if (step === "release-history") {
       refresh.release();
     } else if (step === "release-submission") {
@@ -1086,6 +1105,10 @@ export function webviewServers(
     onAndroidInputReady(send: SendAndroidKey) {
       prepareKeyboard = () => send("KEYCODE_TAB");
       pressAndroidBack = () => send("KEYCODE_BACK");
+      sendRight = () => send("KEYCODE_DPAD_RIGHT");
+    },
+    onMacRightReady(send: () => Promise<void>) {
+      sendRight = send;
     },
     verify(platform: "macos" | "android") {
       refresh.verify();
@@ -1095,6 +1118,10 @@ export function webviewServers(
         "only the online control may reach the offline fixture",
       );
       assert(before);
+      assert.ok(formattingTimes);
+      console.log(
+        `Rendered 60 formatted posts in the ${platform} WebView (milliseconds): ${JSON.stringify(formattingTimes)}`,
+      );
       assert.equal(settings.size, 2);
       assert.equal(entrySettings.size, 2);
       assert.equal(untrustedRequests, 0);
