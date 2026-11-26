@@ -107,7 +107,8 @@ export function AccountSessionWindow({
             : text[page]}
         </h1>
       </header>
-      <div className="modal-scroll">
+      {/* biome-ignore lint/a11y/noNoninteractiveTabindex: Keyboard users scroll this region even when it contains only text. */}
+      <section className="modal-scroll" aria-labelledby={titleId} tabIndex={0}>
         <p className="entry-address" dir="ltr">
           {workspace.serverUrl}
         </p>
@@ -137,7 +138,7 @@ export function AccountSessionWindow({
             {busy === "server" ? text.pending : text.pendingLocal}
           </p>
         )}
-      </div>
+      </section>
       <footer className="entry-session-actions">
         {page === "account" ? (
           <>

@@ -113,10 +113,6 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
                     main.set_focus()?;
                     check_keyboard::listen(&main);
                 }
-                if std::env::var_os("UMMKA_CHECK_SYSTEM_POST_WINDOW").is_some() {
-                    main.show()?;
-                    main.set_focus()?;
-                }
                 if native.minSize().width != 400.0 {
                     return Err("unexpected native minimum window width".into());
                 }
@@ -149,6 +145,23 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let config = context();
+    #[cfg(all(feature = "webview-check", target_os = "macos"))]
+    let config = {
+        let mut config = config;
+        if std::env::var_os("UMMKA_CHECK_SYSTEM_POST_WINDOW").is_some() {
+            // LaunchServices opens the real client with a visible window. Construct
+            // that window normally so AppKit can give the WebView keyboard focus.
+            let main = config
+                .config_mut()
+                .app
+                .windows
+                .iter_mut()
+                .find(|window| window.label == "main")
+                .expect("missing main test window");
+            main.visible = true;
+        }
+        config
+    };
     #[cfg(all(feature = "webview-check", target_os = "macos"))]
     if std::env::var("UMMKA_CHECK_SEED_ACCOUNTS").as_deref() == Ok("1") {
         let port = config.config().plugins.0["ummkaFixture"]["dataPort"]

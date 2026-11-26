@@ -159,7 +159,8 @@ function DestinationDialog({
               ? "Переход к сообщению"
               : "Open message"}
       </h2>
-      <div className="modal-scroll">
+      {/* biome-ignore lint/a11y/noNoninteractiveTabindex: Keyboard users scroll this region even when it contains only text. */}
+      <section className="modal-scroll" aria-labelledby={title} tabIndex={0}>
         <p id={description} role={modal.kind === "error" ? "alert" : "status"}>
           {step
             ? [
@@ -175,7 +176,7 @@ function DestinationDialog({
               ? modal.text
               : text.working}
         </p>
-      </div>
+      </section>
       <footer>
         {modal.kind === "consent" && (
           <>
