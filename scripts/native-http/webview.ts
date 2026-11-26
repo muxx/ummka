@@ -70,6 +70,13 @@ export function webviewServers(
   const channelId = "c".repeat(26);
   const teamReads = new Map<string, { name: string; body: object | null }>([
     [
+      `/team/chat/api/v4/channels/${"j".repeat(26)}`,
+      {
+        name: "signed-single-channel",
+        body: { id: "j".repeat(26), type: "G", team_id: "", delete_at: 0 },
+      },
+    ],
+    [
       `/team/chat/api/v4/teams/${teamId}/channels/managed_categories`,
       {
         name: "managed-category-mappings",
@@ -1026,6 +1033,7 @@ export function webviewServers(
       assert.equal(entrySettings.size, 2);
       assert.equal(untrustedRequests, 0);
       const expected = [
+        "signed-single-channel",
         "managed-category-mappings",
         "bytes",
         "204",

@@ -74,6 +74,15 @@ export async function checkTeamReads(
   )
     throw Error("generated team membership");
   const api = new ChannelsApi(prefixed);
+  const location = "j".repeat(26);
+  const inspected = await api.getChannel({ channelId: location });
+  if (
+    inspected.id !== location ||
+    inspected.type !== "G" ||
+    inspected.teamId !== "" ||
+    inspected.deleteAt !== 0
+  )
+    throw Error("generated signed channel by ID");
   const managed = await api.getManagedCategories({ teamId });
   if (
     Object.keys(managed).length !== 2 ||

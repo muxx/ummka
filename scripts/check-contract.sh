@@ -228,6 +228,9 @@ savedPreferences satisfies Preference[];
 savedPreferences?.[0]?.value satisfies string | undefined;
 // @ts-expect-error Preference values remain strings.
 savedPreferences?.[0]?.value satisfies boolean | undefined;
+(await channels.getChannel({ channelId: "channel" })).deleteAt satisfies number | undefined;
+// @ts-expect-error A channel ID is required.
+channels.getChannel({});
 const teamChannels = await channels.getChannelsForTeamForUser({ userId: "me", teamId: "team" });
 teamChannels[0]?.totalMsgCountRoot satisfies number | undefined;
 teamChannels[0]?.lastRootPostAt satisfies number | undefined;

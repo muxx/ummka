@@ -404,6 +404,17 @@ console.log(
   `Mattermost ${version} verified channel audience counts, timezones and private channel access.`,
 );
 await checkChannelRoster(closedReader, closed.id, dm.id, [user.id, reader.id]);
+for (const [caller, target, status] of [
+  [closedReader, closed.id, 403],
+  [closedReader, "z".repeat(26), 404],
+  [new ChannelsApi(new Configuration({ basePath: base })), dm.id, 401],
+] as const) {
+  await assert.rejects(
+    caller.getChannel({ channelId: target }),
+    (error: unknown) =>
+      error instanceof ResponseError && error.response.status === status,
+  );
+}
 await assert.rejects(
   closedReader.getChannelMember({ channelId: closed.id, userId: user.id }),
   (e: unknown) => e instanceof ResponseError && e.response.status === 403,
@@ -1150,6 +1161,21 @@ const group = await (
   await create("channels/group", [user.id, reader.id, bot.user_id], token)
 ).json();
 assert.equal(group.type, "G");
+for (const [source, expectedTeam] of [
+  [channel, team.id],
+  [dm, ""],
+  [group, ""],
+] as const) {
+  const found = await closedReader.getChannel({ channelId: source.id });
+  assert.equal(found.id, source.id);
+  assert.equal(found.type, source.type);
+  assert.equal(found.name, source.name);
+  assert.equal(found.teamId, expectedTeam);
+  assert.equal(found.deleteAt, 0);
+}
+console.log(
+  `Mattermost ${version} verified signed metadata for one channel, DM and group, and the three expected HTTP errors.`,
+);
 const groupName = {
   kind: group.type,
   name: group.name,
