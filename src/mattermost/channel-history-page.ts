@@ -75,7 +75,7 @@ export function channelHistoryPage(
       "The focused message is missing from its visible page.",
     );
   }
-  const changes = channelPostChanges(request.channelId, page);
+  const changes = channelPostChanges(request.channelId, page, collapsedThreads);
   return {
     channelId: request.channelId,
     collapsedThreads,

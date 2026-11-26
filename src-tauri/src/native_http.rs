@@ -88,6 +88,10 @@ impl NativeHttp {
             .map_err(|_| TransportError::Network)
     }
 
+    pub(crate) fn prepare_upgrade(&self, request: Request) -> reqwest::RequestBuilder {
+        reqwest::RequestBuilder::from_parts(self.0.clone(), request)
+    }
+
     /// The caller owns the response stream. Dropping it cancels a pending body read.
     pub async fn send(&self, request: Request) -> Result<Response, TransportError> {
         #[cfg(target_os = "android")]

@@ -8,6 +8,7 @@ import https from "node:https";
 import type { Server, Socket } from "node:net";
 import { join } from "node:path";
 import { authPrefix, checkAuthVisits, handleAuth } from "./authentication.ts";
+import { eventFixture } from "./channel-events.ts";
 import { webviewServers } from "./webview.ts";
 
 function certificates(dir: string) {
@@ -134,8 +135,10 @@ export async function startFixture(dir: string) {
   let otherRequests = 0;
   const checkpoints: number[][] = [];
   const ok = (response: http.ServerResponse) => response.end("OK");
+  const eventStream = eventFixture();
   const tls = https.createServer(certs.trusted, (request, response) => {
     const path = request.url;
+    if (eventStream.control(path, response)) return;
     const control = path?.match(
       /^\/auth-check\/([a-z-]+)\/(received|release)$/,
     );
@@ -208,6 +211,7 @@ export async function startFixture(dir: string) {
       response.writeHead(404).end();
     }
   });
+  tls.on("upgrade", (request, socket) => eventStream.upgrade(request, socket));
   let rejectedHttp = 0;
   const unexpected = (_req: http.IncomingMessage, res: http.ServerResponse) => {
     rejectedHttp++;
@@ -302,6 +306,7 @@ export async function startFixture(dir: string) {
       close,
       verify(android: boolean) {
         checkAuthVisits(authVisits);
+        eventStream.verify();
         webview.verify(android ? "android" : "macos");
         assert.deepEqual(checkpoints, [
           [0, 0, 0, 0],

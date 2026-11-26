@@ -1,6 +1,7 @@
 pub(crate) mod migrations;
 pub(crate) mod posts;
 pub(crate) mod reclamation;
+mod thread_summaries;
 pub(crate) mod windows;
 
 use super::{HistoryDatabase, HistoryError, HistoryOwner};

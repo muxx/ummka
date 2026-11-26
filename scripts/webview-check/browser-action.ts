@@ -1,3 +1,4 @@
+import { waitFor } from "@testing-library/dom";
 import {
   cancelBrowserSignIn,
   signInWithBrowser,
@@ -10,7 +11,7 @@ import {
   forgetLocalAccount,
   getCurrentAccountId,
 } from "../../src/mattermost/native-rest.ts";
-import { checkBrowserApp } from "./browser-app.tsx";
+import { checkBrowserApp, waitForAppForeground } from "./browser-app.tsx";
 
 function matches(actual: unknown, fields: Record<string, string>) {
   if (actual === null || typeof actual !== "object") return false;
@@ -39,16 +40,26 @@ export async function checkBrowserAction(port: string) {
   if (!navigator.userAgent.includes("Android")) return;
 
   await connectInstallation(server);
-  let cancelled: Promise<boolean> | undefined;
-  const result = await signInWithBrowser(server, "google", (id) => {
-    cancelled = cancelBrowserSignIn(id);
+  await waitForAppForeground();
+  let googleId: string | undefined;
+  const pending = signInWithBrowser(server, "google", (id) => {
+    googleId = id;
   }).catch((error: unknown) => error);
+  const opened = await waitFor(
+    () => {
+      if (!googleId || document.visibilityState !== "hidden")
+        throw Error("The Google auth tab did not cover the application");
+      return googleId;
+    },
+    { timeout: 5000 },
+  );
   if (
-    !(await cancelled) ||
-    !matches(result, { kind: "browser", cause: "cancelled" })
+    !(await cancelBrowserSignIn(opened)) ||
+    !matches(await pending, { kind: "browser", cause: "cancelled" })
   ) {
     throw Error("browser action failed to cancel its own pending request");
   }
+  await waitForAppForeground();
   let requestId: string | undefined;
   const user = await signInWithBrowser(server, "gitlab", (id) => {
     requestId = id;

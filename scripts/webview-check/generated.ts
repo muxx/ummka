@@ -16,6 +16,7 @@ import {
   type InitOverrideFunction,
   ResponseError,
   SystemApi,
+  ThreadsApi,
   UsersApi,
 } from "../../vendor/mattermost/index.js";
 import { checkAccountResponses } from "./account.ts";
@@ -522,6 +523,9 @@ export async function checkGeneratedRequests(ports: string[]) {
       postAnchor.postId === postId &&
         postAnchor.channelId === channelId &&
         postAnchor.rootId === "r".repeat(26) &&
+        postAnchor.post?.id === postId &&
+        postAnchor.post.editAt === 1250 &&
+        postAnchor.post.isPinned &&
         fileAnchor.fileId === fileId &&
         fileAnchor.channelId === channelId &&
         fileAnchor.postId === postId,
@@ -541,9 +545,39 @@ export async function checkGeneratedRequests(ports: string[]) {
         target.teamId === teamId &&
         target.channelId === channelId &&
         target.rootId === "r".repeat(26) &&
-        target.postId === postId,
+        target.postId === postId &&
+        target.post.id === target.postId &&
+        target.post.channelId === target.channelId &&
+        target.post.rootId === target.rootId &&
+        target.post.userId === "u".repeat(26) &&
+        target.post.createAt === 1100 &&
+        target.post.message === "Later reply",
       "inspect-file-post-destination",
     );
+    const threads = new ThreadsApi(signed);
+    const follow = { userId: "me", teamId, threadId: postId };
+    check(
+      (await threads.startFollowingThread(follow)).status === "OK",
+      "signed thread follow",
+    );
+    check(
+      (await threads.stopFollowingThread(follow)).status === "OK",
+      "signed thread unfollow",
+    );
+    const guestThreads = new ThreadsApi(new Configuration(prefixed));
+    for (const request of [
+      () => guestThreads.startFollowingThread(follow),
+      () => threads.stopFollowingThread({ ...follow, userId: "b".repeat(26) }),
+      () => threads.startFollowingThread({ ...follow, threadId: "short" }),
+    ]) {
+      const denied = await rejected(request());
+      check(
+        denied instanceof FetchError &&
+          denied.cause instanceof TypeError &&
+          denied.cause.cause === "operation_denied",
+        "thread-follow-denied-before-dispatch",
+      );
+    }
     await checkPostMutations(
       rootSession,
       signed,

@@ -54,7 +54,10 @@ import {
 } from "./memberships.ts";
 import { checkMentionLimit } from "./mention-limit.ts";
 import { checkMentionText } from "./mention-text.ts";
-import { checkPostCollections } from "./post-collections.ts";
+import {
+  checkPostCollections,
+  checkSavedPageBoundary,
+} from "./post-collections.ts";
 import { checkPostEditHistory } from "./post-edit-history.ts";
 import {
   checkPostMutations,
@@ -67,8 +70,11 @@ import { checkReactionLimit } from "./reaction-limit.ts";
 import { checkPostReactions } from "./reactions.ts";
 import { checkRoleReads } from "./role-reads.ts";
 import { checkSearchScopePolicy } from "./search-scope.ts";
+import { expectedNavigationPost } from "./search-target.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
+import { checkThreadFollow } from "./thread-follow.ts";
+import { checkThreadSummary } from "./thread-summary.ts";
 import { checkThreadWindow } from "./thread-window.ts";
 import { checkUserNotifications } from "./user-notifications.ts";
 import { checkUserTimezone } from "./user-timezone.ts";
@@ -461,6 +467,7 @@ for (const [id, rootId] of [
     postId: id,
     channelId,
     rootId: rootId || null,
+    post: expectedNavigationPost(row),
   });
 }
 await assert.rejects(
@@ -747,7 +754,23 @@ const memberApi = new ChannelsApi(
   new Configuration({ basePath: base, accessToken: readerToken }),
 );
 assert.equal(reader.roles, "system_user");
-await checkUserTimezone(base, readerToken);
+await checkUserTimezone(
+  base,
+  readerToken,
+  reader.id,
+  team.id,
+  async (text, createAt) => {
+    const post = await (
+      await create(
+        "posts",
+        { channel_id: channelId, message: text, create_at: createAt },
+        token,
+      )
+    ).json();
+    assert.equal(post.create_at, createAt);
+    return post.id;
+  },
+);
 await checkUserNotifications(base, readerToken);
 await checkChannelNotifications(memberApi, channelId);
 const ownMembership = { channelId: joinable.id, userId: reader.id };
@@ -905,6 +928,15 @@ await checkSidebarCounters(
 );
 console.log(
   `Mattermost ${version} verified root and reply counters through a channel view.`,
+);
+await checkThreadFollow(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  new Configuration({ basePath: base }),
+  { posts: memberPosts, userId: user.id },
+  team.id,
+  [channelId, dm.id],
+  closedPost.id,
+  version,
 );
 // The earlier non-member checks use this private channel before the reader joins.
 await create(`channels/${closed.id}/members`, { user_id: reader.id }, token);
@@ -1186,6 +1218,7 @@ console.log(
 );
 
 await checkPostReactions(base, token, session, user.id, reader.id, channelId);
+await checkThreadSummary(memberPosts, readerPosts, channelId);
 console.log(
   `Mattermost ${version} verified empty and populated reaction lists and post metadata.`,
 );
@@ -1193,6 +1226,13 @@ console.log(
 await checkEventStream(base, token, session, team.id, channelId);
 console.log(
   `Mattermost ${version} verified sequenced posts, command replies and replay of a post after reconnect.`,
+);
+
+await checkSavedPageBoundary(
+  base,
+  { id: reader.id, token: readerToken },
+  dm.id,
+  version,
 );
 
 const secondLogin = await create("users/login", {

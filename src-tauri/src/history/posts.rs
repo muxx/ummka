@@ -1,3 +1,4 @@
+use super::thread_summary::{LAST_OBSERVATION, ThreadSummary};
 use super::{AccountHistory, ChannelHistoryPage, HistoryError, HistoryOwner, windows};
 use crate::rest::is_mattermost_id;
 use rusqlite::{OptionalExtension, Row, Transaction, TransactionBehavior, params};
@@ -21,6 +22,8 @@ pub struct StoredPost {
     pub message_source: Option<String>,
     pub hashtags: String,
     pub is_pinned: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_summary: Option<Box<ThreadSummary>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -39,6 +42,7 @@ pub struct ChannelPostLoad {
     owner: HistoryOwner,
     channel_id: String,
     revision: i64,
+    observed_summary: i64,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
@@ -57,9 +61,11 @@ pub enum PageWrite {
 }
 
 pub(super) const READ: &str =
-    "SELECT id, channel_id, user_id, root_id, create_at, update_at, edit_at,
-                            type, message, message_source, hashtags, is_pinned
-                     FROM history_post WHERE id = ?1";
+     "SELECT p.id, p.channel_id, p.user_id, p.root_id, p.create_at, p.update_at, p.edit_at,
+              p.type, p.message, p.message_source, p.hashtags, p.is_pinned,
+              s.reply_count, s.last_reply_at, s.participant_ids
+       FROM history_post p LEFT JOIN history_thread_summary s ON s.post_id=p.id AND p.root_id IS NULL
+       WHERE p.id=?1";
 pub(super) const REMOVE: &str =
     "DELETE FROM history_post WHERE channel_id = ?1 AND (id = ?2 OR root_id = ?2)";
 const SAVE: &str = "INSERT INTO history_post
@@ -85,6 +91,7 @@ impl StoredPost {
             message_source: row.get(9)?,
             hashtags: row.get(10)?,
             is_pinned: row.get(11)?,
+            thread_summary: ThreadSummary::from_row(row)?.map(Box::new),
         })
     }
 }
@@ -126,11 +133,17 @@ impl AccountHistory {
         if !is_mattermost_id(channel_id) {
             return Err(HistoryError::InvalidPost);
         }
-        let revision = self.read(|tx| deletion_revision(tx, channel_id))?;
+        let (revision, observed_summary) = self.read(|tx| {
+            Ok((
+                deletion_revision(tx, channel_id)?,
+                tx.query_row(LAST_OBSERVATION, [], |row| row.get(0))?,
+            ))
+        })?;
         Ok(ChannelPostLoad {
             owner: self.owner.clone(),
             channel_id: channel_id.to_owned(),
             revision,
+            observed_summary,
         })
     }
 
@@ -175,7 +188,12 @@ impl AccountHistory {
                 if deletion_revision(tx, &load.channel_id)? != load.revision {
                     return Ok(PageWrite::Superseded);
                 }
-                let removed = write_changes(tx, &load.channel_id, changes)?;
+                let removed = write_changes(
+                    tx,
+                    &load,
+                    changes,
+                    page.is_some_and(|page| page.collapsed_threads),
+                )?;
                 if let Some(page) = page {
                     page.validate(&load.channel_id)?;
                     return windows::record(tx, page, &removed);
@@ -187,9 +205,11 @@ impl AccountHistory {
 
 fn write_changes(
     tx: &Transaction<'_>,
-    channel: &str,
+    load: &ChannelPostLoad,
     changes: &[PostChange],
+    collapsed: bool,
 ) -> Result<HashSet<String>, HistoryError> {
+    let channel = load.channel_id.as_str();
     let mut previous = tx.prepare_cached(
         "SELECT channel_id, update_at, create_at FROM history_post WHERE id = ?1",
     )?;
@@ -218,28 +238,38 @@ fn write_changes(
         }
         match change {
             PostChange::Save(p) => {
-                if let Some((_, version, created)) = stored {
-                    if version >= p.update_at {
-                        continue;
+                if let Some(summary) = &p.thread_summary {
+                    if !collapsed || p.root_id.is_some() {
+                        return Err(HistoryError::InvalidPost);
                     }
-                    if created != p.create_at {
+                    summary.validate()?;
+                }
+                let old_version = stored.as_ref().map(|(_, version, _)| *version);
+                if old_version.is_some_and(|version| version > p.update_at) {
+                    continue;
+                }
+                if old_version != Some(p.update_at) {
+                    if stored.is_some_and(|(_, _, created)| created != p.create_at) {
                         windows::move_post_time(tx, id, p.create_at)?;
                     }
+                    save.execute(params![
+                        p.id,
+                        p.channel_id,
+                        p.user_id,
+                        p.root_id,
+                        p.create_at,
+                        p.update_at,
+                        p.edit_at,
+                        p.post_type,
+                        p.message,
+                        p.message_source,
+                        p.hashtags,
+                        p.is_pinned
+                    ])?;
                 }
-                save.execute(params![
-                    p.id,
-                    p.channel_id,
-                    p.user_id,
-                    p.root_id,
-                    p.create_at,
-                    p.update_at,
-                    p.edit_at,
-                    p.post_type,
-                    p.message,
-                    p.message_source,
-                    p.hashtags,
-                    p.is_pinned
-                ])?;
+                if let Some(summary) = &p.thread_summary {
+                    summary.store(tx, p, load.observed_summary)?;
+                }
             }
             PostChange::Remove { .. } => removals.push(id),
         }

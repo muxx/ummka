@@ -1,5 +1,10 @@
 //! Decode a Mattermost message against the last event applied by this account.
 
+#[cfg(all(feature = "native-http-check", any(test, target_os = "android")))]
+pub(crate) mod checks;
+mod connection;
+pub use connection::{EventConnectionError, EventReader, EventSettings};
+
 use crate::rest::is_mattermost_id;
 use serde::Deserialize;
 use serde_json::{Map, Value};

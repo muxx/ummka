@@ -9,6 +9,18 @@ import {
 import { openChannelNavigation } from "./account-team-window.tsx";
 import { checkPendingCommandActions } from "./pending-command-actions.ts";
 
+export async function waitForAppForeground() {
+  await waitFor(
+    () => {
+      if (document.visibilityState !== "visible" || !document.hasFocus())
+        throw Error(
+          "The application WebView did not regain visibility and focus",
+        );
+    },
+    { timeout: 5000 },
+  );
+}
+
 export async function checkBrowserApp(server: string) {
   const host = document.createElement("div");
   document.body.append(host);
@@ -33,6 +45,7 @@ export async function checkBrowserApp(server: string) {
     )
       throw Error("browser wait lost the chosen installation");
     await ui.findByText("Town fixture message", {}, { timeout: 20_000 });
+    await waitForAppForeground();
     await ui.findByText("fixture-author");
     const fixture = await openAccountRestConnection(server, "f".repeat(26));
     const localMessage = "Earlier Design attempt";
