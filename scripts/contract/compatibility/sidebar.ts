@@ -29,6 +29,7 @@ import {
 export async function checkSidebarReads(
   base: string,
   token: string,
+  observerToken: string,
   userId: string,
   otherUserId: string,
   teamId: string,
@@ -120,20 +121,47 @@ export async function checkSidebarReads(
     new Set(restored.preferences.map((p) => JSON.stringify(p))),
     new Set(before.preferences.map((p) => JSON.stringify(p))),
   );
-  const path = `users/me/teams/${teamId}/channels/categories`;
-  const custom = await fixture("POST", path, {
-    user_id: userId,
-    team_id: teamId,
-    display_name: "Project rooms",
-    type: "custom",
-    sorting: "alpha",
-    muted: true,
-    channel_ids: [channelId],
+  const observer = new ChannelsApi(
+    new Configuration({ basePath: base, accessToken: observerToken }),
+  );
+  const observerBefore =
+    await observer.getSidebarCategoriesForTeamForUser(scope);
+  const custom = await channels.createSidebarCategoryForTeamForUser({
+    ...scope,
+    sidebarCategoryWithChannels: {
+      userId,
+      teamId,
+      displayName: "Initial rooms",
+      type: "custom",
+      sorting: "alpha",
+      muted: true,
+      channelIds: [channelId],
+    },
   });
+  assert.ok(custom.id);
   assert.match(custom.id, /^[a-z0-9]{26}$/);
-  await fixture("PUT", `${path}/${custom.id}`, { ...custom, collapsed: true });
+  assert.deepEqual(custom.channelIds, [channelId]);
+  const collapsed = await channels.updateSidebarCategoryForTeamForUser({
+    ...scope,
+    categoryId: custom.id,
+    sidebarCategoryWithChannels: {
+      ...custom,
+      displayName: "Project rooms",
+      collapsed: true,
+    },
+  });
+  assert.equal(collapsed.id, custom.id);
+  assert.equal(collapsed.collapsed, true);
+  assert.equal(collapsed.displayName, "Project rooms");
+  assert.deepEqual(collapsed.channelIds, [channelId]);
   const order = [directId, custom.id, favoritesId, channelsId];
-  await fixture("PUT", `${path}/order`, order);
+  assert.deepEqual(
+    await channels.updateSidebarCategoryOrderForTeamForUser({
+      ...scope,
+      requestBody: order,
+    }),
+    order,
+  );
   const updated = await channels.getSidebarCategoriesForTeamForUser({
     userId,
     teamId,
@@ -363,6 +391,50 @@ export async function checkSidebarReads(
   assert.equal(active.length, 1);
   assert.equal(active[0].id, channelId);
   assert.equal(active[0].title, row.channel.displayName);
+  const favorite = updated.categories?.find((c) => c.id === favoritesId);
+  assert.ok(favorite);
+  const moved = await channels.updateSidebarCategoriesForTeamForUser({
+    ...scope,
+    sidebarCategoryWithChannels: [
+      { ...collapsed, channelIds: [] },
+      { ...favorite, channelIds: [channelId, ...(favorite.channelIds ?? [])] },
+    ],
+  });
+  assert.deepEqual(moved.find((c) => c.id === favoritesId)?.channelIds, [
+    channelId,
+  ]);
+  assert.equal(
+    moved.find((c) => c.id === custom.id)?.channelIds?.length ?? 0,
+    0,
+  );
+  assert.ok(moved.some((c) => c.id === custom.id));
+  const reread = await channels.getSidebarCategoriesForTeamForUser(scope);
+  assert.deepEqual(
+    reread.categories
+      ?.filter((c) => c.channelIds?.includes(channelId))
+      .map((c) => c.id),
+    [favoritesId],
+  );
+  assert.deepEqual(
+    await channels.removeSidebarCategoryForTeamForUser({
+      ...scope,
+      categoryId: custom.id,
+    }),
+    { status: "OK" },
+  );
+  const afterDelete = await channels.getSidebarCategoriesForTeamForUser(scope);
+  assert.deepEqual(
+    afterDelete.order,
+    order.filter((id) => id !== custom.id),
+  );
+  assert.equal(
+    afterDelete.categories?.some((c) => c.id === custom.id),
+    false,
+  );
+  assert.deepEqual(
+    await observer.getSidebarCategoriesForTeamForUser(scope),
+    observerBefore,
+  );
   const denied = (e: unknown) =>
     e instanceof ResponseError && e.response.status === 403;
   await assert.rejects(

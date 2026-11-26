@@ -940,9 +940,32 @@ await checkThreadFollow(
 );
 // The earlier non-member checks use this private channel before the reader joins.
 await create(`channels/${closed.id}/members`, { user_id: reader.id }, token);
+const observerName = "sidebar-observer";
+const observerPassword = randomBytes(24).toString("hex") + "aA7!";
+const observer = await (
+  await create("users", {
+    username: observerName,
+    email: "sidebar-observer@example.test",
+    password: observerPassword,
+  })
+).json();
+assert.equal(observer.roles, "system_user");
+await create(
+  `teams/${team.id}/members`,
+  { team_id: team.id, user_id: observer.id },
+  token,
+);
+const observerToken = (
+  await create("users/login", {
+    login_id: observerName,
+    password: observerPassword,
+  })
+).headers.get("token");
+assert.ok(observerToken);
 await checkSidebarReads(
   base,
   readerToken,
+  observerToken,
   reader.id,
   user.id,
   team.id,
@@ -951,7 +974,7 @@ await checkSidebarReads(
   closed.id,
 );
 console.log(
-  `Mattermost ${version} verified personal sidebar categories, order, flags, preferences and ownership.`,
+  `Mattermost ${version} verified category creation, edits, bulk channel moves, order and deletion independently of a second member’s sidebar.`,
 );
 const disposable = await (
   await create(
