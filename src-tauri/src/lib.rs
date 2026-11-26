@@ -3,6 +3,7 @@ pub mod authentication;
 mod browser_ipc;
 mod channels_links;
 pub mod credentials;
+mod external_post_link;
 pub mod history;
 mod installation_url;
 #[cfg(all(test, desktop))]
@@ -25,9 +26,15 @@ fn context<R: Runtime>() -> Context<R> {
 fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<App<R>> {
     let sessions = sessions::AccountSessions::for_application(context.config().identifier.clone());
     builder
+        .plugin(
+            tauri_plugin_opener::Builder::new()
+                .open_js_links_on_click(false)
+                .build(),
+        )
         .manage(sessions)
         .manage(channels_links::ChannelsLinks::default())
         .invoke_handler(tauri::generate_handler![
+            external_post_link::open_external_post_link,
             channels_links::pending_channels_link,
             channels_links::acknowledge_channels_link,
             rest_ipc::open_rest_connection,

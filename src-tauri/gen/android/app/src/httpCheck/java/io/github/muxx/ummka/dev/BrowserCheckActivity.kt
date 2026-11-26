@@ -15,6 +15,16 @@ class BrowserCheckActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         BrowserLifecycleProbe.install(application)
+        val external = when (intent.dataString) {
+            "https://external.ummka.invalid/post/@bear?value=a%2Fb#anchor" -> "web"
+            "mailto:probe@ummka.invalid" -> "mail"
+            else -> null
+        }
+        if (intent.action == Intent.ACTION_VIEW && external != null) {
+            android.util.Log.i("UmmkaPostLink", "received external $external")
+            finish()
+            return
+        }
         val scheme = "io.github.muxx.ummka.auth"
         if (intent.getBooleanExtra(AuthTabIntent.EXTRA_LAUNCH_AUTH_TAB, false) &&
             intent.getStringExtra(AuthTabIntent.EXTRA_REDIRECT_SCHEME) == scheme

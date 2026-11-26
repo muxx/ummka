@@ -1,0 +1,7 @@
+{
+  "identifier": "main-external-post-links",
+  "description": "The local main WebView can hand a web or mail link to its system handler.",
+  "local": true,
+  "webviews": ["main"],
+  "permissions": ["allow-open-external-post-link"]
+}
