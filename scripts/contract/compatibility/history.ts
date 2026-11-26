@@ -68,6 +68,7 @@ import {
 } from "./post-mutations.ts";
 import { checkPostSearch } from "./post-search.ts";
 import { checkProfileReads } from "./profile-reads.ts";
+import { checkPublishedPostDocument } from "./published-post-document.ts";
 import { checkReactionActions } from "./reaction-actions.ts";
 import { checkReactionLimit } from "./reaction-limit.ts";
 import { checkPostReactions } from "./reactions.ts";
@@ -1405,6 +1406,7 @@ await checkPostEditHistory(
   channelId,
   version,
 );
+await checkPublishedPostDocument(readerPosts, base, channelId, version);
 await allowFixtureBrowserSignIn(base, token);
 const logout = await fetch(`${base}/api/v4/users/logout`, {
   method: "POST",
