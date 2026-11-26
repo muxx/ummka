@@ -26,6 +26,7 @@ import { checkAccountResponses } from "./account.ts";
 import { checkAccountThreadReadState } from "./account-thread-read-state.ts";
 import { checkChannelFormatting } from "./channel-formatting.tsx";
 import { checkChannelRefresh } from "./channel-refresh.ts";
+import { checkCollectionWindow } from "./collection-window.tsx";
 import { checkDraftWrites } from "./composer-drafts.ts";
 import { checkConnectServer } from "./connect-server.tsx";
 import { checkChannelHistory } from "./history.ts";
@@ -84,6 +85,7 @@ async function checkTeamLoadOwnership(rid: number, other: number) {
 
 export async function checkGeneratedRequests(ports: string[]) {
   const origin = `https://127.0.0.1:${ports[0]}`;
+  await checkCollectionWindow(`${origin}/collection-window`, ports[1]);
   await checkUnavailableHistoryServer(origin);
   await prepareHistoryLoads(origin);
   const root = await openNativeRestConnection(origin);

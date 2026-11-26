@@ -10,6 +10,7 @@ import { respondToAccount } from "./account.ts";
 import type { SendAndroidKey } from "./android-webview.ts";
 import { respondToChannelMembers } from "./channel-members.ts";
 import { respondToChannelView } from "./channel-view.ts";
+import { collectionWindowFixture } from "./collection-window.ts";
 import { respondToGroupAssociations } from "./group-associations.ts";
 import { respondToGroupAudience } from "./group-audience.ts";
 import { respondToHistory } from "./history.ts";
@@ -55,6 +56,7 @@ export function webviewServers(
     ]),
   );
   const visits: string[] = [];
+  const collectionWindow = collectionWindowFixture();
   let offlineHistoryRequests = 0;
   let connections = 0;
   let before = false;
@@ -401,6 +403,7 @@ export function webviewServers(
         .end(JSON.stringify(rows));
       return;
     }
+    if (await collectionWindow(req, res, url)) return;
     if (url.pathname === "/team/chat/api/v4/reactions") {
       assert.equal(req.method, "POST");
       assert.equal(
@@ -1273,6 +1276,13 @@ export function webviewServers(
         "prepared, cancelled and refused requests must not open a socket",
       );
       before = true;
+    } else if (step?.startsWith("collection-back-")) {
+      assert(
+        pressWorkspaceBack && !visits.includes(step),
+        "Unexpected collection Back: " + step,
+      );
+      visits.push(step);
+      await pressWorkspaceBack();
     } else if (step === "search-result-back") {
       const marker = "android-" + step;
       assert(
@@ -1358,6 +1368,10 @@ export function webviewServers(
       assert.equal(entrySettings.size, 2);
       assert.equal(untrustedRequests, 0);
       const expected = [
+        "collection-back-saved-reply",
+        "collection-back-saved-list",
+        "collection-back-pinned-root",
+        "collection-back-pinned-list",
         "signed-single-channel",
         "signed-named-channel",
         "signed-named-team",

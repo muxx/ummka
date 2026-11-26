@@ -234,6 +234,10 @@
     border: 0;
     padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
   }
+  .channels-panes[data-page="details"]
+    > :is(.channels-sidebar, .channels-conversation, .channels-thread) {
+    display: none;
+  }
   .channels-panes[data-page="navigation"] .channels-sidebar,
   .channels-panes[data-page="conversation"] .channels-conversation,
   .channels-panes[data-page="thread"] .channels-thread {
