@@ -8,6 +8,11 @@
                 <data android:scheme="http" />
                 <data android:scheme="https" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="mailto" android:ssp="probe@ummka.invalid" />
+            </intent-filter>
         </activity>
         <service android:name=".BrowserCheckService" android:exported="true">
             <intent-filter>

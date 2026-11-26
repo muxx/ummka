@@ -20,6 +20,8 @@ fn open(path: &Path) -> AccountHistory {
 }
 fn policy() -> ServerPolicy {
     ServerPolicy {
+        user_statuses_enabled: true,
+        dm_recipient_scope: Some(RecipientScope::Team),
         collapsed_threads: ThreadMode::DefaultOn,
         separate_unreads: false,
         name_format: NameFormat::FullName,
@@ -58,6 +60,50 @@ fn team() -> DirectoryTeam {
         roles: Some("team_user".into()),
         group_constrained: None,
     }
+}
+
+#[test]
+fn legacy_presence_policy_is_enabled_and_a_saved_disable_survives_reopening() {
+    let root = tempdir().unwrap();
+    let mut db = open(root.path());
+    let initial = policy();
+    let load = db.begin_server_policy_load().unwrap();
+    assert!(db.store_server_policy(load, &initial).unwrap());
+    let mut legacy = serde_json::to_value(&initial).unwrap();
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("userStatusesEnabled")
+        .unwrap();
+    db.write(|tx| {
+        tx.execute(
+            "UPDATE workspace_settings SET server=?1 WHERE owner=1",
+            [legacy.to_string()],
+        )
+    })
+    .unwrap();
+    drop(db);
+    let mut db = open(root.path());
+    assert_eq!(
+        db.read_workspace_settings().unwrap().server.unwrap(),
+        initial
+    );
+    let mut disabled = policy();
+    disabled.user_statuses_enabled = false;
+    let load = db.begin_server_policy_load().unwrap();
+    assert!(db.store_server_policy(load, &disabled).unwrap());
+    drop(db);
+    let mut db = open(root.path());
+    assert_eq!(
+        db.read_workspace_settings().unwrap().server.unwrap(),
+        disabled
+    );
+    let load = db.begin_server_policy_load().unwrap();
+    assert!(db.store_server_policy(load, &initial).unwrap());
+    assert_eq!(
+        db.read_workspace_settings().unwrap().server.unwrap(),
+        initial
+    );
 }
 
 #[test]
@@ -170,6 +216,9 @@ fn accepts_only_known_settings_and_indexes_an_owner_lookup() {
         assert!(serde_json::from_value::<SidebarPreferences>(raw).is_err());
     }
     let mut raw = serde_json::to_value(policy()).unwrap();
+    raw["dmRecipientScope"] = json!("unrecognised-value");
+    assert!(serde_json::from_value::<ServerPolicy>(raw).is_err());
+    let mut raw = serde_json::to_value(policy()).unwrap();
     raw["nameFormat"] = json!("unrecognised-value");
     assert!(serde_json::from_value::<ServerPolicy>(raw).is_err());
     for n in 0..5000 {
@@ -198,13 +247,16 @@ fn accepts_only_known_settings_and_indexes_an_owner_lookup() {
 
 #[test]
 fn upgrades_settings_and_drafts_and_protects_the_new_policy() {
-    for version in [17, 19, 21, 22, 24] {
+    for version in [17, 19, 21, 22, 24, 25] {
         let root = tempdir().unwrap();
         let previous = &MIGRATIONS[..version];
         let mut old = HistoryDatabase::open_with(root.path(), URL, previous).unwrap();
         let owner = old.restore(&account()).unwrap();
         let mut legacy = policy();
-        legacy.post_edit_limit_seconds = None;
+        legacy.dm_recipient_scope = None;
+        if version < 25 {
+            legacy.post_edit_limit_seconds = None;
+        }
         if version < 23 {
             legacy.search = None;
         }

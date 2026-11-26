@@ -7,6 +7,9 @@ export interface AddTeamMemberOperationRequest {
     teamId: string;
     addTeamMemberRequest: AddTeamMemberRequest;
 }
+export interface GetTeamByNameRequest {
+    name: string;
+}
 export interface GetTeamMembersForUserRequest {
     userId: string;
 }
@@ -21,6 +24,9 @@ export declare class TeamsApi extends runtime.BaseAPI {
     addTeamMemberRequestOpts(requestParameters: AddTeamMemberOperationRequest): Promise<runtime.RequestOpts>;
     addTeamMemberRaw(requestParameters: AddTeamMemberOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<TeamMember>>;
     addTeamMember(requestParameters: AddTeamMemberOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<TeamMember>;
+    getTeamByNameRequestOpts(requestParameters: GetTeamByNameRequest): Promise<runtime.RequestOpts>;
+    getTeamByNameRaw(requestParameters: GetTeamByNameRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Team>>;
+    getTeamByName(requestParameters: GetTeamByNameRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Team>;
     getTeamMembersForUserRequestOpts(requestParameters: GetTeamMembersForUserRequest): Promise<runtime.RequestOpts>;
     getTeamMembersForUserRaw(requestParameters: GetTeamMembersForUserRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Array<TeamMember>>>;
     getTeamMembersForUser(requestParameters: GetTeamMembersForUserRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Array<TeamMember>>;

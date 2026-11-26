@@ -28,7 +28,12 @@ test("routes only the complete search trigger and keeps case and spacing in its 
     submitDraftCommand: vi.fn().mockResolvedValue({ kind: "superseded" }),
     saveDraft: vi.fn(),
   };
-  const open = vi.fn().mockResolvedValue(true);
+  const open = vi.fn(
+    async (_terms: string, _origin: AbortSignal, opened: () => void) => {
+      opened();
+      return true;
+    },
+  );
   const run = (message: string) =>
     submitVisibleCommand(
       account,
@@ -72,9 +77,10 @@ test.each(["changed", "aborted", "not opened"] as const)(
       { ...draft, message: "/search отчёт", isCurrent: () => current },
       owner.signal,
       vi.fn(),
-      async () => {
+      async (_terms, _origin, opened) => {
         if (reason === "changed") current = false;
         if (reason === "aborted") owner.abort();
+        if (reason !== "not opened") opened();
         return reason !== "not opened";
       },
     );

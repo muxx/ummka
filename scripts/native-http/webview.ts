@@ -6,16 +6,19 @@ import https from "node:https";
 import type { Socket } from "node:net";
 import { json, text } from "node:stream/consumers";
 import { respondToAccount } from "./account.ts";
+import type { SendAndroidKey } from "./android-webview.ts";
 import { respondToChannelMembers } from "./channel-members.ts";
 import { respondToChannelView } from "./channel-view.ts";
 import { respondToGroupAssociations } from "./group-associations.ts";
 import { respondToGroupAudience } from "./group-audience.ts";
 import { respondToHistory } from "./history.ts";
 import { historyRefreshFixture } from "./history-refresh.ts";
+import { collectionFixture } from "./post-collections.ts";
 import { respondToPostContext } from "./post-context.ts";
 import { respondToPostMutation } from "./post-mutations.ts";
 import { submissionFixture } from "./submit-post.ts";
 import { respondToThreadList } from "./thread-list.ts";
+import { respondToThreadRead } from "./thread-read-state.ts";
 import { respondToWorkspace } from "./workspace.ts";
 
 export function webviewServers(
@@ -55,6 +58,7 @@ export function webviewServers(
   let connections = 0;
   let before = false;
   let prepareKeyboard: (() => Promise<void>) | undefined;
+  let pressAndroidBack: (() => Promise<void>) | undefined;
   let disconnect: Socket | undefined;
   let pingSocket: Socket | undefined;
   const settings = new Map<string, ServerResponse>();
@@ -68,12 +72,53 @@ export function webviewServers(
   );
   const teamId = "Team0123456789012345678901";
   const channelId = "c".repeat(26);
+  const collections = collectionFixture(channelId, userId);
   const teamReads = new Map<string, { name: string; body: object | null }>([
+    [
+      "/team/chat/api/v4/teams/name/fixture-team",
+      {
+        name: "signed-named-team",
+        body: {
+          id: teamId,
+          name: "fixture-team",
+          type: "O",
+          allow_open_invite: true,
+          delete_at: 0,
+        },
+      },
+    ],
+    [
+      "/team/chat/api/v4/teams/name/fixture-team/channels/name/old_room?include_deleted=true",
+      {
+        name: "signed-named-channel",
+        body: {
+          id: channelId,
+          team_id: teamId,
+          name: "old_room",
+          type: "O",
+          delete_at: 41,
+        },
+      },
+    ],
+    [
+      `/team/chat/api/v4/channels/${"j".repeat(26)}`,
+      {
+        name: "signed-single-channel",
+        body: { id: "j".repeat(26), type: "G", team_id: "", delete_at: 0 },
+      },
+    ],
     [
       `/team/chat/api/v4/teams/${teamId}/channels/managed_categories`,
       {
         name: "managed-category-mappings",
         body: { [channelId]: "Release", ["d".repeat(26)]: "Release" },
+      },
+    ],
+    [
+      `/team/chat/api/v4/teams/${teamId}/channels/autocomplete?name=%D1%82%D0%B5%D1%81%D1%82%20%2B%26`,
+      {
+        name: "team-channel-search",
+        body: [{ id: channelId, team_id: teamId }],
       },
     ],
     [
@@ -373,6 +418,11 @@ export function webviewServers(
         );
       return;
     }
+    const collection = await collections(req, res, url);
+    if (collection) {
+      visits.push(collection);
+      return;
+    }
     if (url.pathname === "/team/chat/api/v4/users/usernames") {
       assert.equal(req.method, "POST");
       assert.equal(
@@ -438,7 +488,14 @@ export function webviewServers(
         visits.push("saved-role-definitions");
         res.writeHead(200, { "Content-Type": "application/json" }).end(
           JSON.stringify([
-            { name: "channel_user", permissions: ["create_post"] },
+            {
+              name: "channel_user",
+              permissions: [
+                "create_post",
+                "manage_public_channel_properties",
+                "delete_public_channel",
+              ],
+            },
             { name: "system_user", permissions: ["create_direct_channel"] },
             { name: "team_guest", permissions: [] },
           ]),
@@ -512,6 +569,11 @@ export function webviewServers(
       res
         .writeHead(200, { "Content-Type": "application/json" })
         .end(JSON.stringify(result));
+      return;
+    }
+    const readThread = await respondToThreadRead(req, res, url, teamId);
+    if (readThread) {
+      visits.push(readThread);
       return;
     }
     if (
@@ -913,10 +975,12 @@ export function webviewServers(
           setting[2] === "config"
             ? {
                 CollapsedThreads: "always_on",
+                RestrictDirectMessage: "team",
                 FeatureFlagEnableSharedChannelsDMs: "true",
                 EnableConfirmNotificationsToChannel: "false",
                 MaxNotificationsPerChannel: "9223372036854775807",
                 UniqueEmojiReactionLimitPerPost: "-2",
+                EnableUserStatuses: "false",
                 PostEditTimeLimit: "9007199254740993",
                 EnableCrossTeamSearch: "true",
                 EnableFileAttachments: "true",
@@ -1049,6 +1113,14 @@ export function webviewServers(
         "prepared, cancelled and refused requests must not open a socket",
       );
       before = true;
+    } else if (step === "thread-back" || step === "search-result-back") {
+      const marker = "android-" + step;
+      assert(
+        pressAndroidBack && !visits.includes(marker),
+        "expected one Android Back at " + step,
+      );
+      visits.push(marker);
+      await pressAndroidBack();
     } else if (step === "release-history") {
       refresh.release();
     } else if (step === "release-submission") {
@@ -1078,8 +1150,9 @@ export function webviewServers(
   });
   return {
     servers: [data, control, foreign],
-    onKeyboardReady(sendTab: () => Promise<void>) {
-      prepareKeyboard = sendTab;
+    onAndroidInputReady(send: SendAndroidKey) {
+      prepareKeyboard = () => send("KEYCODE_TAB");
+      pressAndroidBack = () => send("KEYCODE_BACK");
     },
     verify(platform: "macos" | "android") {
       refresh.verify();
@@ -1093,7 +1166,11 @@ export function webviewServers(
       assert.equal(entrySettings.size, 2);
       assert.equal(untrustedRequests, 0);
       const expected = [
+        "signed-single-channel",
+        "signed-named-channel",
+        "signed-named-team",
         "managed-category-mappings",
+        "team-channel-search",
         "bytes",
         "204",
         "205",
@@ -1152,11 +1229,22 @@ export function webviewServers(
         "create-post-reply",
         "save-post-reaction",
         "delete-post-reaction",
+        "list-pins",
+        "list-pins",
+        "list-pins",
+        "list-saved",
+        "list-saved",
+        "remove-pin",
+        "remove-saved",
         "custom-emoji-by-name",
         "custom-emoji-by-name",
         "custom-emoji-by-name",
         "empty-post-reactions",
         "post-reactions",
+        "read-thread",
+        "read-team-threads",
+        "read-thread",
+        "read-team-threads",
         "open-self-conversation",
         "open-group-conversation",
         "follow-thread",
@@ -1166,6 +1254,9 @@ export function webviewServers(
         "thread-list-page",
         "thread-list-totals",
         "thread-list-empty",
+        "account-thread-page",
+        "account-thread-empty",
+        "account-thread-totals",
         "patch-post",
         "post-edit-history",
         "post-edit-history",
@@ -1263,10 +1354,24 @@ export function webviewServers(
           "live-members",
           "live-categories",
           "live-window-send",
+          "live-window-thread",
+          "android-thread-back",
+          "android-search-result-back",
+          "live-window-thread",
+          "live-window-send-reply",
           "live-window-command-repeat",
           "browser-action-confirmed",
           "live-search-posts",
           "live-search-files",
+          "live-search-file-anchor",
+          "live-search-destination",
+          "live-search-post-anchor",
+          "live-search-reply-destination",
+          "live-search-reply-anchor",
+          "live-search-thread-up",
+          "live-search-thread-down",
+          "live-posts-" + "c".repeat(26),
+          "live-posts-" + "c".repeat(26),
           "browser-action-confirmed",
           "live-search-posts",
           "live-posts-" + "c".repeat(26),

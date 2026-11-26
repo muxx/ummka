@@ -44,7 +44,9 @@ import { checkCollectionActions } from "./collection-actions.ts";
 import { checkCommands } from "./commands.ts";
 import { checkConversationCreation } from "./conversation-creation.ts";
 import { checkCustomEmojiLookup } from "./custom-emoji.ts";
+import { checkEventActions } from "./event-actions.ts";
 import { checkEventStream } from "./event-stream.ts";
+import { checkFileContent } from "./file-content.ts";
 import { checkFileSearch } from "./file-search.ts";
 import { checkFocusedConversation } from "./focused-conversation.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
@@ -57,6 +59,8 @@ import {
 } from "./memberships.ts";
 import { checkMentionLimit } from "./mention-limit.ts";
 import { checkMentionText } from "./mention-text.ts";
+import { checkMobileFilePolicy } from "./mobile-file-policy.ts";
+import { checkNamedRoutes } from "./named-channel.ts";
 import {
   checkPostCollections,
   checkSavedPageBoundary,
@@ -68,6 +72,7 @@ import {
   checkPreviouslyAcceptedPost,
 } from "./post-mutations.ts";
 import { checkPostSearch } from "./post-search.ts";
+import { checkPresencePolicy } from "./presence-policy.ts";
 import { checkProfileReads } from "./profile-reads.ts";
 import { checkPublishedPostDocument } from "./published-post-document.ts";
 import { checkReactionActions } from "./reaction-actions.ts";
@@ -79,10 +84,14 @@ import { checkSearchScopePolicy } from "./search-scope.ts";
 import { expectedNavigationPost } from "./search-target.ts";
 import { checkSidebarReads } from "./sidebar.ts";
 import { checkSidebarCounters } from "./sidebar-counters.ts";
+import { checkTeamChannelSearch } from "./team-channel-search.ts";
 import { checkThreadFollow } from "./thread-follow.ts";
 import { checkThreadList } from "./thread-list.ts";
+import { checkThreadPageTies } from "./thread-page-ties.ts";
+import { checkThreadReadState } from "./thread-read-state.ts";
 import { checkThreadSummary } from "./thread-summary.ts";
 import { checkThreadWindow } from "./thread-window.ts";
+import { checkUnreadThreadWindow } from "./unread-thread-window.ts";
 import { checkUserNotifications } from "./user-notifications.ts";
 import { checkUserTimezone } from "./user-timezone.ts";
 
@@ -406,6 +415,17 @@ console.log(
   `Mattermost ${version} verified channel audience counts, timezones and private channel access.`,
 );
 await checkChannelRoster(closedReader, closed.id, dm.id, [user.id, reader.id]);
+for (const [caller, target, status] of [
+  [closedReader, closed.id, 403],
+  [closedReader, "z".repeat(26), 404],
+  [new ChannelsApi(new Configuration({ basePath: base })), dm.id, 401],
+] as const) {
+  await assert.rejects(
+    caller.getChannel({ channelId: target }),
+    (error: unknown) =>
+      error instanceof ResponseError && error.response.status === status,
+  );
+}
 await assert.rejects(
   closedReader.getChannelMember({ channelId: closed.id, userId: user.id }),
   (e: unknown) => e instanceof ResponseError && e.response.status === 403,
@@ -741,6 +761,13 @@ await checkThreadWindow(readerPosts, channelId, imported.id, [
   ...[early.id, tied.id].sort(),
   late.id,
 ]);
+await checkUnreadThreadWindow(
+  readerPosts,
+  reader.id,
+  channelId,
+  message,
+  version,
+);
 console.log(
   `Mattermost ${version} verified ordinary-member thread pagination and reply anchors in both modes.`,
 );
@@ -867,16 +894,6 @@ await checkPostCollections(
     otherTeam: extraTeam.id,
   },
   { older: plainPost.id, newer: taggedPost.id, direct: dmPost.id },
-  version,
-);
-await checkCollectionActions(
-  new Configuration({ basePath: base, accessToken: readerToken }),
-  session,
-  reader.id,
-  user.id,
-  dm.id,
-  dmPost.id,
-  closedPost.id,
   version,
 );
 await checkFileSearch(
@@ -1152,6 +1169,21 @@ const group = await (
   await create("channels/group", [user.id, reader.id, bot.user_id], token)
 ).json();
 assert.equal(group.type, "G");
+for (const [source, expectedTeam] of [
+  [channel, team.id],
+  [dm, ""],
+  [group, ""],
+] as const) {
+  const found = await closedReader.getChannel({ channelId: source.id });
+  assert.equal(found.id, source.id);
+  assert.equal(found.type, source.type);
+  assert.equal(found.name, source.name);
+  assert.equal(found.teamId, expectedTeam);
+  assert.equal(found.deleteAt, 0);
+}
+console.log(
+  `Mattermost ${version} verified signed metadata for one channel, DM and group, and the three expected HTTP errors.`,
+);
 const groupName = {
   kind: group.type,
   name: group.name,
@@ -1186,7 +1218,7 @@ await checkProfileReads(
   version,
 );
 
-await checkPostMutations(base, posts, channelId, user.id, version);
+await checkPostMutations(base, posts, readerPosts, channelId, user.id, version);
 await checkCommands(session, team.id, channelId, version);
 // A self-join avoids the membership notification produced when somebody adds the reader.
 const mentionRoom = await (
@@ -1245,8 +1277,17 @@ await checkPreviouslyAcceptedPost(
   version,
 );
 
+await checkTeamChannelSearch(
+  base,
+  create,
+  token,
+  { id: reader.id, token: readerToken },
+  version,
+);
 await checkSearchScopePolicy(base, token, readerToken, version);
 await checkPostEditWindow(base, token, readerToken);
+await checkMobileFilePolicy(base, token, readerToken);
+await checkPresencePolicy(base, token, readerToken);
 await checkReactionLimit(base, token, user.id, readerToken, channelId);
 console.log(
   `Mattermost ${version} verified the signed reaction limit against adding a new emoji name.`,
@@ -1317,6 +1358,21 @@ await checkThreadList(
   threadDirect.id,
   version,
 );
+await checkThreadPageTies(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  team.id,
+  message,
+  version,
+);
+await checkEventActions(
+  base,
+  emptyTeam.id,
+  threadRoom.id,
+  { token: otherSaverToken, id: otherSaver.id },
+  { token: readerToken, id: reader.id },
+  create,
+  version,
+);
 
 await checkSavedPageBoundary(
   base,
@@ -1367,6 +1423,22 @@ console.log(
   `Mattermost ${version} verified focused channel windows for roots and a reply beyond the first thread page, including subsequent loss of channel access.`,
 );
 
+// Both ordinary participants also need a shared channel in another team.
+await create(
+  `teams/${team.id}/members`,
+  { team_id: team.id, user_id: otherSaver.id },
+  token,
+);
+await checkThreadReadState(
+  threadReader,
+  otherSaverName,
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  readerLogin.login_id,
+  { teamId: emptyTeam.id, channelId: threadRoom.id, directId: threadDirect.id },
+  { teamId: team.id, channelId },
+  version,
+);
+
 const secondLogin = await create("users/login", {
   login_id: username,
   password,
@@ -1407,6 +1479,32 @@ await checkPostEditHistory(
   reader.id,
   channelId,
   version,
+);
+// Both participants act under their ordinary user sessions in a shared direct channel.
+const collectionPost = await (
+  await create(
+    "posts",
+    { channel_id: threadDirect.id, message: "Collection permissions" },
+    readerToken,
+  )
+).json();
+await readerPosts.pinPost({ postId: collectionPost.id });
+await checkCollectionActions(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  new Configuration({ basePath: base, accessToken: otherSaverToken }),
+  reader.id,
+  otherSaver.id,
+  threadDirect.id,
+  collectionPost.id,
+  closedPost.id,
+  version,
+);
+// The focused-history check already removed this reader from the private channel.
+await checkFileContent(session, authorization, readerToken, closed.id, () =>
+  create(`channels/${closed.id}/members`, { user_id: reader.id }, token),
+);
+console.log(
+  `Mattermost ${version} verified attachment representations, ranges and channel access.`,
 );
 await checkPublishedPostDocument(readerPosts, base, channelId, version);
 const conversationPeers: string[] = [observer.id, otherSaver.id, user.id];
@@ -1461,6 +1559,23 @@ await checkRecipientDirectory(
     assert.equal(result.status, 200);
   },
   version,
+);
+await checkNamedRoutes(
+  session,
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  reader.id,
+  team,
+  extraTeam,
+  joinable,
+  (route, body) => create(route, body, token),
+  (id) =>
+    fetch(`${base}/api/v4/channels/${id}`, {
+      method: "DELETE",
+      headers: authorization,
+    }),
+);
+console.log(
+  `Mattermost ${version} verified team and channel names before and after invitation and archive.`,
 );
 await allowFixtureBrowserSignIn(base, token);
 const logout = await fetch(`${base}/api/v4/users/logout`, {

@@ -27,8 +27,18 @@ export function historyRefreshFixture(userId: string, onHold: () => void) {
     };
   }
   const records = {
-    [reply]: record(reply, 300, root),
-    [root]: record(root, 200),
+    [reply]: {
+      ...record(reply, 300, root),
+      file_ids: [],
+      metadata: { redacted_file_count: 2 },
+    },
+    [root]: {
+      ...record(root, 200),
+      file_ids: ["b".repeat(26), "a".repeat(26)],
+      metadata: {
+        files: [{ id: "a".repeat(26), name: "offline.txt", size: 0 }],
+      },
+    },
     [old]: record(old, 100),
   };
   function page(
@@ -59,7 +69,34 @@ export function historyRefreshFixture(userId: string, onHold: () => void) {
         "Bearer fixture-prefixed-session",
       );
       const q = url.searchParams;
-      if (thread && q.get("direction") === "up") {
+      const time = q.get("fromCreateAt");
+      if (thread && (time === "300" || time === "301")) {
+        const up = q.get("direction") === "up";
+        const continuing = q.has("fromPost");
+        const own = "n".repeat(26);
+        assert.deepEqual(Object.fromEntries(q), {
+          direction: up ? "up" : "down",
+          perPage: "1",
+          collapsedThreads: "true",
+          fromCreateAt: up || continuing ? "301" : "300",
+          ...(continuing ? { fromPost: own } : {}),
+        });
+        const selected = up
+          ? records[reply]
+          : continuing
+            ? { ...record("z".repeat(26), 301, root), user_id: "v".repeat(26) }
+            : record(own, 301, root);
+        calls.push(
+          up ? "unread-up" : continuing ? "unread-next" : "unread-down",
+        );
+        res.writeHead(200, { "Content-Type": "application/json" }).end(
+          JSON.stringify({
+            order: [root, selected.id],
+            posts: { [root]: records[root], [selected.id]: selected },
+            has_next: !up && !continuing,
+          }),
+        );
+      } else if (thread && q.get("direction") === "up") {
         assert.deepEqual(Object.fromEntries(q), {
           direction: "up",
           perPage: "1",
@@ -72,6 +109,20 @@ export function historyRefreshFixture(userId: string, onHold: () => void) {
           JSON.stringify({
             order: [root, reply],
             posts: { [root]: records[root], [reply]: records[reply] },
+            has_next: false,
+          }),
+        );
+      } else if (thread && q.get("perPage") === "1") {
+        assert.deepEqual(Object.fromEntries(q), {
+          direction: "down",
+          perPage: "1",
+          collapsedThreads: "false",
+        });
+        calls.push("flat-root");
+        res.writeHead(200, { "Content-Type": "application/json" }).end(
+          JSON.stringify({
+            order: [root],
+            posts: { [root]: records[root] },
             has_next: false,
           }),
         );
@@ -137,6 +188,10 @@ export function historyRefreshFixture(userId: string, onHold: () => void) {
         [
           "plain",
           "replies",
+          "flat-root",
+          "unread-up",
+          "unread-down",
+          "unread-next",
           "collapsed",
           "thread",
           "before",

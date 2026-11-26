@@ -9,6 +9,8 @@ import { afterEach, expect, test, vi } from "vitest";
 import type { LocalChannelWindow } from "../mattermost/local-history.ts";
 import { ChannelTimeline } from "./ChannelTimeline.tsx";
 
+import "./workspace-dom.test-utils.ts";
+
 afterEach(cleanup);
 const base = {
   channelId: "general",
@@ -136,4 +138,151 @@ test("passes the exact neighboring ids supplied by SQLite and tolerates an unrep
   ]);
   expect(screen.getByText("Unknown date")).toBeTruthy();
   expect(screen.getByText("one")).toBeTruthy();
+});
+
+test("opens the published source row and shows only an authoritative collapsed count", () => {
+  const open = vi.fn();
+  const at = Date.UTC(2026, 10, 25, 12, 30);
+  const root = {
+    ...post("root", at),
+    threadSummary: {
+      replyCount: 2,
+      participantIds: ["ada", "missing"],
+      lastReplyAt: at,
+    },
+  };
+  const reply = { ...post("flat-reply", at + 1), rootId: root.id };
+  const empty = {
+    ...post("new", at + 2),
+    threadSummary: { replyCount: 0, participantIds: null, lastReplyAt: 0 },
+  };
+  const props = { ...base, page: page(empty, reply, root), onOpenThread: open };
+  const { rerender } = render(
+    <ChannelTimeline {...props} collapsedThreads openThreadPostId={root.id} />,
+  );
+  const rows = screen.getAllByRole("article");
+  const count = within(rows[0]).getByRole("button", {
+    name: /Open thread, 2 replies, Last reply: /,
+  });
+  expect(count.getAttribute("aria-expanded")).toBe("true");
+  expect(count.querySelector("time")?.dateTime).toBe(
+    new Date(at).toISOString(),
+  );
+  expect(count.querySelector(".timeline-participants")?.textContent).toBe("AL");
+  fireEvent.click(count);
+  const flat = within(rows[1]).getByRole("button", { name: "Open thread" });
+  flat.focus();
+  expect(document.activeElement).toBe(flat);
+  fireEvent.click(flat);
+  fireEvent.click(within(rows[2]).getByRole("button", { name: "Open thread" }));
+  expect(open.mock.calls).toEqual([[root], [reply], [empty]]);
+  rerender(<ChannelTimeline {...props} collapsedThreads={false} />);
+  expect(screen.getAllByRole("button", { name: "Open thread" })).toHaveLength(
+    3,
+  );
+  expect(screen.queryByText("2 replies")).toBeNull();
+});
+
+test.each([
+  [1, "1 ответ"],
+  [3, "3 ответа"],
+  [11, "11 ответов"],
+  [21, "21 ответ"],
+  [22, "22 ответа"],
+] as const)(
+  "pluralizes %i replies and omits unavailable dates and profiles",
+  (replyCount, expected) => {
+    const root = {
+      ...post("root", 1),
+      threadSummary: {
+        replyCount,
+        participantIds: null,
+        lastReplyAt: Number.MAX_SAFE_INTEGER,
+      },
+    };
+    render(
+      <ChannelTimeline
+        {...base}
+        locale="ru"
+        page={page(root)}
+        collapsedThreads
+        onOpenThread={vi.fn()}
+      />,
+    );
+    const button = screen.getByRole("button", {
+      name: `Открыть тред, ${expected}`,
+    });
+    expect(button.textContent).toBe(expected);
+    expect(button.querySelector("time, .timeline-participants")).toBeNull();
+  },
+);
+
+test("offers no thread action on an outgoing row even after it acquires a server ID", () => {
+  const outgoing = {
+    sequence: 1,
+    pendingId: "local",
+    channelId: "general",
+    rootId: null,
+    message: "Pending",
+    createdAt: 1,
+    previousLogin: false,
+    confirmedPostId: "server",
+    attempt: 1,
+    refusal: null,
+  };
+  const props = {
+    ...base,
+    page: null,
+    onOpenThread: vi.fn(),
+    collapsedThreads: true,
+  };
+  const { rerender } = render(
+    <ChannelTimeline
+      {...props}
+      messages={[
+        {
+          id: outgoing.pendingId,
+          outgoing,
+          message: outgoing.message,
+          createAt: 1,
+          editAt: 0,
+          isPinned: false,
+          userId: "ada",
+        },
+      ]}
+    />,
+  );
+  expect(screen.queryByRole("button")).toBeNull();
+  const confirmed = { ...post("server", 1), localId: outgoing.pendingId };
+  rerender(<ChannelTimeline {...props} messages={[confirmed]} />);
+  fireEvent.click(screen.getByRole("button", { name: "Open thread" }));
+  expect(props.onOpenThread).toHaveBeenCalledWith(confirmed);
+});
+
+test("restores the channel reader when a compact thread hides the feed across updates", () => {
+  const rows = page(post("second", 2), post("first", 1));
+  const feed = (hidden: boolean, data: LocalChannelWindow) => (
+    <div hidden={hidden}>
+      <ChannelTimeline {...base} page={data} />
+    </div>
+  );
+  const { rerender } = render(feed(false, rows));
+  const pane = screen.getByRole("region");
+  const hidden = () => Boolean(pane.closest("[hidden]"));
+  let top = 240;
+  Object.defineProperties(pane, {
+    clientHeight: { get: () => (hidden() ? 0 : 200) },
+    scrollHeight: { get: () => (hidden() ? 0 : 800) },
+    scrollTop: {
+      get: () => (hidden() ? 0 : top),
+      set: (value: number) => {
+        top = value;
+      },
+    },
+  });
+  rerender(feed(true, rows));
+  const updated = page(post("third", 3), ...rows.posts);
+  rerender(feed(true, updated));
+  rerender(feed(false, updated));
+  expect(pane.scrollTop).toBe(240);
 });

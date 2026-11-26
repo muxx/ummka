@@ -51,7 +51,7 @@ test("passes both cursor fields and reads one page even when reply times are ide
   const initial = await readThreadPage(api, request, controller.signal);
   expect(initial).toEqual({
     kind: "page",
-    root,
+    root: { ...root, isFollowing: false },
     replies: [first],
     next: { id: idA, createAt: 1000 },
   });
@@ -73,7 +73,12 @@ test("passes both cursor fields and reads one page even when reply times are ide
     },
     { signal: controller.signal },
   );
-  expect(next).toEqual({ kind: "page", root, replies: [last], next: null });
+  expect(next).toEqual({
+    kind: "page",
+    root: { ...root, isFollowing: false },
+    replies: [last],
+    next: null,
+  });
 });
 test("distinguishes an empty thread, a flat first page and a retention limit", async () => {
   const api = {
@@ -85,7 +90,7 @@ test("distinguishes an empty thread, a flat first page and a retention limit", a
   };
   expect(await readThreadPage(api, request)).toEqual({
     kind: "page",
-    root,
+    root: { ...root, isFollowing: false },
     replies: [],
     next: null,
   });
@@ -106,6 +111,46 @@ test("distinguishes an empty thread, a flat first page and a retention limit", a
     firstInaccessiblePostTime: 42,
   });
 });
+test.each([true, false, undefined])(
+  "only a collapsed root supplies a personal following state (%s)",
+  async (isFollowing) => {
+    const api = {
+      getPostThread: vi.fn().mockResolvedValue({
+        ...page([rootId, idA, idB]),
+        posts: {
+          [rootId]: { ...root, isFollowing },
+          [idA]: { ...first, isFollowing: true },
+          [idB]: { ...last, isFollowing: false },
+        },
+      }),
+    };
+    for (const collapsedThreads of [true, false]) {
+      const result = await readThreadPage(api, {
+        ...request,
+        collapsedThreads,
+      });
+      expect(result.kind === "page" && result.root.isFollowing).toBe(
+        collapsedThreads ? (isFollowing ?? false) : undefined,
+      );
+      expect(
+        result.kind === "page" &&
+          result.replies.map((reply) => Object.hasOwn(reply, "isFollowing")),
+      ).toEqual([false, false]);
+    }
+    expect(api.getPostThread).toHaveBeenCalledTimes(2);
+  },
+);
+
+test("rejects a malformed subscription on a visible collapsed root", async () => {
+  const api = {
+    getPostThread: vi.fn().mockResolvedValue({
+      ...page([rootId]),
+      posts: { [rootId]: { ...root, isFollowing: "false" } },
+    }),
+  };
+  await expect(readThreadPage(api, request)).rejects.toThrow(TypeError);
+});
+
 test("rejects a different thread, repeated or missing rows and a stalled cursor", async () => {
   const visible = page([rootId, idA]);
   for (const invalid of [
@@ -191,4 +236,49 @@ test("rejects backward continuations, reversed replies and an impossible root-on
       readThreadPage({ getPostThread: vi.fn().mockResolvedValue(data) }, query),
     ).rejects.toThrow();
   }
+});
+
+test.each(["up", "down"] as const)(
+  "time-only %s page enforces its strict side even at equal timestamps",
+  async (direction) => {
+    const read = vi
+      .fn()
+      .mockResolvedValueOnce(page([rootId, idA], true))
+      .mockResolvedValueOnce(page([rootId, idA]));
+    const api = { getPostThread: read };
+    const edge = direction === "up" ? 1001 : 999;
+    const received = await readThreadPage(api, {
+      ...request,
+      direction,
+      fromCreateAt: edge,
+    });
+    expect(read.mock.calls[0][0]).toMatchObject({
+      fromCreateAt: edge,
+      fromPost: undefined,
+      direction,
+    });
+    expect(received.kind === "page" && received.next).toEqual({
+      id: idA,
+      createAt: 1000,
+    });
+    await expect(
+      readThreadPage(api, { ...request, direction, fromCreateAt: 1000 }),
+    ).rejects.toThrow(/advance/);
+  },
+);
+test("rejects ambiguous, unsupported or zero time-only boundaries before issuing requests", async () => {
+  const api = { getPostThread: vi.fn() };
+  for (const fromCreateAt of [-1, 0, 0.5, Number.MAX_SAFE_INTEGER + 1]) {
+    await expect(
+      readThreadPage(api, { ...request, fromCreateAt }),
+    ).rejects.toThrow();
+  }
+  await expect(
+    readThreadPage(api, {
+      ...request,
+      fromCreateAt: 123,
+      cursor: { id: idA, createAt: 100 },
+    }),
+  ).rejects.toThrow();
+  expect(api.getPostThread).not.toHaveBeenCalled();
 });

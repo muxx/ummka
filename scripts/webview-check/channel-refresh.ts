@@ -23,10 +23,20 @@ export async function checkChannelRefresh(
   if (
     thread.kind !== "page" ||
     thread.root.id !== root ||
+    thread.root.isFollowing !== false ||
     thread.replies[0]?.id !== reply ||
     thread.next !== null
   )
     throw Error("Account did not read the requested thread page.");
+  const flatThread = await account.readThreadPage({
+    channelId,
+    rootId: root,
+    direction: "down",
+    collapsedThreads: false,
+    perPage: 1,
+  });
+  if (flatThread.kind !== "page" || flatThread.root.isFollowing !== undefined)
+    throw Error("Flat thread unexpectedly reported the user's subscription.");
   const target = channelPostChange(channelId, root, thread.root);
   if (target.kind !== "save") throw Error("Expected a visible fixture root.");
   const { signal } = new AbortController();
@@ -73,42 +83,52 @@ export async function checkChannelRefresh(
         "Stored reply did not resolve to its exact channel or thread position.",
       );
   }
-  const error = await account
-    .refreshChannelHistory({ ...scoped, kind: "since", since: 3 })
-    .catch((e: unknown) => e);
-  if (!(error instanceof ResponseError) || error.response.status !== 503)
-    throw Error("failed refresh lost its server error");
-  const before = await account.readChannelWindow({
-    ...scoped,
-    kind: "latest",
-    limit: 10,
+  let commits = 0;
+  const stop = account.subscribeToChannelHistory(channelId, () => {
+    commits++;
   });
-  if (before?.posts.length !== 3)
-    throw Error("failed refresh changed the existing timeline");
-  const pending = account.refreshChannelHistory({
-    ...scoped,
-    kind: "before",
-    postId: "x".repeat(26),
-  });
-  await Promise.race([
-    observe("received", "refresh-late"),
-    pending.then(() => {
-      throw Error("late page finished before the server released it");
-    }),
-  ]);
   try {
-    const deletion = await account.refreshChannelHistory({
+    const error = await account
+      .refreshChannelHistory({ ...scoped, kind: "since", since: 3 })
+      .catch((e: unknown) => e);
+    if (!(error instanceof ResponseError) || error.response.status !== 503)
+      throw Error("failed refresh lost its server error");
+    const before = await account.readChannelWindow({
       ...scoped,
-      kind: "since",
-      since: 2,
+      kind: "latest",
+      limit: 10,
     });
-    if (deletion.kind !== "applied")
-      throw Error("concurrent removal not committed");
+    if (before?.posts.length !== 3)
+      throw Error("failed refresh changed the existing timeline");
+    const pending = account.refreshChannelHistory({
+      ...scoped,
+      kind: "before",
+      postId: "x".repeat(26),
+    });
+    await Promise.race([
+      observe("received", "refresh-late"),
+      pending.then(() => {
+        throw Error("late page finished before the server released it");
+      }),
+    ]);
+    try {
+      const deletion = await account.refreshChannelHistory({
+        ...scoped,
+        kind: "since",
+        since: 2,
+      });
+      if (deletion.kind !== "applied")
+        throw Error("concurrent removal not committed");
+    } finally {
+      await observe("release-history", "refresh-late");
+    }
+    if ((await pending).kind !== "superseded")
+      throw Error("delayed HTTP response restored the removed post");
+    if (commits !== 1)
+      throw Error(`Expected one committed channel update, received ${commits}`);
   } finally {
-    await observe("release-history", "refresh-late");
+    stop();
   }
-  if ((await pending).kind !== "superseded")
-    throw Error("delayed HTTP response restored the removed post");
 }
 
 export async function checkRefreshedAfterRestart(origin: string) {
@@ -119,6 +139,15 @@ export async function checkRefreshedAfterRestart(origin: string) {
   try {
     if ((await connection.readSavedPost(channelId, "m".repeat(26))) !== null)
       throw Error("Deleted post remained available by ID after restart");
+    const saved = await connection.readSavedPost(channelId, root);
+    if (
+      saved?.attachments?.fileIds?.join(",") !==
+        ["b".repeat(26), "a".repeat(26)].join(",") ||
+      saved.attachments.files?.length !== 1 ||
+      saved.attachments.files[0]?.name !== "offline.txt" ||
+      saved.attachments.files[0].size !== 0
+    )
+      throw Error("Saved post lost received attachment data after restart");
     for (const collapsedThreads of [false, true]) {
       const page = await connection.readChannelWindow({
         kind: "latest",
@@ -129,6 +158,11 @@ export async function checkRefreshedAfterRestart(origin: string) {
       const expected = (collapsedThreads ? [root] : [reply, root]).join(",");
       if (
         page?.posts.map((p) => p.id).join(",") !== expected ||
+        page.posts.find((post) => post.id === root)?.attachments?.files?.[0]
+          ?.id !== "a".repeat(26) ||
+        (!collapsedThreads &&
+          page.posts.find((post) => post.id === reply)?.attachments
+            ?.redactedFileCount !== 2) ||
         page.older.kind !== "end" ||
         page.newer.kind !== "end"
       )

@@ -113,7 +113,12 @@ export function workspaceProfileQuery(
 ): VisibleProfileQuery {
   const ids = new Set<string>([userId]),
     usernames = new Set<string>();
-  for (const post of page?.posts ?? []) ids.add(post.userId);
+  for (const post of page?.posts ?? []) {
+    ids.add(post.userId);
+    if (policy?.collapsedThreads && post.threadSummary?.replyCount)
+      for (const id of post.threadSummary.participantIds?.slice(0, 3) ?? [])
+        ids.add(id);
+  }
   if (sidebar && policy)
     for (const channel of sidebar.data.channels) {
       if (channel.kind !== "D" && channel.kind !== "G") continue;

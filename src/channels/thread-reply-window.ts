@@ -7,6 +7,7 @@ import {
 } from "../mattermost/model-fields.ts";
 import type { openAccountRestConnection } from "../mattermost/native-rest.ts";
 import type { ThreadPageRequest } from "../mattermost/thread-page.ts";
+import { workspaceFailure } from "./workspace-data.ts";
 
 type Account = Pick<
   Awaited<ReturnType<typeof openAccountRestConnection>>,
@@ -19,10 +20,11 @@ type Scope = Pick<
 type Direction = ThreadPageRequest["direction"];
 type Edge =
   | { status: "ready" | "end" | "loading" }
-  | { status: "error"; error: unknown }
-  | { status: "inaccessible"; since: number };
+  | { status: "error"; error: unknown };
 
 interface ReplyWindow {
+  unavailable?: "forbidden" | "unauthorized" | "session" | "limited";
+  firstInaccessiblePostTime?: number;
   root: LocalPost | null;
   replies: readonly LocalPost[];
   up: Edge;
@@ -40,13 +42,18 @@ function visibleRow(channelId: string, post: Post & { id: string }): LocalPost {
 export function openThreadReplyWindow(
   account: Account,
   scope: Scope,
-  focused?: LocalPost,
+  start?: LocalPost | { lastViewedAt: number; userId: string },
 ) {
   const { channelId, rootId, collapsedThreads } = scope;
+  const unread = start && "lastViewedAt" in start ? { ...start } : undefined;
+  const focused = start && "id" in start ? start : undefined;
   if (
     !isMattermostId(channelId) ||
     !isMattermostId(rootId) ||
     typeof collapsedThreads !== "boolean" ||
+    (unread &&
+      (!isMattermostTime(unread.lastViewedAt, 0) ||
+        !isMattermostId(unread.userId))) ||
     (focused &&
       (focused.channelId !== channelId ||
         focused.rootId !== rootId ||
@@ -58,6 +65,16 @@ export function openThreadReplyWindow(
   }
   const focus = focused && { ...focused };
   const anchor = focus && { id: focus.id, createAt: focus.createAt };
+  const time = unread?.lastViewedAt;
+  // A strict upper query from t + 1 includes every reply at t. Zero is the
+  // server's unbounded-time sentinel; never send an imprecise maximum + 1.
+  const initialTime = {
+    up:
+      time !== undefined && time < Number.MAX_SAFE_INTEGER
+        ? time + 1
+        : undefined,
+    down: time || undefined,
+  };
   const cursors: Record<Direction, ThreadPageRequest["cursor"]> = {
     up: anchor,
     down: anchor,
@@ -69,8 +86,8 @@ export function openThreadReplyWindow(
   let state: ReplyWindow = {
     root: null,
     replies: focus ? [focus] : [],
-    up: { status: focus ? "ready" : "end" },
-    down: { status: "ready" },
+    up: { status: focus || (time !== undefined && time > 0) ? "ready" : "end" },
+    down: { status: time === Number.MAX_SAFE_INTEGER ? "end" : "ready" },
   };
   const seen = new Set(focus ? [focus.id] : []);
   function publish(next: ReplyWindow) {
@@ -80,6 +97,23 @@ export function openThreadReplyWindow(
   function finish(direction: Direction, next: ReplyWindow) {
     delete requests[direction];
     publish(next);
+  }
+  function stop(
+    unavailable?: ReplyWindow["unavailable"],
+    firstInaccessiblePostTime?: number,
+  ) {
+    if (lifetime.signal.aborted) return;
+    lifetime.abort();
+    seen.clear();
+    publish({
+      unavailable,
+      ...(firstInaccessiblePostTime && { firstInaccessiblePostTime }),
+      root: null,
+      replies: [],
+      up: { status: "end" },
+      down: { status: "end" },
+    });
+    listeners.clear();
   }
   async function read(direction: Direction) {
     try {
@@ -91,19 +125,16 @@ export function openThreadReplyWindow(
           rootId,
           collapsedThreads,
           direction,
-          cursor: cursors[direction],
+          ...(cursors[direction] || initialTime[direction] === undefined
+            ? { cursor: cursors[direction] }
+            : { fromCreateAt: initialTime[direction] }),
         },
         signal,
       );
       if (signal.aborted) return;
       if (page.kind === "inaccessible") {
-        finish(direction, {
-          ...state,
-          [direction]: {
-            status: "inaccessible",
-            since: page.firstInaccessiblePostTime,
-          },
-        });
+        // getPostThread omits all posts when the thread is outside the history limit.
+        stop("limited", page.firstInaccessiblePostTime);
         return;
       }
       const root = visibleRow(channelId, page.root);
@@ -137,11 +168,20 @@ export function openThreadReplyWindow(
         [direction]: { status: page.next ? "ready" : "end" },
       });
     } catch (error) {
-      if (!lifetime.signal.aborted)
-        finish(direction, {
-          ...state,
-          [direction]: { status: "error", error },
-        });
+      if (lifetime.signal.aborted) return;
+      const failure = workspaceFailure(error, "network");
+      if (
+        failure === "forbidden" ||
+        failure === "unauthorized" ||
+        failure === "session"
+      ) {
+        stop(failure);
+        return;
+      }
+      finish(direction, {
+        ...state,
+        [direction]: { status: "error", error },
+      });
     }
   }
   function load(direction: Direction, status: "ready" | "error") {
@@ -155,6 +195,17 @@ export function openThreadReplyWindow(
   }
   return {
     getSnapshot: () => state,
+    getUnreadPosition() {
+      if (!unread || lifetime.signal.aborted) return null;
+      const first = state.replies.find(
+        (row) =>
+          row.createAt > unread.lastViewedAt && row.userId !== unread.userId,
+      );
+      if (first) return { kind: "found" as const, postId: first.id };
+      return state.down.status === "end"
+        ? { kind: "none" as const }
+        : { kind: "pending" as const };
+    },
     subscribe(listener: () => void) {
       if (!lifetime.signal.aborted) listeners.add(listener);
       return () => {
@@ -170,16 +221,7 @@ export function openThreadReplyWindow(
     more: (direction: Direction) => load(direction, "ready"),
     retry: (direction: Direction) => load(direction, "error"),
     close() {
-      if (lifetime.signal.aborted) return;
-      lifetime.abort();
-      seen.clear();
-      publish({
-        root: null,
-        replies: [],
-        up: { status: "end" },
-        down: { status: "end" },
-      });
-      listeners.clear();
+      stop();
     },
   };
 }

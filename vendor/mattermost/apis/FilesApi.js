@@ -4,6 +4,40 @@ import { FileInfoListFromJSON, } from '../models/FileInfoList.js';
 import { SearchFilesInAllTeamsRequestToJSON, } from '../models/SearchFilesInAllTeamsRequest.js';
 import { SearchFilesRequestToJSON, } from '../models/SearchFilesRequest.js';
 export class FilesApi extends runtime.BaseAPI {
+    async getFileRequestOpts(requestParameters) {
+        if (requestParameters['fileId'] == null) {
+            throw new runtime.RequiredError('fileId', 'Required parameter "fileId" was null or undefined when calling getFile().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        if (requestParameters['range'] != null) {
+            headerParameters['Range'] = String(requestParameters['range']);
+        }
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/files/{file_id}`;
+        urlPath = urlPath.replace('{file_id}', encodeURIComponent(String(requestParameters['fileId'])));
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async getFileRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.getFileRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.BlobApiResponse(response);
+    }
+    async getFile(requestParameters, initOverrides) {
+        const response = await this.getFileRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
     async getFileInfoRequestOpts(requestParameters) {
         if (requestParameters['fileId'] == null) {
             throw new runtime.RequiredError('fileId', 'Required parameter "fileId" was null or undefined when calling getFileInfo().');
@@ -33,6 +67,74 @@ export class FilesApi extends runtime.BaseAPI {
     }
     async getFileInfo(requestParameters, initOverrides) {
         const response = await this.getFileInfoRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async getFilePreviewRequestOpts(requestParameters) {
+        if (requestParameters['fileId'] == null) {
+            throw new runtime.RequiredError('fileId', 'Required parameter "fileId" was null or undefined when calling getFilePreview().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        if (requestParameters['range'] != null) {
+            headerParameters['Range'] = String(requestParameters['range']);
+        }
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/files/{file_id}/preview`;
+        urlPath = urlPath.replace('{file_id}', encodeURIComponent(String(requestParameters['fileId'])));
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async getFilePreviewRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.getFilePreviewRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.BlobApiResponse(response);
+    }
+    async getFilePreview(requestParameters, initOverrides) {
+        const response = await this.getFilePreviewRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async getFileThumbnailRequestOpts(requestParameters) {
+        if (requestParameters['fileId'] == null) {
+            throw new runtime.RequiredError('fileId', 'Required parameter "fileId" was null or undefined when calling getFileThumbnail().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        if (requestParameters['range'] != null) {
+            headerParameters['Range'] = String(requestParameters['range']);
+        }
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/files/{file_id}/thumbnail`;
+        urlPath = urlPath.replace('{file_id}', encodeURIComponent(String(requestParameters['fileId'])));
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async getFileThumbnailRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.getFileThumbnailRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.BlobApiResponse(response);
+    }
+    async getFileThumbnail(requestParameters, initOverrides) {
+        const response = await this.getFileThumbnailRaw(requestParameters, initOverrides);
         return await response.value();
     }
     async searchFilesRequestOpts(requestParameters) {

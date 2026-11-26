@@ -74,6 +74,39 @@ export async function checkTeamReads(
   )
     throw Error("generated team membership");
   const api = new ChannelsApi(prefixed);
+  const namedTeam = await new TeamsApi(prefixed).getTeamByName({
+    name: "fixture-team",
+  });
+  if (
+    namedTeam.id !== teamId ||
+    namedTeam.name !== "fixture-team" ||
+    namedTeam.type !== "O" ||
+    namedTeam.allowOpenInvite !== true ||
+    namedTeam.deleteAt !== 0
+  )
+    throw Error("generated signed team by name");
+  const named = await api.getChannelByNameForTeamName({
+    teamName: "fixture-team",
+    channelName: "old_room",
+    includeDeleted: true,
+  });
+  if (
+    named.teamId !== teamId ||
+    named.id !== "c".repeat(26) ||
+    named.name !== "old_room" ||
+    named.deleteAt !== 41 ||
+    named.type !== "O"
+  )
+    throw Error("generated signed channel by team and channel names");
+  const location = "j".repeat(26);
+  const inspected = await api.getChannel({ channelId: location });
+  if (
+    inspected.id !== location ||
+    inspected.type !== "G" ||
+    inspected.teamId !== "" ||
+    inspected.deleteAt !== 0
+  )
+    throw Error("generated signed channel by ID");
   const managed = await api.getManagedCategories({ teamId });
   if (
     Object.keys(managed).length !== 2 ||
@@ -96,6 +129,16 @@ export async function checkTeamReads(
     channels[0].teamId !== teamId
   )
     throw Error("generated channel list");
+  const channelMatches = await api.autocompleteChannelsForTeam({
+    teamId,
+    name: "тест +&",
+  });
+  if (
+    channelMatches.length !== 1 ||
+    channelMatches[0]?.id !== channelId ||
+    channelMatches[0]?.teamId !== teamId
+  )
+    throw Error("signed team-scoped directory search");
   const stats = await api.getChannelStats({
     channelId,
     excludeFilesCount: true,

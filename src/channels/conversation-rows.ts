@@ -2,13 +2,17 @@ import type { PendingPost } from "../mattermost/account-delivery.ts";
 import type { LocalChannelWindow } from "../mattermost/local-history.ts";
 
 type Saved = LocalChannelWindow["posts"][number];
-export type TimelineMessage = Pick<
-  Saved,
-  "id" | "userId" | "createAt" | "editAt" | "message" | "isPinned"
-> & {
-  localId?: string;
-  outgoing?: PendingPost;
-};
+export type TimelineMessage = { localId?: string } & (
+  | (Saved & { outgoing?: never })
+  | (Pick<
+      Saved,
+      "id" | "userId" | "createAt" | "editAt" | "message" | "isPinned"
+    > & {
+      outgoing: PendingPost;
+    })
+);
+
+export type OutgoingPlacement = "timeline" | "afterGap" | "hidden";
 
 /** Both inputs are newest first. The server owns tie order and SQLite owns the order of local attempts. */
 export function conversationRows(
@@ -17,7 +21,7 @@ export function conversationRows(
   channelId: string,
   rootId: string | null,
   userId: string,
-  latest: boolean,
+  placement: OutgoingPlacement,
 ) {
   const confirmed = new Map<string, PendingPost>();
   const scoped = pending.filter(
@@ -42,14 +46,18 @@ export function conversationRows(
     } else saved.push(post);
   }
   const messages: TimelineMessage[] = [];
+  const afterGap: TimelineMessage[] = [];
   let index = 0;
-  if (latest) {
+  if (placement !== "hidden") {
     for (let i = scoped.length - 1; i >= 0; i--) {
       const post = scoped[i];
       if (post.confirmedPostId && matched.has(post.confirmedPostId)) continue;
-      while (index < saved.length && saved[index].createAt <= post.createdAt)
-        messages.push(saved[index++]);
-      messages.push({
+      if (placement === "timeline") {
+        while (index < saved.length && saved[index].createAt <= post.createdAt)
+          messages.push(saved[index++]);
+      }
+      const target = placement === "afterGap" ? afterGap : messages;
+      target.push({
         id: post.pendingId,
         createAt: post.createdAt,
         editAt: 0,
@@ -61,5 +69,5 @@ export function conversationRows(
     }
   }
   while (index < saved.length) messages.push(saved[index++]);
-  return { messages, matched: [...matched] };
+  return { messages, afterGap, matched: [...matched] };
 }
