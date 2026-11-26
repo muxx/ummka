@@ -873,6 +873,7 @@ export function webviewServers(
                 EnableConfirmNotificationsToChannel: "false",
                 MaxNotificationsPerChannel: "9223372036854775807",
                 UniqueEmojiReactionLimitPerPost: "-2",
+                EnableUserStatuses: "false",
                 PostEditTimeLimit: "9007199254740993",
                 EnableCrossTeamSearch: "true",
                 EnableFileAttachments: "true",

@@ -20,6 +20,7 @@ fn open(path: &Path) -> AccountHistory {
 }
 fn policy() -> ServerPolicy {
     ServerPolicy {
+        user_statuses_enabled: true,
         dm_recipient_scope: Some(RecipientScope::Team),
         collapsed_threads: ThreadMode::DefaultOn,
         separate_unreads: false,
@@ -59,6 +60,50 @@ fn team() -> DirectoryTeam {
         roles: Some("team_user".into()),
         group_constrained: None,
     }
+}
+
+#[test]
+fn legacy_presence_policy_is_enabled_and_a_saved_disable_survives_reopening() {
+    let root = tempdir().unwrap();
+    let mut db = open(root.path());
+    let initial = policy();
+    let load = db.begin_server_policy_load().unwrap();
+    assert!(db.store_server_policy(load, &initial).unwrap());
+    let mut legacy = serde_json::to_value(&initial).unwrap();
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("userStatusesEnabled")
+        .unwrap();
+    db.write(|tx| {
+        tx.execute(
+            "UPDATE workspace_settings SET server=?1 WHERE owner=1",
+            [legacy.to_string()],
+        )
+    })
+    .unwrap();
+    drop(db);
+    let mut db = open(root.path());
+    assert_eq!(
+        db.read_workspace_settings().unwrap().server.unwrap(),
+        initial
+    );
+    let mut disabled = policy();
+    disabled.user_statuses_enabled = false;
+    let load = db.begin_server_policy_load().unwrap();
+    assert!(db.store_server_policy(load, &disabled).unwrap());
+    drop(db);
+    let mut db = open(root.path());
+    assert_eq!(
+        db.read_workspace_settings().unwrap().server.unwrap(),
+        disabled
+    );
+    let load = db.begin_server_policy_load().unwrap();
+    assert!(db.store_server_policy(load, &initial).unwrap());
+    assert_eq!(
+        db.read_workspace_settings().unwrap().server.unwrap(),
+        initial
+    );
 }
 
 #[test]
