@@ -82,7 +82,10 @@ export function webviewServers(
   const groupId = "g".repeat(26);
   let groupOpenedAt: string | undefined;
   const collections = collectionFixture(channelId, userId);
-  const teamReads = new Map<string, { name: string; body: object | null }>([
+  const teamReads = new Map<
+    string,
+    { name: string; body: object | null; status?: number }
+  >([
     [
       "/team/chat/api/v4/teams/name/fixture-team",
       {
@@ -114,6 +117,40 @@ export function webviewServers(
       {
         name: "signed-single-channel",
         body: { id: "j".repeat(26), type: "G", team_id: "", delete_at: 0 },
+      },
+    ],
+    [
+      `/team/chat/api/v4/teams/${"z".repeat(26)}/channels?page=0&per_page=50`,
+      {
+        name: "public-directory-denied",
+        status: 403,
+        body: { id: "fixture.denied", status_code: 403 },
+      },
+    ],
+    [
+      `/team/chat/api/v4/teams/${"z".repeat(26)}/channels/deleted?page=0&per_page=50`,
+      {
+        name: "archived-directory-denied",
+        status: 403,
+        body: { id: "fixture.denied", status_code: 403 },
+      },
+    ],
+    [
+      `/team/chat/api/v4/teams/${teamId}/channels?page=1&per_page=50`,
+      {
+        name: "public-directory-page",
+        body: [
+          { id: "o".repeat(26), team_id: teamId, type: "O", delete_at: 0 },
+        ],
+      },
+    ],
+    [
+      `/team/chat/api/v4/teams/${teamId}/channels/deleted?page=0&per_page=50`,
+      {
+        name: "archived-directory-page",
+        body: [
+          { id: "p".repeat(26), team_id: teamId, type: "P", delete_at: 42 },
+        ],
       },
     ],
     [
@@ -1068,7 +1105,9 @@ export function webviewServers(
           : "Bearer fixture-root-session",
       );
       assert.equal(req.headers.cookie, undefined);
-      res.writeHead(200, { "Content-Type": "application/json" });
+      res.writeHead(teamRead.status ?? 200, {
+        "Content-Type": "application/json",
+      });
       const body =
         teamRead.name === "sidebar-preferences" &&
         groupOpenedAt &&
@@ -1361,6 +1400,10 @@ export function webviewServers(
         "signed-single-channel",
         "signed-named-channel",
         "signed-named-team",
+        "public-directory-page",
+        "archived-directory-page",
+        "public-directory-denied",
+        "archived-directory-denied",
         "managed-category-mappings",
         "team-channel-search",
         "bytes",

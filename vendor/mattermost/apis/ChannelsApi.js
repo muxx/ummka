@@ -542,6 +542,43 @@ export class ChannelsApi extends runtime.BaseAPI {
         const response = await this.getChannelsForTeamForUserRaw(requestParameters, initOverrides);
         return await response.value();
     }
+    async getDeletedChannelsForTeamRequestOpts(requestParameters) {
+        if (requestParameters['teamId'] == null) {
+            throw new runtime.RequiredError('teamId', 'Required parameter "teamId" was null or undefined when calling getDeletedChannelsForTeam().');
+        }
+        const queryParameters = {};
+        if (requestParameters['page'] != null) {
+            queryParameters['page'] = requestParameters['page'];
+        }
+        if (requestParameters['perPage'] != null) {
+            queryParameters['per_page'] = requestParameters['perPage'];
+        }
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/teams/{team_id}/channels/deleted`;
+        urlPath = urlPath.replace('{team_id}', encodeURIComponent(String(requestParameters['teamId'])));
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async getDeletedChannelsForTeamRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.getDeletedChannelsForTeamRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => jsonValue.map(ChannelFromJSON));
+    }
+    async getDeletedChannelsForTeam(requestParameters, initOverrides) {
+        const response = await this.getDeletedChannelsForTeamRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
     async getManagedCategoriesRequestOpts(requestParameters) {
         if (requestParameters['teamId'] == null) {
             throw new runtime.RequiredError('teamId', 'Required parameter "teamId" was null or undefined when calling getManagedCategories().');
@@ -602,6 +639,43 @@ export class ChannelsApi extends runtime.BaseAPI {
     }
     async getPinnedPosts(requestParameters, initOverrides) {
         const response = await this.getPinnedPostsRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async getPublicChannelsForTeamRequestOpts(requestParameters) {
+        if (requestParameters['teamId'] == null) {
+            throw new runtime.RequiredError('teamId', 'Required parameter "teamId" was null or undefined when calling getPublicChannelsForTeam().');
+        }
+        const queryParameters = {};
+        if (requestParameters['page'] != null) {
+            queryParameters['page'] = requestParameters['page'];
+        }
+        if (requestParameters['perPage'] != null) {
+            queryParameters['per_page'] = requestParameters['perPage'];
+        }
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/teams/{team_id}/channels`;
+        urlPath = urlPath.replace('{team_id}', encodeURIComponent(String(requestParameters['teamId'])));
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async getPublicChannelsForTeamRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.getPublicChannelsForTeamRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => jsonValue.map(ChannelFromJSON));
+    }
+    async getPublicChannelsForTeam(requestParameters, initOverrides) {
+        const response = await this.getPublicChannelsForTeamRaw(requestParameters, initOverrides);
         return await response.value();
     }
     async getSidebarCategoriesForTeamForUserRequestOpts(requestParameters) {

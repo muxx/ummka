@@ -73,11 +73,21 @@ export interface GetChannelsForTeamForUserRequest {
     includeDeleted?: boolean;
     lastDeleteAt?: number;
 }
+export interface GetDeletedChannelsForTeamRequest {
+    teamId: string;
+    page?: number;
+    perPage?: number;
+}
 export interface GetManagedCategoriesRequest {
     teamId: string;
 }
 export interface GetPinnedPostsRequest {
     channelId: string;
+}
+export interface GetPublicChannelsForTeamRequest {
+    teamId: string;
+    page?: number;
+    perPage?: number;
 }
 export interface GetSidebarCategoriesForTeamForUserRequest {
     teamId: string;
@@ -167,6 +177,9 @@ export declare class ChannelsApi extends runtime.BaseAPI {
     getChannelsForTeamForUserRequestOpts(requestParameters: GetChannelsForTeamForUserRequest): Promise<runtime.RequestOpts>;
     getChannelsForTeamForUserRaw(requestParameters: GetChannelsForTeamForUserRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Array<Channel>>>;
     getChannelsForTeamForUser(requestParameters: GetChannelsForTeamForUserRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Array<Channel>>;
+    getDeletedChannelsForTeamRequestOpts(requestParameters: GetDeletedChannelsForTeamRequest): Promise<runtime.RequestOpts>;
+    getDeletedChannelsForTeamRaw(requestParameters: GetDeletedChannelsForTeamRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Array<Channel>>>;
+    getDeletedChannelsForTeam(requestParameters: GetDeletedChannelsForTeamRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Array<Channel>>;
     getManagedCategoriesRequestOpts(requestParameters: GetManagedCategoriesRequest): Promise<runtime.RequestOpts>;
     getManagedCategoriesRaw(requestParameters: GetManagedCategoriesRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<{
         [key: string]: string;
@@ -177,6 +190,9 @@ export declare class ChannelsApi extends runtime.BaseAPI {
     getPinnedPostsRequestOpts(requestParameters: GetPinnedPostsRequest): Promise<runtime.RequestOpts>;
     getPinnedPostsRaw(requestParameters: GetPinnedPostsRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<PostList>>;
     getPinnedPosts(requestParameters: GetPinnedPostsRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<PostList>;
+    getPublicChannelsForTeamRequestOpts(requestParameters: GetPublicChannelsForTeamRequest): Promise<runtime.RequestOpts>;
+    getPublicChannelsForTeamRaw(requestParameters: GetPublicChannelsForTeamRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Array<Channel>>>;
+    getPublicChannelsForTeam(requestParameters: GetPublicChannelsForTeamRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Array<Channel>>;
     getSidebarCategoriesForTeamForUserRequestOpts(requestParameters: GetSidebarCategoriesForTeamForUserRequest): Promise<runtime.RequestOpts>;
     getSidebarCategoriesForTeamForUserRaw(requestParameters: GetSidebarCategoriesForTeamForUserRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<OrderedSidebarCategories>>;
     getSidebarCategoriesForTeamForUser(requestParameters: GetSidebarCategoriesForTeamForUserRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<OrderedSidebarCategories>;

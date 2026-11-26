@@ -6,6 +6,7 @@ import {
   GroupFromJSON,
   GroupsApi,
   PreferencesApi,
+  ResponseError,
   RolesApi,
   TeamsApi,
 } from "../../vendor/mattermost/index.js";
@@ -118,6 +119,39 @@ export async function checkTeamReads(
     inspected.deleteAt !== 0
   )
     throw Error("generated signed channel by ID");
+  const open = await api.getPublicChannelsForTeam({
+    teamId,
+    page: 1,
+    perPage: 50,
+  });
+  const archived = await api.getDeletedChannelsForTeam({
+    teamId,
+    page: 0,
+    perPage: 50,
+  });
+  if (
+    open.length !== 1 ||
+    open[0].id !== "o".repeat(26) ||
+    open[0].teamId !== teamId ||
+    open[0].deleteAt !== 0 ||
+    archived.length !== 1 ||
+    archived[0].id !== "p".repeat(26) ||
+    archived[0].type !== "P" ||
+    archived[0].deleteAt !== 42
+  )
+    throw Error("generated channel directory pages");
+  for (const operation of [
+    "getPublicChannelsForTeam",
+    "getDeletedChannelsForTeam",
+  ] as const) {
+    try {
+      await api[operation]({ teamId: "z".repeat(26), page: 0, perPage: 50 });
+      throw Error("Expected a forbidden directory response for " + operation);
+    } catch (error) {
+      if (!(error instanceof ResponseError) || error.response.status !== 403)
+        throw error;
+    }
+  }
   const managed = await api.getManagedCategories({ teamId });
   if (
     Object.keys(managed).length !== 2 ||
