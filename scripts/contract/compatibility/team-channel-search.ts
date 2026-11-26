@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { openDirectorySearch } from "../../../src/channels/open-directory-search.ts";
 import {
   readChannelDirectoryPage,
   searchChannelDirectory,
@@ -8,6 +9,7 @@ import {
   Configuration,
   ResponseError,
 } from "../../../vendor/mattermost/index.js";
+import { checkDirectoryQuery } from "./directory-query.ts";
 
 export async function checkTeamChannelSearch(
   basePath: string,
@@ -107,6 +109,24 @@ export async function checkTeamChannelSearch(
     rows.map((c) => [c.id, c.name, c.type, c.deleteAt]),
   );
   assert.deepEqual(await searchChannelDirectory(api, home, "zzznomatches"), []);
+  const search = openDirectorySearch(
+    {
+      searchChannelDirectory: (id, name, signal) =>
+        searchChannelDirectory(api, id, name, signal),
+    },
+    home,
+  );
+  try {
+    const match = await checkDirectoryQuery(search, "  findable  ");
+    assert.deepEqual(match.items, projected);
+    const empty = await checkDirectoryQuery(search, "zzznomatches");
+    assert.deepEqual(empty.items, []);
+  } finally {
+    search.close();
+  }
+  console.log(
+    `Mattermost ${version} verified an open directory query, ordered matches and an empty result.`,
+  );
   const archived = await channel(home, "historic-search-fixture", "O");
   const headers = { Authorization: `Bearer ${admin}` };
   const deletion = await fetch(`${basePath}/api/v4/channels/${archived}`, {
