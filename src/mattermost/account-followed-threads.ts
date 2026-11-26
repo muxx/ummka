@@ -7,6 +7,8 @@ import { channelPostChange } from "./channel-post-records.ts";
 import type { LocalPost } from "./local-history.ts";
 import { isMattermostId, isMattermostTime } from "./model-fields.ts";
 
+import { setThreadFollowing, type ThreadPost } from "./thread-following.ts";
+
 type PageQuery = {
   teamId: string;
   unread: boolean;
@@ -80,6 +82,17 @@ export function accountFollowedThreads(
 ) {
   const api = new ThreadsApi(config);
   return {
+    setThreadFollowing(
+      teamId: string,
+      post: ThreadPost,
+      following: boolean,
+      signal?: AbortSignal,
+    ) {
+      return whileOpen(
+        () => setThreadFollowing(api, teamId, post, following, signal),
+        signal,
+      );
+    },
     markFollowedThreadRead(
       teamId: string,
       threadId: string,
