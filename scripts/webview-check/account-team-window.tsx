@@ -2,6 +2,7 @@ import { fireEvent, waitFor, within } from "@testing-library/dom";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { App } from "../../src/App.tsx";
+import { usesMacOSOverlay } from "../../src/build-platform.ts";
 import {
   connectInstallation,
   forgetInstallation,
@@ -33,7 +34,7 @@ export async function checkSavedTeamWindow(
   const root = createRoot(element);
   // The macOS test host retains loopback while exercising the application's offline route.
   const previous = Object.getOwnPropertyDescriptor(navigator, "onLine");
-  const macOS = import.meta.env.UMMKA_MACOS_OVERLAY;
+  const macOS = usesMacOSOverlay;
   if (macOS)
     Object.defineProperty(navigator, "onLine", {
       configurable: true,
@@ -92,7 +93,9 @@ export async function checkSavedTeamWindow(
     const searchTrigger = ui.getByRole("button", { name: "Поиск" });
     searchTrigger.focus();
     flushSync(() => fireEvent.click(searchTrigger));
-    const search = within(await ui.findByRole("dialog"));
+    const search = within(
+      await ui.findByRole("dialog", { name: "Что вы ищете?" }, nativeWait),
+    );
     const terms = search.getByRole<HTMLInputElement>("searchbox");
     if (document.activeElement !== terms || search.queryByText("Файлы"))
       throw Error(
@@ -137,7 +140,7 @@ export async function checkSavedTeamWindow(
       throw Error("An offline draft offered sending");
     const edited = field.value + " Ещё строка.";
     flushSync(() => fireEvent.input(field, { target: { value: edited } }));
-    if (import.meta.env.UMMKA_MACOS_OVERLAY && !removeOutgoing) {
+    if (usesMacOSOverlay && !removeOutgoing) {
       const post = (await saved()).closest("article");
       if (!post) throw Error("The saved post is outside its timeline row");
       const opener = within(post).getByRole("button", { name: "Открыть тред" });
@@ -208,7 +211,7 @@ export async function checkSavedTeamWindow(
     flushSync(() =>
       fireEvent.click(ui.getByRole("button", { name: "Аккаунт" })),
     );
-    const menu = await ui.findByRole("dialog");
+    const menu = ui.getByRole("dialog", { name: "Fixture Team" });
     flushSync(() =>
       fireEvent.click(
         within(menu).getByRole("button", { name: "Закрыть меню аккаунта" }),

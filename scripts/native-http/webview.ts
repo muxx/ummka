@@ -79,6 +79,8 @@ export function webviewServers(
   );
   const teamId = "Team0123456789012345678901";
   const channelId = "c".repeat(26);
+  const groupId = "g".repeat(26);
+  let groupOpenedAt: string | undefined;
   const collections = collectionFixture(channelId, userId);
   const teamReads = new Map<string, { name: string; body: object | null }>([
     [
@@ -297,6 +299,12 @@ export function webviewServers(
             name: "code_block_ctrl_enter",
             value: "false",
           },
+          ...Array.from({ length: 61 }, (_, index) => ({
+            user_id: userId,
+            category: "flagged_post",
+            name: String(index).padStart(26, "s"),
+            value: "true",
+          })),
         ],
       },
     ],
@@ -317,6 +325,14 @@ export function webviewServers(
             last_root_post_at: 300,
             shared: true,
           },
+          {
+            id: groupId,
+            team_id: "",
+            type: "G",
+            name: "fixture-group",
+            display_name: "",
+            delete_at: 0,
+          },
         ],
       },
     ],
@@ -331,6 +347,7 @@ export function webviewServers(
             roles: "channel_user custom_writer",
             mention_count_root: 2,
           },
+          { channel_id: groupId, user_id: userId, roles: "channel_user" },
         ],
       },
     ],
@@ -384,6 +401,45 @@ export function webviewServers(
       res
         .writeHead(200, { "Content-Type": "application/json" })
         .end(JSON.stringify({ status: "OK" }));
+      return;
+    }
+    if (
+      url.pathname === "/team/chat/api/v4/users" ||
+      url.pathname === "/team/chat/api/v4/users/search"
+    ) {
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      if (url.pathname.endsWith("/search")) {
+        assert.equal(req.method, "POST");
+        assert.equal(url.search, "");
+        assert.deepEqual(await json(req), {
+          term: "ан",
+          team_id: teamId,
+          allow_inactive: false,
+          limit: 12,
+        });
+        visits.push("recipient-search");
+      } else {
+        assert.equal(req.method, "GET");
+        assert.deepEqual(Object.fromEntries(url.searchParams), {
+          in_team: teamId,
+          active: "true",
+          page: "1",
+          per_page: "20",
+        });
+        assert.equal(await text(req), "");
+        visits.push("recipient-page");
+      }
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end(
+          JSON.stringify([
+            { id: userId, username: "anna", first_name: "Анна" },
+          ]),
+        );
       return;
     }
     const collection = await collections(req, res, url);
@@ -501,6 +557,42 @@ export function webviewServers(
       );
       return;
     }
+    if (
+      url.pathname === "/team/chat/api/v4/users/me/preferences" &&
+      req.method === "PUT"
+    ) {
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      assert.equal(url.search, "");
+      const prefs = await json(req);
+      assert.ok(Array.isArray(prefs));
+      const stamp = prefs[1]?.value;
+      assert.equal(typeof stamp, "string");
+      assert.match(stamp, /^[1-9]\d+$/);
+      assert.deepEqual(prefs, [
+        {
+          user_id: userId,
+          category: "group_channel_show",
+          name: groupId,
+          value: "true",
+        },
+        {
+          user_id: userId,
+          category: "channel_open_time",
+          name: groupId,
+          value: stamp,
+        },
+      ]);
+      groupOpenedAt = stamp;
+      visits.push("show-known-group");
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end('{"status":"OK"}');
+      return;
+    }
     const customCategory = "m".repeat(26);
     const builtin = `direct_messages_${userId.toLowerCase()}_${teamId.toLowerCase()}`;
     const categoryRoute = `/team/chat/api/v4/users/me/teams/${teamId}/channels/categories`;
@@ -542,6 +634,34 @@ export function webviewServers(
     const readThread = await respondToThreadRead(req, res, url, teamId);
     if (readThread) {
       visits.push(readThread);
+      return;
+    }
+    if (
+      url.pathname === "/team/chat/api/v4/channels/direct" ||
+      url.pathname === "/team/chat/api/v4/channels/group"
+    ) {
+      const direct = url.pathname.endsWith("/direct");
+      assert.equal(req.method, "POST");
+      assert.equal(url.search, "");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      assert.deepEqual(
+        await json(req),
+        direct ? [userId] : ["x".repeat(26), "y".repeat(26)],
+      );
+      visits.push(
+        direct ? "open-self-conversation" : "open-group-conversation",
+      );
+      res.writeHead(201, { "Content-Type": "application/json" }).end(
+        JSON.stringify({
+          id: (direct ? "d" : "g").repeat(26),
+          team_id: "",
+          type: direct ? "D" : "G",
+        }),
+      );
       return;
     }
     const threadList = await respondToThreadList(
@@ -871,7 +991,27 @@ export function webviewServers(
       );
       assert.equal(req.headers.cookie, undefined);
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(teamRead.body));
+      const body =
+        teamRead.name === "sidebar-preferences" &&
+        groupOpenedAt &&
+        Array.isArray(teamRead.body)
+          ? [
+              ...teamRead.body,
+              {
+                user_id: userId,
+                category: "group_channel_show",
+                name: groupId,
+                value: "true",
+              },
+              {
+                user_id: userId,
+                category: "channel_open_time",
+                name: groupId,
+                value: groupOpenedAt,
+              },
+            ]
+          : teamRead.body;
+      res.end(JSON.stringify(body));
       return;
     }
     if (url.pathname === "/api/v4/users/me") {
@@ -918,6 +1058,8 @@ export function webviewServers(
                 RestrictDirectMessage: "team",
                 FeatureFlagEnableSharedChannelsDMs: "true",
                 EnableConfirmNotificationsToChannel: "false",
+                WebsocketURL: "",
+                WebsocketSecurePort: "443",
                 MaxNotificationsPerChannel: "9223372036854775807",
                 UniqueEmojiReactionLimitPerPost: "-2",
                 EnableUserStatuses: "false",
@@ -1159,6 +1301,8 @@ export function webviewServers(
         "user-me",
         "user-profile",
         "profiles-by-name",
+        "recipient-page",
+        "recipient-search",
         "profile-image",
         "account-logout-confirmed",
         "account-logout-unconfirmed",
@@ -1166,6 +1310,10 @@ export function webviewServers(
         "account-second",
         "account-denied",
         "account-expired",
+        "show-known-group",
+        "directory-teams",
+        "my-team-members",
+        "sidebar-preferences",
         "workspace-config",
         "workspace-license",
         "account-html",
@@ -1206,6 +1354,9 @@ export function webviewServers(
         "list-saved",
         "remove-pin",
         "remove-saved",
+        "sidebar-preferences",
+        "sidebar-preferences",
+        "list-saved-more",
         "custom-emoji-by-name",
         "custom-emoji-by-name",
         "custom-emoji-by-name",
@@ -1215,6 +1366,8 @@ export function webviewServers(
         "read-team-threads",
         "read-thread",
         "read-team-threads",
+        "open-self-conversation",
+        "open-group-conversation",
         "follow-thread",
         "unfollow-thread",
         "collapse-sidebar-category",

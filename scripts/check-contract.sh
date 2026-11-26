@@ -117,6 +117,12 @@ attachments satisfies FileInfo[];
 // @ts-expect-error A post ID is required even when includeDeleted is absent.
 attachmentPosts.getFileInfosForPost({});
 declare const users: UsersApi;
+(await users.getUsers({page: 0, perPage: 20, inTeam: "team", active: true})) satisfies User[];
+(await users.searchUsers({searchUsersRequest: {term: "name", teamId: "team", limit: 20, allowInactive: false}})) satisfies User[];
+// @ts-expect-error The search term is required.
+users.searchUsers({searchUsersRequest: {teamId: "team"}});
+// @ts-expect-error The page number is numeric.
+users.getUsers({page: "0"});
 (await users.getUsersByUsernames({ requestBody: ["ada"] })) satisfies User[];
 (await users.getProfileImage({ userId: "user" })) satisfies Blob;
 // @ts-expect-error Usernames are strings.
@@ -152,6 +158,12 @@ const badCursor: GetPostThreadRequest = { postId: "a-post-id", fromCreateAt: "12
 declare const page: PostList;
 import type { ChannelsApi, Preference, PreferencesApi } from "./compiled/index.js";
 declare const channels: ChannelsApi;
+(await channels.createDirectChannel({ requestBody: ["self"] })).id satisfies string | undefined;
+(await channels.createGroupChannel({ requestBody: ["first", "second"] })).type satisfies string | undefined;
+// @ts-expect-error A conversation request contains user IDs.
+channels.createDirectChannel({ requestBody: [7] });
+// @ts-expect-error A group needs its participant array.
+channels.createGroupChannel({});
 const managed = await channels.getManagedCategories({ teamId: "team" });
 managed satisfies Record<string, string>;
 // @ts-expect-error The mapping belongs to one team.

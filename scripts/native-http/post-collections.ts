@@ -19,19 +19,25 @@ export function collectionFixture(channelId: string, userId: string) {
     if (!action) return;
     assert.equal(req.headers.authorization, "Bearer fixture-prefixed-session");
     assert.equal(req.headers.cookie, undefined);
+    const older =
+      action === "list-saved" && url.searchParams.get("page") === "59";
     assert.deepEqual(
       Object.fromEntries(url.searchParams),
       action === "list-saved"
-        ? { page: "0", per_page: "60", channel_id: channelId }
+        ? { page: older ? "59" : "0", per_page: "60", channel_id: channelId }
         : {},
     );
     let body: object;
     if (action.startsWith("list-")) {
       assert.equal(req.method, "GET");
-      const visible = action === "list-pins" ? pinned : saved;
+      if (older) assert.equal(saved, false);
+      const visible = older || (action === "list-pins" ? pinned : saved);
+      const item = older
+        ? { ...row, id: "z".repeat(26), message: "Older saved fixture" }
+        : row;
       body = {
-        order: visible ? [id] : [],
-        posts: visible ? { [id]: row } : {},
+        order: visible ? [item.id] : [],
+        posts: visible ? { [item.id]: item } : {},
         first_inaccessible_post_time: 0,
       };
     } else {
@@ -55,6 +61,6 @@ export function collectionFixture(channelId: string, userId: string) {
     res
       .writeHead(200, { "Content-Type": "application/json" })
       .end(JSON.stringify(body));
-    return action;
+    return older ? "list-saved-more" : action;
   };
 }

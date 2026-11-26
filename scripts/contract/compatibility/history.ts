@@ -42,14 +42,17 @@ import {
 } from "./channel-notifications.ts";
 import { checkCollectionActions } from "./collection-actions.ts";
 import { checkCommands } from "./commands.ts";
+import { checkConversationCreation } from "./conversation-creation.ts";
 import { checkCustomEmojiLookup } from "./custom-emoji.ts";
 import { checkEventActions } from "./event-actions.ts";
+import { checkEventConfiguration } from "./event-configuration.ts";
 import { checkEventStream } from "./event-stream.ts";
 import { checkFileContent } from "./file-content.ts";
 import { checkFileSearch } from "./file-search.ts";
 import { checkFocusedConversation } from "./focused-conversation.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
 import { checkJoinPostTarget } from "./join-post-target.ts";
+import { checkKnownConversationVisibility } from "./known-conversation-visibility.ts";
 import {
   checkChannelRoster,
   checkEmptyTeamDirectory,
@@ -77,7 +80,9 @@ import { checkPublishedPostDocument } from "./published-post-document.ts";
 import { checkReactionActions } from "./reaction-actions.ts";
 import { checkReactionLimit } from "./reaction-limit.ts";
 import { checkPostReactions } from "./reactions.ts";
+import { checkRecipientDirectory } from "./recipient-directory.ts";
 import { checkRoleReads } from "./role-reads.ts";
+import { checkSparseSavedPages } from "./saved-page-access.ts";
 import { checkSearchScopePolicy } from "./search-scope.ts";
 import { expectedNavigationPost } from "./search-target.ts";
 import { checkSidebarReads } from "./sidebar.ts";
@@ -883,7 +888,13 @@ assert.equal(otherSaver.roles, "system_user");
 await checkPostCollections(
   { session, id: user.id },
   { id: reader.id, token: readerToken },
-  new Configuration({ basePath: base, accessToken: otherSaverToken }),
+  {
+    session: new Configuration({
+      basePath: base,
+      accessToken: otherSaverToken,
+    }),
+    id: otherSaver.id,
+  },
   {
     channel: channelId,
     privateChannel: closed.id,
@@ -1167,6 +1178,26 @@ const group = await (
   await create("channels/group", [user.id, reader.id, bot.user_id], token)
 ).json();
 assert.equal(group.type, "G");
+const knownDirect = await (
+  await create("channels/direct", [reader.id, observer.id], readerToken)
+).json();
+const knownGroup = await (
+  await create("channels/group", [reader.id, observer.id, user.id], readerToken)
+).json();
+await checkKnownConversationVisibility(
+  {
+    config: new Configuration({ basePath: base, accessToken: readerToken }),
+    id: reader.id,
+  },
+  {
+    config: new Configuration({ basePath: base, accessToken: observerToken }),
+    id: observer.id,
+  },
+  team.id,
+  knownDirect.id,
+  knownGroup.id,
+  version,
+);
 for (const [source, expectedTeam] of [
   [channel, team.id],
   [dm, ""],
@@ -1283,6 +1314,7 @@ await checkTeamChannelSearch(
   version,
 );
 await checkSearchScopePolicy(base, token, readerToken, version);
+await checkEventConfiguration(base, token, readerToken, version);
 await checkPostEditWindow(base, token, readerToken);
 await checkMobileFilePolicy(base, token, readerToken);
 await checkPresencePolicy(base, token, readerToken);
@@ -1437,6 +1469,34 @@ await checkThreadReadState(
   version,
 );
 
+const hiddenSaved = await (
+  await create(
+    "channels",
+    {
+      team_id: team.id,
+      name: "saved-page-private",
+      display_name: "Saved page private",
+      type: "P",
+    },
+    readerToken,
+  )
+).json();
+await create(
+  `channels/${hiddenSaved.id}/members`,
+  { user_id: otherSaver.id },
+  readerToken,
+);
+await checkSparseSavedPages(
+  base,
+  token,
+  { id: otherSaver.id, token: otherSaverToken },
+  readerToken,
+  team.id,
+  channelId,
+  hiddenSaved.id,
+  version,
+);
+
 const secondLogin = await create("users/login", {
   login_id: username,
   password,
@@ -1505,6 +1565,59 @@ console.log(
   `Mattermost ${version} verified attachment representations, ranges and channel access.`,
 );
 await checkPublishedPostDocument(readerPosts, base, channelId, version);
+const conversationPeers: string[] = [observer.id, otherSaver.id, user.id];
+for (let i = conversationPeers.length; i < 8; i++) {
+  const name = `conversation-peer-${i}`;
+  const peer = await (
+    await create("users", {
+      username: name,
+      email: `${name}@example.test`,
+      password: `${randomBytes(24).toString("hex")}aA7!`,
+    })
+  ).json();
+  assert.equal(peer.roles, "system_user");
+  conversationPeers.push(peer.id);
+}
+assert.equal(reader.roles, "system_user");
+await checkConversationCreation(
+  base,
+  readerToken,
+  reader.id,
+  conversationPeers,
+  version,
+);
+const closedDirectoryTeam = await (
+  await create(
+    "teams",
+    {
+      name: "private-directory",
+      display_name: "Private recipient directory",
+      type: "I",
+    },
+    token,
+  )
+).json();
+const outsideDirectoryUserId = conversationPeers[3];
+await checkRecipientDirectory(
+  base,
+  readerToken,
+  team.id,
+  closedDirectoryTeam.id,
+  reader,
+  { id: outsideDirectoryUserId, username: "conversation-peer-3" },
+  async () => {
+    const result = await fetch(
+      `${base}/api/v4/users/${outsideDirectoryUserId}/active`,
+      {
+        method: "PUT",
+        headers: { ...authorization, "Content-Type": "application/json" },
+        body: JSON.stringify({ active: false }),
+      },
+    );
+    assert.equal(result.status, 200);
+  },
+  version,
+);
 await checkNamedRoutes(
   session,
   new Configuration({ basePath: base, accessToken: readerToken }),

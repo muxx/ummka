@@ -1,3 +1,4 @@
+import { onBackButtonPress } from "@tauri-apps/api/app";
 import {
   act,
   cleanup,
@@ -26,6 +27,18 @@ import {
 import { ChannelsWorkspace } from "./ChannelsWorkspace.tsx";
 import * as workspaceSearch from "./use-workspace-search.tsx";
 import "./workspace-dom.test-utils.ts";
+
+let androidBack: (() => void) | undefined;
+vi.mock("@tauri-apps/api/app", () => ({
+  onBackButtonPress: vi.fn(async (pressed: () => void) => {
+    androidBack = pressed;
+    return {
+      unregister: vi.fn(() => {
+        if (androidBack === pressed) androidBack = undefined;
+      }),
+    };
+  }),
+}));
 
 beforeEach(() => {
   vi.stubGlobal(
@@ -358,7 +371,7 @@ test("a search accepted from a reply clears only that draft when the results rep
       name: "Reply in thread…",
     });
     fireEvent.change(replyBox, { target: { value: "/search fixture" } });
-    fireEvent.keyDown(replyBox, { key: "Enter" });
+    fireEvent.click(within(pane).getByRole("button", { name: "Run command" }));
     const results = await screen.findByRole("complementary", {
       name: "Search results",
     });
@@ -562,7 +575,7 @@ test("a missing root keeps the reply editor closed and a later history limit ove
   ).toBe(false);
 });
 
-test("two thread drafts and the channel stay separate, and Enter sends the reply to its root", async () => {
+test("two thread drafts and the channel stay separate when the platform sends a reply to its root", async () => {
   const connection = mount(false, true, { second: true });
   connection.submitDraft.mockResolvedValue({
     kind: "sending",
@@ -599,7 +612,17 @@ test("two thread drafts and the channel stay separate, and Enter sends the reply
   const reopened = await open(reply.message);
   expect(reopened.value).toBe("First reply");
   reopened.focus();
-  fireEvent.keyDown(reopened, { key: "Enter" });
+  const nativeEnter = fireEvent.keyDown(reopened, { key: "Enter" });
+  if (["android", "ios"].includes(process.env.TAURI_ENV_PLATFORM ?? "")) {
+    expect(nativeEnter).toBe(true);
+    expect(connection.submitDraft).not.toHaveBeenCalled();
+    const thread = screen.getByRole("complementary", { name: "Thread" });
+    fireEvent.click(
+      within(thread).getByRole("button", { name: "Send message" }),
+    );
+  } else {
+    expect(nativeEnter).toBe(false);
+  }
   await waitFor(() => expect(connection.submitDraft).toHaveBeenCalledOnce());
   expect(connection.submitDraft).toHaveBeenCalledWith({
     channelId: general,
@@ -817,18 +840,6 @@ test("the workspace offers an explicit return after the last visible message is 
   ).toBeTruthy();
 });
 
-let androidBack: (() => void) | undefined;
-vi.mock("@tauri-apps/api/app", () => ({
-  onBackButtonPress: vi.fn(async (pressed: () => void) => {
-    androidBack = pressed;
-    return {
-      unregister() {
-        if (androidBack === pressed) androidBack = undefined;
-      },
-    };
-  }),
-}));
-
 function handleEscape() {
   const target = document.activeElement;
   if (!target) throw Error("No focused control");
@@ -869,7 +880,7 @@ test("one return at a time preserves search, thread and channel, including each 
   const { trigger, panel } = await enterSearch();
   await within(panel).findByText("Found in search");
   const activeBack = androidBack;
-  if (import.meta.env.UMMKA_ANDROID === true)
+  if (process.env.TAURI_ENV_PLATFORM === "android")
     expect(activeBack).toBeTypeOf("function");
   fireEvent.keyDown(trigger, { key: "Escape", isComposing: true });
   trigger.addEventListener("keydown", (event) => event.preventDefault(), {
@@ -962,4 +973,43 @@ test("canceling a pending search edit and the account dialog leaves the channel 
   expect(panel.isConnected).toBe(false);
   expect(document.activeElement).toBe(trigger);
   expect(screen.queryByRole("complementary", { name: "Thread" })).toBeNull();
+});
+
+test("the selected platform owns Back only while its thread is open", async () => {
+  const listen = vi.mocked(onBackButtonPress);
+  listen.mockClear();
+  mount(true);
+  const opener = await screen.findByRole("button", {
+    name: /Open thread, 1 reply/,
+  });
+  expect(listen).not.toHaveBeenCalled();
+  fireEvent.click(opener);
+  const pane = await screen.findByRole("complementary", { name: "Thread" });
+
+  if (process.env.TAURI_ENV_PLATFORM === "android") {
+    expect(listen).toHaveBeenCalledOnce();
+    const [press] = listen.mock.calls[0];
+    const subscription = await listen.mock.results[0].value;
+    await act(() => press({ canGoBack: false }));
+    await waitFor(() => expect(subscription.unregister).toHaveBeenCalledOnce());
+
+    // A queued event from the old listener must not affect the reopened thread.
+    fireEvent.click(opener);
+    const reopened = await screen.findByRole("complementary", {
+      name: "Thread",
+    });
+    expect(listen).toHaveBeenCalledTimes(2);
+    await act(() => press({ canGoBack: false }));
+    expect(reopened.isConnected).toBe(true);
+    fireEvent.click(
+      within(reopened).getByRole("button", { name: "Close thread" }),
+    );
+  } else {
+    expect(listen).not.toHaveBeenCalled();
+    fireEvent.keyDown(pane, { key: "Escape" });
+  }
+  await waitFor(() =>
+    expect(screen.queryByRole("complementary", { name: "Thread" })).toBeNull(),
+  );
+  expect(document.activeElement).toBe(opener);
 });

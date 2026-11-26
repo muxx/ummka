@@ -13,9 +13,9 @@ export async function buildWebviewFixture(
     configFile: false,
     root: "scripts/webview-check",
     define: {
-      "import.meta.env.UMMKA_ANDROID": platform === "android",
-      "import.meta.env.UMMKA_MOBILE": platform === "android",
-      "import.meta.env.UMMKA_MACOS_OVERLAY": platform === "macos",
+      "import.meta.env.UMMKA_PLATFORM": JSON.stringify(
+        platform === "macos" ? "darwin" : platform,
+      ),
       "import.meta.env.VITE_UMMKA_CHECK_EXTERNAL_HREF": JSON.stringify(
         externalHref ?? "",
       ),

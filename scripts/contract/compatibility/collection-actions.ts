@@ -85,11 +85,11 @@ export async function checkCollectionActions(
   assert.deepEqual(await pinned(), [postId]);
   await assert.rejects(actions.setPostPinned(privatePostId, true), denied);
   const readerLists = {
-    ...accountPostCollections(reader, (read) => read()),
+    ...accountPostCollections(reader, readerId, (read) => read()),
     ...actions,
   };
   const observerLists = {
-    ...accountPostCollections(observer, (read) => read()),
+    ...accountPostCollections(observer, observerId, (read) => read()),
     ...accountCollectionActions(observer, observerId, (write) => write()),
   };
   const readerPins = openPostCollection(readerLists, {

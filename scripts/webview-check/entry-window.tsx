@@ -5,6 +5,7 @@ import {
   auroraColors,
   resolvePalette,
 } from "../../src/appearance/palette.ts";
+import { isMobile, usesMacOSOverlay } from "../../src/build-platform.ts";
 import { EntryWindow } from "../../src/entry/EntryWindow.tsx";
 
 export async function checkEntryWindow() {
@@ -31,7 +32,7 @@ export async function checkEntryWindow() {
     const card = host.querySelector<HTMLElement>(".entry-card");
     const action = main?.querySelector("button");
     if (!scene || !card || !main || !action) throw Error("entry-landmarks");
-    if (import.meta.env.UMMKA_MACOS_OVERLAY === true) {
+    if (usesMacOSOverlay) {
       const back = host.querySelector(".entry-back")?.getBoundingClientRect();
       if (!back) throw Error("entry-back-missing");
       const bounds = scene.getBoundingClientRect();
@@ -49,6 +50,18 @@ export async function checkEntryWindow() {
       1
     )
       throw Error("entry-visible-brand");
+    if (isMobile) {
+      const visible = brands.find((image) => image.getClientRects().length);
+      if (!visible) throw Error("entry-missing-mobile-brand");
+      const logo = visible.getBoundingClientRect();
+      const viewport = scene.getBoundingClientRect();
+      if (
+        Math.abs(
+          logo.left + logo.width / 2 - viewport.left - viewport.width / 2,
+        ) > 1
+      )
+        throw Error("entry-mobile-brand-center");
+    }
     const cardBounds = card.getBoundingClientRect();
     if (
       cardBounds.left < 0 ||
@@ -56,7 +69,10 @@ export async function checkEntryWindow() {
       main.scrollWidth > main.clientWidth + 1
     )
       throw Error("entry-horizontal-overflow");
-    if (matchMedia("(min-width: 56rem) and (min-height: 37rem)").matches) {
+    if (
+      !isMobile &&
+      matchMedia("(min-width: 56rem) and (min-height: 37rem)").matches
+    ) {
       const logo = brands.find((img) => img.getBoundingClientRect().width > 0);
       if (!logo) throw Error("entry-large-brand");
       const center = (box: DOMRect) => (box.top + box.bottom) / 2;

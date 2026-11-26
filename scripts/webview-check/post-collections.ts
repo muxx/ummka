@@ -21,6 +21,14 @@ export async function checkCollectionRemoval(
     saved.getSnapshot().value?.items.length !== 0
   )
     throw Error("Personal collection change was not confirmed");
+  if (saved.getSnapshot().continuation !== "available")
+    throw Error("Short visible page incorrectly ended a saved scan");
+  await saved.loadMore();
+  if (
+    saved.getSnapshot().value?.items[0]?.id !== "z".repeat(26) ||
+    saved.getSnapshot().continuation !== "none"
+  )
+    throw Error("Saved continuation lost the older post after removal");
   await pins.refresh();
   if (
     pins.getSnapshot().value?.items[0]?.id !== id ||

@@ -1,6 +1,8 @@
 import { onBackButtonPress } from "@tauri-apps/api/app";
 import { useEffect, useEffectEvent } from "react";
 
+import { isAndroid } from "../build-platform.ts";
+
 // An open workspace modal owns Back even when its focused submit button was removed.
 function openDialog() {
   const dialogs = Array.from(
@@ -27,12 +29,11 @@ export function useWorkspaceBack(modal: boolean, back: (() => void) | null) {
   useEffect(() => {
     if (!active) return;
     let listening = true;
-    const listener =
-      import.meta.env.UMMKA_ANDROID === true
-        ? onBackButtonPress(() => {
-            if (listening) handle();
-          })
-        : undefined;
+    const listener = isAndroid
+      ? onBackButtonPress(() => {
+          if (listening) handle();
+        })
+      : undefined;
     function handleEscape(event: KeyboardEvent) {
       if (
         event.key === "Escape" &&

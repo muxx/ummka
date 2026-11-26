@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { openPostCollection } from "../../../src/channels/post-collection.ts";
 import { accountPostCollections } from "../../../src/mattermost/account-post-collections.ts";
+import { accountCollectionActions } from "../../../src/mattermost/post-collection-actions.ts";
 import {
   ChannelsApi,
   Configuration,
@@ -33,7 +35,7 @@ async function flagPosts(
 export async function checkPostCollections(
   owner: { session: Configuration; id: string },
   reader: { id: string; token: string },
-  secondReader: Configuration,
+  secondReader: { session: Configuration; id: string },
   scope: {
     channel: string;
     privateChannel: string;
@@ -111,7 +113,7 @@ export async function checkPostCollections(
     posts.getFlaggedPostsForUser({ userId: owner.id }),
     denied,
   );
-  const other = new PostsApi(secondReader);
+  const other = new PostsApi(secondReader.session);
   assert.deepEqual(
     (await other.getFlaggedPostsForUser({ userId: "me" })).order,
     [],
@@ -120,8 +122,14 @@ export async function checkPostCollections(
     other.getFlaggedPostsForUser({ userId: reader.id }),
     denied,
   );
-  const readerAccount = accountPostCollections(config, (read) => read());
-  const otherAccount = accountPostCollections(secondReader, (read) => read());
+  const readerAccount = accountPostCollections(config, reader.id, (read) =>
+    read(),
+  );
+  const otherAccount = accountPostCollections(
+    secondReader.session,
+    secondReader.id,
+    (read) => read(),
+  );
   const channelPins = await readerAccount.readPinnedChannelPosts(scope.channel);
   assert.deepEqual(
     channelPins.items.map((post) => post.id),
@@ -188,7 +196,7 @@ export async function checkSavedPageBoundary(
     ids.push(post.id);
   }
   await flagPosts(base, reader, ids);
-  const account = accountPostCollections(config, (read) => read());
+  const account = accountPostCollections(config, reader.id, (read) => read());
   const scope = { kind: "channel" as const, channelId: direct };
   const first = await account.readSavedPosts(scope, 0);
   const second = await account.readSavedPosts(scope, 1);
@@ -199,6 +207,26 @@ export async function checkSavedPageBoundary(
   assert.deepEqual(
     new Set([...first.items, ...second.items].map((post) => post.id)),
     new Set(ids),
+  );
+  const view = openPostCollection(
+    {
+      ...account,
+      ...accountCollectionActions(config, reader.id, (write) => write()),
+    },
+    scope,
+  );
+  await view.refresh();
+  const removed = first.items[0].id;
+  assert.equal(await view.remove(removed), "removed");
+  await view.loadMore();
+  assert.deepEqual(
+    new Set(view.getSnapshot().value?.items.map((row) => row.id)),
+    new Set(ids.filter((id) => id !== removed)),
+  );
+  assert.equal(view.getSnapshot().value?.items.length, 60);
+  view.close();
+  console.log(
+    `Mattermost ${version} preserved all 60 remaining saved posts when the first page shrank before continuing.`,
   );
   console.log(
     `Mattermost ${version} returned 61 distinct saved posts in two pages of 60 and one.`,

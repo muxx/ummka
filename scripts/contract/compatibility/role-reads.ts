@@ -29,6 +29,7 @@ export async function checkRoleReads(
   assert.ok(system?.permissions);
   assert.ok(channel.permissions.includes("create_post"));
   assert.ok(system.permissions.includes("create_direct_channel"));
+  assert.ok(system.permissions.includes("create_group_channel"));
   assert.ok(!system.permissions.includes("create_post"));
   assert.ok(channel.id && channel.displayName && channel.schemeManaged);
   assert.ok(system.id && system.id !== channel.id);

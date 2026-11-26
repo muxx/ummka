@@ -804,7 +804,7 @@ test("Back while joining keeps ownership with the waiting dialog after the submi
     expect(account.changeOwnMembership).toHaveBeenCalledTimes(1),
   );
   expect(waiting.contains(document.activeElement)).toBe(false);
-  if (import.meta.env.UMMKA_ANDROID === true) {
+  if (process.env.TAURI_ENV_PLATFORM === "android") {
     expect(nativeBack).toBeTypeOf("function");
     act(() => nativeBack?.());
   } else fireEvent.keyDown(document.body, { key: "Escape" });

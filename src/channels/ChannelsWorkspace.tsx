@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { isMobile } from "../build-platform.ts";
 import { AccountSessionWindow } from "../entry/AccountSessionWindow.tsx";
 import type { TeamWorkspace } from "../entry/AccountTeamWindow.tsx";
 import type { EntryLanguage } from "../entry/language.ts";
@@ -643,9 +644,7 @@ export function ChannelsWorkspace({
                 title: text.thread,
                 close: closeThread,
                 replyRef:
-                  activeThread.rootId || import.meta.env.UMMKA_MOBILE === true
-                    ? undefined
-                    : replyField,
+                  activeThread.rootId || isMobile ? undefined : replyField,
                 content: (
                   <ThreadPane
                     key={JSON.stringify([

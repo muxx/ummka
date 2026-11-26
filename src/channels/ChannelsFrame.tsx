@@ -5,7 +5,8 @@ import {
   useLayoutEffect,
   useRef,
 } from "react";
-import smallLockup from "../entry/brand/lockup-small.svg?no-inline";
+import smallMark from "../../src-tauri/icons/symbols/ummka-small.svg?no-inline";
+import { isMobile, usesMacOSOverlay } from "../build-platform.ts";
 import "./frame.css";
 
 type FrameLabels = {
@@ -92,7 +93,7 @@ export function ChannelsFrame({
   const lastFocus = useRef<HTMLElement>(null);
   const headingId = useId();
   const threadId = useId();
-  const overlay = import.meta.env.UMMKA_MACOS_OVERLAY === true;
+  const overlay = usesMacOSOverlay;
   const channelId = channel?.id;
   const openThread = thread?.id;
   const replyRef = thread?.replyRef;
@@ -168,12 +169,24 @@ export function ChannelsFrame({
         lastFocus.current = event.target;
       }}
     >
-      <header className="channels-bar" data-surface="topbar">
+      <header
+        className="channels-bar"
+        data-surface="topbar"
+        data-tauri-drag-region={overlay || undefined}
+      >
         <div
           className="channels-bar-brand"
           data-tauri-drag-region={overlay || undefined}
         >
-          <img src={smallLockup} alt="ummka" width="83" height="25" />
+          {isMobile && (
+            <img
+              className="channels-brand-mark"
+              src={smallMark}
+              alt="ummka"
+              width="24"
+              height="24"
+            />
+          )}
         </div>
         {searchTrigger}
         <button
