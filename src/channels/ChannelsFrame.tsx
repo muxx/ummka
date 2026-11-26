@@ -29,8 +29,12 @@ type FrameProps = {
   onAccount: () => void;
   navigation: ReactNode;
   children: ReactNode;
-  searchTrigger?: ReactNode;
-  searchPanel?: ReactNode;
+  toolbar?: ReactNode;
+  channelHeading?: (
+    id: string,
+    ref: RefObject<HTMLHeadingElement | null>,
+  ) => ReactNode;
+  sidePanel?: ReactNode;
   resultReturn?: ReactNode;
   returnInThread?: boolean;
   composer?: ReactNode;
@@ -75,8 +79,9 @@ export function ChannelsFrame({
   onAccount,
   navigation,
   children,
-  searchTrigger,
-  searchPanel,
+  toolbar,
+  channelHeading,
+  sidePanel,
   resultReturn,
   returnInThread,
   composer,
@@ -97,13 +102,13 @@ export function ChannelsFrame({
   const channelId = channel?.id;
   const openThread = thread?.id;
   const replyRef = thread?.replyRef;
-  const showingSearch = Boolean(searchPanel);
+  const showingPanel = Boolean(sidePanel);
   const previous = useRef({ page, channelId, openThread });
 
   useLayoutEffect(() => {
     const old = previous.current;
     previous.current = { page, channelId, openThread };
-    if (showingSearch) return;
+    if (showingPanel) return;
     function focusNavigation() {
       const current = sidebar.current?.querySelector<HTMLElement>(
         '[aria-current="page"]',
@@ -158,7 +163,7 @@ export function ChannelsFrame({
     });
     observer.observe(scene);
     return () => observer.disconnect();
-  }, [page, channelId, openThread, draftRef, replyRef, showingSearch]);
+  }, [page, channelId, openThread, draftRef, replyRef, showingPanel]);
 
   return (
     <div
@@ -188,7 +193,7 @@ export function ChannelsFrame({
             />
           )}
         </div>
-        {searchTrigger}
+        {toolbar}
         <button
           ref={accountRef}
           aria-haspopup={accountRef ? "dialog" : undefined}
@@ -205,7 +210,7 @@ export function ChannelsFrame({
       </header>
       <div
         className="channels-panes"
-        data-page={searchPanel ? "search" : openThread ? "thread" : page}
+        data-page={sidePanel ? "details" : openThread ? "thread" : page}
       >
         <nav
           ref={sidebar}
@@ -250,16 +255,20 @@ export function ChannelsFrame({
             >
               <Chevron direction="back" />
             </button>
-            <h1 id={headingId} ref={heading} tabIndex={-1}>
-              {channel?.title ?? emptyTitle}
-            </h1>
+            {channelHeading ? (
+              channelHeading(headingId, heading)
+            ) : (
+              <h1 id={headingId} ref={heading} tabIndex={-1}>
+                {channel?.title ?? emptyTitle}
+              </h1>
+            )}
           </header>
           {!returnInThread && resultReturn}
           <div className="channels-conversation-body">{children}</div>
           {composer}
         </main>
-        {searchPanel}
-        {!searchPanel && thread && (
+        {sidePanel}
+        {!sidePanel && thread && (
           <aside className="channels-thread" aria-labelledby={threadId}>
             <header className="channels-pane-head">
               <h2 id={threadId} ref={threadHeading} tabIndex={-1}>

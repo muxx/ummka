@@ -45,6 +45,7 @@ export function useWorkspaceSearch(
       origin: HTMLElement,
     ) => Promise<void>;
     clear: () => void;
+    beforeOpen?: () => void;
   },
 ) {
   const { team, connection, online, policy, sessionIssue } = workspace;
@@ -147,6 +148,7 @@ export function useWorkspaceSearch(
     };
   }
   function edit() {
+    navigation.beforeOpen?.();
     abandonDestination();
     setError(null);
     setForm(currentQuery());
@@ -240,6 +242,7 @@ export function useWorkspaceSearch(
       onOpened: () => void,
     ) {
       if (request.current || origin.aborted) return false;
+      navigation.beforeOpen?.();
       const query = { ...currentQuery(), terms: terms.trim() };
       setError(null);
       if (!query.terms) onOpened();

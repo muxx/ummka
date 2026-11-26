@@ -232,6 +232,7 @@ pub(crate) fn seed_check_sessions(
     let prefixed = format!("{root}/team/chat");
     let system_post = format!("{root}/system-post-check");
     let secondary = format!("{prefixed}/secondary");
+    let collections = format!("{root}/collection-window");
     let confirmed = format!("{prefixed}/confirmed");
     tauri::async_runtime::block_on(async {
         for (base, account, token) in [
@@ -254,6 +255,11 @@ pub(crate) fn seed_check_sessions(
                 secondary.as_str(),
                 "bbbbbbbbbbbbbbbbbbbbbbbbbb",
                 "fixture-second-session",
+            ),
+            (
+                collections.as_str(),
+                "ffffffffffffffffffffffffff",
+                "fixture-browser-action",
             ),
             (
                 confirmed.as_str(),

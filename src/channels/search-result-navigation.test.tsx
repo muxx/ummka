@@ -7,11 +7,14 @@ import {
 } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 import { ResponseError } from "../../vendor/mattermost/index.js";
+import { channelProfile } from "../mattermost/channel-profiles.ts";
 import "../empty-link-inbox.test-utils.ts";
 import {
+  bookmark,
   design,
   firstFile,
   fixture,
+  home,
   other,
   reply,
   root,
@@ -549,4 +552,328 @@ test("Back while joining keeps ownership with the waiting dialog after the submi
   await act(async () => finish({ kind: "applied" }));
   await screen.findByText(root.message);
   expect(account.changeOwnMembership).toHaveBeenCalledTimes(1);
+});
+
+test.each([root, reply])(
+  "opens a saved root or collapsed reply by ID, then returns to its scroll position and channel draft $id",
+  async (target) => {
+    const { account } = fixture();
+    const trigger = await screen.findByRole("button", {
+      name: "Saved messages",
+    });
+    fireEvent.click(trigger);
+    const pane = await screen.findByRole("complementary", {
+      name: "Saved messages",
+    });
+    const title =
+      target === root ? "Saved root preview" : "Saved reply preview";
+    const button = await within(pane).findByRole("button", {
+      name: new RegExp(title),
+    });
+    expect(within(pane).getAllByRole("listitem")[0].textContent).toContain(
+      "Saved reply preview",
+    );
+    expect(within(pane).getByText("Pinned")).toBeTruthy();
+    const scroll = pane.querySelector(".collection-rows") as HTMLElement;
+    scroll.scrollTop = 17;
+    fireEvent.click(button);
+    const post = await screen.findByText(target.message);
+    if (target === reply)
+      expect(
+        screen.getByRole("complementary", { name: "Thread" }).contains(post),
+      ).toBe(true);
+    expect(account.readPostAnchor).toHaveBeenCalledWith(
+      target.id,
+      expect.any(AbortSignal),
+    );
+    if (target === root)
+      fireEvent.click(
+        screen.getByRole("button", { name: "Back to saved messages" }),
+      );
+    else fireEvent.keyDown(window, { key: "Escape" });
+    const restored = await screen.findByRole("button", {
+      name: new RegExp(title),
+    });
+    await waitFor(() => expect(document.activeElement).toBe(restored));
+    expect(restored.closest(".collection-rows")?.scrollTop).toBe(17);
+    expect(account.readSavedPosts).toHaveBeenCalledTimes(1);
+    const draft = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+      name: "Message #Home…",
+    });
+    await waitFor(() => expect(draft.value).toBe("Original unfinished draft"));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(document.activeElement).toBe(trigger);
+  },
+);
+
+test("opens pins in the selected channel, distinguishes a confirmed personal mark, and forgets it after unsaving", async () => {
+  const { account } = fixture();
+  const trigger = await screen.findByRole("button", { name: "Saved messages" });
+  fireEvent.click(trigger);
+  await screen.findByText("Saved root preview");
+  const menu = screen.getByRole("button", { name: "Channel menu, Home" });
+  const pins = async () => {
+    fireEvent.click(menu);
+    const item = screen.getByRole("button", { name: "Pinned messages" });
+    expect(document.activeElement).toBe(item);
+    fireEvent.click(item);
+    return within(
+      await screen.findByRole("complementary", { name: "Pinned messages" }),
+    );
+  };
+  let opened = await pins();
+  await opened.findByText("Home pin");
+  expect(opened.getByText("Saved by you")).toBeTruthy();
+  expect(account.readPinnedChannelPosts).toHaveBeenCalledWith(
+    home,
+    expect.any(AbortSignal),
+  );
+  expect(
+    opened.getByRole("button", { name: "Unpin for everyone" }),
+  ).toBeTruthy();
+  fireEvent.click(opened.getByRole("button", { name: "Close collection" }));
+  expect(document.activeElement).toBe(menu);
+  fireEvent.click(trigger);
+  const row = (await screen.findByText("Saved root preview")).closest(
+    "li",
+  ) as HTMLElement;
+  const remove = within(row).getByRole("button", { name: "Remove from saved" });
+  remove.focus();
+  fireEvent.click(remove);
+  await waitFor(() => expect(row.isConnected).toBe(false));
+  expect(account.setPostSaved).toHaveBeenCalledWith(
+    root.id,
+    false,
+    expect.any(AbortSignal),
+  );
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Remove from saved" }),
+  );
+  opened = await pins();
+  await opened.findByText("Home pin");
+  expect(opened.queryByText("Saved by you")).toBeNull();
+  expect(account.setPostPinned).not.toHaveBeenCalled();
+  account.setPostPinned.mockRejectedValueOnce(
+    new ResponseError(new Response(null, { status: 403 })),
+  );
+  const action = opened.getByRole("button", { name: "Unpin for everyone" });
+  fireEvent.click(action);
+  expect(await opened.findByRole("alert")).toBeTruthy();
+  expect(opened.getByText("Home pin")).toBeTruthy();
+  fireEvent.click(action);
+  await opened.findByText("No pinned messages in this channel.");
+  expect(account.setPostPinned).toHaveBeenCalledTimes(2);
+});
+
+test.each(["saved", "pins"] as const)(
+  "a cold offline %s collection can be retried explicitly and keeps focus through failure and success",
+  async (kind) => {
+    const { account } = fixture();
+    const trigger = await screen.findByRole("button", {
+      name: "Saved messages",
+    });
+    const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    try {
+      act(() => window.dispatchEvent(new Event("offline")));
+      if (kind === "saved") fireEvent.click(trigger);
+      else {
+        fireEvent.click(
+          screen.getByRole("button", { name: "Channel menu, Home" }),
+        );
+        fireEvent.click(
+          screen.getByRole("button", { name: "Pinned messages" }),
+        );
+      }
+      const name = kind === "saved" ? "Saved messages" : "Pinned messages";
+      const pane = within(await screen.findByRole("complementary", { name }));
+      const read =
+        kind === "saved"
+          ? account.readSavedPosts
+          : account.readPinnedChannelPosts;
+      expect(read).not.toHaveBeenCalled();
+      read.mockRejectedValueOnce(new TypeError("Disconnected"));
+      let retry = await pane.findByRole("button", { name: "Try again" });
+      retry.focus();
+      fireEvent.click(retry);
+      await pane.findByRole("alert");
+      expect(document.activeElement).toBe(pane.getByRole("heading", { name }));
+      retry = pane.getByRole("button", { name: "Try again" });
+      retry.focus();
+      fireEvent.click(retry);
+      const label = kind === "saved" ? "Saved root preview" : "Home pin";
+      const row = await pane.findByRole("button", { name: new RegExp(label) });
+      expect(document.activeElement).toBe(pane.getByRole("heading", { name }));
+      expect(row.getAttribute("aria-disabled")).toBe("true");
+      fireEvent.click(row);
+      expect(account.readPostAnchor).not.toHaveBeenCalled();
+      online.mockReturnValue(true);
+      act(() => window.dispatchEvent(new Event("online")));
+      expect(account.readPostAnchor).not.toHaveBeenCalled();
+      fireEvent.click(row);
+      await waitFor(() =>
+        expect(account.readPostAnchor).toHaveBeenCalledOnce(),
+      );
+    } finally {
+      online.mockRestore();
+    }
+  },
+);
+
+test("a saved direct message keeps its known location when absent from the sidebar", async () => {
+  const { account } = fixture({ direct: true });
+  const trigger = await screen.findByRole("button", { name: "Saved messages" });
+  const peer = "z".repeat(26);
+  account.readSavedProfiles.mockResolvedValue({
+    profiles: { [peer]: channelProfile({ id: peer, username: "aurora" }) },
+    usernames: {},
+  });
+  fireEvent.click(trigger);
+  const saved = within(
+    await screen.findByRole("complementary", { name: "Saved messages" }),
+  );
+  expect(await saved.findByText("aurora · direct message")).toBeTruthy();
+  expect(
+    saved.getByText("aurora · direct message · reply in thread"),
+  ).toBeTruthy();
+});
+
+test("labels empty published bodies and attachments in saved rows", async () => {
+  const { account } = fixture();
+  const trigger = await screen.findByRole("button", { name: "Saved messages" });
+  account.readSavedPosts.mockResolvedValueOnce({
+    items: [
+      { id: root.id, channelId: design, message: "---" },
+      { id: reply.id, channelId: design, message: "", fileIds: [bookmark] },
+    ],
+    firstInaccessiblePostTime: 0,
+  });
+  fireEvent.click(trigger);
+  const pane = within(
+    await screen.findByRole("complementary", { name: "Saved messages" }),
+  );
+  expect(await pane.findByText("Attachment")).toBeTruthy();
+  expect(pane.getByText("Message")).toBeTruthy();
+});
+
+test("a hidden saved page remains traversable, preserves the previous rows on retry, and discards a revoked response", async () => {
+  const { account } = fixture();
+  const trigger = await screen.findByRole("button", { name: "Saved messages" });
+  account.readSavedPostUpperBound.mockResolvedValue(121);
+  account.readSavedPostsAtOffset
+    .mockResolvedValueOnce({ items: [], firstInaccessiblePostTime: 0 })
+    .mockRejectedValueOnce(new TypeError("offline"))
+    .mockResolvedValueOnce({
+      items: [{ id: bookmark, channelId: design, message: "Oldest visible" }],
+      firstInaccessiblePostTime: 1,
+    });
+  let onVisible: (() => void) | undefined;
+  vi.stubGlobal(
+    "IntersectionObserver",
+    class {
+      constructor(
+        private readonly notify: (
+          rows: { isIntersecting: boolean; intersectionRatio: number }[],
+        ) => void,
+      ) {}
+      observe(el: Element) {
+        if (el.classList.contains("collection-edge"))
+          onVisible = () =>
+            this.notify([{ isIntersecting: true, intersectionRatio: 1 }]);
+      }
+      disconnect() {}
+    },
+  );
+  fireEvent.click(trigger);
+  const pane = within(
+    await screen.findByRole("complementary", { name: "Saved messages" }),
+  );
+  await pane.findByText("Earlier saved messages haven’t loaded yet.");
+  await waitFor(() => expect(onVisible).toBeTypeOf("function"));
+  await act(async () => onVisible?.());
+  await waitFor(() =>
+    expect(account.readSavedPostsAtOffset).toHaveBeenCalledTimes(1),
+  );
+  await act(async () => onVisible?.());
+  await pane.findByRole("alert");
+  expect(pane.getByText("Saved reply preview")).toBeTruthy();
+  fireEvent.click(
+    pane.getByRole("button", { name: "Retry loading earlier saved messages" }),
+  );
+  await pane.findByText("Oldest visible");
+  expect(
+    pane.queryByText("Earlier saved messages haven’t loaded yet."),
+  ).toBeNull();
+  expect(
+    account.readSavedPostsAtOffset.mock.calls.map(([, offset]) => offset),
+  ).toEqual([60, 120, 120]);
+  expect(account.readSavedPostUpperBound).toHaveBeenCalledTimes(1);
+  account.readSavedPosts.mockRejectedValueOnce(
+    new ResponseError(new Response(null, { status: 403 })),
+  );
+  fireEvent.click(pane.getByRole("button", { name: "Refresh" }));
+  await pane.findByText("This collection is no longer available.");
+  expect(pane.queryByText("Saved root preview")).toBeNull();
+  expect(pane.queryByText("Oldest visible")).toBeNull();
+});
+
+test("archived channels show the pinned messages and keep the shared action hidden", async () => {
+  const { account } = fixture({ archivedHome: true });
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Channel menu, Home" }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Pinned messages" }));
+  const pins = within(
+    await screen.findByRole("complementary", { name: "Pinned messages" }),
+  );
+  await pins.findByText("Home pin");
+  expect(pins.queryByRole("button", { name: "Unpin for everyone" })).toBeNull();
+  expect(account.setPostPinned).not.toHaveBeenCalled();
+});
+
+test("closing the collection cancels its pending read including a late unauthorized response", async () => {
+  const { account } = fixture();
+  const trigger = await screen.findByRole("button", { name: "Saved messages" });
+  let fail!: (error: Error) => void;
+  account.readSavedPosts.mockImplementationOnce(
+    () =>
+      new Promise((_, reject) => {
+        fail = reject;
+      }),
+  );
+  fireEvent.click(trigger);
+  const pane = within(
+    await screen.findByRole("complementary", { name: "Saved messages" }),
+  );
+  await pane.findByText("Loading messages…");
+  await waitFor(() => expect(account.readSavedPosts).toHaveBeenCalledTimes(1));
+  const signal = account.readSavedPosts.mock.calls[0][2];
+  fireEvent.click(pane.getByRole("button", { name: "Close collection" }));
+  expect(signal?.aborted).toBe(true);
+  await act(async () =>
+    fail(new ResponseError(new Response(null, { status: 401 }))),
+  );
+  expect(document.activeElement).toBe(trigger);
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(
+    screen.getByRole("button", { name: "Channel menu, Home" }),
+  ).toBeTruthy();
+});
+
+test("the channel heading can receive WebKit's pointer focus before a pin-menu click", async () => {
+  fixture();
+  const menu = await screen.findByRole("button", {
+    name: "Channel menu, Home",
+  });
+  fireEvent.click(menu);
+  const item = screen.getByRole("button", { name: "Pinned messages" });
+  fireEvent.pointerDown(item);
+  fireEvent.mouseDown(item);
+  const heading = screen.getByRole("heading", { level: 1, name: "Home" });
+  heading.focus();
+  expect(item.isConnected).toBe(true);
+  fireEvent.mouseUp(item);
+  fireEvent.click(item);
+  expect(
+    await screen.findByRole("complementary", { name: "Pinned messages" }),
+  ).toBeTruthy();
 });

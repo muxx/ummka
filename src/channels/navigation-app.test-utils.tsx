@@ -28,7 +28,7 @@ export const user = id("u"),
   firstFile = id("a"),
   secondFile = id("b");
 export const home = id("h");
-const bookmark = id("c");
+export const bookmark = id("c");
 export const root: LocalPost = {
   id: id("r"),
   channelId: design,
@@ -74,12 +74,14 @@ export function fixture({
   collapsed = true,
   cross = false,
   direct = false,
+  archivedHome = false,
   initialTeam = winter,
   launch,
 }: {
   collapsed?: boolean;
   cross?: boolean;
   direct?: boolean;
+  archivedHome?: boolean;
   initialTeam?: string | null;
   launch?: typeof getDeviceLaunchContext;
 } = {}) {
@@ -126,7 +128,7 @@ export function fixture({
             direct && id === design ? [user, "z".repeat(26)].join("__") : name,
           displayName: direct && id === design ? "" : name,
           type: direct && id === design ? "D" : "O",
-          deleteAt: 0,
+          deleteAt: archivedHome && id === home ? 1 : 0,
         },
         membership: { userId: user, channelId: id, roles: "writer" },
       })),
@@ -199,7 +201,12 @@ export function fixture({
     refreshWorkspaceServerPolicy: vi.fn(),
     readSavedTeamRoles: vi.fn().mockResolvedValue({
       systemRoles: "",
-      definitions: [{ name: "writer", permissions: ["create_post"] }],
+      definitions: [
+        {
+          name: "writer",
+          permissions: ["create_post", "read_channel_content"],
+        },
+      ],
     }),
     refreshTeamRoles: vi.fn(),
     readSavedProfiles: vi
@@ -215,6 +222,49 @@ export function fixture({
     readRecentTeamSearches: vi.fn().mockResolvedValue([]),
     rememberTeamSearch: vi.fn().mockResolvedValue(true),
     readSearchTimezone: vi.fn().mockResolvedValue("UTC"),
+    readSavedPosts: vi.fn<Account["readSavedPosts"]>().mockResolvedValue({
+      items: [
+        {
+          id: root.id,
+          channelId: design,
+          userId: user,
+          message: "Saved **root** [preview](https://example.test/notes)",
+          createAt: 123,
+          isPinned: true,
+        },
+        {
+          id: reply.id,
+          channelId: design,
+          userId: user,
+          message: "Saved\n\n- reply\n- preview",
+          createAt: 345,
+          rootId: root.id,
+        },
+      ],
+      firstInaccessiblePostTime: 0,
+    }),
+    readSavedPostsAtOffset: vi.fn<Account["readSavedPostsAtOffset"]>(),
+    readSavedPostUpperBound: vi
+      .fn<Account["readSavedPostUpperBound"]>()
+      .mockResolvedValue(2),
+    readPinnedChannelPosts: vi
+      .fn<Account["readPinnedChannelPosts"]>()
+      .mockResolvedValue({
+        items: [
+          {
+            id: root.id,
+            channelId: home,
+            userId: user,
+            message: "Home ![pin](https://example.test/badge)",
+            isPinned: true,
+          },
+        ],
+        firstInaccessiblePostTime: 0,
+      }),
+    setPostSaved: vi.fn<Account["setPostSaved"]>().mockResolvedValue(undefined),
+    setPostPinned: vi
+      .fn<Account["setPostPinned"]>()
+      .mockResolvedValue(undefined),
     readPostSearchPage: vi.fn().mockResolvedValue({
       items: [
         { id: root.id, channelId: design, message: "Search root snippet" },
