@@ -41,6 +41,7 @@ export * from './SearchFilesInAllTeamsRequest.js';
 export * from './SearchFilesRequest.js';
 export * from './SearchPostsInAllTeamsRequest.js';
 export * from './SearchPostsRequest.js';
+export * from './SearchUsersRequest.js';
 export * from './SetPostUnreadRequest.js';
 export * from './SidebarCategoryWithChannels.js';
 export * from './StatusOK.js';

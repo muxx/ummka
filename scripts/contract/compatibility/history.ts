@@ -42,6 +42,7 @@ import {
 } from "./channel-notifications.ts";
 import { checkCollectionActions } from "./collection-actions.ts";
 import { checkCommands } from "./commands.ts";
+import { checkConversationCreation } from "./conversation-creation.ts";
 import { checkCustomEmojiLookup } from "./custom-emoji.ts";
 import { checkEventActions } from "./event-actions.ts";
 import { checkEventStream } from "./event-stream.ts";
@@ -78,6 +79,7 @@ import { checkPublishedPostDocument } from "./published-post-document.ts";
 import { checkReactionActions } from "./reaction-actions.ts";
 import { checkReactionLimit } from "./reaction-limit.ts";
 import { checkPostReactions } from "./reactions.ts";
+import { checkRecipientDirectory } from "./recipient-directory.ts";
 import { checkRoleReads } from "./role-reads.ts";
 import { checkSearchScopePolicy } from "./search-scope.ts";
 import { expectedNavigationPost } from "./search-target.ts";
@@ -1526,6 +1528,59 @@ console.log(
   `Mattermost ${version} verified attachment representations, ranges and channel access.`,
 );
 await checkPublishedPostDocument(readerPosts, base, channelId, version);
+const conversationPeers: string[] = [observer.id, otherSaver.id, user.id];
+for (let i = conversationPeers.length; i < 8; i++) {
+  const name = `conversation-peer-${i}`;
+  const peer = await (
+    await create("users", {
+      username: name,
+      email: `${name}@example.test`,
+      password: `${randomBytes(24).toString("hex")}aA7!`,
+    })
+  ).json();
+  assert.equal(peer.roles, "system_user");
+  conversationPeers.push(peer.id);
+}
+assert.equal(reader.roles, "system_user");
+await checkConversationCreation(
+  base,
+  readerToken,
+  reader.id,
+  conversationPeers,
+  version,
+);
+const closedDirectoryTeam = await (
+  await create(
+    "teams",
+    {
+      name: "private-directory",
+      display_name: "Private recipient directory",
+      type: "I",
+    },
+    token,
+  )
+).json();
+const outsideDirectoryUserId = conversationPeers[3];
+await checkRecipientDirectory(
+  base,
+  readerToken,
+  team.id,
+  closedDirectoryTeam.id,
+  reader,
+  { id: outsideDirectoryUserId, username: "conversation-peer-3" },
+  async () => {
+    const result = await fetch(
+      `${base}/api/v4/users/${outsideDirectoryUserId}/active`,
+      {
+        method: "PUT",
+        headers: { ...authorization, "Content-Type": "application/json" },
+        body: JSON.stringify({ active: false }),
+      },
+    );
+    assert.equal(result.status, 200);
+  },
+  version,
+);
 await checkNamedRoutes(
   session,
   new Configuration({ basePath: base, accessToken: readerToken }),

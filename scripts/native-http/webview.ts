@@ -394,6 +394,45 @@ export function webviewServers(
         .end(JSON.stringify({ status: "OK" }));
       return;
     }
+    if (
+      url.pathname === "/team/chat/api/v4/users" ||
+      url.pathname === "/team/chat/api/v4/users/search"
+    ) {
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      if (url.pathname.endsWith("/search")) {
+        assert.equal(req.method, "POST");
+        assert.equal(url.search, "");
+        assert.deepEqual(await json(req), {
+          term: "ан",
+          team_id: teamId,
+          allow_inactive: false,
+          limit: 12,
+        });
+        visits.push("recipient-search");
+      } else {
+        assert.equal(req.method, "GET");
+        assert.deepEqual(Object.fromEntries(url.searchParams), {
+          in_team: teamId,
+          active: "true",
+          page: "1",
+          per_page: "20",
+        });
+        assert.equal(await text(req), "");
+        visits.push("recipient-page");
+      }
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end(
+          JSON.stringify([
+            { id: userId, username: "anna", first_name: "Анна" },
+          ]),
+        );
+      return;
+    }
     const collection = await collections(req, res, url);
     if (collection) {
       visits.push(collection);
@@ -586,6 +625,34 @@ export function webviewServers(
     const readThread = await respondToThreadRead(req, res, url, teamId);
     if (readThread) {
       visits.push(readThread);
+      return;
+    }
+    if (
+      url.pathname === "/team/chat/api/v4/channels/direct" ||
+      url.pathname === "/team/chat/api/v4/channels/group"
+    ) {
+      const direct = url.pathname.endsWith("/direct");
+      assert.equal(req.method, "POST");
+      assert.equal(url.search, "");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      assert.deepEqual(
+        await json(req),
+        direct ? [userId] : ["x".repeat(26), "y".repeat(26)],
+      );
+      visits.push(
+        direct ? "open-self-conversation" : "open-group-conversation",
+      );
+      res.writeHead(201, { "Content-Type": "application/json" }).end(
+        JSON.stringify({
+          id: (direct ? "d" : "g").repeat(26),
+          team_id: "",
+          type: direct ? "D" : "G",
+        }),
+      );
       return;
     }
     const threadList = await respondToThreadList(
@@ -1214,6 +1281,8 @@ export function webviewServers(
         "user-me",
         "user-profile",
         "profiles-by-name",
+        "recipient-page",
+        "recipient-search",
         "profile-image",
         "account-logout-confirmed",
         "account-logout-unconfirmed",
@@ -1274,6 +1343,8 @@ export function webviewServers(
         "read-team-threads",
         "read-thread",
         "read-team-threads",
+        "open-self-conversation",
+        "open-group-conversation",
         "follow-thread",
         "unfollow-thread",
         "collapse-sidebar-category",
