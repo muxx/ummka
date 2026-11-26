@@ -45,6 +45,7 @@ import { checkCommands } from "./commands.ts";
 import { checkConversationCreation } from "./conversation-creation.ts";
 import { checkCustomEmojiLookup } from "./custom-emoji.ts";
 import { checkEventActions } from "./event-actions.ts";
+import { checkEventConfiguration } from "./event-configuration.ts";
 import { checkEventStream } from "./event-stream.ts";
 import { checkFileContent } from "./file-content.ts";
 import { checkFileSearch } from "./file-search.ts";
@@ -1306,6 +1307,7 @@ await checkTeamChannelSearch(
   version,
 );
 await checkSearchScopePolicy(base, token, readerToken, version);
+await checkEventConfiguration(base, token, readerToken, version);
 await checkPostEditWindow(base, token, readerToken);
 await checkMobileFilePolicy(base, token, readerToken);
 await checkPresencePolicy(base, token, readerToken);

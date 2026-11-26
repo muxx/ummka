@@ -4,7 +4,10 @@ import {
   postEditWindow,
   workspaceServerPolicy,
 } from "./workspace-preferences.ts";
-import { loadWorkspaceServerPolicy } from "./workspace-server.ts";
+import {
+  loadWorkspaceConfiguration,
+  loadWorkspaceServerPolicy,
+} from "./workspace-server.ts";
 
 const basePath = "https://chat.example.test/teams/north";
 test("projects display and mention policy from the old config and license endpoints", async () => {
@@ -371,3 +374,23 @@ test.each([
     ).toBe(expected);
   },
 );
+
+test("an invalid event setting leaves the remaining workspace policy available from the same requests", async () => {
+  const fetchApi = vi.fn<typeof fetch>(async (input) =>
+    Response.json(
+      String(input).includes("/config/")
+        ? {
+            WebsocketURL: false,
+            WebsocketSecurePort: "443",
+            CollapsedThreads: "always_on",
+          }
+        : {},
+    ),
+  );
+  const result = await loadWorkspaceConfiguration(
+    new Configuration({ basePath, fetchApi }),
+  );
+  expect(result.eventAddress).toEqual({ url: null, securePort: "443" });
+  expect(result.server.collapsedThreads).toBe("always_on");
+  expect(fetchApi).toHaveBeenCalledTimes(2);
+});

@@ -1,6 +1,7 @@
 use super::{exchange::ExchangeError, session};
 use crate::{
     history::{AccountHistory, HistoryError, ServerPolicyLoad, WorkspaceSettings},
+    realtime::{ClientEventAddress, EventRoute},
     sessions::AccountSessions,
 };
 use tauri::{Manager, Resource, ResourceId, Runtime, Webview};
@@ -42,17 +43,19 @@ pub(crate) async fn store_workspace_policy<R: Runtime>(
     rid: ResourceId,
     load: ResourceId,
     server: serde_json::Value,
-) -> Result<bool, ExchangeError> {
+    event_address: Option<ClientEventAddress>,
+) -> Result<Option<EventRoute>, ExchangeError> {
     let account = session(&webview, rid)?;
     let ticket =
         account.take_pending::<PendingPolicy>(load, ExchangeError::UnknownDirectoryLoad)?;
-    account
+    let accepted = account
         .with_history(&webview.state::<AccountSessions>(), move |view| {
             let policy =
                 serde_json::from_value(server).map_err(|_| HistoryError::InvalidDirectory)?;
             view.store_server_policy(ticket.0, &policy)
         })
-        .await
+        .await?;
+    Ok(accepted.then(|| account.http.event_route(&event_address.unwrap_or_default())))
 }
 
 #[tauri::command]

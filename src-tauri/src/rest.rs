@@ -210,6 +210,13 @@ impl RestConnection {
         Ok(crate::realtime::AccountEvents::new(self))
     }
 
+    pub(crate) fn event_route(
+        &self,
+        address: &crate::realtime::ClientEventAddress,
+    ) -> crate::realtime::EventRoute {
+        address.route(&self.base)
+    }
+
     /// Run one native event connection for the signed account. Dropping the caller's
     /// future or retiring this login closes the socket, including during the handshake.
     pub async fn with_event_stream<T>(

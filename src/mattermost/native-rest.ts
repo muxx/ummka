@@ -76,7 +76,10 @@ import {
   type SavedWorkspaceSettings,
   sidebarPreferences,
 } from "./workspace-preferences.ts";
-import { loadWorkspaceServerPolicy } from "./workspace-server.ts";
+import {
+  type AccountEventRoute,
+  loadWorkspaceConfiguration,
+} from "./workspace-server.ts";
 
 export async function getCurrentAccountId(
   serverUrl: string,
@@ -168,6 +171,7 @@ export async function openAccountRestConnection(
     invoke<SavedWorkspaceSettings>("read_workspace_settings", { rid });
   const delivery = accountDelivery(rid, readWhileOpen, posts, userId, activity);
   const commands = new CommandsApi(config);
+  let latestPolicyRead: symbol | undefined;
   return {
     ...connection,
     ...accountFollowedThreads(config, readWhileOpen),
@@ -345,17 +349,35 @@ export async function openAccountRestConnection(
     readWorkspaceSettings() {
       return readWhileOpen(readWorkspaceSettings);
     },
-    refreshWorkspaceServerPolicy(signal?: AbortSignal) {
-      return readWhileOpen(() =>
-        refreshNavigation(
-          signal,
-          () => invoke<number>("begin_workspace_policy_load", { rid }),
-          () => loadWorkspaceServerPolicy(config, signal),
-          (load, server) =>
-            invoke<boolean>("store_workspace_policy", { rid, load, server }),
-          (load) => invoke<void>("cancel_workspace_policy_load", { rid, load }),
-        ),
+    async refreshWorkspaceServerPolicy(
+      signal?: AbortSignal,
+      onEventRoute?: (route: AccountEventRoute) => void,
+    ) {
+      signal?.throwIfAborted();
+      const read = Symbol();
+      latestPolicyRead = read;
+      const route = await readWhileOpen(
+        () =>
+          refreshNavigation(
+            signal,
+            () => invoke<number>("begin_workspace_policy_load", { rid }),
+            () => loadWorkspaceConfiguration(config, signal),
+            (load, { server, eventAddress }) =>
+              invoke<AccountEventRoute | null>("store_workspace_policy", {
+                rid,
+                load,
+                server,
+                eventAddress,
+              }),
+            (load) =>
+              invoke<void>("cancel_workspace_policy_load", { rid, load }),
+          ),
+        signal,
       );
+      if (!route) return false;
+      if (!retired && latestPolicyRead === read && !signal?.aborted)
+        onEventRoute?.(route);
+      return true;
     },
     readTeamSidebar(teamId: string) {
       return readWhileOpen(() => readTeamSidebar(teamId));
