@@ -31,13 +31,11 @@ import { collectionCopy } from "./collection-copy.ts";
 import { channelComposerAccess } from "./composer-access.ts";
 import { DraftComposer } from "./DraftComposer.tsx";
 import { draftCopy } from "./draft-copy.ts";
-import {
-  channelDirectoryCopy,
-  JoinedChannelDirectory,
-} from "./JoinedChannelDirectory.tsx";
+import { channelDirectoryCopy } from "./JoinedChannelDirectory.tsx";
 import { CollectionMark, PostCollectionPane } from "./PostCollectionPane.tsx";
 import { PrivateChannelIcon } from "./PrivateChannelIcon.tsx";
 import type { ReactionThread } from "./submit-channel-reaction.ts";
+import { TeamChannelDirectory } from "./TeamChannelDirectory.tsx";
 import { ThreadPane } from "./ThreadPane.tsx";
 import { useChannelTimeline } from "./use-channel-timeline.ts";
 import { useWorkspaceBack } from "./use-workspace-back.ts";
@@ -284,8 +282,10 @@ export function ChannelsWorkspace({
   const published = directory.state.value;
   const status = directory.state.status;
   const [handoff, setHandoff] = useState({ position, published, status });
-  if (position !== handoff.position)
+  if (position !== handoff.position) {
     setHandoff({ position, published, status });
+    if (position) setDirectoryOpen(false);
+  }
   const snapshot =
     position &&
     (position !== handoff.position ||
@@ -571,7 +571,6 @@ export function ChannelsWorkspace({
       clear: workspace.messages.clear,
       open: openResult,
       beforeOpen: () => {
-        setDirectoryOpen(false);
         collections.close(false);
         setChannelMenuOpen(false);
       },
@@ -705,7 +704,8 @@ export function ChannelsWorkspace({
         setChannelMenuOpen(false);
         channelMenuButton.current?.focus();
       };
-    if (search.dialog) return search.back;
+    if (search.dialog || (directoryOpen && visibleSearchPanel))
+      return search.back;
     if (directoryOpen)
       return () => {
         restoreDirectoryFocus.current = true;
@@ -961,11 +961,20 @@ export function ChannelsWorkspace({
         }
       >
         {directoryOpen && (
-          <JoinedChannelDirectory
-            state={directory.state}
+          <TeamChannelDirectory
+            key={team.id}
+            account={connection}
+            teamId={team.id}
             language={language}
+            state={directory.state}
+            canBrowse={
+              permission("team", "list_team_channels") === "allowed" &&
+              permission("team", "join_public_channels") === "allowed"
+            }
+            online={online}
             choose={choose}
-            retry={directory.retry}
+            refresh={directory.retry}
+            sessionIssue={sessionIssue}
           />
         )}
         <div className="workspace-conversation-route" hidden={directoryOpen}>

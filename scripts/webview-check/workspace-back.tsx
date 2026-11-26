@@ -3,6 +3,7 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { App } from "../../src/App.tsx";
 import { openNativeRestConnection } from "../../src/mattermost/native-rest.ts";
+import { checkAvailableDirectoryWindow } from "./available-directory-window.ts";
 
 export function findThreadDraft(host: HTMLElement) {
   const ui = within(host);
@@ -200,6 +201,7 @@ export async function checkDesktopBack(port: string) {
     const opener = within(town).getByRole("button", { name: /Open thread/ });
     flushSync(() => fireEvent.click(opener));
     await verifyWorkspaceBack(host, port, opener, channel);
+    await checkAvailableDirectoryWindow(host, port);
   } finally {
     root.unmount();
     host.remove();

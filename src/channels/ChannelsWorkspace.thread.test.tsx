@@ -1049,3 +1049,36 @@ test("the directory opens from the sidebar, restores the draft on Back and selec
     design,
   );
 });
+
+test("global search returns to the same directory filter before leaving the catalog", async () => {
+  mount(true);
+  const draft = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Message #General…",
+  });
+  fireEvent.change(draft, { target: { value: "My pending message" } });
+  fireEvent.click(screen.getByRole("button", { name: "Directory" }));
+  const field = await screen.findByRole<HTMLInputElement>("searchbox", {
+    name: "Find a channel",
+  });
+  fireEvent.change(field, { target: { value: "Des" } });
+  const search = screen.getByRole("button", { name: "Search" });
+  fireEvent.click(search);
+  const form = await screen.findByRole("dialog");
+  fireEvent(form, new Event("cancel", { cancelable: true }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(screen.getByRole("searchbox", { name: "Find a channel" })).toBe(field);
+  const { panel } = await enterSearch();
+  await within(panel).findByText("Found in search");
+  fireEvent.keyDown(window, { key: "Escape" });
+  await waitFor(() => expect(panel.isConnected).toBe(false));
+  expect(screen.getByRole("searchbox", { name: "Find a channel" })).toBe(field);
+  expect(field.value).toBe("Des");
+  expect(
+    screen.getByRole("button", { name: "Design, Public channel" }),
+  ).toBeTruthy();
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(screen.getByRole("textbox", { name: "Message #General…" })).toBe(
+    draft,
+  );
+  expect(draft.value).toBe("My pending message");
+});

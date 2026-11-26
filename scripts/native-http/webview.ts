@@ -65,7 +65,14 @@ export function webviewServers(
     | undefined;
   let sendRight: (() => Promise<void>) | undefined;
   let prepareKeyboard: (() => Promise<void>) | undefined;
-  const backSteps = ["dialog", "results", "thread", "reopened", "directory"];
+  const backSteps = [
+    "dialog",
+    "results",
+    "thread",
+    "reopened",
+    "directory",
+    "directory-dialog",
+  ];
   let stepIndex = 0;
   let pressWorkspaceBack: (() => Promise<void>) | undefined;
   let disconnect: Socket | undefined;
@@ -826,6 +833,7 @@ export function webviewServers(
       url,
       userId,
       visits.includes("live-roles"),
+      visits.includes("directory-join"),
     );
     if (workspace) {
       visits.push(workspace);
@@ -1642,6 +1650,15 @@ export function webviewServers(
         );
       if (platform === "android") expected.push("account-logout-local-failure");
       expected.push(
+        "directory-page",
+        "directory-query",
+        "directory-join",
+        "directory-posts",
+        "browser-action-confirmed",
+        "live-roles",
+        "live-channels",
+        "live-members",
+        "live-categories",
         "directory-teams",
         "my-team-members",
         "sidebar-preferences",

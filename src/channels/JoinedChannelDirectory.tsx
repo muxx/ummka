@@ -1,7 +1,7 @@
 import { useId, useMemo, useState } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
 import type { TeamSidebar } from "../mattermost/team-sidebar.ts";
-import { PrivateChannelIcon } from "./PrivateChannelIcon.tsx";
+import { DirectoryChannelIcon } from "./DirectoryChannelIcon.tsx";
 import { workspaceCopy } from "./workspace-copy.ts";
 import type { WorkspaceRead } from "./workspace-data.ts";
 import "./channel-directory.css";
@@ -35,11 +35,13 @@ function folded(value: string) {
 
 export function JoinedChannelDirectory({
   state,
+  headingVisible = true,
   language,
   choose,
   retry,
 }: {
   state: WorkspaceRead<TeamSidebar>;
+  headingVisible?: boolean;
   language: EntryLanguage;
   choose: (channelId: string) => void;
   retry: () => void;
@@ -74,7 +76,9 @@ export function JoinedChannelDirectory({
   const unavailable = status === "network" || status === "storage";
   return (
     <section className="channel-directory" aria-labelledby={heading}>
-      <h2 id={heading}>{text.joined}</h2>
+      <h2 id={heading} hidden={!headingVisible}>
+        {text.joined}
+      </h2>
       {!denied && state.value && (
         <input
           className="directory-filter"
@@ -126,37 +130,15 @@ export function JoinedChannelDirectory({
                       }
                       onClick={() => choose(channel.id)}
                     >
-                      <span className="directory-kind" aria-hidden="true">
-                        {channel.kind === "P" && !channel.deleteAt ? (
-                          <PrivateChannelIcon />
-                        ) : (
-                          <svg
-                            aria-hidden="true"
-                            width="18"
-                            height="18"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.65"
-                            strokeLinecap="round"
-                          >
-                            {channel.deleteAt ? (
-                              <>
-                                <rect
-                                  x="3"
-                                  y="4"
-                                  width="18"
-                                  height="4"
-                                  rx="2"
-                                />
-                                <path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8M10 12h4" />
-                              </>
-                            ) : (
-                              <path d="M5 9h14M5 15h14M11 4 7 20M17 4l-4 16" />
-                            )}
-                          </svg>
-                        )}
-                      </span>
+                      <DirectoryChannelIcon
+                        kind={
+                          channel.deleteAt
+                            ? "archived"
+                            : channel.kind === "P"
+                              ? "private"
+                              : "public"
+                        }
+                      />
                       <span className="directory-channel-info">
                         <strong>{title}</strong>
                         <span id={`${heading}-${channel.id}`}>
@@ -165,7 +147,7 @@ export function JoinedChannelDirectory({
                         </span>
                       </span>
                       {channel.deleteAt > 0 && (
-                        <span className="directory-archived">
+                        <span className="directory-channel-meta">
                           {text.archived}
                         </span>
                       )}
