@@ -68,6 +68,7 @@ import {
   checkPreviouslyAcceptedPost,
 } from "./post-mutations.ts";
 import { checkPostSearch } from "./post-search.ts";
+import { checkPresencePolicy } from "./presence-policy.ts";
 import { checkProfileReads } from "./profile-reads.ts";
 import { checkPublishedPostDocument } from "./published-post-document.ts";
 import { checkReactionActions } from "./reaction-actions.ts";
@@ -1275,6 +1276,7 @@ await checkPreviouslyAcceptedPost(
 await checkSearchScopePolicy(base, token, readerToken, version);
 await checkPostEditWindow(base, token, readerToken);
 await checkMobileFilePolicy(base, token, readerToken);
+await checkPresencePolicy(base, token, readerToken);
 await checkReactionLimit(base, token, user.id, readerToken, channelId);
 console.log(
   `Mattermost ${version} verified the signed reaction limit against adding a new emoji name.`,

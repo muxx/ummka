@@ -14,6 +14,7 @@ test("projects display and mention policy from the old config and license endpoi
     const data = url.pathname.endsWith("/config/client")
       ? {
           CollapsedThreads: "always_on",
+          EnableUserStatuses: "false",
           EnableConfirmNotificationsToChannel: "false",
           EnableCustomGroups: "true",
           MaxNotificationsPerChannel: "6",
@@ -50,6 +51,7 @@ test("projects display and mention policy from the old config and license endpoi
     separateUnreads: true,
     nameFormat: "full_name",
     lockNameFormat: false,
+    userStatusesEnabled: false,
     sharedChannelDMs: true,
     dmRecipientScope: "team",
     search: { allTeams: true, files: true, archivedChannels: false },
@@ -93,6 +95,17 @@ test("invalid fields and cancellation both release the outstanding sibling", asy
     ),
   ).rejects.toBe(reason);
   expect(pending.length).toBe(2);
+});
+
+test.each([
+  [undefined, true],
+  ["true", true],
+  ["false", false],
+] as const)("uses the published presence policy %s", (value, expected) => {
+  expect(
+    workspaceServerPolicy({ EnableUserStatuses: value }, {})
+      .userStatusesEnabled,
+  ).toBe(expected);
 });
 
 test.each(["false", "TRUE", "", undefined])(
