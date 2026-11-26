@@ -670,45 +670,56 @@ export function ChannelsWorkspace({
         }
         composer={composer()}
       >
+        {timeline.status === "positionLost" && (
+          <Notice
+            message={text.positionLost}
+            label={text.latest}
+            retry={timeline.showLatest}
+          />
+        )}
         {historyIssue &&
           notice(
             historyIssue,
             timeline.canRetry ? timeline.retry : undefined,
             true,
           )}
-        {chosen && settings && !historyDenied && (
-          <ConversationTimeline
-            channelId={chosen}
-            connection={connection}
-            latest={timeline.latest}
-            userId={userId}
-            sessionIssue={sessionIssue}
-            page={timeline.page}
-            inaccessibleBefore={timeline.firstInaccessiblePostTime}
-            waitingMessage={
-              !timeline.page &&
-              (timeline.status === "loading" ||
-                timeline.status === "refreshing")
-                ? text.loadingHistory
-                : undefined
-            }
-            offline={!online}
-            locale={language}
-            author={author}
-            onReadEdge={timeline.loadEdge}
-            address={
-              timeline.focus && !timeline.focus.focusedReply
-                ? timeline.focus
-                : undefined
-            }
-            onOpenThread={(post) => {
-              setClosedRequest(position?.request.requestId ?? null);
-              setThread(post);
-            }}
-            openThreadPostId={activeThread?.id}
-            collapsedThreads={settings.collapsedThreads}
-          />
-        )}
+        {chosen &&
+          settings &&
+          !historyDenied &&
+          timeline.status !== "positionLost" && (
+            <ConversationTimeline
+              viewport={timeline.viewport}
+              channelId={chosen}
+              connection={connection}
+              latest={timeline.latest}
+              userId={userId}
+              sessionIssue={sessionIssue}
+              page={timeline.page}
+              inaccessibleBefore={timeline.firstInaccessiblePostTime}
+              waitingMessage={
+                !timeline.page &&
+                (timeline.status === "loading" ||
+                  timeline.status === "refreshing")
+                  ? text.loadingHistory
+                  : undefined
+              }
+              offline={!online}
+              locale={language}
+              author={author}
+              onReadEdge={timeline.loadEdge}
+              address={
+                timeline.focus && !timeline.focus.focusedReply
+                  ? timeline.focus
+                  : undefined
+              }
+              onOpenThread={(post) => {
+                setClosedRequest(position?.request.requestId ?? null);
+                setThread(post);
+              }}
+              openThreadPostId={activeThread?.id}
+              collapsedThreads={settings.collapsedThreads}
+            />
+          )}
       </ChannelsFrame>
       {search.dialog}
       {accountOpen && (
