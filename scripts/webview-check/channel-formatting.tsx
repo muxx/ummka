@@ -107,6 +107,18 @@ type PressRight = (
   phase?: "up",
 ) => Promise<void>;
 
+function nextTask() {
+  return new Promise<void>((resolve) => {
+    const { port1, port2 } = new MessageChannel();
+    port1.onmessage = () => {
+      port1.close();
+      port2.close();
+      resolve();
+    };
+    port2.postMessage(null);
+  });
+}
+
 async function checkArrowRight(
   element: HTMLElement,
   target: string,
@@ -128,7 +140,7 @@ async function checkArrowRight(
   let keydown: KeyboardEvent | undefined;
   let keyup = false;
   let defaultObserved = false;
-  let lastScrollEnd: Event | undefined;
+  let lastScrollEnd: { offset: number } | undefined;
   let wakeScrollEnd: (() => void) | undefined;
   let defaultActionObserved!: () => void;
   let bothPhasesObserved!: () => void;
@@ -167,7 +179,7 @@ async function checkArrowRight(
       document.activeElement === element &&
       element.scrollLeft > 0
     ) {
-      lastScrollEnd = event;
+      lastScrollEnd = { offset: element.scrollLeft };
       record("dom-scrollend");
       wakeScrollEnd?.();
     }
@@ -228,28 +240,29 @@ async function checkArrowRight(
     )
       throw Error("The trusted key press did not scroll the focused element");
     if (desktop?.settle) {
-      // Keep the code focused until its last scroll ends. A new scroll can
-      // invalidate an end observed while waiting for the keyup or its reply.
-      await fixtureDeadline(
+      const end = await fixtureDeadline(
         `${target} keyboard scrollend`,
         async () => {
-          let end: Event;
-          do {
+          for (;;) {
             while (!lastScrollEnd)
               await new Promise<void>((resolve) => {
                 wakeScrollEnd = resolve;
               });
-            end = lastScrollEnd;
-            // Drain the rendering steps that can deliver a newly queued scroll.
-            await new Promise<void>((resolve) =>
-              requestAnimationFrame(() =>
-                requestAnimationFrame(() => resolve()),
-              ),
-            );
-          } while (lastScrollEnd !== end);
+            const end = lastScrollEnd;
+            // Let any remaining scroll events in the current dispatch batch
+            // invalidate this end. Hidden WKWebViews can suspend animation frames.
+            await nextTask();
+            if (lastScrollEnd === end) return end;
+          }
         },
         Math.max(0, deadline - performance.now()),
       );
+      if (
+        lastScrollEnd !== end ||
+        document.activeElement !== element ||
+        element.scrollLeft !== end.offset
+      )
+        throw Error("The focused element lost its settled scroll position");
     }
   } catch (cause) {
     throw Error(
