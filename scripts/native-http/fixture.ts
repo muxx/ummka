@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { authPrefix, checkAuthVisits, handleAuth } from "./authentication.ts";
 import { eventFixture } from "./channel-events.ts";
 import { fileTransferFixture } from "./file-transfer.ts";
+import { fileUploadFixture } from "./file-upload.ts";
 import { mobileFilePolicyFixture } from "./mobile-file-policy.ts";
 import { webviewServers } from "./webview.ts";
 
@@ -170,10 +171,12 @@ export async function startFixture(dir: string) {
   const mobilePolicy = mobileFilePolicyFixture();
   const eventStream = eventFixture();
   const fileTransfers = fileTransferFixture();
+  const uploads = fileUploadFixture();
   const tls = https.createServer(certs.trusted, (request, response) => {
     const path = request.url;
     observe("https", path);
     if (eventStream.control(request, response)) return;
+    if (uploads.handle(request, response)) return;
     if (fileTransfers.handle(request, response)) return;
     if (mobilePolicy.handle(request, response)) return;
     const control = path?.match(
@@ -358,6 +361,7 @@ export async function startFixture(dir: string) {
         checkAuthVisits(authVisits);
         eventStream.verify();
         fileTransfers.verify();
+        uploads.verify();
         mobilePolicy.verify();
         webview.verify(android ? "android" : "macos");
         assert.deepEqual(checkpoints, [
