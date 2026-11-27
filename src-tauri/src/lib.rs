@@ -4,6 +4,8 @@ mod browser_ipc;
 mod channels_links;
 #[cfg(all(feature = "webview-check", target_os = "macos"))]
 mod check_keyboard;
+#[cfg(all(feature = "webview-check", target_os = "macos"))]
+mod check_link_window;
 pub mod credentials;
 #[cfg(any(target_os = "macos", target_os = "android"))]
 pub mod device_document;
@@ -63,6 +65,8 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
             rest_ipc::close_rest_connection,
             #[cfg(all(feature = "webview-check", any(target_os = "android", target_os = "macos")))]
             rest_ipc::trace_webview_check,
+            #[cfg(all(feature = "webview-check", target_os = "macos"))]
+            check_link_window::check_system_post_window,
             rest_ipc::drafts::read_composer_draft,
             rest_ipc::drafts::save_composer_draft,
             rest_ipc::drafts::transition_draft_command,
@@ -125,6 +129,13 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
             )?;
             #[cfg(all(target_os = "macos", feature = "webview-check"))]
             {
+                if std::env::var("UMMKA_CHECK_SCENARIO")
+                    .is_ok_and(|scenario| check_link_window::enabled(&scenario))
+                {
+                    app.add_capability(
+                        r#"{"identifier":"fixture-system-post-window","local":true,"webviews":["main"],"permissions":["allow-check-system-post-window"]}"#,
+                    )?;
+                }
                 // Setup runs on the main thread. The Tauri window owns this NSWindow.
                 let native = unsafe { &*main.ns_window()?.cast::<objc2_app_kit::NSWindow>() };
                 if std::env::var_os("UMMKA_CHECK_KEY_INPUT").is_some() {
@@ -204,10 +215,17 @@ pub fn run() {
             // AppKit focus and scrolling need a normally presented WKWebView.
             main.visible = visible;
             if let Some(scenario) = scenario {
-                assert!(matches!(
-                    scenario.as_str(),
-                    "formatting-320" | "formatting-820" | "workspace-back" | "external-handoff"
-                ));
+                let check_link_window = check_link_window::enabled(&scenario);
+                assert!(
+                    matches!(
+                        scenario.as_str(),
+                        "formatting-320" | "formatting-820" | "workspace-back" | "external-handoff"
+                    ) || check_link_window
+                );
+                if check_link_window {
+                    // Background scheduling is part of restoring a real window.
+                    main.background_throttling = None;
+                }
                 main.url = tauri::WebviewUrl::App(format!("index.html?fixture={scenario}").into());
             }
         }
