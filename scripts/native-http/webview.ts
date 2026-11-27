@@ -11,6 +11,7 @@ import { respondToAccount } from "./account.ts";
 import {
   type ClipboardPolicyStep,
   clipboardPolicySteps,
+  type PreviewSwipeAndroid,
   type RotateAndroid,
   type SendAndroidKey,
   type SwipeAndroid,
@@ -96,6 +97,7 @@ export function webviewServers(
   const formatKeyCases = ["code-320", "table-320", "code-820", "table-820"];
   const formatKeys: string[] = [];
   let swipeAndroid: SwipeAndroid | undefined;
+  let swipePreviewAndroid: PreviewSwipeAndroid | undefined;
   let rotateAndroid: RotateAndroid | undefined;
   const tableGestures = [
     "preview",
@@ -1637,20 +1639,28 @@ export function webviewServers(
       if (!(await press(sendRight))) return;
     } else if (step === "table-swipe") {
       const swipe = swipeAndroid;
-      assert(swipe);
+      const swipePreview = swipePreviewAndroid;
+      assert(swipe && swipePreview);
       const match =
         /^(preview|horizontal|vertical),([1-9]\d{0,3}),([1-9]\d{0,3}),([1-9]\d{0,3}),([1-9]\d{0,3})$/u.exec(
           name,
         );
       assert(match);
       const [, axis, x1, y1, x2, y2] = match;
-      assert.equal(axis, tableGestures[tableGesture++]);
-      if (
+      assert.equal(axis, tableGestures[tableGesture]);
+      if (axis === "preview") {
+        assert.equal(x1, x2);
+        if (
+          !(await press(() => swipePreview(Number(x1), Number(y1), Number(y2))))
+        )
+          return;
+      } else if (
         !(await press(() =>
           swipe(Number(x1), Number(y1), Number(x2), Number(y2)),
         ))
       )
         return;
+      tableGesture++;
     } else if (step === "table-selection") {
       const swipe = swipeAndroid;
       const setPolicy = clipboard;
@@ -1739,9 +1749,11 @@ export function webviewServers(
       swipe: SwipeAndroid,
       rotate: RotateAndroid,
       runClipboardStep: ClipboardPolicyStep,
+      swipePreview: PreviewSwipeAndroid,
     ) {
       clipboard = runClipboardStep;
       swipeAndroid = swipe;
+      swipePreviewAndroid = swipePreview;
       rotateAndroid = rotate;
       prepareKeyboard = () => send("KEYCODE_TAB");
       pressWorkspaceBack = () => send("KEYCODE_BACK");

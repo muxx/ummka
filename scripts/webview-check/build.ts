@@ -8,6 +8,7 @@ export async function buildWebviewFixture(
   ports: number[],
   platform: "macos" | "android",
   externalHref?: string,
+  workspaceBackOnly = false,
 ) {
   const frontendDist = join(dir, "ui");
   await build({
@@ -21,6 +22,8 @@ export async function buildWebviewFixture(
         externalHref ?? "",
       ),
       "import.meta.env.VITE_UMMKA_CHECK_PORTS": JSON.stringify(ports.join(",")),
+      "import.meta.env.VITE_UMMKA_CHECK_WORKSPACE_BACK":
+        JSON.stringify(workspaceBackOnly),
     },
     build: { outDir: frontendDist },
   });
