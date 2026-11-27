@@ -10,6 +10,7 @@ import {
 import { ResponseError } from "../../vendor/mattermost/index.js";
 import type { EntryLanguage } from "../entry/language.ts";
 import type { JoinedTeam } from "../mattermost/joined-teams.ts";
+import { PaneSizeToggle } from "./PaneWidthControls.tsx";
 import { SearchFileResult, SearchPostResult } from "./SearchResultRow.tsx";
 import { SearchScopeNote, SearchScopeSelect } from "./SearchScopeSelect.tsx";
 import { type SearchCondition, searchConditions } from "./search-conditions.ts";
@@ -165,6 +166,7 @@ export function SearchResultsPanel({
         <h2 id={id} ref={heading} tabIndex={-1}>
           {text.results}
         </h2>
+        <PaneSizeToggle />
         <button
           className="channels-icon-action"
           type="button"

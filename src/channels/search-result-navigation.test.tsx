@@ -783,8 +783,92 @@ test("opens pins in the selected channel, distinguishes a confirmed personal mar
   expect(opened.getByText("Home pin")).toBeTruthy();
   fireEvent.click(action);
   await opened.findByText("No pinned messages in this channel.");
+  expect(
+    opened.getByRole("heading", {
+      name: "Pinned messages",
+      description: "# Home · visible to all members",
+    }),
+  ).toBeTruthy();
   expect(account.setPostPinned).toHaveBeenCalledTimes(2);
 });
+
+test("pins identify their source during first read and after a channel switch", async () => {
+  const { account } = fixture();
+  account.readPinnedChannelPosts.mockImplementationOnce(
+    () => new Promise(() => {}),
+  );
+  account.readPinnedChannelPosts.mockResolvedValueOnce({
+    items: [],
+    firstInaccessiblePostTime: 0,
+  });
+  async function openPins(room: string) {
+    fireEvent.click(
+      await screen.findByRole("button", { name: `Channel menu, ${room}` }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Pinned messages" }));
+    return within(
+      screen.getByRole("complementary", { name: "Pinned messages" }),
+    );
+  }
+  const initial = await openPins("Home");
+  expect(initial.getByText("Loading messages…")).toBeTruthy();
+  expect(document.activeElement).toBe(
+    initial.getByRole("heading", {
+      name: "Pinned messages",
+      description: "# Home · visible to all members",
+    }),
+  );
+  const signal = account.readPinnedChannelPosts.mock.calls[0]?.[1];
+  fireEvent.click(screen.getByRole("button", { name: "Third channel" }));
+  expect(signal?.aborted).toBe(true);
+  expect(
+    screen.queryByRole("complementary", { name: "Pinned messages" }),
+  ).toBeNull();
+  const next = await openPins("Third channel");
+  await next.findByText("No pinned messages in this channel.");
+  expect(
+    next.getByRole("heading", {
+      name: "Pinned messages",
+      description: "# Third channel · visible to all members",
+    }),
+  ).toBeTruthy();
+  expect(account.readPinnedChannelPosts.mock.calls.map(([id]) => id)).toEqual([
+    home,
+    other,
+  ]);
+  expect(account.readChannelIdentity).not.toHaveBeenCalled();
+});
+
+test.each([
+  ["P", "# Home"],
+  ["D", "aurora"],
+  ["G", "Home"],
+] as const)(
+  "pins use the display name for conversation kind %s",
+  async (homeKind, caption) => {
+    const peer = "z".repeat(26);
+    const { account } = fixture({
+      homeKind,
+      homeName: [user, peer].join("__"),
+    });
+    account.readSavedProfiles.mockResolvedValue({
+      profiles: { [peer]: channelProfile({ id: peer, username: "aurora" }) },
+      usernames: {},
+    });
+    const name = homeKind === "D" ? "aurora" : "Home";
+    fireEvent.click(
+      await screen.findByRole("button", { name: `Channel menu, ${name}` }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Pinned messages" }));
+    expect(
+      screen.getByRole("heading", {
+        name: "Pinned messages",
+        description: `${caption} · visible to all members`,
+      }),
+    ).toBeTruthy();
+    expect(account.readChannelIdentity).not.toHaveBeenCalled();
+  },
+);
 
 test.each(["saved", "pins"] as const)(
   "a cold offline %s collection can be retried explicitly and keeps focus through failure and success",
@@ -1045,6 +1129,13 @@ test("a direct conversation keeps pins available and excludes channel notificati
   ).toBeTruthy();
   expect(screen.queryByRole("menuitem", { name: "Notifications" })).toBeNull();
   expect(account.readChannelNotifications).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("menuitem", { name: "Pinned messages" }));
+  expect(
+    screen.getByRole("heading", {
+      name: "Pinned messages",
+      description: "Visible to channel members",
+    }),
+  ).toBeTruthy();
 });
 
 test("revoked channel history closes its notifications and cancels the pending read", async () => {

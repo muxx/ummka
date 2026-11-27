@@ -1,4 +1,5 @@
 import {
+  type CSSProperties,
   type ReactNode,
   type RefObject,
   useId,
@@ -7,6 +8,14 @@ import {
 } from "react";
 import smallMark from "../../src-tauri/icons/symbols/ummka-small.svg?no-inline";
 import { isMobile, usesMacOSOverlay } from "../build-platform.ts";
+import type { EntryLanguage } from "../entry/language.ts";
+import {
+  PaneExpansion,
+  PaneResizer,
+  PaneSizeToggle,
+  PaneWidthNotice,
+} from "./PaneWidthControls.tsx";
+import { usePaneWidths } from "./use-pane-widths.ts";
 import "./frame.css";
 
 type FrameLabels = {
@@ -37,6 +46,8 @@ type FrameProps = {
     ref: RefObject<HTMLHeadingElement | null>,
   ) => ReactNode;
   sidePanel?: ReactNode;
+  standalonePanel?: boolean;
+  language?: EntryLanguage;
   resultReturn?: ReactNode;
   returnInThread?: boolean;
   composer?: ReactNode;
@@ -86,6 +97,8 @@ export function ChannelsFrame({
   toolbar,
   channelHeading,
   sidePanel,
+  standalonePanel,
+  language = "en",
   resultReturn,
   returnInThread,
   composer,
@@ -107,7 +120,36 @@ export function ChannelsFrame({
   const openThread = thread?.id;
   const replyRef = thread?.replyRef;
   const showingPanel = Boolean(sidePanel);
+  const split = showingPanel ? !standalonePanel : Boolean(openThread);
+  const panes = usePaneWidths(root, split ? "right" : "closed");
+  const geometry = panes.geometry;
+  const widthStyles =
+    geometry &&
+    ({
+      "--navigation-choice": `${geometry.navigation.width}px`,
+      "--right-choice": `${panes.expanded ? geometry.right.expanded : geometry.right.width}px`,
+    } as CSSProperties);
   const previous = useRef({ page, channelId, openThread });
+
+  useLayoutEffect(() => {
+    const control = lastFocus.current;
+    if (
+      !control?.dataset.paneWidthControl ||
+      control.isConnected ||
+      document.activeElement !== document.body
+    )
+      return;
+    const toNavigation =
+      (!geometry && !showingPanel && !openThread && page === "navigation") ||
+      (geometry && control.dataset.paneWidthControl === "navigation");
+    const target = toNavigation
+      ? (sidebar.current?.querySelector<HTMLElement>('[aria-current="page"]') ??
+        team.current)
+      : (root.current?.querySelector<HTMLElement>(
+          ".channels-panes > aside .channels-pane-head h2",
+        ) ?? heading.current);
+    target?.focus({ preventScroll: true });
+  });
 
   useLayoutEffect(() => {
     const old = previous.current;
@@ -173,11 +215,13 @@ export function ChannelsFrame({
     <div
       ref={root}
       className="channels-frame"
+      style={widthStyles || undefined}
       data-macos-overlay={overlay || undefined}
       onFocusCapture={(event) => {
         lastFocus.current = event.target;
       }}
     >
+      {panes.storageUnavailable && <PaneWidthNotice language={language} />}
       <header
         className="channels-bar"
         data-surface="topbar"
@@ -239,6 +283,15 @@ export function ChannelsFrame({
           </button>
           <div className="channels-pane-body">{navigation}</div>
         </nav>
+        {geometry && (
+          <PaneResizer
+            pane="navigation"
+            range={geometry.navigation}
+            language={language}
+            preview={panes.setPreview}
+            save={panes.save}
+          />
+        )}
         <main
           className="channels-conversation"
           data-surface="message"
@@ -276,41 +329,67 @@ export function ChannelsFrame({
           <div className="channels-conversation-body">{children}</div>
           {composer}
         </main>
-        {sidePanel}
-        {!sidePanel && thread && (
-          <aside className="channels-thread" aria-labelledby={threadId}>
-            <header className="channels-pane-head">
-              <h2 id={threadId} ref={threadHeading} tabIndex={-1}>
-                {thread.title}
-              </h2>
-              <button
-                className="channels-icon-action"
-                type="button"
-                aria-label={labels.closeThread}
-                onClick={thread.close}
-              >
-                <span className="thread-back-icon">
-                  <Chevron direction="back" />
-                </span>
-                <svg
-                  className="thread-close-icon"
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  aria-hidden="true"
+        {split &&
+          geometry &&
+          !panes.expanded &&
+          geometry.right.min !== geometry.right.max && (
+            <PaneResizer
+              key={panes.panelKey}
+              pane={panes.panelKey}
+              range={geometry.right}
+              language={language}
+              preview={panes.setPreview}
+              save={panes.save}
+            />
+          )}
+        <PaneExpansion.Provider
+          value={
+            split && geometry
+              ? {
+                  language,
+                  expanded: panes.expanded,
+                  toggle: panes.toggleExpanded,
+                }
+              : null
+          }
+        >
+          {sidePanel}
+          {!sidePanel && thread && (
+            <aside className="channels-thread" aria-labelledby={threadId}>
+              <header className="channels-pane-head">
+                <h2 id={threadId} ref={threadHeading} tabIndex={-1}>
+                  {thread.title}
+                </h2>
+                <PaneSizeToggle />
+                <button
+                  className="channels-icon-action"
+                  type="button"
+                  aria-label={labels.closeThread}
+                  onClick={thread.close}
                 >
-                  <path d="m6 6 12 12M18 6 6 18" />
-                </svg>
-              </button>
-            </header>
-            {returnInThread && resultReturn}
-            <div className="channels-pane-body">{thread.content}</div>
-          </aside>
-        )}
+                  <span className="thread-back-icon">
+                    <Chevron direction="back" />
+                  </span>
+                  <svg
+                    className="thread-close-icon"
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    aria-hidden="true"
+                  >
+                    <path d="m6 6 12 12M18 6 6 18" />
+                  </svg>
+                </button>
+              </header>
+              {returnInThread && resultReturn}
+              <div className="channels-pane-body">{thread.content}</div>
+            </aside>
+          )}
+        </PaneExpansion.Provider>
       </div>
     </div>
   );

@@ -48,6 +48,10 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
     const trigger = ui.getByRole("button", { name: "Saved messages" });
     click(trigger);
     let saved = await findPane("Saved messages");
+    saved.getByRole("heading", {
+      name: "Saved messages",
+      description: "Only visible to you",
+    });
     const row = await saved.findByRole("button", {
       name: /Reply visible only inside Town/,
     });
@@ -206,6 +210,13 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
     click(menu);
     click(ui.getByRole("menuitem", { name: "Pinned messages" }));
     let pins = await findPane("Pinned messages");
+    const pinsHeading = () =>
+      pins.getByRole("heading", {
+        name: "Pinned messages",
+        description: "# Town Square · visible to all members",
+      });
+    if (document.activeElement !== pinsHeading())
+      throw Error("Pinned results did not focus their own heading");
     const pin = await pins.findByRole("button", {
       name: /Town fixture message/,
     });
@@ -215,6 +226,7 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
     await ui.findByRole("button", { name: "Back to pinned messages" });
     await back("pinned-root");
     pins = await findPane("Pinned messages");
+    pinsHeading();
     await waitFor(() => {
       if (
         document.activeElement !==
@@ -224,6 +236,7 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
     });
     click(pins.getByRole("button", { name: "Unpin for everyone" }));
     await pins.findByText("No pinned messages in this channel.");
+    pinsHeading();
     await back("pinned-list");
     await waitFor(() => {
       if (document.activeElement !== menu)

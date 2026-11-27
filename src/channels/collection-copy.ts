@@ -26,6 +26,7 @@ export const collectionCopy = {
     finished: "End of saved messages.",
     personal: "Only visible to you",
     shared: "Visible to channel members",
+    sharedIn: (room: string) => `${room} · visible to all members`,
     offlineCold:
       "Connect to load this collection. It isn’t stored on this device.",
     menu: "Channel menu",
@@ -89,6 +90,7 @@ export const collectionCopy = {
     finished: "Список сохранённых закончился.",
     personal: "Видите только вы",
     shared: "Видят участники канала",
+    sharedIn: (room: string) => `${room} · видят все участники`,
     offlineCold:
       "Для загрузки нужна связь с сервером. Подборка не хранится на устройстве.",
     menu: "Меню беседы",

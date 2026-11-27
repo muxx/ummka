@@ -14,7 +14,7 @@
   align-items: center;
   gap: 9px;
   box-sizing: border-box;
-  flex: 0 0 min(520px, 44cqi);
+  flex: 0 1 min(520px, 44cqi);
   min-width: 0;
   min-height: 30px;
   margin-inline-start: 20px;
@@ -177,7 +177,7 @@
 .search-results-pane {
   display: flex;
   flex-direction: column;
-  flex: 0 0 clamp(300px, 32cqi, 420px);
+  flex: 0 0 var(--right-choice, 400px);
   min-height: 0;
   min-width: 0;
   box-sizing: border-box;
