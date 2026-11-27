@@ -271,6 +271,7 @@ function mount(
     directoryNotice: null,
     chooseAnotherTeam: vi.fn(),
     sessionIssue: vi.fn(),
+    exit: { cleanup: null, run: vi.fn() },
     policy: {
       server: {
         status: "ready",
@@ -287,7 +288,7 @@ function mount(
     },
   };
   const view = render(
-    <ChannelsWorkspace workspace={workspace} language="en" onEnded={vi.fn()} />,
+    <ChannelsWorkspace workspace={workspace} language="en" />,
   );
   return {
     ...connection,
@@ -297,7 +298,6 @@ function mount(
         <ChannelsWorkspace
           workspace={{ ...workspace, online: next }}
           language="en"
-          onEnded={vi.fn()}
         />,
       );
     },

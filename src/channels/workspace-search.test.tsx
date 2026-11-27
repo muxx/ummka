@@ -75,10 +75,12 @@ function Window({
   account,
   online = true,
   restricted = false,
+  command = false,
 }: {
   account: SearchAccount;
   online?: boolean;
   restricted?: boolean;
+  command?: boolean;
 }) {
   const search = useWorkspaceSearch(
     {
@@ -99,13 +101,31 @@ function Window({
       },
     },
     "ru",
-    () => "Релизы",
-    () => "Анна",
+    {
+      channel: () => "Релизы",
+      author: () => "Анна",
+      condition: (kind, value) =>
+        kind === "author" && value === "anya" ? "Анна" : undefined,
+    },
     { channelId: null, open: vi.fn(), clear: vi.fn() },
   );
   return (
     <>
       {search.trigger}
+      {command && (
+        <button
+          type="button"
+          onClick={() =>
+            void search.fromCommand(
+              "выпуск",
+              new AbortController().signal,
+              () => {},
+            )
+          }
+        >
+          Поиск командой
+        </button>
+      )}
       <textarea aria-label="Черновик" defaultValue="незаконченный текст" />
       {search.panel}
       {search.dialog}
@@ -116,6 +136,12 @@ async function open() {
   fireEvent.click(screen.getByRole("button", { name: "Поиск" }));
   const form = await screen.findByRole("dialog");
   return { form, input: within(form).getByRole<HTMLInputElement>("searchbox") };
+}
+async function submitSearch(terms: string) {
+  const { form, input } = await open();
+  fireEvent.change(input, { target: { value: terms } });
+  fireEvent.click(within(form).getByRole("button", { name: "Найти" }));
+  await screen.findByText("Готово к выпуску");
 }
 test("searches from the header, switches tabs without losing results and returns to the draft", async () => {
   const account = fixture();
@@ -333,10 +359,263 @@ test("all-team search removes scoped filters, retains the date and skips recent 
     target: { value: "" },
   });
   expect(input.value).toBe("план after:2026-01-01");
+  expect(within(form).getByText(/Сняли from:anya и in:dev/)).toBeTruthy();
   fireEvent.click(within(form).getByRole("button", { name: "Найти" }));
   await screen.findByText("Готово к выпуску");
+  expect(
+    within(screen.getByRole("complementary")).getByText(
+      /Сняли from:anya и in:dev/,
+    ),
+  ).toBeTruthy();
   expect(account.rememberTeamSearch).not.toHaveBeenCalled();
   expect(account.readPostSearchPage.mock.calls[0]?.[0].teamId).toBeNull();
+});
+
+test("removes one condition with the keyboard, preserves literal phrases and restores focus", async () => {
+  const account = fixture();
+  const user = userEvent.setup();
+  render(<Window account={account} />);
+  const { form, input } = await open();
+  const initial =
+    '"снимки  from:literal" in:#release from:anya after:2026-11-17';
+  fireEvent.change(input, { target: { value: initial } });
+  fireEvent.click(within(form).getByRole("button", { name: "Найти" }));
+  await screen.findByText("Готово к выпуску");
+  const author = screen.getByRole("button", { name: "Убрать фильтр от Анна" });
+  const second =
+    deferred<Awaited<ReturnType<typeof account.readPostSearchPage>>>();
+  account.readPostSearchPage.mockReturnValueOnce(second.promise);
+  author.focus();
+  await user.keyboard("{Enter}");
+  expect(screen.queryByText("Готово к выпуску")).toBeNull();
+  expect(
+    screen.queryByRole("button", { name: "Убрать фильтр от Анна" }),
+  ).toBeNull();
+  const date = screen.getByRole("button", {
+    name: "Убрать фильтр после 2026-11-17",
+  });
+  expect(document.activeElement).toBe(date);
+  await waitFor(() =>
+    expect(account.readPostSearchPage).toHaveBeenCalledTimes(2),
+  );
+  expect(account.readPostSearchPage.mock.calls[1]?.[0]).toMatchObject({
+    teamId: team.id,
+    terms: '"снимки  from:literal" in:#release after:2026-11-17',
+  });
+  await act(async () =>
+    second.resolve({
+      items: [],
+      isEnd: true,
+      matches: null,
+      firstInaccessiblePostTime: 0,
+    }),
+  );
+  expect(screen.getByText("Совпадений нет.")).toBeTruthy();
+  expect(document.activeElement).toBe(date);
+});
+
+test("the latest scope owns the results, and a late reply cannot close a newly opened search", async () => {
+  const account = fixture();
+  render(<Window account={account} />);
+  const { form, input } = await open();
+  fireEvent.change(input, {
+    target: { value: "экран channel:#release -from:anya before:2026-11-17" },
+  });
+  fireEvent.click(within(form).getByRole("button", { name: "Найти" }));
+  await screen.findByText("Готово к выпуску");
+  const pendingSouth =
+    deferred<Awaited<ReturnType<typeof account.readPostSearchPage>>>();
+  account.readPostSearchPage.mockReturnValueOnce(pendingSouth.promise);
+  const panel = () => within(screen.getByRole("complementary"));
+  fireEvent.change(panel().getByRole("combobox"), {
+    target: { value: other.id },
+  });
+  expect(panel().getByText(/Сняли channel:#release и -from:anya/)).toBeTruthy();
+  expect(document.activeElement).toBe(panel().getByRole("combobox"));
+  expect(screen.queryByText("Готово к выпуску")).toBeNull();
+  await waitFor(() =>
+    expect(account.readPostSearchPage).toHaveBeenCalledTimes(2),
+  );
+  const old = account.readPostSearchPage.mock.calls[1];
+  expect(old?.[0]).toMatchObject({
+    teamId: other.id,
+    terms: "экран before:2026-11-17",
+  });
+  const lastTimezone = deferred<string>();
+  account.readSearchTimezone.mockReturnValueOnce(lastTimezone.promise);
+  fireEvent.change(panel().getByRole("combobox"), { target: { value: "" } });
+  expect(old?.[1]?.aborted).toBe(true);
+  await waitFor(() =>
+    expect(account.readSearchTimezone).toHaveBeenCalledTimes(3),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Поиск" }));
+  const reopened = await screen.findByRole("dialog");
+  const edit = within(reopened).getByRole<HTMLInputElement>("searchbox");
+  expect(edit.readOnly).toBe(false);
+  fireEvent.change(edit, { target: { value: "другой запрос" } });
+  await act(async () => {
+    pendingSouth.resolve({
+      items: [{ id: post, channelId: channel, message: "Устаревшая строка" }],
+      isEnd: true,
+      matches: null,
+      firstInaccessiblePostTime: 0,
+    });
+    lastTimezone.resolve("UTC");
+  });
+  expect(screen.getByRole("dialog")).toBe(reopened);
+  expect(edit.value).toBe("другой запрос");
+  expect(screen.queryByText("Устаревшая строка")).toBeNull();
+  expect(account.readPostSearchPage.mock.calls[2]?.[0]).toMatchObject({
+    teamId: null,
+    terms: "экран before:2026-11-17",
+  });
+});
+
+test("removing the final condition leaves an empty editable panel and sends no request", async () => {
+  const account = fixture();
+  render(<Window account={account} />);
+  const { form, input } = await open();
+  fireEvent.change(input, { target: { value: "in:релизы" } });
+  fireEvent.click(within(form).getByRole("button", { name: "Найти" }));
+  await screen.findByText("Готово к выпуску");
+  fireEvent.click(
+    screen.getByRole("button", { name: "Убрать фильтр в # релизы" }),
+  );
+  expect(screen.getByText("Что найти?")).toBeTruthy();
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Изменить запрос" }),
+  );
+  expect(account.readPostSearchPage).toHaveBeenCalledOnce();
+  expect(account.rememberTeamSearch).toHaveBeenCalledOnce();
+});
+
+test("cancelling a dialog submission leaves its interrupted results query recoverable", async () => {
+  const account = fixture();
+  render(<Window account={account} />);
+  await submitSearch("выпуск");
+  const scope = deferred<string>();
+  const dialog = deferred<string>();
+  account.readSearchTimezone
+    .mockReturnValueOnce(scope.promise)
+    .mockReturnValueOnce(dialog.promise);
+  const panel = () => within(screen.getByRole("complementary"));
+  fireEvent.change(panel().getByRole("combobox"), {
+    target: { value: other.id },
+  });
+  await waitFor(() =>
+    expect(account.readSearchTimezone).toHaveBeenCalledTimes(2),
+  );
+  fireEvent.click(
+    panel().getByRole("button", { name: "Изменить запрос, выпуск" }),
+  );
+  const form = await screen.findByRole("dialog");
+  fireEvent.change(within(form).getByRole("searchbox"), {
+    target: { value: "черновой запрос" },
+  });
+  fireEvent.click(within(form).getByRole("button", { name: "Найти" }));
+  await waitFor(() =>
+    expect(account.readSearchTimezone).toHaveBeenCalledTimes(3),
+  );
+  fireEvent.click(within(form).getByRole("button", { name: "Закрыть поиск" }));
+  await act(async () => {
+    scope.resolve("UTC");
+    dialog.resolve("UTC");
+  });
+  expect(account.readPostSearchPage).toHaveBeenCalledOnce();
+  expect(panel().getByRole("alert").textContent).toBe("Поиск прерван.");
+  fireEvent.click(panel().getByRole("button", { name: "Повторить" }));
+  await screen.findByText("Готово к выпуску");
+  expect(account.readPostSearchPage.mock.calls[1]?.[0]).toMatchObject({
+    teamId: other.id,
+    terms: "выпуск",
+  });
+});
+
+test("opening and closing the query editor preserves a results error", async () => {
+  const account = fixture();
+  render(<Window account={account} />);
+  await submitSearch("выпуск from:anya");
+  account.readSearchTimezone.mockRejectedValueOnce(new Error("server failed"));
+  const panel = () => within(screen.getByRole("complementary"));
+  fireEvent.click(
+    panel().getByRole("button", { name: "Убрать фильтр от Анна" }),
+  );
+  expect((await panel().findByRole("alert")).textContent).toBe(
+    "Не удалось загрузить результаты.",
+  );
+  fireEvent.click(
+    panel().getByRole("button", { name: "Изменить запрос, выпуск" }),
+  );
+  const form = await screen.findByRole("dialog");
+  account.readSearchTimezone.mockRejectedValueOnce(new Error("profile failed"));
+  fireEvent.change(within(form).getByRole("searchbox"), {
+    target: { value: "другой выпуск" },
+  });
+  fireEvent.click(within(form).getByRole("button", { name: "Найти" }));
+  expect((await within(form).findByRole("alert")).textContent).toBe(
+    "Не удалось загрузить настройки поиска.",
+  );
+  fireEvent.click(within(form).getByRole("button", { name: "Закрыть поиск" }));
+  expect(panel().getByRole("alert").textContent).toBe(
+    "Не удалось загрузить результаты.",
+  );
+  expect(panel().getByRole("button", { name: "Повторить" })).toBeTruthy();
+});
+
+test("keyboard retry keeps focus through failure and returns it to the query after success", async () => {
+  const account = fixture();
+  const user = userEvent.setup();
+  render(<Window account={account} />);
+  await submitSearch("выпуск from:anya");
+  account.readSearchTimezone.mockRejectedValueOnce(new Error("server failed"));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Убрать фильтр от Анна" }),
+  );
+  const retry = await screen.findByRole("button", { name: "Повторить" });
+  const repeated = deferred<string>();
+  account.readSearchTimezone.mockReturnValueOnce(repeated.promise);
+  retry.focus();
+  await user.keyboard("{Enter}");
+  expect(document.activeElement).toBe(retry);
+  expect(retry.getAttribute("aria-disabled")).toBe("true");
+  await act(async () => repeated.reject(new Error("server still failed")));
+  expect(document.activeElement).toBe(retry);
+  await user.keyboard("{Enter}");
+  await screen.findByText("Готово к выпуску");
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Изменить запрос, выпуск" }),
+  );
+});
+
+test("a slow directory response supplies the scope selector after command results open", async () => {
+  const account = fixture();
+  const directory =
+    deferred<Awaited<ReturnType<typeof account.readJoinedTeams>>>();
+  account.readJoinedTeams.mockReturnValueOnce(directory.promise);
+  render(<Window account={account} command />);
+  fireEvent.click(screen.getByRole("button", { name: "Поиск командой" }));
+  await screen.findByText("Готово к выпуску");
+  expect(screen.queryByRole("combobox")).toBeNull();
+  expect(account.readJoinedTeams).toHaveBeenCalledOnce();
+  await act(async () =>
+    directory.resolve({ teams: [team, other], selectedTeam: team.id }),
+  );
+  expect(screen.getByRole("option", { name: "Юг" })).toBeTruthy();
+  expect(account.readJoinedTeams).toHaveBeenCalledOnce();
+});
+
+test("labels channel and author exclusions without doubled prepositions", async () => {
+  const account = fixture();
+  render(<Window account={account} />);
+  const terms = "выпуск -from:anya -in:#dev";
+  await submitSearch(terms);
+  expect(
+    screen.getByRole("button", { name: "Убрать фильтр кроме автора Анна" }),
+  ).toBeTruthy();
+  expect(
+    screen.getByRole("button", { name: "Убрать фильтр кроме канала # dev" }),
+  ).toBeTruthy();
+  expect(account.readPostSearchPage.mock.calls[0]?.[0].terms).toBe(terms);
 });
 test("the offline team can remove a recent query, save another and leave the network idle", async () => {
   const account = fixture();

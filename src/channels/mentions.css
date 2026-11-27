@@ -73,9 +73,7 @@
 .mentions-mobile-back {
   display: none;
 }
-.mentions-desktop-action,
-.channels-bar .mentions-trigger,
-.mentions-trigger + .collection-saved-trigger {
+.mentions-desktop-action {
   width: 32px;
   height: 32px;
 }
@@ -83,11 +81,11 @@
 .mention-result:hover {
   background: var(--row-hover);
 }
+.mention-result[aria-current="true"] {
+  background: var(--row-selected);
+}
 .mentions-trigger:hover {
   background: color-mix(in srgb, var(--on-topbar) 13%, transparent);
-}
-.mentions-trigger + .collection-saved-trigger {
-  margin-inline-start: 0;
 }
 .mentions-pane .collection-rows {
   padding: 13px 14px;

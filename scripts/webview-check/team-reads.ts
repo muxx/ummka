@@ -136,6 +136,21 @@ export async function checkTeamReads(
     inspected.deleteAt !== 0
   )
     throw Error("generated signed channel by ID");
+  const address = await prefixedAccount.resolveConversationIdentifier({
+    kind: "conversation",
+    serverUrl: prefixedAccount.basePath,
+    team: "release-team",
+    route: "channels",
+    identifier: "z".repeat(26),
+    postId: null,
+  });
+  if (
+    address.kind !== "channel-id" ||
+    address.id !== "z".repeat(26) ||
+    address.teamId !== teamId ||
+    address.name !== "release"
+  )
+    throw Error("prefixed signed conversation identifier");
   const open = await prefixedAccount.readChannelDirectoryPage({
     teamId,
     page: 1,

@@ -20,13 +20,11 @@
   border-radius: 10px;
   cursor: pointer;
 }
-.entry-team:hover,
-.entry-team:focus-visible {
+.entry-team:is(:hover, :where([data-keyboard-navigation] :focus-visible)) {
   border-color: var(--accent);
 }
-.entry-team:focus-visible {
-  outline: 2px solid var(--keyboard-focus);
-  outline-offset: 2px;
+.entry-team:focus {
+  --focus-offset: 2px;
 }
 .entry-team-initial {
   display: grid;

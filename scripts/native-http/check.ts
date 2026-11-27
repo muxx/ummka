@@ -27,7 +27,7 @@ const external =
     ? await macExternalLinkReceiver()
     : null;
 try {
-  const fixture = await startFixture(dir);
+  const fixture = await startFixture(dir, external?.receipt);
   try {
     const config = await buildWebviewFixture(
       dir,
@@ -79,8 +79,11 @@ try {
           fixture.webviewPorts,
           dir,
           config,
-          fixture.onMacInputReady,
-          workspaceBackOnly,
+          {
+            registerKey: fixture.onMacInputReady,
+            progress: fixture.webviewProgress,
+          },
+          { workspaceBackOnly, externalHandoff: external !== null },
         );
       } catch (error) {
         console.error("macOS WebView fixture:", fixture.webviewProgress());

@@ -21,7 +21,7 @@
   display: flex;
   align-items: center;
   flex: 0 0 46px;
-  padding-inline: var(--bar-inset) max(12px, env(safe-area-inset-right));
+  padding-inline: var(--bar-inset) max(16px, env(safe-area-inset-right));
   background:
     radial-gradient(
       160px 46px at 31px 0,
@@ -55,6 +55,13 @@
   height: 24px;
   pointer-events: none;
 }
+.channels-bar-tools {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  margin-inline-start: auto;
+}
 .channels-account,
 .channels-icon-action,
 .channels-team {
@@ -73,23 +80,29 @@
   padding: 0;
   border-radius: 8px;
 }
+.channels-account {
+  width: 26px;
+  height: 26px;
+  margin-inline-start: 4px;
+}
 .channels-account span {
   display: grid;
   place-items: center;
   box-sizing: border-box;
-  width: 29px;
-  height: 29px;
+  width: 100%;
+  height: 100%;
   border: 1px solid currentColor;
   border-radius: 9px;
   font-weight: 650;
-  font-size: 0.875rem;
+  font-size: 0.75rem;
 }
 .channels-account:hover {
   background: #ffffff1c;
 }
-.channels-bar .appearance-trigger {
+.channels-bar-tools .channels-icon-action {
   width: 32px;
   height: 32px;
+  border-radius: 6px;
 }
 .channels-bar .appearance-trigger:hover {
   background: #ffffff1c;
@@ -148,6 +161,11 @@
   border-bottom: 1px solid var(--divider);
   background: var(--canvas);
 }
+.channels-conversation > .channels-pane-head:has(> .collection-channel-menu) {
+  min-height: 70px;
+  padding-block: 10px;
+  padding-inline: clamp(16px, 2.1cqi, 34px);
+}
 .channels-pane-head :is(h1, h2) {
   margin: 0;
 }
@@ -194,9 +212,6 @@
   .channels-conversation > .channels-pane-head {
     border-start-start-radius: inherit;
   }
-  .channels-pane-head .collection-channel-menu > h1 {
-    overflow: visible;
-  }
 }
 @container (900px < width <= 1100px) {
   .channels-bar,
@@ -210,15 +225,19 @@
     --sidebar-width: 180px;
   }
 }
+@container (width <= 1100px) {
+  .channels-conversation > .channels-pane-head:has(> .collection-channel-menu) {
+    padding-inline: 15px;
+  }
+}
 @container (width <= 740px) {
   .channels-bar {
     --bar-inset: max(11px, env(safe-area-inset-left));
-    flex-basis: 41px;
-    gap: 7px;
-    padding-inline-end: max(11px, env(safe-area-inset-right));
+    flex-basis: 44px;
+    padding-inline-end: env(safe-area-inset-right);
     background:
       radial-gradient(
-        118px 41px at 23px 0,
+        118px 44px at 23px 0,
         #81c79d5c,
         #66b29842 36%,
         #388b8421 70%,
@@ -232,7 +251,7 @@
   .channels-frame:has(.channels-panes[data-page="navigation"]) .channels-bar {
     background:
       radial-gradient(
-        118px 41px at 23px 0,
+        118px 44px at 23px 0,
         #81c79d5c,
         #66b29842 36%,
         #388b8421 70%,
@@ -241,11 +260,33 @@
       linear-gradient(to bottom, var(--topbar) 28%, var(--navigation)),
       var(--topbar);
   }
+  .channels-bar-brand {
+    margin-inline-end: 7px;
+  }
   .channels-bar-brand:empty {
     display: none;
   }
+  .channels-bar-tools {
+    gap: 0;
+  }
+  .channels-bar-tools .channels-icon-action {
+    margin-inline: 6px;
+  }
   .channels-account {
-    height: 100%;
+    margin-inline: 9px;
+  }
+  .channels-bar-tools :is(.channels-icon-action, .channels-account) {
+    position: relative;
+  }
+  /* A full touch target around each displayed control, within this row. */
+  .channels-bar-tools :is(.channels-icon-action, .channels-account)::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    translate: -50% -50%;
   }
   .channels-sidebar,
   .channels-conversation,
@@ -270,6 +311,11 @@
   .channels-pane-head {
     padding-inline: 6px 12px;
   }
+  .channels-conversation > .channels-pane-head:has(> .collection-channel-menu) {
+    min-height: 53px;
+    gap: 0;
+    padding: 4px 5px;
+  }
   .channels-thread .channels-pane-head {
     padding-inline: 16px 6px;
   }
@@ -279,7 +325,7 @@
   display: none;
 }
 @container (width <= 740px) {
-  .channels-thread .channels-icon-action {
+  .channels-thread > .channels-pane-head .channels-icon-action {
     order: -1;
   }
   .channels-thread .channels-pane-head {

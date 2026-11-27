@@ -178,7 +178,7 @@ export async function verifyWorkspaceBack(
     });
     const search = ui.getByRole("button", { name: "Search" });
     flushSync(() => fireEvent.click(search));
-    let form = within(
+    const form = within(
       await ui.findByRole("dialog", { name: "What are you looking for?" }),
     );
     flushSync(() =>
@@ -201,20 +201,41 @@ export async function verifyWorkspaceBack(
         results.getByRole("button", { name: /Edit.*window fixture/i }),
       ),
     );
-    form = within(
-      await ui.findByRole("dialog", { name: "What are you looking for?" }),
-    );
+    const editedDialog = await ui.findByRole<HTMLDialogElement>("dialog", {
+      name: "What are you looking for?",
+    });
+    const editedQuery =
+      within(editedDialog).getByRole<HTMLInputElement>("searchbox");
+    const unsent = "not submitted";
     flushSync(() =>
-      fireEvent.input(form.getByRole("searchbox"), {
-        target: { value: "not submitted" },
+      fireEvent.input(editedQuery, {
+        target: { value: unsent },
       }),
     );
-    // Keep the soft keyboard out of this panel-navigation check on Android.
     if (!mac)
-      form
-        .getByRole<HTMLButtonElement>("button", { name: "Close search" })
-        .focus();
-    await press("dialog");
+      await fixtureStep("back-search-keyboard", async () => {
+        const { left, top, width, height } =
+          editedQuery.getBoundingClientRect();
+        const x = Math.round((left + width / 2) * devicePixelRatio);
+        const y = Math.round((top + height / 2) * devicePixelRatio);
+        const response = await control.fetchApi(
+          `${control.basePath}/api/v4/system/ping?step=search-ime-back&case=${x},${y}`,
+        );
+        if (response.status !== 204)
+          throw Error(
+            "The native input driver could not dismiss the search IME",
+          );
+        if (
+          !editedDialog.open ||
+          !editedDialog.isConnected ||
+          editedQuery.value !== unsent ||
+          !resultsNode.isConnected
+        )
+          throw Error(
+            "Keyboard Back closed the search editor or lost its query",
+          );
+      });
+    await fixtureStep("back-search-dialog", () => press("dialog"));
     await waitFor(() => {
       if (
         ui.queryByRole("dialog") ||
@@ -265,14 +286,28 @@ export async function verifyWorkspaceBack(
       if (reopened.isConnected || document.activeElement !== opener)
         throw Error("The reopened thread did not return to the same post");
     });
-    await checkChannelNotificationsWindow(host, () => press("notifications"));
+    await checkChannelNotificationsWindow(host, press);
     const mobileNav = ui.queryByRole("button", { name: "Channels" });
     if (mobileNav) flushSync(() => fireEvent.click(mobileNav));
     const directory = ui.getByRole("button", { name: "Directory" });
+    const navigation = directory.parentElement;
+    if (!navigation) throw Error("The Directory row has no navigation pane");
+    const itemBounds = directory.getBoundingClientRect();
+    const navigationBounds = navigation.getBoundingClientRect();
+    if (
+      Math.abs(itemBounds.left - navigationBounds.left - 9) > 1 ||
+      Math.abs(itemBounds.width + 18 - navigation.clientWidth) > 1 ||
+      itemBounds.height !== (mobileNav ? 44 : 31)
+    )
+      throw Error("Directory row does not fit its navigation insets");
     flushSync(() => fireEvent.click(directory));
     const catalog = within(await ui.findByRole("main", { name: "Directory" }));
     const title = catalog.getByRole("heading", { level: 1, name: "Directory" });
-    if (document.activeElement !== title || channel.getClientRects().length)
+    if (
+      document.activeElement !== title ||
+      channel.getClientRects().length ||
+      directory.getAttribute("aria-current") !== "page"
+    )
       throw Error("The catalog did not take focus from the channel");
     await press("directory");
     await waitFor(() => {

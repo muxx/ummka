@@ -43,11 +43,19 @@ export async function checkChannelsFrame() {
           }}
           onTeam={() => {}}
           onAccount={() => {}}
-          toolbar={
+          searchTrigger={
             <button type="button" className="channels-search-trigger">
               Search
             </button>
           }
+          toolbar={["Mentions", "Saved", "Appearance"].map((action) => (
+            <button
+              type="button"
+              className="channels-icon-action"
+              key={action}
+              aria-label={action}
+            />
+          ))}
           navigation={
             <button
               type="button"
@@ -123,6 +131,8 @@ export async function checkChannelsFrame() {
       throw Error("frame-brand-platform");
     await mark?.decode();
     const bar = control(".channels-bar");
+    const tools = control(".channels-bar-tools");
+    const actions = [...tools.querySelectorAll("button")];
     const account = control(".channels-account");
     const scene = control(".channels-frame");
     const overlay = usesMacOSOverlay;
@@ -158,6 +168,26 @@ export async function checkChannelsFrame() {
         )
           throw Error(`frame-channel-corner-${mode}-${width}`);
         const logoBounds = mark?.getBoundingClientRect();
+        const barBounds = bar.getBoundingClientRect();
+        const toolBounds = tools.getBoundingClientRect();
+        const actionBounds = actions.map((button) =>
+          button.getBoundingClientRect(),
+        );
+        const endInset = Number.parseFloat(
+          getComputedStyle(bar).paddingInlineEnd,
+        );
+        if (
+          actionBounds.length !== 4 ||
+          actionBounds.some(
+            (box, index) =>
+              box.width !== (index === 3 ? 26 : 32) ||
+              box.height !== box.width ||
+              Math.abs(center(box) - center(barBounds)) > 1,
+          ) ||
+          toolBounds.width !== (narrow ? 176 : 141) ||
+          Math.abs(barBounds.right - toolBounds.right - endInset) > 1
+        )
+          throw Error(`frame-toolbar-targets-${width}`);
         if (
           logoBounds &&
           (logoBounds.width !== 24 ||
@@ -184,10 +214,32 @@ export async function checkChannelsFrame() {
           if (
             (logoBounds && Math.abs(search.left - logoBounds.right - 7) > 1) ||
             search.height !== 32 ||
-            bar.getBoundingClientRect().height !== (overlay ? 46 : 41) ||
+            barBounds.height !== (overlay ? 46 : 44) ||
+            (logoBounds &&
+              Math.abs(
+                search.width -
+                  Math.min(
+                    380,
+                    barBounds.right - search.left - endInset - 176 - 7,
+                  ),
+              ) > 1) ||
+            toolBounds.left - search.right < 7 ||
             (overlay && search.left - bar.getBoundingClientRect().left < 76)
           )
             throw Error(`frame-compact-header-${width}`);
+          for (const [index, box] of actionBounds.entries()) {
+            const x = box.left + box.width / 2;
+            const y = center(box);
+            for (const dx of [-22, 0, 21]) {
+              for (const dy of [-22, 0, 21]) {
+                // A fixture resized beyond the WebView cannot receive input offscreen.
+                if (x + dx < 0 || x + dx >= innerWidth) continue;
+                const hit = document.elementFromPoint(x + dx, y + dy);
+                if (!actions[index].contains(hit))
+                  throw Error(`frame-compact-action-hit-${width}-${index}`);
+              }
+            }
+          }
         }
         if (!narrow) {
           const sidebarWidth = width > 1100 ? 244 : width > 900 ? 216 : 180;
@@ -195,6 +247,7 @@ export async function checkChannelsFrame() {
             ".channels-search-trigger",
           ).getBoundingClientRect();
           if (
+            barBounds.height !== 46 ||
             Math.abs(nav.getBoundingClientRect().width - sidebarWidth) > 1 ||
             Math.abs(search.left - nav.getBoundingClientRect().right - 20) >
               1 ||

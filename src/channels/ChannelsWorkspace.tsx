@@ -28,6 +28,7 @@ import { effectiveWorkspacePreferences } from "../mattermost/workspace-preferenc
 import { ChannelNotificationsDialog } from "./ChannelNotificationsDialog.tsx";
 import { ChannelsFrame } from "./ChannelsFrame.tsx";
 import { CollectionChannelMenu } from "./CollectionChannelMenu.tsx";
+import { CollectionResultSteps } from "./CollectionResultSteps.tsx";
 import { ComposerAccessNotice } from "./ComposerAccessNotice.tsx";
 import { ConversationTimeline } from "./ConversationTimeline.tsx";
 import { channelDraftActions } from "./channel-draft-actions.ts";
@@ -43,15 +44,19 @@ import {
   AttachmentWindow,
   useAttachmentWindow,
 } from "./PublishedAttachments.tsx";
+import { PublishedCodeReader } from "./PublishedCodeReader.tsx";
 import {
+  PublishedReaderWindow,
   PublishedTableScreen,
-  PublishedTableWindow,
-  usePublishedTableWindow,
-} from "./PublishedTableWindow.tsx";
+  usePublishedReaderWindow,
+} from "./PublishedReaderWindow.tsx";
 import { PostActionScope, usePostActionScope } from "./post-action-scope.ts";
+import { newestCollectionItems } from "./post-collection.ts";
 import type { ReactionThread } from "./submit-channel-reaction.ts";
 import { TeamChannelDirectory } from "./TeamChannelDirectory.tsx";
 import { ThreadPane } from "./ThreadPane.tsx";
+import type { TimelineRequest } from "./timeline-reader.ts";
+import { measureTimeline, type TimelinePlace } from "./timeline-viewport.ts";
 import { useChannelTimeline } from "./use-channel-timeline.ts";
 import { useResultChannelIdentities } from "./use-result-channel-identities.ts";
 import { useWorkspaceBack } from "./use-workspace-back.ts";
@@ -189,11 +194,9 @@ function Notice({
 export function ChannelsWorkspace({
   workspace,
   language,
-  onEnded,
 }: {
   workspace: TeamWorkspace;
   language: EntryLanguage;
-  onEnded: () => void;
 }) {
   const { connection, team, userId, policy, online, sessionIssue } = workspace;
   const text = workspaceCopy[language];
@@ -203,9 +206,7 @@ export function ChannelsWorkspace({
   const replyField = useRef<HTMLTextAreaElement>(null);
   const [accountOpen, setAccountOpen] = useState(false);
   const appearanceButton = useRef<HTMLButtonElement>(null);
-  const [appearanceInput, setAppearanceInput] = useState<
-    "pointer" | "keyboard" | null
-  >(null);
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [appearanceNotice, setAppearanceNotice] = useState("");
   const appearanceLabel = language === "ru" ? "Оформление" : "Appearance";
   useEffect(() => {
@@ -213,9 +214,14 @@ export function ChannelsWorkspace({
     const timeout = window.setTimeout(() => setAppearanceNotice(""), 2600);
     return () => window.clearTimeout(timeout);
   }, [appearanceNotice]);
-  const collections = useWorkspaceCollections(connection, online);
-  const mentionLabels = mentionCopy[language];
   const archivePolicy = policy.server.value?.search?.archivedChannels;
+  const collections = useWorkspaceCollections(
+    connection,
+    online,
+    archivePolicy,
+    sessionIssue,
+  );
+  const mentionLabels = mentionCopy[language];
   const collectionLabels = collectionCopy[language];
   const channelMenuButton = useRef<HTMLButtonElement>(null);
   const directoryButton = useRef<HTMLButtonElement>(null);
@@ -246,7 +252,7 @@ export function ChannelsWorkspace({
   const savedItems = savedValue?.value?.items;
   const hasSavedView = Boolean(savedValue);
   const complete =
-    savedValue?.status === "ready" && savedValue.continuation === "none";
+    Boolean(savedValue?.value) && savedValue?.continuation === "none";
   useEffect(() => {
     if (hasSavedView)
       setKnownSaves({
@@ -366,6 +372,15 @@ export function ChannelsWorkspace({
         : null,
     [policy.user, policy.server.value],
   );
+  const collectionReading = useRef<TimelinePlace | null>(null);
+  const restoreVersion = useRef(0);
+  const [restoredChannel, setRestoredChannel] = useState<{
+    channelId: string;
+    request: Extract<TimelineRequest, { kind: "restore" }>;
+    place: TimelinePlace;
+  } | null>(null);
+  const restoration =
+    !position && restoredChannel?.channelId === chosen ? restoredChannel : null;
   const timeline = useChannelTimeline(
     connection,
     team.id,
@@ -373,7 +388,7 @@ export function ChannelsWorkspace({
     settings?.collapsedThreads ?? null,
     online,
     sessionIssue,
-    position?.request,
+    position?.request ?? restoration?.request,
   );
   const current = useMemo(
     () =>
@@ -385,8 +400,21 @@ export function ChannelsWorkspace({
   const search = useWorkspaceSearch(
     workspace,
     language,
-    (id) => resultRooms.get(id)?.title,
-    (id) => author(id)?.name,
+    {
+      channel: (id) => resultRooms.get(id)?.title,
+      author: (id) => author(id)?.name,
+      condition: (kind, value) => {
+        if (kind === "channel") {
+          return snapshot?.data.channels.find(
+            (room) => room.name.toLowerCase() === value.toLowerCase(),
+          )?.displayName;
+        }
+        const user = profiles.byUsername.get(value.toLowerCase());
+        return user && settings
+          ? teammateName(user, settings.nameFormat)
+          : undefined;
+      },
+    },
     {
       channelId: chosen,
       clear: workspace.messages.clear,
@@ -545,7 +573,10 @@ export function ChannelsWorkspace({
   function choose(id: string, returning = false) {
     setDirectoryOpen(false);
     search.abortPending();
-    if (!returning) collections.close(false);
+    if (!returning) {
+      collections.close(false);
+      setRestoredChannel(null);
+    }
     setChannelMenuOpen(false);
     if (!returning && (position || search.origin)) search.dismiss();
     workspace.messages.clear();
@@ -629,6 +660,9 @@ export function ChannelsWorkspace({
     error(policy.server.status) ||
     (policy.userReadFailed ? text.storage : null);
   const own = profiles.byId.get(userId);
+  const accountName = own
+    ? teammateName(own, settings?.nameFormat ?? "full_name")
+    : "";
   function author(id: string) {
     const profile = profiles.byId.get(id);
     return profile && settings
@@ -640,20 +674,81 @@ export function ChannelsWorkspace({
     opener: HTMLButtonElement,
   ) {
     setChannelMenuOpen(false);
+    if (
+      source.kind !== "pins" &&
+      collections.view?.kind === source.kind &&
+      !position
+    ) {
+      collections.close();
+      return;
+    }
     if (search.back || search.origin) search.dismiss();
     workspace.messages.clear();
     setDirectoryOpen(false);
+    collectionReading.current = readChannelPlace();
     collections.open(source, opener);
   }
-  const collectionDestination =
-    position &&
-    !position.system &&
-    position.request.post.id === collections.origin.current?.id &&
-    collections.view;
+  function readChannelPlace() {
+    const pane = timeline.viewport.current;
+    return !position && pane?.clientHeight
+      ? measureTimeline(pane, timeline.latest)
+      : null;
+  }
+  const collectionOrigin = collections.origin.current;
+  const collectionIndex =
+    position && !position.system && collectionOrigin
+      ? collectionOrigin.ids.indexOf(position.request.post.id)
+      : -1;
+  const collectionDestination = collectionIndex >= 0 ? collections.view : null;
   function returnToCollection() {
-    const source = collections.restoreRow();
+    if (!position) return;
+    collections.abort();
+    const source = collections.restoreRow(position.request.post.id);
+    const reading = source?.reading;
+    const anchors = reading?.anchors
+      .filter(({ published }) => published)
+      .map(({ id }) => id);
+    if (source?.channelId && reading && anchors?.length) {
+      setRestoredChannel({
+        channelId: source.channelId,
+        request: {
+          kind: "restore",
+          requestId: ++restoreVersion.current,
+          position: anchors,
+        },
+        place: reading,
+      });
+    } else setRestoredChannel(null);
     if (source?.channelId) choose(source.channelId, true);
     else workspace.messages.clear();
+  }
+  function stepCollection(delta: -1 | 1, control: HTMLElement) {
+    const postId = collectionOrigin?.ids[collectionIndex + delta];
+    if (
+      !online ||
+      !collectionDestination ||
+      !postId ||
+      workspace.messages.dialogOpen
+    )
+      return;
+    void collections.activate(postId, (signal) =>
+      workspace.messages.open({ kind: "post", id: postId }, signal, control),
+    );
+  }
+  function endCollection(control: HTMLButtonElement) {
+    const id = position?.request.post.id;
+    const posts = id
+      ? host.current?.querySelectorAll<HTMLElement>(
+          `[data-post-id="${CSS.escape(id)}"]`,
+        )
+      : undefined;
+    const visible =
+      posts && Array.from(posts).find((row) => row.getClientRects().length);
+    const heading = control
+      .closest(".channels-conversation, .channels-thread")
+      ?.querySelector<HTMLElement>(".channels-pane-head :is(h1, h2)");
+    collections.close(false);
+    (visible ?? heading)?.focus({ preventScroll: true });
   }
 
   const notice = (message: string, retry?: () => void, alert = false) => (
@@ -759,15 +854,36 @@ export function ChannelsWorkspace({
   const mentionPolicyChanged =
     collections.view?.kind === "mentions" &&
     collections.view.archivedChannels !== archivePolicy;
-  useEffect(() => {
-    if (mentionPolicyChanged) collections.close();
-  }, [mentionPolicyChanged, collections.close]);
   function openCollectionRow(
     id: string,
     origin: HTMLButtonElement,
     scroll: number,
   ) {
-    void collections.activate({ id, channelId: chosen, scroll }, (signal) =>
+    const view = collections.view;
+    if (!view) return;
+    const ids =
+      view.kind === "mentions"
+        ? (collections.mentionState?.items.map((row) => row.id) ?? [])
+        : view.kind === "all"
+          ? newestCollectionItems(collections.state?.value?.items ?? []).map(
+              (row) => row.id,
+            )
+          : [id];
+    collections.origin.current = {
+      id,
+      channelId: chosen,
+      scroll,
+      ids,
+      partial:
+        view.kind === "mentions"
+          ? collections.mentionState?.nextPage != null
+          : view.kind === "all" && collections.state?.continuation !== "none",
+      reading:
+        view.kind === "pins"
+          ? null
+          : (readChannelPlace() ?? collectionReading.current),
+    };
+    void collections.activate(id, (signal) =>
       workspace.messages.open({ kind: "post", id }, signal, origin),
     );
   }
@@ -782,7 +898,7 @@ export function ChannelsWorkspace({
   const manualThread =
     activeThread && closedRequest === position?.request.requestId;
   function workspaceBack() {
-    if (appearanceInput) return () => setAppearanceInput(null);
+    if (appearanceOpen) return () => setAppearanceOpen(false);
     if (channelMenuOpen)
       return () => {
         setChannelMenuOpen(false);
@@ -804,8 +920,34 @@ export function ChannelsWorkspace({
     return activeThread ? closeThread : null;
   }
   const channelTitle = channel
-    ? selectedLabel || channel.displayName || text.nav
+    ? selectedLabel ||
+      conversationName(
+        channel,
+        userId,
+        profiles,
+        settings?.nameFormat ?? "username",
+        language,
+      ) ||
+      (channel.kind === "D" ? text.conversation.D : text.nav)
     : text.choose;
+  let channelDescription = "";
+  if (channel) {
+    const { kind } = channel;
+    if (channel.deleteAt > 0) channelDescription = text.conversation.archived;
+    else {
+      channelDescription = channel.header
+        .split(/\r?\n/u)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .join(" · ");
+      if (!channelDescription) {
+        if (kind === "D" && directPartnerId(channel.name, userId) === userId)
+          channelDescription = text.conversation.self;
+        else if (kind === "O" || kind === "P" || kind === "D" || kind === "G")
+          channelDescription = text.conversation[kind];
+      }
+    }
+  }
   const roomTitle =
     channel && (channel.kind === "O" || channel.kind === "P")
       ? `# ${channelTitle}`
@@ -827,7 +969,7 @@ export function ChannelsWorkspace({
     presentationScope,
     roomTitle,
   );
-  const tables = usePublishedTableWindow(
+  const reader = usePublishedReaderWindow(
     presentationScope,
     channel ? roomTitle : (selectedLabel ?? ""),
   );
@@ -843,7 +985,7 @@ export function ChannelsWorkspace({
       notificationRoom !== null ||
       workspace.messages.dialogOpen ||
       Boolean(attachments.selected) ||
-      Boolean(tables.opening) ||
+      Boolean(reader.opening) ||
       Boolean(actions.anchor),
     workspaceBack(),
   );
@@ -1006,9 +1148,9 @@ export function ChannelsWorkspace({
           chooseTeam: text.switchTeam,
           closeThread: text.closeThread,
         }}
+        searchTrigger={search.trigger}
         toolbar={
           <>
-            {search.trigger}
             <button
               type="button"
               className="channels-icon-action mentions-trigger"
@@ -1050,9 +1192,9 @@ export function ChannelsWorkspace({
               title={appearanceLabel}
               aria-label={appearanceLabel}
               aria-haspopup="dialog"
-              onClick={(event) => {
+              onClick={() => {
                 setAppearanceNotice("");
-                setAppearanceInput(event.detail ? "pointer" : "keyboard");
+                setAppearanceOpen(true);
               }}
             >
               <AppearanceMark name="palette" />
@@ -1066,7 +1208,11 @@ export function ChannelsWorkspace({
                   headingId={id}
                   headingRef={ref}
                   title={channelTitle}
+                  description={channelDescription}
+                  kind={channel.kind}
+                  archived={channel.deleteAt > 0}
                   language={language}
+                  compact={compact}
                   trigger={channelMenuButton}
                   open={channelMenuOpen}
                   setOpen={setChannelMenuOpen}
@@ -1112,7 +1258,6 @@ export function ChannelsWorkspace({
               openRow={openCollectionRow}
               restore={collections.restore}
               close={() => collections.close()}
-              sessionIssue={sessionIssue}
             />
           ) : collections.view &&
             collections.view.kind !== "mentions" &&
@@ -1141,7 +1286,6 @@ export function ChannelsWorkspace({
               channelInfo={(id) => resultRooms.get(id)}
               authorName={(id) => author(id)?.name}
               savedIds={knownSaves.ids}
-              sessionIssue={sessionIssue}
               restore={collections.restore}
               openRow={openCollectionRow}
               close={() => collections.close()}
@@ -1158,19 +1302,51 @@ export function ChannelsWorkspace({
                   {position.membership}
                 </span>
               )}
-              {collectionDestination && (
-                <button
-                  type="button"
-                  className="search-return"
-                  onClick={returnToCollection}
-                >
-                  {collectionDestination.kind === "mentions"
-                    ? mentionLabels.back
-                    : collectionDestination.kind === "all"
-                      ? collectionLabels.savedBack
-                      : collectionLabels.pinsBack}
-                </button>
-              )}
+              {collectionOrigin &&
+                collectionDestination &&
+                (collectionDestination.kind === "pins" ? (
+                  <button
+                    type="button"
+                    className="search-return"
+                    onClick={returnToCollection}
+                  >
+                    {collectionLabels.pinsBack}
+                  </button>
+                ) : (
+                  <CollectionResultSteps
+                    name={
+                      collectionDestination.kind === "mentions"
+                        ? mentionLabels.title
+                        : collectionLabels.saved
+                    }
+                    icon={
+                      collectionDestination.kind === "mentions" ? (
+                        <MentionMark />
+                      ) : (
+                        <CollectionMark kind="all" />
+                      )
+                    }
+                    backLabel={
+                      collectionDestination.kind === "mentions"
+                        ? mentionLabels.back
+                        : collectionLabels.savedBack
+                    }
+                    language={language}
+                    index={collectionIndex}
+                    count={collectionOrigin.ids.length}
+                    partial={collectionOrigin.partial}
+                    blocked={
+                      !online ||
+                      workspace.messages.dialogOpen ||
+                      Boolean(attachments.selected) ||
+                      Boolean(reader.opening) ||
+                      Boolean(actions.anchor)
+                    }
+                    step={stepCollection}
+                    back={returnToCollection}
+                    end={endCollection}
+                  />
+                ))}
               {search.origin && !position.system && (
                 <button
                   type="button"
@@ -1186,9 +1362,7 @@ export function ChannelsWorkspace({
         returnInThread={compact && Boolean(activeThread)}
         accountRef={accountButton}
         draftRef={directoryOpen ? undefined : draftField}
-        accountName={
-          own && settings ? teammateName(own, settings.nameFormat) : ""
-        }
+        accountName={accountName}
         teamName={team.displayName || team.name}
         channel={
           directoryOpen
@@ -1196,7 +1370,7 @@ export function ChannelsWorkspace({
             : channel
               ? {
                   id: channel.id,
-                  title: channelTitle,
+                  title: historyDenied ? text.forbidden : channelTitle,
                 }
               : null
         }
@@ -1206,7 +1380,11 @@ export function ChannelsWorkspace({
             : text.choose
         }
         page={
-          chosen || directoryOpen || canReturnToResults ? page : "navigation"
+          collectionDestination
+            ? "conversation"
+            : chosen || directoryOpen || canReturnToResults
+              ? page
+              : "navigation"
         }
         onNavigation={() => {
           workspace.systemPost?.stop("paused");
@@ -1323,6 +1501,14 @@ export function ChannelsWorkspace({
                 userId={userId}
                 sessionIssue={sessionIssue}
                 page={timeline.page}
+                restoredPosition={
+                  restoration && timeline.page
+                    ? {
+                        requestId: restoration.request.requestId,
+                        place: restoration.place,
+                      }
+                    : undefined
+                }
                 inaccessibleBefore={timeline.firstInaccessiblePostTime}
                 waitingMessage={
                   !timeline.page &&
@@ -1373,14 +1559,13 @@ export function ChannelsWorkspace({
           }}
         />
       )}
-      {appearanceInput && (
+      {appearanceOpen && (
         <Suspense fallback={null}>
           <AppearanceDialog
             language={language}
-            close={() => setAppearanceInput(null)}
+            close={() => setAppearanceOpen(false)}
             opener={appearanceButton}
             applied={setAppearanceNotice}
-            initialInput={appearanceInput}
           />
         </Suspense>
       )}
@@ -1394,7 +1579,7 @@ export function ChannelsWorkspace({
         <AccountSessionWindow
           workspace={workspace}
           language={language}
-          onEnded={onEnded}
+          accountName={accountName}
           onDismiss={closed}
         />
       )}
@@ -1407,10 +1592,11 @@ export function ChannelsWorkspace({
   );
   return (
     <AttachmentWindow value={attachments}>
-      <PublishedTableWindow value={tables.value}>
+      <PublishedReaderWindow value={reader.value}>
         <PostActionScope value={actions}>{content}</PostActionScope>
-        <PublishedTableScreen tables={tables} />
-      </PublishedTableWindow>
+        <PublishedTableScreen reader={reader} />
+        <PublishedCodeReader reader={reader} />
+      </PublishedReaderWindow>
     </AttachmentWindow>
   );
 }

@@ -5,35 +5,51 @@ import type { EntryLanguage } from "./language";
 import { sessionText } from "./session-text";
 import { signOutText } from "./sign-out-text";
 import { teamText } from "./team-text";
+import "./account-exit.css";
 
-type Page = "account" | "unconfirmed" | "confirmed";
+type Page = "account" | "confirm" | "unconfirmed" | "cleanup";
+
+// Display known native codes. Transport and storage diagnostics stay private.
+function cleanupCode(cause: unknown) {
+  switch (cause) {
+    case "credential_storage_unavailable":
+    case "history_storage_unavailable":
+    case "invalid_stored_credential":
+      return cause;
+  }
+}
+
 export function AccountSessionWindow({
   workspace,
   language,
-  onEnded,
+  accountName,
   onDismiss,
 }: {
   workspace: TeamWorkspace;
   language: EntryLanguage;
-  onEnded: () => void;
+  accountName: string;
   onDismiss: () => void;
 }) {
   const [page, setPage] = useState<Page>("account");
-  const [busy, setBusy] = useState<"server" | "local" | null>(null);
+  const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const working = useRef(false);
   const mounted = useRef(false);
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const heading = useRef<HTMLHeadingElement>(null);
+  const neutral = useRef<HTMLButtonElement>(null);
+  const primary = useRef<HTMLButtonElement>(null);
+  const text = signOutText[language];
+  const { cleanup, run } = workspace.exit;
+  const code = cleanupCode(cleanup?.cause);
+  const isMenu = page === "account";
+
   useLayoutEffect(() => {
     const node = dialog.current;
     node?.showModal();
     return () => node?.close();
   }, []);
-  const signOutButton = useRef<HTMLButtonElement>(null);
-  const restoreFocus = useRef(false);
-  const text = signOutText[language];
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -41,144 +57,169 @@ export function AccountSessionWindow({
     };
   }, []);
   useLayoutEffect(() => {
-    if (page === "account" && restoreFocus.current) {
-      signOutButton.current?.focus();
-      restoreFocus.current = false;
-    } else heading.current?.focus();
+    const target =
+      page === "account"
+        ? heading.current
+        : page === "cleanup"
+          ? primary.current
+          : neutral.current;
+    target?.focus({ preventScroll: true });
   }, [page]);
 
-  async function signOut(local: boolean) {
+  async function signOut() {
     if (working.current) return;
     working.current = true;
-    setBusy(local ? "local" : "server");
+    setBusy(true);
     setFailed(false);
     try {
-      if (local) {
-        await workspace.connection.signOutOnDevice();
-        if (mounted.current) onEnded();
-        return;
-      }
-      const result = await workspace.connection.signOut();
-      if (!mounted.current) return;
-      if (result.status === "unconfirmed") setPage("unconfirmed");
-      else if (result.status === "server_confirmed_local_removal_failed")
-        setPage("confirmed");
-      else onEnded();
+      const next = await run(page === "confirm" ? "server" : "device");
+      if (mounted.current && next) setPage(next);
     } catch {
       if (mounted.current) setFailed(true);
     } finally {
       if (mounted.current) {
         working.current = false;
-        setBusy(null);
+        setBusy(false);
       }
     }
   }
-  function stay() {
-    if (working.current) return;
-    restoreFocus.current = true;
-    setFailed(false);
-    setPage("account");
-  }
+
+  const actions = {
+    confirm: {
+      secondary: text.cancel,
+      primary: text.signOut,
+      busy: text.pending,
+      progress: text.pendingExplanation,
+    },
+    unconfirmed: {
+      secondary: text.stay,
+      primary: text.localOnly,
+      busy: text.pendingLocal,
+      progress: text.pendingLocalExplanation,
+    },
+    cleanup: {
+      secondary: text.later,
+      primary: text.retryLocal,
+      busy: text.cleaning,
+      progress: text.cleaningExplanation,
+    },
+  };
   return (
     <dialog
       ref={dialog}
-      className="workspace-account-menu modal-layout"
+      className={`${isMenu ? "workspace-account-menu" : "account-exit-window"} modal-layout`}
       aria-labelledby={titleId}
       onCancel={(event) => {
         event.preventDefault();
-        if (page === "account" && !working.current) onDismiss();
+        if (!working.current) onDismiss();
       }}
     >
       <header>
-        {page === "account" && (
-          <button
-            type="button"
-            className="workspace-menu-close"
-            aria-label={workspaceCopy[language].close}
-            disabled={!!busy}
-            onClick={onDismiss}
-          >
-            ×
-          </button>
-        )}
         <h1 id={titleId} tabIndex={-1} ref={heading}>
-          {page === "account"
+          {isMenu
             ? workspace.team.displayName || workspace.team.name
             : text[page]}
         </h1>
+        <button
+          type="button"
+          className="workspace-menu-close"
+          aria-label={isMenu ? workspaceCopy[language].close : text.close}
+          disabled={busy}
+          onClick={onDismiss}
+        >
+          ×
+        </button>
       </header>
       {/* biome-ignore lint/a11y/noNoninteractiveTabindex: Keyboard users scroll this region even when it contains only text. */}
       <section className="modal-scroll" aria-labelledby={titleId} tabIndex={0}>
-        <p className="entry-address" dir="ltr">
-          {workspace.serverUrl}
-        </p>
-        {page === "account" && workspace.directoryNotice && (
-          <p role="status">
-            {teamText[language][workspace.directoryNotice]}
-            {workspace.directoryCode && (
+        {isMenu ? (
+          <>
+            <p className="entry-address" dir="ltr">
+              {workspace.serverUrl}
+            </p>
+            {workspace.directoryNotice && (
+              <p role="status">
+                {teamText[language][workspace.directoryNotice]}
+                {workspace.directoryCode && (
+                  <>
+                    {" "}
+                    <code dir="ltr">{workspace.directoryCode}</code>
+                  </>
+                )}
+              </p>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="account-exit-who">
+              {accountName || text.account} · <bdi>{workspace.serverUrl}</bdi>
+            </p>
+            {page === "confirm" && <p>{text.consequence}</p>}
+            {page === "unconfirmed" && (
               <>
-                {" "}
-                <code dir="ltr">{workspace.directoryCode}</code>
+                <p>{text.sessionRemains}</p>
+                <p>{text.choice}</p>
               </>
             )}
-          </p>
-        )}
-        {page !== "account" && (
-          <p className="entry-lead">
-            {page === "confirmed" ? text.remaining : text.explain}
-          </p>
-        )}
-        {failed && (
-          <p className="entry-error" role="alert">
-            {text.error}
-          </p>
-        )}
-        {busy && (
-          <p role="status">
-            {busy === "server" ? text.pending : text.pendingLocal}
-          </p>
+            {page === "cleanup" && (
+              <>
+                <p>
+                  {cleanup?.confirmed && `${text.serverEnded} `}
+                  {text.remaining}
+                </p>
+                {code && (
+                  <p className="account-exit-code">{text.errorCode(code)}</p>
+                )}
+              </>
+            )}
+            {failed && (
+              <p className="entry-error" role="alert">
+                {text.error}
+              </p>
+            )}
+            {busy && <p role="status">{actions[page].progress}</p>}
+          </>
         )}
       </section>
       <footer className="entry-session-actions">
-        {page === "account" ? (
+        {isMenu ? (
           <>
             <button
               className="entry-secondary"
               type="button"
-              disabled={!!busy}
               onClick={workspace.chooseAnotherTeam}
             >
               {sessionText[language].chooseTeam}
             </button>
             <button
-              ref={signOutButton}
               className="entry-secondary"
               type="button"
-              aria-disabled={!!busy}
-              onClick={() => void signOut(false)}
+              onClick={() => setPage(cleanup ? "cleanup" : "confirm")}
             >
               {text.signOut}
             </button>
           </>
         ) : (
           <>
-            {page === "unconfirmed" && (
-              <button
-                className="entry-secondary"
-                type="button"
-                disabled={!!busy}
-                onClick={stay}
-              >
-                {text.stay}
-              </button>
-            )}
             <button
-              className="entry-primary"
+              ref={neutral}
+              className="entry-secondary"
               type="button"
-              aria-disabled={!!busy}
-              onClick={() => void signOut(true)}
+              disabled={busy}
+              onClick={onDismiss}
             >
-              {page === "confirmed" ? text.retryLocal : text.localOnly}
+              {actions[page].secondary}
+            </button>
+            <button
+              ref={primary}
+              className={
+                page === "cleanup" ? "entry-primary" : "account-exit-danger"
+              }
+              type="button"
+              aria-disabled={busy}
+              onClick={() => void signOut()}
+            >
+              {busy ? actions[page].busy : actions[page].primary}
             </button>
           </>
         )}
