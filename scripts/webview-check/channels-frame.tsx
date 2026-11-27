@@ -112,6 +112,8 @@ export async function checkChannelsFrame() {
     show();
     const draft = control("input");
     const main = control("main");
+    const mainHead = control("main > .channels-pane-head");
+    const panes = control(".channels-panes");
     const nav = control("nav");
     const open = control('[data-open-thread="first"]');
     const second = control('[data-open-thread="second"]');
@@ -145,6 +147,16 @@ export async function checkChannelsFrame() {
         host.style.width = `${width}px`;
         const bounds = () => main.getBoundingClientRect();
         const narrow = width <= 740;
+        const radius = narrow ? "0px" : "12px";
+        if (
+          getComputedStyle(main).borderStartStartRadius !== radius ||
+          getComputedStyle(mainHead).borderStartStartRadius !== radius ||
+          getComputedStyle(main).overflow !== "visible" ||
+          (!narrow &&
+            getComputedStyle(panes).backgroundColor !==
+              getComputedStyle(nav).backgroundColor)
+        )
+          throw Error(`frame-channel-corner-${mode}-${width}`);
         const logoBounds = mark?.getBoundingClientRect();
         if (
           logoBounds &&
@@ -203,6 +215,11 @@ export async function checkChannelsFrame() {
         open.focus();
         open.click();
         const aside = control("aside");
+        if (
+          getComputedStyle(aside).borderRadius !== "0px" ||
+          getComputedStyle(main).borderStartStartRadius !== radius
+        )
+          throw Error(`frame-channel-corner-with-thread-${mode}-${width}`);
         if (
           document.activeElement !==
             (narrow ? control("h2") : replyRef.current) ||
