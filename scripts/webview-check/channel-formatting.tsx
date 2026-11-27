@@ -192,6 +192,8 @@ async function checkTableSwipe(
     "touchcancel",
   ] as const;
   const path: string[] = [];
+  const feed = target.closest<HTMLElement>(".timeline-scroll");
+  const feedStart = feed?.scrollTop;
   let started = false;
   let ended = false;
   const observe = (event: TouchEvent) => {
@@ -208,7 +210,7 @@ async function checkTableSwipe(
     await waitFor(() => {
       if (!ended || !moves())
         throw Error(
-          `Table ${axis} touch: offsets=${target.scrollLeft},${target.scrollTop}, area=${target.clientWidth}×${target.clientHeight}/${target.scrollWidth}×${target.scrollHeight}, requested=${requested} at ${scale}x, path=${path.join(" ")}`,
+          `Table ${axis} touch: offsets=${target.scrollLeft},${target.scrollTop}, area=${target.clientWidth}×${target.clientHeight}/${target.scrollWidth}×${target.scrollHeight}, requested=${requested} at ${scale}x, path=${path.join(" ")}${feed ? `, feed scrollTop=${feedStart}→${feed.scrollTop}` : ""}`,
         );
     });
   } finally {
