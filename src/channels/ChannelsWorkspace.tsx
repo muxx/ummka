@@ -79,6 +79,10 @@ type AccountOverlay =
   | { kind: "team-from-account" }
   | { kind: "team"; opener: HTMLButtonElement };
 
+function roomHeading(name: string, kind?: string) {
+  return kind === "O" || kind === "P" ? `# ${name}` : name;
+}
+
 type Sections = ReturnType<typeof visibleSidebar>;
 function Sidebar({
   sections,
@@ -537,9 +541,10 @@ export function ChannelsWorkspace({
     settings?.nameFormat,
     language,
   ]);
-  const selectedLabel = sections
+  const selectedRow = sections
     .flatMap((section) => section.rows)
-    .find((row) => row.id === chosen)?.title;
+    .find((row) => row.id === chosen);
+  const selectedLabel = selectedRow?.title;
   const draftText = draftCopy[language];
   function draftLabel() {
     if (!channel) return draftText.generic;
@@ -856,14 +861,16 @@ export function ChannelsWorkspace({
   if (thread && !activeThread) setThread(null);
   const pinsSource =
     collections.view?.kind === "pins" ? collections.view.channelId : null;
+  const pinsRoom = pinsSource
+    ? channels?.find((room) => room.id === pinsSource)
+    : undefined;
   const pinsAvailable =
     !pinsSource ||
     (!["forbidden", "session", "unauthorized"].includes(
       directory.state.status,
     ) &&
       !(chosen === pinsSource && historyDenied) &&
-      (snapshot?.data.channels.some((room) => room.id === pinsSource) ??
-        false));
+      pinsRoom !== undefined);
   useEffect(() => {
     if (!pinsAvailable) collections.close(false);
   }, [pinsAvailable, collections.close]);
@@ -935,15 +942,21 @@ export function ChannelsWorkspace({
     if (visibleSearchPanel) return search.back;
     return activeThread ? closeThread : null;
   }
+  function knownRoomName(room: NonNullable<typeof channel>) {
+    return conversationName(
+      room,
+      userId,
+      profiles,
+      settings?.nameFormat ?? "username",
+      language,
+    );
+  }
+  const currentRoomName = channel
+    ? (selectedRow?.displayName ?? knownRoomName(channel))
+    : "";
   const channelTitle = channel
     ? selectedLabel ||
-      conversationName(
-        channel,
-        userId,
-        profiles,
-        settings?.nameFormat ?? "username",
-        language,
-      ) ||
+      currentRoomName ||
       (channel.kind === "D" ? text.conversation.D : text.nav)
     : text.choose;
   let channelDescription = "";
@@ -964,10 +977,19 @@ export function ChannelsWorkspace({
       }
     }
   }
-  const roomTitle =
-    channel && (channel.kind === "O" || channel.kind === "P")
-      ? `# ${channelTitle}`
-      : channelTitle;
+  const roomTitle = roomHeading(channelTitle, channel?.kind);
+  const pinsInCurrentRoom = pinsSource === channel?.id;
+  const pinsName = pinsRoom
+    ? pinsInCurrentRoom
+      ? currentRoomName
+      : knownRoomName(pinsRoom)
+    : "";
+  const pinsTitle =
+    pinsRoom && pinsName.trim()
+      ? pinsInCurrentRoom
+        ? roomTitle
+        : roomHeading(pinsName, pinsRoom.kind)
+      : undefined;
   const presentationScope = JSON.stringify([
     connection.rid,
     team.id,
@@ -1287,6 +1309,7 @@ export function ChannelsWorkspace({
               model={collections.view.model}
               state={collections.state}
               kind={collections.view.kind}
+              roomTitle={pinsTitle}
               language={language}
               online={online}
               canRemove={

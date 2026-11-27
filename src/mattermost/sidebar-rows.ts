@@ -73,6 +73,7 @@ export function conversationRow(
   return {
     id: c.id,
     kind: c.kind,
+    displayName: name,
     title: name || (c.kind === "D" ? captions[ctx.locale].dm : c.name),
     current: c.id === selected,
     archived: c.deleteAt > 0,
