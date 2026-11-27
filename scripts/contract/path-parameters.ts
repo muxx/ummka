@@ -48,6 +48,8 @@ export function checkPathParameters(
       segment === "{thread_id}" ||
       segment === "{file_id}" ||
       segment === "{timestamp}" ||
+      segment === "{username}" ||
+      segment === "{email}" ||
       segment === "{emoji_name}"
     )
       names.add(segment.slice(1, -1));
