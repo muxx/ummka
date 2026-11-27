@@ -82,11 +82,11 @@ beforeEach(() => {
   });
   vi.mocked(getCurrentAccountId).mockResolvedValue("user");
   vi.mocked(watchSystemChannelsLinks).mockImplementation(
-    async (navigate, _error, signal, empty) => {
+    async (navigate, _error, signal, observers) => {
       receive = navigate;
       reportInboxError = _error;
       osLife = signal;
-      empty?.();
+      observers?.onEmpty?.();
       return { retry: vi.fn(), dismiss: dismissInbox };
     },
   );
