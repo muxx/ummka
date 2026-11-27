@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { openPostCollection } from "../../../src/channels/post-collection.ts";
 import { accountPostCollections } from "../../../src/mattermost/account-post-collections.ts";
 import { accountCollectionActions } from "../../../src/mattermost/post-collection-actions.ts";
+import { createSavedPostState } from "../../../src/mattermost/saved-post-state.ts";
 import {
   Configuration,
   PostsApi,
@@ -25,9 +26,15 @@ export async function checkSparseSavedPages(
   const author = new PostsApi(
     new Configuration({ basePath: origin, accessToken: authorToken }),
   );
+  const savedState = createSavedPostState();
   const account = {
-    ...accountPostCollections(config, member.id, (read) => read()),
-    ...accountCollectionActions(config, member.id, (write) => write()),
+    ...accountPostCollections(config, member.id, (read) => read(), savedState),
+    ...accountCollectionActions(
+      config,
+      member.id,
+      (write) => write(),
+      savedState,
+    ),
   };
   const scope = { kind: "team" as const, teamId };
   const ids: string[] = [];

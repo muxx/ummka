@@ -1644,7 +1644,7 @@ test("cross-team saved reply returns to the same ID in a fresh list and keeps th
   expect(screen.queryByRole("button", { name: "Next in list" })).toBeNull();
   expect(screen.getByText("Team “Winter”")).toBeTruthy();
   const before = account.readSavedPosts.mock.calls.length;
-  account.readSavedPostPreferences.mockResolvedValueOnce({
+  account.readPreferences.mockResolvedValueOnce({
     ids: new Set([root.id, reply.id]),
     upperBound: 61,
   });
@@ -2129,7 +2129,7 @@ test("stepping from a local saved post opens the cross-team reply and does not s
     ],
     firstInaccessiblePostTime: 0,
   });
-  account.readSavedPostPreferences.mockResolvedValueOnce({
+  account.readPreferences.mockResolvedValueOnce({
     ids: new Set([local.id]),
     upperBound: 1,
   });
@@ -2146,7 +2146,7 @@ test("stepping from a local saved post opens the cross-team reply and does not s
       .getAttribute("role"),
   ).toBe("status");
   let completeRemoval: (() => void) | undefined;
-  account.setPostSaved.mockImplementationOnce(
+  account.writeSavedPost.mockImplementationOnce(
     () =>
       new Promise<void>((resolve) => {
         completeRemoval = resolve;
@@ -2211,7 +2211,7 @@ test("returning after removal focuses the fresh row at the old index after the f
     firstInaccessiblePostTime: 0,
   });
   await visitSavedReply();
-  account.readSavedPostPreferences.mockResolvedValueOnce({
+  account.readPreferences.mockResolvedValueOnce({
     ids: new Set([older.id, newer.id]),
     upperBound: 1201,
   });
@@ -2253,7 +2253,7 @@ test("returning after removal focuses the fresh row at the old index after the f
   expect(
     account.readSavedPostsAtOffset.mock.calls.map(([, offset]) => offset),
   ).toEqual([60, 60]);
-  expect(account.readSavedPostPreferences).toHaveBeenLastCalledWith(
+  expect(account.readPreferences).toHaveBeenLastCalledWith(
     expect.any(AbortSignal),
   );
 });
@@ -2261,7 +2261,7 @@ test("returning after removal focuses the fresh row at the old index after the f
 test("a still-flagged but inaccessible post does not report a removed bookmark", async () => {
   const { account } = boot({ cross: true });
   await visitSavedReply();
-  account.readSavedPostPreferences.mockResolvedValueOnce({
+  account.readPreferences.mockResolvedValueOnce({
     ids: new Set([root.id, reply.id]),
     upperBound: 2,
   });
@@ -2286,7 +2286,7 @@ test("a still-flagged but inaccessible post does not report a removed bookmark",
 test("a concurrently returned saved row takes precedence over an absent flag snapshot", async () => {
   const { account } = boot({ cross: true });
   await visitSavedReply();
-  account.readSavedPostPreferences.mockResolvedValueOnce({
+  account.readPreferences.mockResolvedValueOnce({
     ids: new Set([root.id]),
     upperBound: 1201,
   });
@@ -2312,13 +2312,13 @@ test("manual reopening clears the previous return target and the next cross-team
     name: /Saved reply preview/,
   });
   expect(replyRow.getAttribute("aria-current")).toBe("true");
-  expect(account.readSavedPostPreferences).toHaveBeenLastCalledWith(
+  expect(account.readPreferences).toHaveBeenLastCalledWith(
     expect.any(AbortSignal),
   );
 
   pressBack();
   expect(firstReturn.isConnected).toBe(false);
-  const before = account.readSavedPostPreferences.mock.calls.length;
+  const before = account.readPreferences.mock.calls.length;
   fireEvent.click(
     await screen.findByRole("button", { name: "Saved messages" }),
   );
@@ -2328,9 +2328,9 @@ test("manual reopening clears the previous return target and the next cross-team
   });
   expect(reopened.querySelector("[aria-current]")).toBeNull();
   await waitFor(() =>
-    expect(account.readSavedPostPreferences).toHaveBeenCalledTimes(before + 1),
+    expect(account.readPreferences).toHaveBeenCalledTimes(before + 1),
   );
-  expect(account.readSavedPostPreferences).toHaveBeenLastCalledWith(
+  expect(account.readPreferences).toHaveBeenLastCalledWith(
     expect.any(AbortSignal),
   );
 
@@ -2343,7 +2343,7 @@ test("manual reopening clears the previous return target and the next cross-team
   });
   expect(rootRow.getAttribute("aria-current")).toBe("true");
   expect(secondReturn).not.toBe(firstReturn);
-  expect(account.readSavedPostPreferences).toHaveBeenLastCalledWith(
+  expect(account.readPreferences).toHaveBeenLastCalledWith(
     expect.any(AbortSignal),
   );
 });
@@ -2355,7 +2355,7 @@ test("returning after removal of the only saved item focuses the empty heading",
     items: [],
     firstInaccessiblePostTime: 0,
   });
-  account.readSavedPostPreferences.mockResolvedValueOnce({
+  account.readPreferences.mockResolvedValueOnce({
     ids: new Set(),
     upperBound: 0,
   });

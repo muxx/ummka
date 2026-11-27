@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { expect, test, vi } from "vitest";
 import { ResponseError } from "../../vendor/mattermost/index.js";
+import { createSavedPostState } from "../mattermost/saved-post-state.ts";
 import { openPostCollection } from "./post-collection.ts";
 
 const channelId = "c".repeat(26);
@@ -21,12 +22,28 @@ function deferredPage() {
 
 function mockAccount() {
   type Account = Parameters<typeof openPostCollection>[0];
+  const savedPosts = createSavedPostState();
+  const writeSavedPost = vi.fn<Account["setPostSaved"]>();
+  const readPreferences = vi
+    .fn<Account["readSavedPostPreferences"]>()
+    .mockResolvedValue({ ids: new Set([first.id, last.id]), upperBound: 2 });
   return {
-    setPostSaved: vi.fn<Account["setPostSaved"]>(),
+    getSavedPostState: savedPosts.get,
+    getSavedPostUpperBound: savedPosts.getUpperBound,
+    writeSavedPost,
+    async setPostSaved(...args: Parameters<Account["setPostSaved"]>) {
+      await writeSavedPost(...args);
+      if (!args[2]?.aborted) savedPosts.record(args[0], args[1]);
+    },
+    subscribeToSavedPostWrites: savedPosts.subscribeToWrites,
     setPostPinned: vi.fn<Account["setPostPinned"]>(),
-    readSavedPostPreferences: vi
-      .fn<Account["readSavedPostPreferences"]>()
-      .mockResolvedValue({ ids: new Set([first.id, last.id]), upperBound: 2 }),
+    readPreferences,
+    async readSavedPostPreferences(signal?: AbortSignal) {
+      const ticket = savedPosts.beginRead();
+      const result = await readPreferences(signal);
+      if (!signal?.aborted) savedPosts.publish(ticket, result);
+      return result;
+    },
     readSavedPostsAtOffset: vi.fn<Account["readSavedPostsAtOffset"]>(),
     readPinnedChannelPosts: vi.fn<Account["readPinnedChannelPosts"]>(),
     readSavedPosts: vi.fn<Account["readSavedPosts"]>(),
@@ -218,9 +235,9 @@ test.each(["all", "pins"] as const)(
     account.readPinnedChannelPosts.mockResolvedValue(page);
     account.readSavedPosts.mockResolvedValue(page);
     const action =
-      kind === "pins" ? account.setPostPinned : account.setPostSaved;
+      kind === "pins" ? account.setPostPinned : account.writeSavedPost;
     const other =
-      kind === "pins" ? account.setPostSaved : account.setPostPinned;
+      kind === "pins" ? account.writeSavedPost : account.setPostPinned;
     const older = heldWrite();
     const newer = heldWrite();
     action
@@ -272,6 +289,7 @@ test.each(["all", "pins"] as const)(
 
 test("a read started before confirmation cannot restore a removed pin; a new read can show it pinned again", async () => {
   const account = mockAccount();
+  await account.setPostSaved(first.id, true);
   const old = deferredPage();
   account.readPinnedChannelPosts
     .mockResolvedValueOnce(page)
@@ -301,7 +319,7 @@ test.each([
   async (error, outcome) => {
     const account = mockAccount();
     account.readSavedPosts.mockResolvedValue(page);
-    account.setPostSaved.mockRejectedValueOnce(error).mockResolvedValueOnce();
+    account.writeSavedPost.mockRejectedValueOnce(error).mockResolvedValueOnce();
     const view = openPostCollection(account, { kind: "all" });
     await view.refresh();
     expect(await view.remove(first.id)).toBe(outcome);
@@ -311,7 +329,7 @@ test.each([
       value: page,
       removing: [],
     });
-    expect(account.setPostSaved).toHaveBeenCalledOnce();
+    expect(account.writeSavedPost).toHaveBeenCalledOnce();
     expect(await view.remove(first.id)).toBe("removed");
     expect(view.getSnapshot().value?.items).toEqual([last]);
     view.close();
@@ -326,7 +344,7 @@ test("loss of the session while writing cancels other writes and the old read", 
     .mockResolvedValueOnce(page)
     .mockReturnValueOnce(readGate.promise)
     .mockResolvedValueOnce(empty);
-  account.setPostSaved
+  account.writeSavedPost
     .mockReturnValueOnce(writing.promise)
     .mockRejectedValueOnce(
       new ResponseError(new Response(null, { status: 401 })),
@@ -336,7 +354,7 @@ test("loss of the session while writing cancels other writes and the old read", 
   const read = view.refresh();
   const firstWrite = view.remove(first.id);
   expect(await view.remove(last.id)).toBe("unauthorized");
-  expect(account.setPostSaved.mock.calls[0][2]?.aborted).toBe(true);
+  expect(account.writeSavedPost.mock.calls[0][2]?.aborted).toBe(true);
   expect(account.readSavedPosts.mock.calls[1][2]?.aborted).toBe(true);
   expect(view.getSnapshot()).toEqual({
     continuation: "none",
@@ -368,14 +386,14 @@ test.each(["close", "deny read"] as const)(
       .mockRejectedValueOnce(
         new ResponseError(new Response(null, { status: 403 })),
       );
-    account.setPostSaved.mockReturnValueOnce(gate.promise);
+    account.writeSavedPost.mockReturnValueOnce(gate.promise);
     const view = openPostCollection(account, { kind: "all" });
     await view.refresh();
     const pending = view.remove(last.id);
     await Promise.resolve();
     if (end === "close") view.close();
     else await view.refresh();
-    expect(account.setPostSaved.mock.calls[0][2]?.aborted).toBe(true);
+    expect(account.writeSavedPost.mock.calls[0][2]?.aborted).toBe(true);
     gate.resolve();
     expect(await pending).toBe("unavailable");
     expect(view.getSnapshot()).toEqual({
@@ -396,12 +414,12 @@ test("closing in the removing notification prevents sending the write", async ()
     if (view.getSnapshot().removing.length) view.close();
   });
   expect(await view.remove(first.id)).toBe("unavailable");
-  expect(account.setPostSaved).not.toHaveBeenCalled();
+  expect(account.writeSavedPost).not.toHaveBeenCalled();
 });
 
 test("a saved scan crosses a fully hidden page, keeps actual rows and reads its bound once", async () => {
   const account = mockAccount();
-  account.readSavedPostPreferences.mockResolvedValue({
+  account.readPreferences.mockResolvedValue({
     ids: new Set([first.id, last.id]),
     upperBound: 121,
   });
@@ -437,15 +455,15 @@ test("a saved scan crosses a fully hidden page, keeps actual rows and reads its 
     [source, 60],
     [source, 120],
   ]);
-  expect(account.readSavedPostPreferences).toHaveBeenCalledTimes(1);
+  expect(account.readPreferences).toHaveBeenCalledTimes(1);
   await view.refresh();
-  expect(account.readSavedPostPreferences).toHaveBeenCalledTimes(2);
+  expect(account.readPreferences).toHaveBeenCalledTimes(2);
 });
 
 test("confirmed removal cancels a stale page and corrects the next offset, rejection leaves it alone", async () => {
   const account = mockAccount(),
     late = deferredPage();
-  account.readSavedPostPreferences.mockResolvedValue({
+  account.readPreferences.mockResolvedValue({
     ids: new Set([first.id, last.id]),
     upperBound: 61,
   });
@@ -454,7 +472,7 @@ test("confirmed removal cancels a stale page and corrects the next offset, rejec
     .mockReturnValueOnce(late.promise)
     .mockRejectedValueOnce(new TypeError("offline"))
     .mockResolvedValueOnce({ items: [last], firstInaccessiblePostTime: 0 });
-  account.setPostSaved
+  account.writeSavedPost
     .mockRejectedValueOnce(new TypeError("offline"))
     .mockResolvedValueOnce(undefined);
   const view = openPostCollection(account, { kind: "all" });
@@ -482,7 +500,7 @@ test("confirmed removal cancels a stale page and corrects the next offset, rejec
 test("revoked access clears loaded saved rows; closing cancels continuation and ignores its late response", async () => {
   const account = mockAccount(),
     late = deferredPage();
-  account.readSavedPostPreferences.mockResolvedValue({
+  account.readPreferences.mockResolvedValue({
     ids: new Set([first.id, last.id]),
     upperBound: 80,
   });
@@ -520,7 +538,7 @@ test.each([false, true])(
   async (staleFlag) => {
     const account = mockAccount(),
       fresh = deferredPage();
-    account.readSavedPostPreferences
+    account.readPreferences
       .mockResolvedValueOnce({
         ids: new Set([first.id, last.id]),
         upperBound: 61,
@@ -536,7 +554,7 @@ test.each([false, true])(
       items: [last],
       firstInaccessiblePostTime: 0,
     });
-    account.setPostSaved.mockResolvedValue(undefined);
+    account.writeSavedPost.mockResolvedValue(undefined);
     const view = openPostCollection(account, { kind: "all" });
     await view.refresh();
     const refresh = view.refresh(first.id);

@@ -11,6 +11,7 @@ import { createChannelHistoryChanges } from "../mattermost/channel-history-chang
 import { getDeviceLaunchContext } from "../mattermost/device-launch.ts";
 import type { LocalPost } from "../mattermost/local-history.ts";
 import { openAccountRestConnection } from "../mattermost/native-rest.ts";
+import { createSavedPostState } from "../mattermost/saved-post-state.ts";
 import { projectTeamSidebar } from "../mattermost/team-sidebar.ts";
 import {
   sidebarPreferences,
@@ -179,7 +180,18 @@ export function fixture({
     [root.id, "Unfinished reply"],
   ]);
   const changes = createChannelHistoryChanges();
+  const savedPosts = createSavedPostState();
+  const writeSavedPost = vi
+    .fn<Account["setPostSaved"]>()
+    .mockResolvedValue(undefined);
+  const readPreferences = vi
+    .fn<Account["readSavedPostPreferences"]>()
+    .mockResolvedValue({ ids: new Set([root.id, reply.id]), upperBound: 2 });
   const account = {
+    getSavedPostPresentation: savedPosts.getPresentation,
+    getSavedPostState: savedPosts.get,
+    getSavedPostUpperBound: savedPosts.getUpperBound,
+    subscribeToSavedPostState: savedPosts.subscribe,
     subscribeToChannelHistory: changes.subscribe,
     notifyChannelHistoryChanged: changes.notify,
     rid: 9,
@@ -266,9 +278,13 @@ export function fixture({
       firstInaccessiblePostTime: 0,
     }),
     readSavedPostsAtOffset: vi.fn<Account["readSavedPostsAtOffset"]>(),
-    readSavedPostPreferences: vi
-      .fn<Account["readSavedPostPreferences"]>()
-      .mockResolvedValue({ ids: new Set([root.id, reply.id]), upperBound: 2 }),
+    readPreferences,
+    async readSavedPostPreferences(signal?: AbortSignal) {
+      const ticket = savedPosts.beginRead();
+      const result = await readPreferences(signal);
+      if (!signal?.aborted) savedPosts.publish(ticket, result);
+      return result;
+    },
     readPinnedChannelPosts: vi
       .fn<Account["readPinnedChannelPosts"]>()
       .mockResolvedValue({
@@ -283,7 +299,12 @@ export function fixture({
         ],
         firstInaccessiblePostTime: 0,
       }),
-    setPostSaved: vi.fn<Account["setPostSaved"]>().mockResolvedValue(undefined),
+    writeSavedPost,
+    async setPostSaved(...args: Parameters<Account["setPostSaved"]>) {
+      await writeSavedPost(...args);
+      if (!args[2]?.aborted) savedPosts.record(args[0], args[1]);
+    },
+    subscribeToSavedPostWrites: savedPosts.subscribeToWrites,
     setPostPinned: vi
       .fn<Account["setPostPinned"]>()
       .mockResolvedValue(undefined),

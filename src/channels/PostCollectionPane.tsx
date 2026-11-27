@@ -132,6 +132,11 @@ export function PostCollectionPane({
     focus: boolean;
   } | null>(null);
   useLayoutEffect(() => {
+    if (kind !== "all" || !online) return;
+    model.setVisible(true);
+    return () => model.setVisible(false);
+  }, [kind, model, online]);
+  useLayoutEffect(() => {
     if (restoreCollectionRow(list.current, initial.current))
       initial.current = null;
     else heading.current?.focus();

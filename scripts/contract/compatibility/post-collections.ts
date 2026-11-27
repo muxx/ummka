@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { openPostCollection } from "../../../src/channels/post-collection.ts";
 import { accountPostCollections } from "../../../src/mattermost/account-post-collections.ts";
 import { accountCollectionActions } from "../../../src/mattermost/post-collection-actions.ts";
+import { createSavedPostState } from "../../../src/mattermost/saved-post-state.ts";
 import {
   ChannelsApi,
   Configuration,
@@ -196,7 +197,13 @@ export async function checkSavedPageBoundary(
     ids.push(post.id);
   }
   await flagPosts(base, reader, ids);
-  const account = accountPostCollections(config, reader.id, (read) => read());
+  const savedState = createSavedPostState();
+  const account = accountPostCollections(
+    config,
+    reader.id,
+    (read) => read(),
+    savedState,
+  );
   const scope = { kind: "channel" as const, channelId: direct };
   const first = await account.readSavedPosts(scope, 0);
   const second = await account.readSavedPosts(scope, 1);
@@ -211,7 +218,12 @@ export async function checkSavedPageBoundary(
   const view = openPostCollection(
     {
       ...account,
-      ...accountCollectionActions(config, reader.id, (write) => write()),
+      ...accountCollectionActions(
+        config,
+        reader.id,
+        (write) => write(),
+        savedState,
+      ),
     },
     scope,
   );

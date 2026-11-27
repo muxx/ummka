@@ -771,7 +771,7 @@ test("opens pins in the selected channel, distinguishes a confirmed personal mar
   remove.focus();
   fireEvent.click(remove);
   await waitFor(() => expect(row.isConnected).toBe(false));
-  expect(account.setPostSaved).toHaveBeenCalledWith(
+  expect(account.writeSavedPost).toHaveBeenCalledWith(
     root.id,
     false,
     expect.any(AbortSignal),
@@ -972,7 +972,7 @@ test("labels empty published bodies and attachments in saved rows", async () => 
 test("a hidden saved page remains traversable, preserves the previous rows on retry, and discards a revoked response", async () => {
   const { account } = fixture();
   const trigger = await screen.findByRole("button", { name: "Saved messages" });
-  account.readSavedPostPreferences.mockResolvedValue({
+  account.readPreferences.mockResolvedValue({
     ids: new Set([root.id, reply.id, bookmark]),
     upperBound: 121,
   });
@@ -1023,7 +1023,7 @@ test("a hidden saved page remains traversable, preserves the previous rows on re
   expect(
     account.readSavedPostsAtOffset.mock.calls.map(([, offset]) => offset),
   ).toEqual([60, 120, 120]);
-  expect(account.readSavedPostPreferences).toHaveBeenCalledTimes(1);
+  expect(account.readPreferences).toHaveBeenCalledTimes(1);
   account.readSavedPosts.mockRejectedValueOnce(
     new ResponseError(new Response(null, { status: 403 })),
   );
