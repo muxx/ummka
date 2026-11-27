@@ -100,7 +100,6 @@ async function checkArrowRight(
   element: HTMLElement,
   target: string,
   pressRight: () => Promise<void>,
-  { waitForStableOffset = false }: { waitForStableOffset?: boolean } = {},
 ) {
   element.scrollIntoView({ block: "center" });
   element.focus();
@@ -108,11 +107,6 @@ async function checkArrowRight(
     throw Error("Scrollable block did not receive initial focus");
   const phases = new Set<string>();
   const observed: string[] = [];
-  let frame = 0;
-  let sampledOffset = 0;
-  let unchangedSince = 0;
-  let unchangedFrames = 0;
-  let offsetIsStable = false;
   const observeRight = (event: KeyboardEvent) => {
     const tag =
       event.target instanceof Element ? event.target.tagName : "window";
@@ -124,43 +118,20 @@ async function checkArrowRight(
     )
       phases.add(event.type);
   };
-  const sampleOffset = (now: number) => {
-    const offset = element.scrollLeft;
-    if (phases.has("keyup") && offset > 0 && offset === sampledOffset) {
-      // Require repeated samples across a quiet interval even on fast displays.
-      offsetIsStable = ++unchangedFrames >= 4 && now - unchangedSince >= 100;
-    } else {
-      sampledOffset = offset;
-      unchangedSince = now;
-      unchangedFrames = 0;
-      offsetIsStable = false;
-    }
-    frame = requestAnimationFrame(sampleOffset);
-  };
-  const ready = () => {
-    const offset = element.scrollLeft;
-    return (
-      phases.size === 2 &&
-      offset > 0 &&
-      (!waitForStableOffset || (offsetIsStable && offset === sampledOffset))
-    );
-  };
+  const moved = () => phases.size === 2 && element.scrollLeft > 0;
   window.addEventListener("keydown", observeRight, true);
   window.addEventListener("keyup", observeRight, true);
   try {
     await pressRight();
     // Keep the block mounted until the complete physical key press arrives.
-    // A scroll position used by the next check also needs the animation to end.
     const deadline = performance.now() + 2500;
-    if (waitForStableOffset) frame = requestAnimationFrame(sampleOffset);
-    while (!ready() && performance.now() < deadline)
+    while (!moved() && performance.now() < deadline)
       await new Promise((resolve) => setTimeout(resolve, 20));
-    if (!ready() || document.activeElement !== element)
+    if (!moved() || document.activeElement !== element)
       throw Error(
-        `${target} after native ArrowRight: events=${observed.join(",")} scroll=${element.scrollLeft} stable=${offsetIsStable} focus=${document.activeElement === element}`,
+        `${target} after native ArrowRight: events=${observed.join(",")} scroll=${element.scrollLeft} focus=${document.activeElement === element}`,
       );
   } finally {
-    cancelAnimationFrame(frame);
     window.removeEventListener("keydown", observeRight, true);
     window.removeEventListener("keyup", observeRight, true);
   }
@@ -739,14 +710,12 @@ export async function checkChannelFormatting(
           fittingTable.hasAttribute("role")
         )
           throw Error("A fitting table added a keyboard stop");
-        await checkArrowRight(
-          table,
-          `table-${width}`,
-          () => pressRight("table", width),
-          { waitForStableOffset: true },
-        );
-        // AppKit acknowledging keyup does not finish WebKit's scroll animation.
+        // Use a stationary offset for the render check. The native key below
+        // starts a WebKit scroll animation that can continue after keyup.
+        table.scrollLeft = 100;
         const offset = table.scrollLeft;
+        if (offset <= 1)
+          throw Error(`Could not set the table scroll offset at ${width}px`);
         const neighbor = posts[6];
         posts[6] = { ...neighbor, message: `${neighbor.message}!` };
         draw();
@@ -757,6 +726,10 @@ export async function checkChannelFormatting(
           throw Error(
             `The neighboring edit moved the table at ${width}px from ${offset} to ${table.scrollLeft}`,
           );
+        table.scrollLeft = 0;
+        await checkArrowRight(table, `table-${width}`, () =>
+          pressRight("table", width),
+        );
         const { range, selection } = checkEmphasisSelection(label);
         range.selectNodeContents(row[3]);
         selection.addRange(range);
