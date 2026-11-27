@@ -59,6 +59,23 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
       !row.getClientRects().length
     )
       throw Error("Wrong collection layout for the native window");
+    const item = row.closest("li");
+    if (!item) throw Error("Saved message is outside the list");
+    const removal = within(item).getByRole("button", {
+      name: "Remove from saved",
+    });
+    const card = row.getBoundingClientRect();
+    const action = removal.getBoundingClientRect();
+    const actionSize = compact ? 44 : 32;
+    if (
+      Math.abs(action.left - card.right - 6) > 1 ||
+      action.width !== actionSize ||
+      action.height !== actionSize ||
+      getComputedStyle(item).borderBlockEndWidth !== "0px"
+    )
+      throw Error(
+        "Saved message hover and removal must have separate surfaces",
+      );
     click(row);
     const thread = await findPane("Thread");
     await thread.findByText(
