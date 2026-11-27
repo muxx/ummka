@@ -31,7 +31,7 @@ import { checkChannelRefresh } from "./channel-refresh.ts";
 import { checkCollectionWindow } from "./collection-window.tsx";
 import { checkDraftWrites } from "./composer-drafts.ts";
 import { checkConnectServer } from "./connect-server.tsx";
-import { fixtureStep } from "./fixture-step.ts";
+import { androidFixtureStep, fixtureStep } from "./fixture-step.ts";
 import { checkChannelHistory } from "./history.ts";
 import { prepareHistoryLoads } from "./history-loads.ts";
 import { checkUnavailableHistoryServer } from "./local-history.ts";
@@ -88,8 +88,12 @@ async function checkTeamLoadOwnership(rid: number, other: number) {
 
 export async function checkGeneratedRequests(ports: string[]) {
   const origin = `https://127.0.0.1:${ports[0]}`;
-  await checkCollectionWindow(`${origin}/collection-window`, ports[1]);
-  await checkUnavailableHistoryServer(origin);
+  await androidFixtureStep("collection-window", () =>
+    checkCollectionWindow(`${origin}/collection-window`, ports[1]),
+  );
+  await androidFixtureStep("unavailable-history", () =>
+    checkUnavailableHistoryServer(origin),
+  );
   await prepareHistoryLoads(origin);
   const root = await openNativeRestConnection(origin);
   const prefixed = await openNativeRestConnection(`${origin}/team/chat///`);
@@ -160,32 +164,29 @@ export async function checkGeneratedRequests(ports: string[]) {
     );
   }
   try {
-    await observed(
-      "format-times",
-      encodeURIComponent(
-        JSON.stringify(
-          await checkChannelFormatting(
-            (kind, width) => observed("format-right", `${kind}-${width}`),
-            isAndroid
-              ? {
-                  swipe: (axis, coordinates) =>
-                    observed("table-swipe", [axis, ...coordinates].join(",")),
-                  rotate: (orientation) =>
-                    observed("table-rotation", orientation),
-                  rotateCode: (orientation) =>
-                    observed("code-rotation", orientation),
-                  longPress: (x, y) =>
-                    observed("table-selection", `press,${x},${y}`),
-                  allowSelection: (allowed) =>
-                    observed("table-selection", allowed ? "allow" : "deny"),
-                  tap: (phase, coordinates) =>
-                    observed("code-tap", [phase, ...coordinates].join(",")),
-                  back: () => observed("code-back", ""),
-                }
-              : undefined,
-          ),
-        ),
+    const formatting = await androidFixtureStep("message-formatting", () =>
+      checkChannelFormatting(
+        (kind, width) => observed("format-right", `${kind}-${width}`),
+        isAndroid
+          ? {
+              swipe: (axis, coordinates) =>
+                observed("table-swipe", [axis, ...coordinates].join(",")),
+              rotate: (orientation) => observed("table-rotation", orientation),
+              rotateCode: (orientation) =>
+                observed("code-rotation", orientation),
+              tap: (phase, coordinates) =>
+                observed("code-tap", [phase, ...coordinates].join(",")),
+              back: () => observed("code-back", ""),
+              longPress: (x, y) =>
+                observed("table-selection", `press,${x},${y}`),
+              allowSelection: (allowed) =>
+                observed("table-selection", allowed ? "allow" : "deny"),
+            }
+          : undefined,
       ),
+    );
+    await androidFixtureStep("report-format-times", () =>
+      observed("format-times", encodeURIComponent(JSON.stringify(formatting))),
     );
     const atRoot = await new SystemApi(new Configuration(root)).getPing(query);
     check(atRoot.status === "OK", "generated-root");
@@ -480,12 +481,24 @@ export async function checkGeneratedRequests(ports: string[]) {
       "generated-user",
     );
     const rootSession = new Configuration(accountRoot);
-    await checkAccountResponses(accountPrefix, userId, observed);
-    await checkChannelRefresh(accountPrefix, observed);
-    await checkOpenTimelineCommits(accountPrefix);
-    await checkUnreadThread(accountPrefix, userId);
-    await checkPostReactions(accountRoot, accountPrefix);
-    await checkTeamReads(accountRoot, accountPrefix);
+    await androidFixtureStep("account-responses", () =>
+      checkAccountResponses(accountPrefix, userId, observed),
+    );
+    await androidFixtureStep("channel-refresh", () =>
+      checkChannelRefresh(accountPrefix, observed),
+    );
+    await androidFixtureStep("timeline-commits", () =>
+      checkOpenTimelineCommits(accountPrefix),
+    );
+    await androidFixtureStep("unread-thread", () =>
+      checkUnreadThread(accountPrefix, userId),
+    );
+    await androidFixtureStep("post-reactions", () =>
+      checkPostReactions(accountRoot, accountPrefix),
+    );
+    await androidFixtureStep("team-reads", () =>
+      checkTeamReads(accountRoot, accountPrefix),
+    );
     const prepared = await resolveComposerSubmission(
       { message: "-:fixture+wave:", hasAttachments: false, scheduled: false },
       accountPrefix,
@@ -514,9 +527,15 @@ export async function checkGeneratedRequests(ports: string[]) {
       "cold-workspace-settings",
     );
     check(await accountPrefix.refreshJoinedTeams(), "team-directory-published");
-    await checkWorkspaceSettings(accountPrefix, accountRoot);
-    await checkDraftWrites(accountPrefix, accountRoot, userId);
-    await checkSubmissions(accountPrefix, accountRoot, userId, observed);
+    await androidFixtureStep("workspace-settings", () =>
+      checkWorkspaceSettings(accountPrefix, accountRoot),
+    );
+    await androidFixtureStep("draft-writes", () =>
+      checkDraftWrites(accountPrefix, accountRoot, userId),
+    );
+    await androidFixtureStep("post-submissions", () =>
+      checkSubmissions(accountPrefix, accountRoot, userId, observed),
+    );
     const cached = await accountPrefix.readJoinedTeams();
     check(
       cached?.teams[0]?.id === "Team0123456789012345678901" &&

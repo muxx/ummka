@@ -14,6 +14,7 @@ import {
   openAccountRestConnection,
 } from "../../src/mattermost/native-rest.ts";
 import { readRestoredOutgoing } from "./composer-drafts.ts";
+import { checkRowPermalink } from "./published-post-actions.ts";
 
 export function openChannelNavigation(element: HTMLElement, label: string) {
   const back = within(element).queryByRole("button", {
@@ -143,6 +144,12 @@ export async function checkSavedTeamWindow(
     if (usesMacOSOverlay && !removeOutgoing) {
       const post = (await saved()).closest("article");
       if (!post) throw Error("The saved post is outside its timeline row");
+      await checkRowPermalink(
+        post,
+        `${serverUrl}/fixture/pl/${"v".repeat(26)}`,
+        false,
+        "ru",
+      );
       const opener = within(post).getByRole("button", { name: "Открыть тред" });
       opener.focus();
       flushSync(() => fireEvent.click(opener));

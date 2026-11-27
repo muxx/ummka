@@ -49,6 +49,7 @@ import {
   PublishedTableScreen,
   usePublishedReaderWindow,
 } from "./PublishedReaderWindow.tsx";
+import { PostActionScope, usePostActionScope } from "./post-action-scope.ts";
 import type { ReactionThread } from "./submit-channel-reaction.ts";
 import { TeamChannelDirectory } from "./TeamChannelDirectory.tsx";
 import { ThreadPane } from "./ThreadPane.tsx";
@@ -831,12 +832,20 @@ export function ChannelsWorkspace({
     presentationScope,
     channel ? roomTitle : (selectedLabel ?? ""),
   );
+  const actions = usePostActionScope(
+    presentationScope,
+    workspace.serverUrl,
+    team.name,
+    userId,
+    language,
+  );
   useWorkspaceBack(
     accountOpen ||
       notificationRoom !== null ||
       workspace.messages.dialogOpen ||
       Boolean(attachments.selected) ||
-      Boolean(reader.opening),
+      Boolean(reader.opening) ||
+      Boolean(actions.anchor),
     workspaceBack(),
   );
   useEffect(() => {
@@ -1390,12 +1399,17 @@ export function ChannelsWorkspace({
           onDismiss={closed}
         />
       )}
+      {actions.notice && (
+        <div className="post-action-notice" role="status">
+          {actions.notice.message}
+        </div>
+      )}
     </div>
   );
   return (
     <AttachmentWindow value={attachments}>
       <PublishedReaderWindow value={reader.value}>
-        {content}
+        <PostActionScope value={actions}>{content}</PostActionScope>
         <PublishedTableScreen reader={reader} />
         <PublishedCodeReader reader={reader} />
       </PublishedReaderWindow>
