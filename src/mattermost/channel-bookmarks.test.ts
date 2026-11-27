@@ -45,7 +45,10 @@ test("reads full bookmarks in server order and retains each typed destination", 
       { ...board, sort_order: 7 },
       { ...restricted, sort_order: 7 },
       { ...link, sort_order: 1 },
-      { ...file, file: { id: fileId, name: "release.zip" } },
+      {
+        ...file,
+        file: { id: fileId, name: "release.zip", mime_type: "application/zip" },
+      },
     ]),
   );
   const signal = new AbortController().signal;
@@ -65,7 +68,12 @@ test("reads full bookmarks in server order and retains each typed destination", 
       {
         id: restricted.id,
         name: "Release build",
-        destination: { kind: "file", fileId, fileName: null },
+        destination: {
+          kind: "file",
+          fileId,
+          fileName: null,
+          fileMimeType: null,
+        },
       },
       {
         id: link.id,
@@ -75,7 +83,12 @@ test("reads full bookmarks in server order and retains each typed destination", 
       {
         id: file.id,
         name: "Release build",
-        destination: { kind: "file", fileId, fileName: "release.zip" },
+        destination: {
+          kind: "file",
+          fileId,
+          fileName: "release.zip",
+          fileMimeType: "application/zip",
+        },
       },
     ],
   });
@@ -144,3 +157,48 @@ test("rejects invalid scopes and cancellations before publication", async () => 
     readChannelBookmarks(config, channel, during.signal),
   ).rejects.toBe("superseded");
 });
+
+test.each([undefined, null, ""])(
+  "allows an accessible file without a media type (%s)",
+  async (media) => {
+    const { config, fetchApi } = fixture(
+      Response.json([
+        { ...file, file: { id: fileId, name: "notes.txt", mime_type: media } },
+      ]),
+    );
+    const result = await readChannelBookmarks(config, channel);
+    expect(result).toEqual({
+      kind: "available",
+      bookmarks: [
+        {
+          id: file.id,
+          name: file.display_name,
+          destination: {
+            kind: "file",
+            fileId,
+            fileName: "notes.txt",
+            fileMimeType: null,
+          },
+        },
+      ],
+    });
+    expect(fetchApi).toHaveBeenCalledTimes(1);
+  },
+);
+test.each([0, false, ["application/zip"], { value: "application/zip" }])(
+  "rejects a non-string media type (%j) before publishing the list",
+  async (media) => {
+    const { config, fetchApi } = fixture(
+      Response.json([
+        {
+          ...file,
+          file: { id: fileId, name: "release.zip", mime_type: media },
+        },
+      ]),
+    );
+    await expect(readChannelBookmarks(config, channel)).rejects.toThrow(
+      "Invalid Mattermost channel bookmark destination.",
+    );
+    expect(fetchApi).toHaveBeenCalledTimes(1);
+  },
+);
