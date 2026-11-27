@@ -83,6 +83,9 @@
 .mention-result:hover {
   background: var(--row-hover);
 }
+.mention-result[aria-current="true"] {
+  background: var(--row-selected);
+}
 .mentions-trigger:hover {
   background: color-mix(in srgb, var(--on-topbar) 13%, transparent);
 }

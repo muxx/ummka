@@ -2,12 +2,39 @@ import { Component, type ReactNode, type RefObject } from "react";
 
 type Props = { pane: RefObject<HTMLDivElement | null>; children: ReactNode };
 type RowPlace = { id: string; y: number };
+type Snapshot = { rows: RowPlace[]; focused: HTMLButtonElement | null };
+
+export function restoreCollectionRow(
+  pane: HTMLDivElement | null,
+  previous: { id: string; scroll: number } | null,
+) {
+  if (!pane || !previous) return false;
+  const row = pane.querySelector<HTMLButtonElement>(
+    `[data-collection-post="${CSS.escape(previous.id)}"]`,
+  );
+  if (!row) return false;
+  pane.scrollTop = previous.scroll;
+  const bounds = pane.getBoundingClientRect();
+  const box = row.getBoundingClientRect();
+  row.focus({ preventScroll: true });
+  if (box.top < bounds.top || box.bottom > bounds.bottom)
+    row.scrollIntoView({ block: "nearest" });
+  return true;
+}
 
 export class CollectionScroll extends Component<Props> {
   // Capture the reading position before React changes row or status heights.
-  getSnapshotBeforeUpdate(): RowPlace[] {
+  getSnapshotBeforeUpdate(): Snapshot {
     const pane = this.props.pane.current;
-    if (!pane?.clientHeight) return [];
+    const active = document.activeElement;
+    const focused =
+      active instanceof HTMLButtonElement &&
+      pane?.contains(active) &&
+      active.hasAttribute("data-collection-post")
+        ? active
+        : null;
+    if (!pane?.clientHeight || pane.scrollTop <= 1)
+      return { rows: [], focused };
     const bounds = pane.getBoundingClientRect();
     const rows = pane.querySelectorAll<HTMLButtonElement>(
       "[data-collection-post]",
@@ -34,20 +61,32 @@ export class CollectionScroll extends Component<Props> {
     }
     // If the first fully visible message is removed, keep the next one in place.
     // A message clipped above the viewport would anchor the opposite side of the removal.
-    return [...whole, ...clipped];
+    return { rows: [...whole, ...clipped], focused };
   }
-  componentDidUpdate(_props: Props, _state: unknown, previous: RowPlace[]) {
+  componentDidUpdate(_props: Props, _state: unknown, previous: Snapshot) {
     const pane = this.props.pane.current;
     if (!pane) return;
-    for (const place of previous) {
+    let surviving: HTMLElement | null = null;
+    for (const place of previous.rows) {
       const row = pane.querySelector<HTMLElement>(
         `[data-collection-post="${CSS.escape(place.id)}"]`,
       );
       if (row) {
         pane.scrollTop += row.getBoundingClientRect().top - place.y;
+        surviving = row;
         break;
       }
     }
+    if (
+      previous.focused &&
+      !previous.focused.isConnected &&
+      document.activeElement === document.body
+    )
+      (
+        surviving ??
+        pane.querySelector<HTMLElement>("[data-collection-post]") ??
+        pane.closest("aside")?.querySelector("h2")
+      )?.focus({ preventScroll: true });
   }
   render() {
     return (

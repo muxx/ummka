@@ -8,6 +8,14 @@ export async function macExternalLinkReceiver() {
   assert.equal(process.platform, "darwin");
   assert.equal(process.env.GITHUB_ACTIONS, "true");
   assert.equal(process.env.RUNNER_ENVIRONMENT, "github-hosted");
+  return startExternalLinkReceiver();
+}
+
+export async function startExternalLinkReceiver() {
+  let reportReceipt!: (received: boolean) => void;
+  const receipt = new Promise<boolean>((resolve) => {
+    reportReceipt = resolve;
+  });
   let received = 0;
   const server = createServer((request, response) => {
     if (request.method === "GET" && request.url === "/post/@bear?value=a%2Fb") {
@@ -20,7 +28,7 @@ export async function macExternalLinkReceiver() {
       );
     } else if (request.method === "POST" && request.url === "/accepted") {
       received++;
-      response.writeHead(204).end();
+      response.writeHead(204).end(() => reportReceipt(true));
     } else response.writeHead(404).end();
   });
   server.listen(0, "127.0.0.1");
@@ -29,6 +37,7 @@ export async function macExternalLinkReceiver() {
   assert(address && typeof address !== "string");
   return {
     href: `http://127.0.0.1:${address.port}/post/@bear?value=a%2Fb#anchor`,
+    receipt,
     verify() {
       assert.equal(
         received,
@@ -37,8 +46,9 @@ export async function macExternalLinkReceiver() {
       );
     },
     close() {
-      server.closeAllConnections();
+      reportReceipt(false);
       server.close();
+      server.closeAllConnections();
     },
   };
 }
