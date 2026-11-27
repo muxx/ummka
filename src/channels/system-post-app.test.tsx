@@ -10,7 +10,11 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ResponseError } from "../../vendor/mattermost/index.js";
-import { signInWithBrowser } from "../mattermost/browser-sign-in.ts";
+import { isMobile } from "../build-platform.ts";
+import {
+  cancelBrowserSignIn,
+  signInWithBrowser,
+} from "../mattermost/browser-sign-in.ts";
 import { inspectInstallation } from "../mattermost/inspect-installation.ts";
 import {
   getCurrentAccountId,
@@ -64,6 +68,7 @@ vi.mock("../mattermost/inspect-installation.ts", async (original) => ({
 }));
 vi.mock("../mattermost/browser-sign-in.ts", async (original) => ({
   ...(await original<typeof import("../mattermost/browser-sign-in.ts")>()),
+  cancelBrowserSignIn: vi.fn(),
   signInWithBrowser: vi.fn(),
 }));
 
@@ -412,6 +417,84 @@ test("skipping a pending server read suppresses its late result and lets the nex
   expect(account.readPostAnchor).toHaveBeenCalledTimes(1);
   expect(acks.map((x) => x.id)).toEqual(["1", "2"]);
 });
+test("a saved server with a pending link keeps sign-in and dismissal in the same card", async () => {
+  saved = [base];
+  sessions.delete(base);
+  queue.push({ id: "1", href: href(root.id) });
+  vi.mocked(inspectInstallation).mockResolvedValueOnce({
+    serverUrl: base,
+    siteName: "Winter",
+    version: "10.10.1",
+    passwordIdentifiers: [],
+    ssoProviders: ["gitlab"],
+    guestMagicLink: false,
+  });
+  let cancelBrowser!: (error: unknown) => void;
+  vi.mocked(signInWithBrowser).mockImplementationOnce(
+    (_url, _provider, started) =>
+      new Promise((_resolve, reject) => {
+        cancelBrowser = reject;
+        started("browser-fixture");
+      }),
+  );
+  vi.mocked(cancelBrowserSignIn).mockImplementationOnce(async () => {
+    cancelBrowser({ kind: "browser", cause: "cancelled" });
+    return true;
+  });
+  const { account } = boot();
+  const linkTitle = await screen.findByRole("heading", {
+    name: "Sign in to open the message",
+  });
+  const form = within(screen.getByRole("main"));
+  const linkedProvider = () =>
+    form.getByRole("button", { name: "Sign in with GitLab" });
+  expect(form.getByText(new URL(base).host)).toBeTruthy();
+  expect(screen.queryByRole("complementary")).toBeNull();
+  expect(
+    screen.queryByRole("button", { name: "Change server address" }),
+  ).toBeNull();
+  expect(screen.queryByRole("button", { name: "Another server" })).toBeNull();
+  expect(document.activeElement).toBe(isMobile ? linkTitle : linkedProvider());
+
+  fireEvent.click(linkedProvider());
+  expect(signInWithBrowser).toHaveBeenCalledWith(
+    base,
+    "gitlab",
+    expect.any(Function),
+  );
+  expect(document.activeElement).toBe(
+    form.getByRole("heading", { name: "Continue in your browser" }),
+  );
+  fireEvent.click(form.getByRole("button", { name: "Cancel sign-in" }));
+  await form.findByText("Sign-in canceled");
+  const canceled = within(form.getByRole("status"));
+  expect(canceled.getByText("Sign-in canceled")).toBeTruthy();
+  expect(
+    canceled.getByText("The message will still open when you sign in."),
+  ).toBeTruthy();
+  expect(cancelBrowserSignIn).toHaveBeenCalledWith("browser-fixture");
+  expect(acks).toEqual([]);
+  expect(account.readPostDestination).not.toHaveBeenCalled();
+  expect(document.activeElement).toBe(
+    isMobile
+      ? form.getByRole("heading", { name: "Sign in to open the message" })
+      : linkedProvider(),
+  );
+
+  fireEvent.click(form.getByRole("button", { name: "Don’t open this link" }));
+  await waitFor(() => expect(acks.map((entry) => entry.id)).toEqual(["1"]));
+  const regularHeading = form.getByRole("heading", { name: "Winter" });
+  expect(document.activeElement).toBe(
+    isMobile ? regularHeading : form.getByRole("button", { name: "GitLab" }),
+  );
+  expect(
+    screen.getByRole("button", { name: "Change server address" }),
+  ).toBeTruthy();
+  expect(
+    form.queryByText("The message will still open when you sign in."),
+  ).toBeNull();
+  expect(selected).toBe(base);
+});
 test("cancelled SSO keeps the head until authentication on that installation", async () => {
   sessions.delete(nested);
   queue.push({ id: "1", href: href(root.id, nested) });
@@ -430,11 +513,12 @@ test("cancelled SSO keeps the head until authentication on that installation", a
       return otherUser;
     });
   const { account } = boot();
-  fireEvent.click(await screen.findByRole("button", { name: "GitLab" }));
-  await screen.findByRole("button", { name: "GitLab" });
+  const linkedProvider = { name: "Sign in with GitLab" };
+  fireEvent.click(await screen.findByRole("button", linkedProvider));
+  await screen.findByRole("button", linkedProvider);
   expect(acks).toEqual([]);
   expect(account.readPostDestination).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "GitLab" }));
+  fireEvent.click(screen.getByRole("button", linkedProvider));
   await waitFor(() => expect(acks[0]?.row).toBe(root.id));
   expect(account.readPostAnchor).toHaveBeenCalledTimes(1);
   expect(vi.mocked(openAccountRestConnection)).toHaveBeenCalledWith(
@@ -443,7 +527,7 @@ test("cancelled SSO keeps the head until authentication on that installation", a
   );
 });
 
-test("manual sign-in on a neighboring installation leaves the original target pending until explicit continuation", async () => {
+test("choosing a neighboring installation leaves the original target pending until explicit continuation", async () => {
   sessions.delete(nested);
   queue.push({ id: "1", href: href(root.id, nested) });
   vi.mocked(inspectInstallation).mockImplementation(async (serverUrl) => ({
@@ -459,15 +543,25 @@ test("manual sign-in on a neighboring installation leaves the original target pe
     return otherUser;
   });
   const { account } = boot();
-  await screen.findByRole("button", { name: "GitLab" });
   fireEvent.click(
-    await screen.findByRole("button", { name: "Change server address" }),
+    await screen.findByRole("button", { name: "Another server" }),
   );
-  fireEvent.change(screen.getByRole("textbox", { name: "Server address" }), {
-    target: { value: base },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  expect(
+    screen.getByRole("heading", { name: "Servers on this device" }),
+  ).toBeTruthy();
+  const current = screen.getByRole("button", { current: true });
+  expect(within(current).getByTitle(nested)).toBeTruthy();
+  const neighbor = screen.getByTitle(base).closest("button");
+  if (!neighbor) throw Error("Missing saved installation");
+  fireEvent.click(neighbor);
   await screen.findByRole("textbox", { name: "Message #Home…" });
+  expect(invoke).toHaveBeenCalledWith("select_installation", {
+    serverUrl: base,
+  });
+  expect(invoke).not.toHaveBeenCalledWith(
+    "connect_installation",
+    expect.anything(),
+  );
   expect(acks).toEqual([]);
   expect(account.readPostAnchor).not.toHaveBeenCalled();
   fireEvent.click(
@@ -475,10 +569,141 @@ test("manual sign-in on a neighboring installation leaves the original target pe
       screen.getByRole("complementary", { name: "Message link" }),
     ).getByRole("button", { name: "Try again" }),
   );
-  fireEvent.click(await screen.findByRole("button", { name: "GitLab" }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Sign in with GitLab" }),
+  );
   await waitFor(() => expect(acks[0]?.row).toBe(root.id));
   expect(account.readPostDestination).toHaveBeenCalledTimes(1);
 });
+
+test("Back returns from the empty add form and the saved-server list with focus restored", async () => {
+  sessions.delete(base);
+  queue.push({ id: "1", href: href(root.id) });
+  vi.mocked(inspectInstallation).mockResolvedValueOnce({
+    serverUrl: base,
+    siteName: "Fixture",
+    version: "10.10.1",
+    passwordIdentifiers: [],
+    ssoProviders: ["gitlab"],
+    guestMagicLink: false,
+  });
+  boot();
+  const open = { name: "Another server" };
+  const add = { name: "Add server" };
+  fireEvent.click(await screen.findByRole("button", open));
+  const title = screen.getByRole("heading", { name: "Servers on this device" });
+  const current = screen.getByRole("button", { current: true });
+  expect(document.activeElement).toBe(isMobile ? title : current);
+  fireEvent.click(current);
+  expect(document.activeElement).toBe(screen.getByRole("button", open));
+  fireEvent.click(screen.getByRole("button", open));
+  fireEvent.click(screen.getByRole("button", add));
+  const address = screen.getByRole<HTMLInputElement>("textbox", {
+    name: "Server address",
+  });
+  expect(address.value).toBe("");
+  expect(document.activeElement).toBe(
+    isMobile
+      ? screen.getByRole("heading", { name: "Connect your Mattermost server" })
+      : address,
+  );
+  pressBack();
+  expect(document.activeElement).toBe(screen.getByRole("button", add));
+  pressBack();
+  expect(document.activeElement).toBe(screen.getByRole("button", open));
+  expect(vi.mocked(inspectInstallation)).toHaveBeenCalledTimes(1);
+  expect(invoke).not.toHaveBeenCalledWith(
+    "select_installation",
+    expect.anything(),
+  );
+  expect(acks).toEqual([]);
+});
+
+test("a failed saved-server choice leaves the picker and pending link available", async () => {
+  sessions.delete(base);
+  queue.push({ id: "1", href: href(root.id) });
+  vi.mocked(inspectInstallation).mockResolvedValueOnce({
+    serverUrl: base,
+    siteName: "Fixture",
+    version: "10.10.1",
+    passwordIdentifiers: [],
+    ssoProviders: ["gitlab"],
+    guestMagicLink: false,
+  });
+  const native = vi.mocked(invoke).getMockImplementation();
+  if (!native) throw Error("Missing registry fixture");
+  let rejectSelection!: () => void;
+  let choices = 0;
+  vi.mocked(invoke).mockImplementation(async (command, args, options) => {
+    if (command === "select_installation") {
+      choices++;
+      await new Promise<void>((_resolve, reject) => {
+        rejectSelection = () => reject("storage_unavailable");
+      });
+    }
+    return native(command, args, options);
+  });
+  const { account } = boot();
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Another server" }),
+  );
+  const neighbor = screen.getByTitle(nested).closest("button");
+  if (!neighbor) throw Error("Missing saved installation");
+  fireEvent.click(neighbor);
+  fireEvent.click(neighbor);
+  fireEvent.click(screen.getByRole("button", { name: "Add server" }));
+  pressBack();
+  await waitFor(() => expect(rejectSelection).toBeTypeOf("function"));
+  await act(async () => rejectSelection());
+  expect((await screen.findByRole("alert")).textContent).toMatch(
+    /switch servers/,
+  );
+  expect(choices).toBe(1);
+  expect(selected).toBe(base);
+  expect(acks).toEqual([]);
+  expect(account.readPostDestination).not.toHaveBeenCalled();
+  pressBack();
+  expect(
+    screen.getByRole("heading", { name: "Sign in to open the message" }),
+  ).toBeTruthy();
+});
+test("Add server submits through the existing address form without consuming the link", async () => {
+  sessions.delete(base);
+  queue.push({ id: "1", href: href(root.id) });
+  vi.mocked(inspectInstallation).mockImplementation(async (serverUrl) => ({
+    serverUrl,
+    siteName: "Fixture",
+    version: "10.10.1",
+    passwordIdentifiers: [],
+    ssoProviders: ["gitlab"],
+    guestMagicLink: false,
+  }));
+  const { account } = boot();
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Another server" }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Add server" }));
+  const third = `${base}/third`;
+  fireEvent.change(screen.getByRole("textbox", { name: "Server address" }), {
+    target: { value: third },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  await screen.findByRole("button", { name: "GitLab" });
+  expect(selected).toBe(third);
+  expect(invoke).toHaveBeenCalledWith("connect_installation", {
+    serverUrl: third,
+  });
+  expect(invoke).not.toHaveBeenCalledWith(
+    "select_installation",
+    expect.anything(),
+  );
+  expect(
+    screen.queryByRole("heading", { name: "Sign in to open the message" }),
+  ).toBeNull();
+  expect(acks).toEqual([]);
+  expect(account.readPostDestination).not.toHaveBeenCalled();
+});
+
 test("replacing the current user before resolution pauses until the new account explicitly resumes", async () => {
   queue.push({ id: "1", href: href(root.id) });
   vi.mocked(getCurrentAccountId).mockImplementationOnce(async () => {

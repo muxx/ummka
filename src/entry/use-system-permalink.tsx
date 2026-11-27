@@ -26,6 +26,7 @@ import type { EntryLanguage } from "./language.ts";
 type Target = Extract<ChannelsTarget, { kind: "permalink" }>;
 type Stop = "paused" | "unavailable" | "archived" | "failed";
 export type SystemPostRequest = {
+  deliveryId: string;
   target: Target;
   signal: AbortSignal;
   matchesUser: (userId: string) => boolean;
@@ -40,9 +41,10 @@ type State =
       serverUrl?: string;
       membership?: string;
     }
-  | { kind: "target"; request: SystemPostRequest }
+  | { kind: "target"; request: SystemPostRequest; installations: string[] }
   | { kind: "inbox"; id?: string };
 type Gate = {
+  deliveryId: string;
   route: AccountChannelsLink | null;
   source?: { href: string; origin: HTMLAnchorElement };
   positioned?: boolean;
@@ -53,12 +55,16 @@ type Gate = {
   selecting?: Promise<void>;
 };
 
-function makeGate(route: Gate["route"], source?: Gate["source"]): Gate {
+function makeGate(
+  deliveryId: string,
+  route: Gate["route"],
+  source?: Gate["source"],
+): Gate {
   let finish!: () => void;
   const settled = new Promise<void>((resolve) => {
     finish = resolve;
   });
-  return { route, source, settled, finish };
+  return { deliveryId, route, source, settled, finish };
 }
 
 function TableLinkNotice({
@@ -175,24 +181,36 @@ export function useSystemPermalink(
     lastSelection.current = next;
     return next;
   }, []);
+  const pauseForServer = useCallback((serverUrl: string) => {
+    const gate = current.current;
+    const target = gate?.route?.target;
+    if (
+      gate &&
+      target?.kind === "permalink" &&
+      target.serverUrl !== serverUrl
+    ) {
+      gate.controller?.abort();
+      setState({ kind: "paused", serverUrl: target.serverUrl });
+    }
+  }, []);
   const connect = useCallback(
     (serverUrl: string, signal: AbortSignal) => {
-      const gate = current.current;
-      const target = gate?.route?.target;
-      if (
-        gate &&
-        target?.kind === "permalink" &&
-        target.serverUrl !== serverUrl
-      ) {
-        gate.controller?.abort();
-        setState({ kind: "paused", serverUrl: target.serverUrl });
-      }
+      pauseForServer(serverUrl);
       return enqueueSelection(() => {
         signal.throwIfAborted();
         return connectInstallation(serverUrl);
       });
     },
-    [enqueueSelection],
+    [enqueueSelection, pauseForServer],
+  );
+  const selectSaved = useCallback(
+    (serverUrl: string) =>
+      enqueueSelection(async () => {
+        await selectInstallation(serverUrl);
+        pauseForServer(serverUrl);
+        reopen();
+      }),
+    [enqueueSelection, pauseForServer, reopen],
   );
   const finish = useCallback(
     (gate: Gate, outcome: "shown" | "dismissed" | "superseded") => {
@@ -288,6 +306,7 @@ export function useSystemPermalink(
         }
         if (selected !== target.serverUrl || reload) reopen();
         const request: SystemPostRequest = {
+          deliveryId: gate.deliveryId,
           target,
           signal,
           matchesUser: (id) => {
@@ -313,7 +332,7 @@ export function useSystemPermalink(
             setState({ kind, serverUrl: target.serverUrl, membership });
           },
         };
-        setState({ kind: "target", request });
+        setState({ kind: "target", request, installations });
       } catch {
         if (!signal.aborted) {
           if (gate.source && !gate.source.origin.isConnected) {
@@ -331,6 +350,7 @@ export function useSystemPermalink(
     },
     [enqueueSelection, finish, reopen],
   );
+  const publishedSequence = useRef(0);
   const pendingPost = useRef<Gate | null>(null);
   const run = useCallback(
     async (gate: Gate, signal?: AbortSignal) => {
@@ -353,7 +373,10 @@ export function useSystemPermalink(
         return;
       if (previous && current.current === previous)
         finish(previous, previous.positioned ? "shown" : "superseded");
-      const gate = makeGate(null, { href, origin });
+      const gate = makeGate(`published-${++publishedSequence.current}`, null, {
+        href,
+        origin,
+      });
       pendingPost.current = gate;
       void run(gate).finally(() => {
         if (pendingPost.current === gate) pendingPost.current = null;
@@ -365,7 +388,7 @@ export function useSystemPermalink(
     const life = new AbortController();
     const { signal } = life;
     const begin = (link: SystemChannelsLink) =>
-      run(makeGate(link.route), signal);
+      run(makeGate(link.id, link.route), signal);
     function subscribe() {
       subscribeAgain.current = null;
       void watchSystemChannelsLinks(
@@ -403,6 +426,8 @@ export function useSystemPermalink(
     };
   }, [run]);
   const request = state?.kind === "target" ? state.request : undefined;
+  const installations =
+    state?.kind === "target" ? state.installations : undefined;
   function dismiss() {
     if (state?.kind === "inbox") {
       if (state.id) observer.current?.dismiss(state.id);
@@ -470,5 +495,13 @@ export function useSystemPermalink(
       </aside>
     );
   }
-  return { ready, request, notice, connect, openPost };
+  return {
+    ready,
+    request,
+    installations,
+    notice,
+    connect,
+    selectSaved,
+    openPost,
+  };
 }

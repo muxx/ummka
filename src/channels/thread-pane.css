@@ -11,8 +11,8 @@
 .thread-reply[data-selected] article {
   background: var(--row-selected);
 }
-.thread-feed article:focus-visible {
-  outline-offset: -2px;
+.thread-feed article:focus {
+  --focus-offset: -2px;
 }
 .thread-edge {
   display: flex;

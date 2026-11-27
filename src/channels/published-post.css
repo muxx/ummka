@@ -109,9 +109,8 @@
   white-space: pre;
   overflow-wrap: normal;
 }
-.published-post pre:focus-visible {
-  outline: 2px solid var(--keyboard-focus);
-  outline-offset: -2px;
+.published-post pre:focus {
+  --focus-offset: -2px;
 }
 .post-literal {
   white-space: pre-wrap;
@@ -152,9 +151,8 @@
   max-inline-size: 100%;
   overflow-x: auto;
 }
-.post-table:focus-visible {
-  outline: 2px solid var(--keyboard-focus);
-  outline-offset: -2px;
+.post-table:focus {
+  --focus-offset: -2px;
 }
 .post-table table {
   border-collapse: collapse;
