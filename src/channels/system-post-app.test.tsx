@@ -75,6 +75,8 @@ const base = "https://example.test",
   nested = base + "/install",
   otherUser = "z".repeat(26);
 const href = (id: string, server = base) => server + "/_redirect/pl/" + id;
+const foreign = "https://outside.example.test/private/path";
+const unsupported = `${base}/winter/threads/${"s".repeat(26)}`;
 type QueueItem = { id: string; href: string };
 let queue: QueueItem[],
   acks: { id: string; row: string | undefined; thread: boolean }[],
@@ -234,6 +236,212 @@ test("unknown, malformed and recognized unsupported addresses each wait for dism
     await waitFor(() => expect(acks).toHaveLength(index + 1));
   }
   await waitFor(() => expect(acks.at(-1)?.row).toBe(root.id));
+});
+
+test("the cold entry shows the count for its own head and closing keeps the address and restores focus", async () => {
+  saved = [];
+  queue.push(
+    { id: "A", href: foreign },
+    { id: "B", href: foreign },
+    { id: "C", href: foreign },
+  );
+  const { account } = fixture({
+    launch: async () => ({ status: "first_launch" }),
+  });
+  const address = await screen.findByRole<HTMLInputElement>("textbox", {
+    name: "Server address",
+  });
+  const firstAction = isMobile
+    ? screen.getByRole("heading", { name: "Connect your Mattermost server" })
+    : address;
+  expect(address.value).toBe("");
+  expect(document.activeElement).toBe(firstAction);
+  expect(
+    within(screen.getByRole("status")).getByText("This link can’t be opened"),
+  ).toBeTruthy();
+  expect(screen.getByText(/2 more links are waiting/)).toBeTruthy();
+  expect(screen.getByRole("main").textContent).not.toContain(foreign);
+
+  fireEvent.change(address, {
+    target: { value: "manually.example.test/mattermost" },
+  });
+  const close = () =>
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  close();
+  await screen.findByText(/One more link is waiting/);
+  expect(screen.queryByText(/2 more links are waiting/)).toBeNull();
+  expect(document.activeElement).toBe(firstAction);
+  expect(address.value).toBe("manually.example.test/mattermost");
+  close();
+  await screen.findByText("This link can’t be opened");
+  expect(screen.queryByText(/more links? (?:are|is) waiting/)).toBeNull();
+  expect(acks.map(({ id }) => id)).toEqual(["A", "B"]);
+  close();
+  await waitFor(() =>
+    expect(acks.map(({ id }) => id)).toEqual(["A", "B", "C"]),
+  );
+  expect(inspectInstallation).not.toHaveBeenCalled();
+  expect(signInWithBrowser).not.toHaveBeenCalled();
+  expect(account.readPostDestination).not.toHaveBeenCalled();
+});
+
+test("a warm outcome preserves typing and an address error, then leaves after successful connection", async () => {
+  saved = [];
+  fixture({
+    launch: async () =>
+      vi
+        .mocked(invoke)
+        .mock.calls.some(([command]) => command === "connect_installation")
+        ? { status: "sign_in_required", serverUrl: base }
+        : { status: "first_launch" },
+  });
+  const profile = {
+    serverUrl: base,
+    siteName: "Winter",
+    version: "10.10.1",
+    passwordIdentifiers: [],
+    ssoProviders: ["gitlab" as const],
+    guestMagicLink: false,
+  };
+  vi.mocked(inspectInstallation)
+    .mockRejectedValueOnce(
+      new ResponseError(new Response(null, { status: 404 })),
+    )
+    .mockResolvedValueOnce(profile);
+  const field = await screen.findByRole<HTMLInputElement>("textbox", {
+    name: "Server address",
+  });
+  field.focus();
+  fireEvent.change(field, { target: { value: "example.test" } });
+  act(() => enqueue("A", foreign));
+  await screen.findByText("This link can’t be opened");
+  expect(field.value).toBe("example.test");
+  expect(document.activeElement).toBe(field);
+  expect(inspectInstallation).not.toHaveBeenCalled();
+  const submit = () =>
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  submit();
+  await screen.findByRole("alert");
+  expect(screen.getByText("This link can’t be opened")).toBeTruthy();
+  expect(acks).toEqual([]);
+  submit();
+  await screen.findByRole("heading", { name: "Winter" });
+  await waitFor(() => expect(acks.map(({ id }) => id)).toEqual(["A"]));
+  expect(screen.queryByText("This link can’t be opened")).toBeNull();
+  expect(
+    vi
+      .mocked(invoke)
+      .mock.calls.filter(([command]) => command === "connect_installation"),
+  ).toEqual([["connect_installation", { serverUrl: base }]]);
+});
+
+test("the known outcome remains through browser wait and cancellation and leaves on successful sign-in", async () => {
+  sessions.delete(base);
+  queue.push({ id: "A", href: unsupported });
+  vi.mocked(inspectInstallation).mockResolvedValueOnce({
+    serverUrl: base,
+    siteName: "Winter",
+    version: "10.10.1",
+    passwordIdentifiers: [],
+    ssoProviders: ["gitlab"],
+    guestMagicLink: false,
+  });
+  let rejectBrowser!: (error: unknown) => void;
+  vi.mocked(signInWithBrowser)
+    .mockImplementationOnce(
+      (_url, _provider, started) =>
+        new Promise((_resolve, reject) => {
+          rejectBrowser = reject;
+          started("pending-sign-in");
+        }),
+    )
+    .mockImplementationOnce(async () => {
+      sessions.set(base, user);
+      return user;
+    });
+  vi.mocked(cancelBrowserSignIn).mockImplementationOnce(async () => {
+    rejectBrowser({ kind: "browser", cause: "cancelled" });
+    return true;
+  });
+
+  const { account } = boot();
+  const provider = { name: /^GitLab$/u };
+  const action = await screen.findByRole("button", provider);
+  const server = screen.getByRole("heading", { name: "Winter" });
+  expect(document.activeElement).toBe(isMobile ? server : action);
+  const outcome = screen
+    .getByText("ummka can’t open this type of link yet")
+    .closest('[role="status"]');
+  expect(outcome?.textContent).toContain("a thread list on “Winter”");
+  expect(outcome?.textContent).not.toContain(unsupported);
+  expect(signInWithBrowser).not.toHaveBeenCalled();
+
+  fireEvent.click(action);
+  const browser = screen.getByRole("heading", {
+    name: "Continue in your browser",
+  });
+  expect(document.activeElement).toBe(browser);
+  act(() => enqueue("B", foreign));
+  await screen.findByText(/One more link is waiting/);
+  expect(document.activeElement).toBe(browser);
+  expect(acks).toEqual([]);
+
+  pressBack();
+  const returned = await screen.findByRole("button", provider);
+  expect(screen.getByText(/One more link is waiting/)).toBeTruthy();
+  expect(acks).toEqual([]);
+  fireEvent.click(returned);
+  await screen.findByRole("button", { name: "Don’t open this link" });
+  expect(screen.queryByRole("button", { name: /^Close$/u })).toBeNull();
+  expect(screen.queryByText(/One more link is waiting/)).toBeNull();
+  expect(acks.map(({ id }) => id)).toEqual(["A"]);
+  expect(account.readPostDestination).not.toHaveBeenCalled();
+  closeLink();
+  await waitFor(() => expect(acks.map(({ id }) => id)).toEqual(["A", "B"]));
+});
+
+test("confirming a connection leaves a delivery that has not been shown for the next form", async () => {
+  saved = [];
+  let confirmConnection: (() => void) | undefined;
+  fixture({
+    launch: async () => {
+      if (
+        !vi
+          .mocked(invoke)
+          .mock.calls.some(([command]) => command === "connect_installation")
+      )
+        return { status: "first_launch" };
+      return await new Promise((resolve) => {
+        confirmConnection = () =>
+          resolve({ status: "sign_in_required", serverUrl: base });
+      });
+    },
+  });
+  vi.mocked(inspectInstallation).mockResolvedValueOnce({
+    serverUrl: base,
+    siteName: "Winter",
+    version: "10.10.1",
+    passwordIdentifiers: [],
+    ssoProviders: ["gitlab"],
+    guestMagicLink: false,
+  });
+  const field = await screen.findByRole("textbox", { name: "Server address" });
+  fireEvent.change(field, { target: { value: "example.test" } });
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  await waitFor(() => expect(confirmConnection).toBeDefined());
+  await act(async () => {
+    enqueue("A", foreign);
+    // Resolve the synthetic native reads before React commits the resulting notice.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(screen.queryByText("This link can’t be opened")).toBeNull();
+    confirmConnection?.();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  });
+  await screen.findByRole("heading", { name: "Winter" });
+  expect(screen.getByText("You’re still signing in to “Winter”.")).toBeTruthy();
+  expect(acks).toEqual([]);
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  await waitFor(() => expect(acks.map(({ id }) => id)).toEqual(["A"]));
 });
 test("retention or deletion leaves the head until the explanation is closed", async () => {
   queue.push({ id: "1", href: href(root.id) });

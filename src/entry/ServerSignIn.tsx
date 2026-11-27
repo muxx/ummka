@@ -7,11 +7,13 @@ import {
   InstallationAddressError,
   inspectInstallation,
 } from "../mattermost/inspect-installation";
+import { EntryLinkOutcome } from "./EntryLinkOutcome";
 import { EntryWindow } from "./EntryWindow";
 import { type EntryLanguage, entryText } from "./language";
 import { SavedServerPicker } from "./SavedServerPicker";
 import { type SignInLink, SignInMethods } from "./SignInMethods";
 import { sessionText } from "./session-text";
+import type { EntryLinkResult } from "./use-system-permalink";
 import "./connect.css";
 
 type Profile = Awaited<ReturnType<typeof inspectInstallation>>;
@@ -37,6 +39,7 @@ export function ServerSignIn({
   language,
   savedServer,
   link,
+  linkResult,
   installations,
   selectSaved,
   connect,
@@ -45,6 +48,7 @@ export function ServerSignIn({
   language: EntryLanguage;
   savedServer?: string;
   link?: SignInLink;
+  linkResult?: EntryLinkResult;
   installations?: readonly string[];
   selectSaved?: (serverUrl: string) => Promise<void>;
   connect: (serverUrl: string, signal: AbortSignal) => Promise<void>;
@@ -57,8 +61,16 @@ export function ServerSignIn({
   );
   const active = useRef<AbortController | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
+  const addressGroup = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLInputElement>(null);
+  const coldOutcome = useRef(!savedServer && linkResult !== undefined);
   const returnToField = useRef(false);
+  const closeShownOutcome = useRef<(() => void) | undefined>(undefined);
+  const closeOutcome = step.name === "servers" ? undefined : linkResult?.close;
+  // An arrival that has not reached this form belongs on the next screen.
+  useLayoutEffect(() => {
+    closeShownOutcome.current = closeOutcome;
+  }, [closeOutcome]);
 
   const inspect = useCallback(
     async (input: string, explicit: boolean, picker?: Picker) => {
@@ -76,6 +88,7 @@ export function ServerSignIn({
           if (request.signal.aborted) return;
           const context = await getDeviceLaunchContext();
           if (request.signal.aborted) return;
+          if (context.status !== "first_launch") closeShownOutcome.current?.();
           if (
             context.status !== "sign_in_required" ||
             context.serverUrl !== profile.serverUrl
@@ -111,14 +124,43 @@ export function ServerSignIn({
     };
   }, [savedServer, inspect]);
   useLayoutEffect(() => {
-    if (step.name === "address" && (returnToField.current || step.issue)) {
-      const focusHeading = isMobile && step.picker && !step.issue;
+    if (
+      step.name === "address" &&
+      (coldOutcome.current || returnToField.current || step.issue)
+    ) {
+      const focusHeading =
+        isMobile && (coldOutcome.current || (step.picker && !step.issue));
       (focusHeading ? heading.current : field.current)?.focus({
         preventScroll: Boolean(focusHeading),
       });
+      coldOutcome.current = false;
       returnToField.current = false;
     }
   }, [step]);
+  const showAddressOutcome =
+    linkResult !== undefined &&
+    step.name !== "profile" &&
+    step.name !== "servers";
+  useLayoutEffect(() => {
+    if (!isMobile || !showAddressOutcome) return;
+    const group = addressGroup.current;
+    const pane = group?.closest(".entry-pane");
+    const body = pane?.closest(".entry-body");
+    if (!group || !pane || !body) return;
+    const keepAddressVisible = () => {
+      if (
+        field.current === document.activeElement &&
+        Number.parseFloat(getComputedStyle(body).scrollPaddingBlockEnd) > 0
+      ) {
+        group.scrollIntoView({ block: "nearest" });
+      }
+    };
+    keepAddressVisible();
+    const observer = new ResizeObserver(keepAddressVisible);
+    observer.observe(body);
+    observer.observe(pane);
+    return () => observer.disconnect();
+  }, [showAddressOutcome]);
   const picker = "picker" in step ? step.picker : undefined;
   const backToServers =
     step.name === "address" && picker
@@ -158,6 +200,7 @@ export function ServerSignIn({
         profile={step.profile}
         language={language}
         link={profileLink}
+        linkResult={linkResult}
         returnFromPicker={step.returnFromPicker}
         onOtherServer={
           profileLink &&
@@ -173,7 +216,10 @@ export function ServerSignIn({
                 })
             : undefined
         }
-        onAccountChanged={onAccountChanged}
+        onAccountChanged={() => {
+          closeShownOutcome.current?.();
+          onAccountChanged();
+        }}
         onBack={() => {
           returnToField.current = true;
           setStep({ name: "address" });
@@ -187,6 +233,19 @@ export function ServerSignIn({
     issue && issue !== "network" && issue !== "missing" && issue !== "storage";
   return (
     <EntryWindow
+      notice={
+        linkResult && (
+          <EntryLinkOutcome
+            language={language}
+            result={linkResult}
+            onClose={() => {
+              (isMobile ? heading.current : field.current)?.focus({
+                preventScroll: isMobile,
+              });
+            }}
+          />
+        )
+      }
       back={
         step.name === "checking" && step.restoring && !link
           ? {
@@ -206,7 +265,7 @@ export function ServerSignIn({
       <h1
         className={picker ? "entry-address-title" : undefined}
         ref={heading}
-        tabIndex={picker ? -1 : undefined}
+        tabIndex={-1}
       >
         {text.title}
       </h1>
@@ -219,7 +278,7 @@ export function ServerSignIn({
           void inspect(address, true, picker);
         }}
       >
-        <div>
+        <div ref={addressGroup}>
           <label htmlFor="server-address">{text.address}</label>
           <input
             id="server-address"
