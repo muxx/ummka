@@ -43,6 +43,27 @@ function readingAnchor(viewport: HTMLElement) {
 const clippedControl = "data-post-disclosure-clipped";
 const controls = `[${clippedControl}], a[href], button, input, select, textarea, [tabindex]`;
 
+function focusDisclosureAction(button: HTMLButtonElement | null | undefined) {
+  if (!button || button.closest("[inert], [hidden]")) return;
+  button.focus({ preventScroll: true });
+  if (button.ownerDocument.activeElement === button)
+    button.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+
+export function restorePostBodyFocus(control: HTMLElement) {
+  if (control.hasAttribute(clippedControl)) {
+    focusDisclosureAction(
+      control
+        .closest(".post-body-disclosure")
+        ?.querySelector<HTMLButtonElement>(
+          ":scope > .post-body-disclosure-action",
+        ),
+    );
+  } else if (!control.closest("[inert], [hidden]")) {
+    control.focus({ preventScroll: true });
+  }
+}
+
 function keepAuthoredInert(changes: MutationRecord[]) {
   for (const change of changes)
     if (
@@ -116,10 +137,7 @@ export function PostBodyDisclosure({
     keepAuthoredInert(observer.takeRecords());
     const lostFocus = updateClippedControls(body.current, viewport.current);
     observer.takeRecords();
-    if (lostFocus) {
-      button.current?.focus({ preventScroll: true });
-      button.current?.scrollIntoView({ block: "nearest" });
-    }
+    if (lostFocus) focusDisclosureAction(button.current);
   });
 
   const publishSize = useEffectEvent((text: HTMLDivElement) => {

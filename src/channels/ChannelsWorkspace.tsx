@@ -43,11 +43,12 @@ import {
   AttachmentWindow,
   useAttachmentWindow,
 } from "./PublishedAttachments.tsx";
+import { PublishedCodeReader } from "./PublishedCodeReader.tsx";
 import {
+  PublishedReaderWindow,
   PublishedTableScreen,
-  PublishedTableWindow,
-  usePublishedTableWindow,
-} from "./PublishedTableWindow.tsx";
+  usePublishedReaderWindow,
+} from "./PublishedReaderWindow.tsx";
 import { PostActionScope, usePostActionScope } from "./post-action-scope.ts";
 import type { ReactionThread } from "./submit-channel-reaction.ts";
 import { TeamChannelDirectory } from "./TeamChannelDirectory.tsx";
@@ -827,7 +828,7 @@ export function ChannelsWorkspace({
     presentationScope,
     roomTitle,
   );
-  const tables = usePublishedTableWindow(
+  const reader = usePublishedReaderWindow(
     presentationScope,
     channel ? roomTitle : (selectedLabel ?? ""),
   );
@@ -843,7 +844,7 @@ export function ChannelsWorkspace({
       notificationRoom !== null ||
       workspace.messages.dialogOpen ||
       Boolean(attachments.selected) ||
-      Boolean(tables.opening) ||
+      Boolean(reader.opening) ||
       Boolean(actions.anchor),
     workspaceBack(),
   );
@@ -1407,10 +1408,11 @@ export function ChannelsWorkspace({
   );
   return (
     <AttachmentWindow value={attachments}>
-      <PublishedTableWindow value={tables.value}>
+      <PublishedReaderWindow value={reader.value}>
         <PostActionScope value={actions}>{content}</PostActionScope>
-        <PublishedTableScreen tables={tables} />
-      </PublishedTableWindow>
+        <PublishedTableScreen reader={reader} />
+        <PublishedCodeReader reader={reader} />
+      </PublishedReaderWindow>
     </AttachmentWindow>
   );
 }

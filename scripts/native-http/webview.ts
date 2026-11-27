@@ -16,6 +16,7 @@ import {
   type RotateAndroid,
   type SendAndroidKey,
   type SwipeAndroid,
+  type TapAndroid,
 } from "./android-webview.ts";
 import { respondToChannelMembers } from "./channel-members.ts";
 import { respondToChannelView } from "./channel-view.ts";
@@ -115,6 +116,11 @@ export function webviewServers(
   let tableBack = false;
   const selectionSteps = ["press", "deny", "press", "allow", "press"];
   let selectionStep = 0;
+  let tapAndroid: TapAndroid | undefined;
+  const codeTaps = ["preview", "copy"];
+  let codeTap = 0;
+  let codeBack = false;
+  let codeRotated = false;
   let controlProgress = "not started";
   let windowReceivedSocket: Socket | undefined;
   let windowDataProgress = "not started";
@@ -1672,6 +1678,9 @@ export function webviewServers(
           "table-rotation",
           "table-back",
           "table-selection",
+          "code-tap",
+          "code-back",
+          "code-rotation",
           "format-times",
           "received",
           "closed",
@@ -1760,6 +1769,28 @@ export function webviewServers(
         heldFormatKey = undefined;
         formatKeys.push(name);
       }
+    } else if (step === "code-tap") {
+      const tap = tapAndroid;
+      assert(tap);
+      const match = /^(preview|copy),([1-9]\d{0,3}),([1-9]\d{0,3})$/u.exec(
+        name,
+      );
+      assert(match);
+      assert.equal(match[1], codeTaps[codeTap]);
+      if (!(await press(() => tap(Number(match[2]), Number(match[3]))))) return;
+      codeTap++;
+    } else if (step === "code-back") {
+      assert(codeRotated && !codeBack && pressWorkspaceBack);
+      if (!(await press(pressWorkspaceBack))) return;
+      codeBack = true;
+    } else if (step === "code-rotation") {
+      const rotate = rotateAndroid;
+      assert(rotate && codeTap === codeTaps.length);
+      assert(name === "landscape" || name === "portrait");
+      assert.equal(name, codeRotated ? "portrait" : "landscape");
+      assert.equal(codeBack, codeRotated);
+      if (!(await press(() => rotate(name)))) return;
+      codeRotated = name === "landscape";
     } else if (step === "table-swipe") {
       const swipe = swipeAndroid;
       const swipePreview = swipePreviewAndroid;
@@ -1885,11 +1916,13 @@ export function webviewServers(
       rotate: RotateAndroid,
       runClipboardStep: ClipboardPolicyStep,
       swipePreview: PreviewSwipeAndroid,
+      tap: TapAndroid,
     ) {
       clipboard = runClipboardStep;
       swipeAndroid = swipe;
       swipePreviewAndroid = swipePreview;
       rotateAndroid = rotate;
+      tapAndroid = tap;
       prepareKeyboard = () => send("KEYCODE_TAB");
       pressWorkspaceBack = () => send("KEYCODE_BACK");
       sendRight = () => send("KEYCODE_DPAD_RIGHT");
@@ -1897,6 +1930,10 @@ export function webviewServers(
     verify(platform: "macos" | "android") {
       if (platform === "android") {
         assert(systemPostReads.has("dismissed"), "Missing system-link Back");
+        assert(
+          codeTap === codeTaps.length && codeBack && !codeRotated,
+          "Missing Android code tap, rotation or Back",
+        );
         assert(
           tableBack,
           "Missing Android Back from the table into the thread",

@@ -74,7 +74,7 @@
   padding: 7px;
 }
 
-.post-table-screen {
+.post-reader-screen {
   position: fixed;
   inset: 0;
   box-sizing: border-box;
@@ -90,15 +90,15 @@
   background: var(--canvas);
   color: var(--text);
 }
-.post-table-screen[open] {
+.post-reader-screen[open] {
   display: flex;
   flex-direction: column;
 }
-.post-table-screen-bar {
+.post-reader-screen-bar {
   padding-inline: 6px 12px;
   user-select: none;
 }
-.post-table-screen-origin {
+.post-reader-screen-origin {
   flex: none;
   margin: 8px 16px;
   color: var(--muted);
@@ -115,9 +115,13 @@
   overflow: auto;
   overscroll-behavior: contain;
 }
-/* The Android full-table screen starts restricted until the device responds. */
-.post-table-screen .post-table-screen-content:not([data-selection-allowed]) {
+/* The Android reader starts restricted until the device responds. */
+.post-reader-screen .post-reader-region:not([data-selection-allowed]) {
+  -webkit-user-select: none;
   user-select: none;
+}
+.post-reader-screen-actions {
+  margin-inline-start: auto;
 }
 .post-table-screen .post-table-screen-content table {
   font-size: 0.85rem;

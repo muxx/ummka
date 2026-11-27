@@ -341,6 +341,9 @@ test("the new document receives its control response only after the keyboard eve
       async () => {
         assert.fail("The reload check does not swipe a preview");
       },
+      async () => {
+        assert.fail("The reload check does not tap");
+      },
     );
     let first: Promise<number | undefined> | undefined;
     try {
