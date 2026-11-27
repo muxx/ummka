@@ -539,5 +539,32 @@
     "method": "GET",
     "path": "/api/v4/channels/{channel_id}/bookmarks",
     "id": "ListChannelBookmarksForChannel"
+  },
+  {
+    "file": "bookmarks.yaml",
+    "method": "POST",
+    "path": "/api/v4/channels/{channel_id}/bookmarks",
+    "id": "CreateChannelBookmark",
+    "body": "json"
+  },
+  {
+    "file": "bookmarks.yaml",
+    "method": "PATCH",
+    "path": "/api/v4/channels/{channel_id}/bookmarks/{bookmark_id}",
+    "id": "UpdateChannelBookmark",
+    "body": "json"
+  },
+  {
+    "file": "bookmarks.yaml",
+    "method": "DELETE",
+    "path": "/api/v4/channels/{channel_id}/bookmarks/{bookmark_id}",
+    "id": "DeleteChannelBookmark"
+  },
+  {
+    "file": "bookmarks.yaml",
+    "method": "POST",
+    "path": "/api/v4/channels/{channel_id}/bookmarks/{bookmark_id}/sort_order",
+    "id": "UpdateChannelBookmarkSortOrder",
+    "body": "json"
   }
 ]

@@ -431,14 +431,40 @@ const closedReader = new ChannelsApi(
 const bookmarkDirectory = new BookmarksApi(
   new Configuration({ basePath: base, accessToken: readerToken }),
 );
-const bookmarkFailure = await bookmarkDirectory
-  .listChannelBookmarksForChannel({ channelId: dm.id })
-  .catch((error: unknown) => error);
-assert.ok(bookmarkFailure instanceof ResponseError);
-assert.equal(bookmarkFailure.response.status, 501);
-assert.equal(
-  (await bookmarkFailure.response.json()).id,
-  "api.channel.bookmark.channel_bookmark.license.error",
+const bookmarkTarget = { channelId: dm.id, bookmarkId: "b".repeat(26) };
+for (const request of [
+  () => bookmarkDirectory.listChannelBookmarksForChannel({ channelId: dm.id }),
+  () =>
+    bookmarkDirectory.createChannelBookmark({
+      channelId: dm.id,
+      createChannelBookmarkRequest: {
+        type: "link",
+        displayName: "Guide",
+        linkUrl: "https://example.org/guide",
+      },
+    }),
+  () =>
+    bookmarkDirectory.updateChannelBookmark({
+      ...bookmarkTarget,
+      updateChannelBookmarkRequest: { emoji: "" },
+    }),
+  () =>
+    bookmarkDirectory.updateChannelBookmarkSortOrder({
+      ...bookmarkTarget,
+      body: 0,
+    }),
+  () => bookmarkDirectory.deleteChannelBookmark(bookmarkTarget),
+]) {
+  const failure = await request().catch((error: unknown) => error);
+  assert.ok(failure instanceof ResponseError);
+  assert.equal(failure.response.status, 501);
+  assert.equal(
+    (await failure.response.json()).id,
+    "api.channel.bookmark.channel_bookmark.license.error",
+  );
+}
+console.log(
+  `Mattermost ${version} verified the license response for reading, creating, editing, sorting and deleting channel bookmarks.`,
 );
 assert.deepEqual(
   await readChannelBookmarks(

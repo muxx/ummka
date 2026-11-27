@@ -635,6 +635,27 @@ export function webviewServers(
       return;
     }
     if (await collectionWindow(req, res, url)) return;
+    if (url.pathname === `/team/chat/api/v4/channels/${channelId}/bookmarks`) {
+      assert.equal(req.method, "POST");
+      assert.equal(url.search, "");
+      assert(
+        req.headers.authorization === "Bearer fixture-prefixed-session",
+        "Bookmark creation needs the prefixed fixture account",
+      );
+      assert.equal(req.headers["connection-id"], "fixture-bookmark-connection");
+      assert.equal(req.headers["content-type"], "application/json");
+      const fields = {
+        type: "link",
+        display_name: "Guide",
+        link_url: "https://example.invalid/guide",
+      };
+      assert.deepEqual(await json(req), fields);
+      visits.push("create-channel-bookmark");
+      const bookmark = { ...fields, id: "k".repeat(26), channel_id: channelId };
+      res.writeHead(201, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(bookmark));
+      return;
+    }
     if (url.pathname === "/team/chat/api/v4/reactions") {
       assert.equal(req.method, "POST");
       assert.equal(
@@ -1865,6 +1886,7 @@ export function webviewServers(
       assert.equal(untrustedRequests, 0);
       const expected = [
         ...collectionBackSteps,
+        "create-channel-bookmark",
         "signed-single-channel",
         "signed-named-channel",
         "signed-named-team",
@@ -2188,6 +2210,9 @@ export function webviewServers(
         `${platform} verified native return through the search dialog, results and thread with both composer drafts intact.`,
       );
       assert.deepEqual(visits.sort(), expected.sort());
+      console.log(
+        `Signed bookmark creation verified in the ${platform} WebView.`,
+      );
     },
   };
 }

@@ -13,6 +13,7 @@ import {
 } from "../../src/mattermost/native-rest.ts";
 import { sidebarPreferences } from "../../src/mattermost/workspace-preferences.ts";
 import {
+  BookmarksApi,
   ChannelsApi,
   Configuration,
   FetchError,
@@ -164,6 +165,28 @@ export async function checkGeneratedRequests(ports: string[]) {
     );
   }
   try {
+    const signed = new Configuration(accountPrefix);
+    await fixtureStep("create-channel-bookmark", async () => {
+      const channelId = "c".repeat(26);
+      const bookmarks = new BookmarksApi(signed);
+      const created = await bookmarks.createChannelBookmarkRaw({
+        channelId,
+        connectionId: "fixture-bookmark-connection",
+        createChannelBookmarkRequest: {
+          type: "link",
+          displayName: "Guide",
+          linkUrl: "https://example.invalid/guide",
+        },
+      });
+      const bookmark = await created.value();
+      check(
+        created.raw.status === 201 &&
+          bookmark.id === "k".repeat(26) &&
+          bookmark.channelId === channelId &&
+          bookmark.displayName === "Guide",
+        "signed channel bookmark creation",
+      );
+    });
     const formatting = await androidFixtureStep("message-formatting", () =>
       checkChannelFormatting(
         (kind, width) => observed("format-right", `${kind}-${width}`),
@@ -201,7 +224,6 @@ export async function checkGeneratedRequests(ports: string[]) {
       (await unauthenticated.response.json()).message === "session required",
       "generated-user-error-body",
     );
-    const signed = new Configuration(accountPrefix);
     const users = new UsersApi(signed);
     const lookup = { ids: [] as string[], usernames: ["unknown", "fixture"] };
     check(
