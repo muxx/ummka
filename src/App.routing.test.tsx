@@ -252,6 +252,7 @@ test("restores the selected team, channel, messages and account actions without 
           createAt: 5,
           editAt: 0,
           isPinned: false,
+          type: "",
           message: id === channelId ? "Saved in General" : "Saved in Design",
         },
       ],

@@ -10,10 +10,17 @@ import {
 } from "../../src/mattermost/native-rest.ts";
 import { openChannelNavigation } from "./account-team-window.tsx";
 import { checkAvailableDirectoryWindow } from "./available-directory-window.ts";
+import { systemReply, systemRoot } from "./link-examples.ts";
 import { checkModalScroll } from "./modal-scroll.ts";
 import { checkPendingCommandActions } from "./pending-command-actions.ts";
 import { verifySearchAttachment } from "./published-attachments.ts";
-import { findThreadDraft, verifyWorkspaceBack } from "./workspace-back.tsx";
+import { checkRowPermalink } from "./published-post-actions.ts";
+import {
+  findThreadDraft,
+  inspectChannelTable,
+  inspectReplyTable,
+  verifyWorkspaceBack,
+} from "./workspace-back.tsx";
 
 export async function waitForAppForeground() {
   await waitFor(
@@ -29,7 +36,13 @@ export async function waitForAppForeground() {
 
 async function workspaceFixtureStep(
   controlPort: string,
-  step: "search-result-back" | "allow-design-posts" | "table-back",
+  step:
+    | "search-result-back"
+    | "allow-design-posts"
+    | "table-back"
+    | "copy-true"
+    | "copy-false"
+    | "copy-unset",
 ) {
   const control = await openNativeRestConnection(
     `https://127.0.0.1:${controlPort}`,
@@ -240,15 +253,7 @@ export async function checkBrowserApp(server: string, controlPort: string) {
     );
     const town = ui.getByText("Town fixture message").closest("article");
     if (!town) throw Error("Town post is outside its timeline row");
-    const table = within(within(town).getByRole("table"));
-    const score = table.getByRole("columnheader", { name: "Score" });
-    if (
-      score.getAttribute("scope") !== "col" ||
-      getComputedStyle(score).textAlign !== "right"
-    )
-      throw Error(
-        "Timeline table lost its accessible column header or alignment",
-      );
+    inspectChannelTable(within(within(town).getByRole("table")));
     if (isAndroid)
       await checkTableReturn(
         host,
@@ -258,6 +263,23 @@ export async function checkBrowserApp(server: string, controlPort: string) {
         },
         "fixture-author · # Town Square",
       );
+    const townActions = await within(town).findByRole("button", {
+      name: "Message actions",
+    });
+    flushSync(() => fireEvent.click(townActions));
+    within(document.body).getByRole("dialog", { name: "Message actions" });
+    await workspaceFixtureStep(controlPort, "copy-true");
+    await waitFor(() => {
+      if (
+        document.querySelector(".post-actions-dialog[open]") ||
+        townActions.isConnected ||
+        townDraft.value !== "Draft from the channel window"
+      )
+        throw Error("Android device policy did not dismiss the open action");
+    });
+    await workspaceFixtureStep(controlPort, "copy-false");
+    await within(town).findByRole("button", { name: "Message actions" });
+    await checkRowPermalink(town, `${server}/browser/pl/${systemRoot}`);
     const opener = within(town).getByRole("button", { name: "Open thread" });
     opener.focus();
     flushSync(() => fireEvent.click(opener));
@@ -269,14 +291,6 @@ export async function checkBrowserApp(server: string, controlPort: string) {
     );
     const replyRow = reply.closest("article");
     if (!replyRow) throw Error("Missing published reply");
-    function inspectReplyTable(replyTable: ReturnType<typeof within>) {
-      const extraCell = replyTable.getByRole("cell", {
-        name: "Exact overflow cell",
-      });
-      if (!extraCell.querySelector("strong"))
-        throw Error("Thread table lost the formatting of an extra cell");
-      replyTable.getByRole("columnheader", { name: "Reply col" });
-    }
     if (isAndroid)
       await checkTableReturn(
         host,
@@ -286,6 +300,12 @@ export async function checkBrowserApp(server: string, controlPort: string) {
         () => workspaceFixtureStep(controlPort, "table-back"),
       );
     else inspectReplyTable(within(within(replyRow).getByRole("table")));
+    await checkRowPermalink(
+      replyRow,
+      `${server}/browser/pl/${systemReply}`,
+      true,
+    );
+    await workspaceFixtureStep(controlPort, "copy-unset");
     if (town.getClientRects().length || document.activeElement === townDraft)
       throw Error("The compact thread did not take over the conversation");
     await verifyWorkspaceBack(host, controlPort, opener, townDraft);

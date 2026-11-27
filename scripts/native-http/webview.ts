@@ -127,6 +127,7 @@ export function webviewServers(
     "collection-back-mentions-list",
   ];
   const backSteps = [
+    "post-actions",
     "attachment-reply",
     "appearance",
     "dialog",
@@ -2127,6 +2128,9 @@ export function webviewServers(
           "live-window-send",
           "live-window-thread",
           ...clipboardPolicySteps.map((action) => `copy-${action}`),
+          "copy-true",
+          "copy-false",
+          "copy-unset",
           "android-search-result-back",
           "browser-action-confirmed",
           "live-search-posts",
