@@ -10,7 +10,9 @@ import { checkMacSystemLinks } from "./macos-links.ts";
 
 const exec = promisify(execFile);
 
-export type SendMacKey = (key: "right" | "escape") => Promise<void>;
+export type SendMacKey = (
+  key: "right-down" | "right-up" | "escape",
+) => Promise<void>;
 type KeyDriver = (send: SendMacKey, completed: (stage: string) => void) => void;
 type InteractiveFixture = {
   registerKey: KeyDriver;
@@ -123,7 +125,7 @@ async function launch(
               error ? reject(error) : resolve(),
             );
           });
-          // Each serial fixture step waits for AppKit to dispatch both physical phases.
+          // Each serial fixture command waits for AppKit to dispatch its event.
           // A successful pipe write only means that Node queued bytes for the child.
           for (;;) {
             const line = await lines.next();
