@@ -148,6 +148,9 @@ export function webviewServers(
     "reopened",
     "notifications",
     "directory",
+    "team-choice-direct",
+    "team-choice-nested",
+    "team-choice-account",
     "attachment-search",
     "directory-dialog",
   ];
@@ -2224,7 +2227,16 @@ export function webviewServers(
           "live-window-thread",
         );
       if (platform === "android")
-        expected.push("account-logout-local-failure", "allow-design-posts");
+        expected.push(
+          "account-logout-local-failure",
+          "allow-design-posts",
+          // The explicit reconnect reloads account teams and workspace policy.
+          "browser-entry-users/me/preferences",
+          "browser-entry-users/me/teams",
+          "browser-entry-users/me/teams/members",
+          "live-config/client",
+          "live-license/client",
+        );
       expected.push(
         "directory-page",
         "directory-query",

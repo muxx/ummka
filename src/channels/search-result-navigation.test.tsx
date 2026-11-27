@@ -516,6 +516,122 @@ test("manually switching teams while a result is being verified keeps the new te
   expect(account.selectSidebarChannel).not.toHaveBeenCalled();
 });
 
+test("an accepted team selection invalidates an older result before the queued sidebar write resumes", async () => {
+  const { account } = fixture();
+  const readAnchor = account.readPostAnchor.getMockImplementation();
+  const selectTeam = account.selectJoinedTeam.getMockImplementation();
+  if (!readAnchor || !selectTeam)
+    throw Error("Missing the account fixture implementations");
+  let finishAnchor!: () => void;
+  let finishTeam!: () => void;
+  account.readPostAnchor.mockImplementationOnce(
+    (...args) =>
+      new Promise((resolve) => {
+        finishAnchor = () => resolve(readAnchor(...args));
+      }),
+  );
+  account.selectJoinedTeam.mockImplementationOnce(
+    (...args) =>
+      new Promise((resolve) => {
+        finishTeam = () => resolve(selectTeam(...args));
+      }),
+  );
+  const results = await search();
+  fireEvent.click(
+    await results.findByRole("button", { name: "Search root snippet" }),
+  );
+  await waitFor(() => expect(account.readPostAnchor).toHaveBeenCalledTimes(1));
+  fireEvent.click(screen.getByRole("button", { name: "Switch team, Winter" }));
+  fireEvent.click(
+    within(screen.getByRole("dialog", { name: "Teams and servers" })).getByRole(
+      "button",
+      { name: "Summer" },
+    ),
+  );
+  await waitFor(() =>
+    expect(account.selectJoinedTeam).toHaveBeenCalledExactlyOnceWith(summer),
+  );
+
+  const before = account.readTeamSidebar.mock.calls.length;
+  await act(async () => finishAnchor());
+  expect(account.readTeamSidebar).toHaveBeenCalledTimes(before + 1);
+  expect(account.selectSidebarChannel).not.toHaveBeenCalled();
+  await act(async () => finishTeam());
+  await screen.findByRole("heading", { name: "Other" });
+  expect(account.selectSidebarChannel).not.toHaveBeenCalled();
+  expect(screen.queryByText(root.message)).toBeNull();
+});
+
+test.each([root, reply])(
+  "a refused team selection preserves the addressed $id and its search return",
+  async (target) => {
+    const { account } = fixture();
+    const result = {
+      name: target === root ? "Search root snippet" : "Search reply snippet",
+    };
+    fireEvent.click(await (await search()).findByRole("button", result));
+    const addressed = (await screen.findByText(target.message)).closest(
+      "article",
+    );
+    await waitFor(() => expect(document.activeElement).toBe(addressed));
+    const backToResults = screen.getByRole("button", {
+      name: "Back to results",
+    });
+    let replyToWrite!: (accepted: boolean) => void;
+    account.selectJoinedTeam.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          replyToWrite = resolve;
+        }),
+    );
+    if (target === root) {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Switch team, Winter" }),
+      );
+    } else {
+      fireEvent.click(screen.getByRole("button", { name: "Account" }));
+      fireEvent.click(
+        within(screen.getByRole("dialog")).getByRole("button", {
+          name: "Teams and servers",
+        }),
+      );
+    }
+    const picker = within(
+      screen.getByRole("dialog", { name: "Teams and servers" }),
+    );
+    const summerRow = picker.getByRole("button", { name: "Summer" });
+    fireEvent.click(summerRow);
+    await waitFor(() =>
+      expect(account.selectJoinedTeam).toHaveBeenCalledWith(summer),
+    );
+    expect(addressed?.isConnected).toBe(true);
+    expect(screen.queryByRole("button", { name: "Back to results" })).toBe(
+      backToResults,
+    );
+    await act(async () => replyToWrite(false));
+    expect(picker.getByRole("alert").textContent).toContain(
+      "still in “Winter”",
+    );
+    expect(document.activeElement).toBe(summerRow);
+    expect(addressed?.isConnected).toBe(true);
+    fireEvent.click(picker.getByRole("button", { name: "Close team picker" }));
+    expect(screen.getByRole("button", { name: "Back to results" })).toBe(
+      backToResults,
+    );
+    fireEvent.click(backToResults);
+    const original = await screen.findByRole("button", result);
+    await waitFor(() => expect(document.activeElement).toBe(original));
+    expect(account.readPostSearchPage).toHaveBeenCalledTimes(1);
+    expect(
+      (
+        await screen.findByRole<HTMLTextAreaElement>("textbox", {
+          name: "Message #Home…",
+        })
+      ).value,
+    ).toBe("Original unfinished draft");
+  },
+);
+
 test("Back while joining keeps ownership with the waiting dialog after the submit button disappears", async () => {
   const { account, targetInfo } = fixture();
   account.readPostDestination.mockResolvedValue({

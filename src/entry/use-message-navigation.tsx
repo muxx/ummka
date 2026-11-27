@@ -253,6 +253,13 @@ export function useMessageNavigation(
     setModal(null);
     setPosition(null);
   }, []);
+  function captureTeamChange() {
+    const previous = counter.current;
+    return () => {
+      if (counter.current === previous) clear();
+      else setPosition((visible) => (visible === position ? null : visible));
+    };
+  }
   useLayoutEffect(() => {
     if (!connection) return;
     return () => current.current?.abort();
@@ -276,6 +283,7 @@ export function useMessageNavigation(
       current.current.abort();
       setModal(null);
     }
+    const requestId = ++counter.current;
     external.current = system?.request ?? null;
     const task = new AbortController(),
       { signal } = task;
@@ -404,7 +412,7 @@ export function useMessageNavigation(
       const destination: Position = {
         request: {
           kind: "focus",
-          requestId: ++counter.current,
+          requestId,
           rid: connection.rid,
           teamId: team.id,
           post: target.post,
@@ -452,6 +460,7 @@ export function useMessageNavigation(
       enqueue,
       dialogOpen: Boolean(modal),
     } satisfies MessageNavigation,
+    captureTeamChange,
     dialog: modal && <DestinationDialog modal={modal} language={language} />,
   };
 }

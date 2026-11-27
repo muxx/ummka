@@ -20,12 +20,13 @@ type FrameProps = {
   labels: FrameLabels;
   teamName: string;
   accountName: string;
+  accountDescription?: string;
   accountRef?: RefObject<HTMLButtonElement | null>;
   channel: { id: string; title: string } | null;
   emptyTitle: string;
   page: "navigation" | "conversation";
   onNavigation: () => void;
-  onTeam: () => void;
+  onTeam: (opener: HTMLButtonElement) => void;
   onAccount: () => void;
   navigation: ReactNode;
   children: ReactNode;
@@ -70,6 +71,7 @@ export function ChannelsFrame({
   labels,
   teamName,
   accountName,
+  accountDescription,
   accountRef,
   channel,
   emptyTitle,
@@ -198,13 +200,15 @@ export function ChannelsFrame({
           ref={accountRef}
           aria-haspopup={accountRef ? "dialog" : undefined}
           className="channels-account"
+          data-profile={accountName.trim() ? "ready" : "pending"}
           type="button"
           onClick={onAccount}
           aria-label={labels.account}
-          title={labels.account}
+          aria-description={accountDescription}
+          title={accountDescription ?? labels.account}
         >
           <span aria-hidden="true">
-            {Array.from(accountName.trim())[0]?.toLocaleUpperCase() || "•"}
+            {Array.from(accountName.trim())[0]?.toLocaleUpperCase()}
           </span>
         </button>
       </header>
@@ -222,7 +226,7 @@ export function ChannelsFrame({
             ref={team}
             className="channels-team"
             type="button"
-            onClick={onTeam}
+            onClick={(event) => onTeam(event.currentTarget)}
             aria-label={`${labels.chooseTeam}, ${teamName}`}
           >
             <span>{teamName}</span>
