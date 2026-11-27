@@ -15,6 +15,10 @@ export type ChannelsTarget = { serverUrl: string } & (
 const postIdPattern = /^[a-z0-9]{26}$/u;
 const identifierPattern = /^[@a-zA-Z_0-9-][@a-zA-Z_0-9.:-]*$/u;
 
+export function isConversationIdentifier(value: unknown): value is string {
+  return typeof value === "string" && identifierPattern.test(value);
+}
+
 // Mattermost's team model permits a hyphenated name or a pair joined by "__".
 const teamNamePattern =
   /^(?:[a-z0-9][a-z0-9-]*[a-z0-9]|[a-z0-9]+__[a-z0-9]+)$/u;
@@ -57,7 +61,7 @@ export function parseChannelsLink(
   if (route === "channels" || route === "messages") {
     if (
       !identifier ||
-      !identifierPattern.test(identifier) ||
+      !isConversationIdentifier(identifier) ||
       (postId !== undefined && !postIdPattern.test(postId))
     ) {
       return null;

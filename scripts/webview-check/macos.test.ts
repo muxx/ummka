@@ -33,6 +33,23 @@ test("closing the fixture releases its watchdog", (t) => {
   t.mock.timers.tick(100);
 });
 
+test("native window stages have their own deadline", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let expired = 0;
+  const watchdog = watchWebviewSteps(() => expired++, 100);
+  t.mock.timers.tick(80);
+  watchdog.completed("window-lifetime-read-first-receipt", 10);
+  t.mock.timers.tick(9);
+  assert.equal(expired, 0);
+  watchdog.completed("window-lifetime-wait-destroyed", 10);
+  t.mock.timers.tick(9);
+  assert.equal(expired, 0);
+  watchdog.completed("window-lifetime-wait-destroyed", 10);
+  t.mock.timers.tick(1);
+  assert.equal(expired, 1);
+  watchdog.close();
+});
+
 test("a pending browser operation fails with the name of its await", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const stuck = fixtureDeadline(

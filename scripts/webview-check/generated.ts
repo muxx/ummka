@@ -179,6 +179,11 @@ export async function checkGeneratedRequests(ports: string[]) {
               swipe: (axis, coordinates) =>
                 observed("table-swipe", [axis, ...coordinates].join(",")),
               rotate: (orientation) => observed("table-rotation", orientation),
+              rotateCode: (orientation) =>
+                observed("code-rotation", orientation),
+              tap: (phase, coordinates) =>
+                observed("code-tap", [phase, ...coordinates].join(",")),
+              back: () => observed("code-back", ""),
               longPress: (x, y) =>
                 observed("table-selection", `press,${x},${y}`),
               allowSelection: (allowed) =>
@@ -187,15 +192,24 @@ export async function checkGeneratedRequests(ports: string[]) {
           : undefined,
       ),
     );
-    await androidFixtureStep("report-format-times", () =>
+    await fixtureStep("report-format-times", () =>
       observed("format-times", encodeURIComponent(JSON.stringify(formatting))),
     );
     await checkPublishedLinkKey(() => observed("format-link", ""));
-    const atRoot = await new SystemApi(new Configuration(root)).getPing(query);
-    check(atRoot.status === "OK", "generated-root");
-    const first = await api.getPing(query);
-    const second = await api.getPing(query);
-    check(first.status === "OK" && second.status === "OK", "generated-prefix");
+    await fixtureStep("generated-root-ping", async () => {
+      const atRoot = await new SystemApi(new Configuration(root)).getPing(
+        query,
+      );
+      check(atRoot.status === "OK", "generated-root");
+    });
+    await fixtureStep("generated-prefixed-pings", async () => {
+      const first = await api.getPing(query);
+      const second = await api.getPing(query);
+      check(
+        first.status === "OK" && second.status === "OK",
+        "generated-prefix",
+      );
+    });
     const anonymousUser = new UsersApi(new Configuration(root));
     const unauthenticated = await rejected(
       anonymousUser.getUserRaw({ userId: "me" }),

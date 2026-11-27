@@ -37,12 +37,14 @@ export type PreviewSwipeAndroid = (
 export type RotateAndroid = (
   orientation: "landscape" | "portrait",
 ) => Promise<void>;
+export type TapAndroid = (x: number, y: number) => Promise<void>;
 export type OnAndroidInputReady = (
   send: SendAndroidKey,
   swipe: SwipeAndroid,
   rotate: RotateAndroid,
   clipboard: ClipboardPolicyStep,
   swipePreview: PreviewSwipeAndroid,
+  tap: TapAndroid,
 ) => void;
 
 export async function launchWebview(
@@ -178,6 +180,9 @@ export async function launchWebview(
         await motion("MOVE", Math.round(start + ((end - start) * step) / 4));
       await motion("UP", end);
     },
+    async (x, y) => {
+      await adb("shell", "input", "tap", String(x), String(y));
+    },
   );
   assert.match(
     await adb("shell", "am", "start", "-W", "-n", activity),
@@ -186,7 +191,9 @@ export async function launchWebview(
   const pid = (await adb("shell", "pidof", "-s", app)).trim();
   assert.match(pid, /^\d+$/);
   const launched = Date.now();
-  const deadline = launched + 65_000;
+  const idleBudget = 65_000;
+  let deadline = launched + idleBudget;
+  const seenStages = new Set<string>();
   let browserStage = "no browser stage reported";
   const progress = () =>
     [`after ${Date.now() - launched} ms`, browserStage, webviewProgress?.()]
@@ -210,6 +217,16 @@ export async function launchWebview(
     ].at(-1);
     if (step) {
       const current = `${step[1]} ${step[2]}`;
+      // The full interactive run spans many independent UI and native checks.
+      // Only a new stage observed before expiry earns more time.
+      if (
+        expected === "browser-checked" &&
+        !seenStages.has(current) &&
+        Date.now() < deadline
+      ) {
+        seenStages.add(current);
+        deadline = Math.min(launched + 180_000, Date.now() + idleBudget);
+      }
       if (browserStage !== current) {
         browserStage = current;
         console.log(`Android WebView process ${pid}: ${progress()}.`);

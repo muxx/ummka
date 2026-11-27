@@ -11,10 +11,10 @@ import { afterEach, expect, test, vi } from "vitest";
 import { PublishedPostBody } from "./PublishedPostBody.tsx";
 import { PublishedLinkNavigation } from "./PublishedPostLink.tsx";
 import {
+  PublishedReaderWindow,
   PublishedTableScreen,
-  PublishedTableWindow,
-  usePublishedTableWindow,
-} from "./PublishedTableWindow.tsx";
+  usePublishedReaderWindow,
+} from "./PublishedReaderWindow.tsx";
 import "./workspace-dom.test-utils.ts";
 
 vi.mock("../build-platform.ts", () => ({
@@ -52,17 +52,17 @@ function Workspace({
   locale?: "en" | "ru";
   inThread?: boolean;
 }) {
-  const tables = usePublishedTableWindow(scope, "# Release");
+  const tables = usePublishedReaderWindow(scope, "# Release");
   return (
-    <PublishedTableWindow value={tables.value}>
+    <PublishedReaderWindow value={tables.value}>
       <PublishedPostBody
         message={message}
         locale={locale}
         authorName="Ada"
         inThread={inThread}
       />
-      <PublishedTableScreen tables={tables} />
-    </PublishedTableWindow>
+      <PublishedTableScreen reader={tables} />
+    </PublishedReaderWindow>
   );
 }
 

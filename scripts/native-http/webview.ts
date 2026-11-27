@@ -16,6 +16,7 @@ import {
   type RotateAndroid,
   type SendAndroidKey,
   type SwipeAndroid,
+  type TapAndroid,
 } from "./android-webview.ts";
 import { respondToChannelMembers } from "./channel-members.ts";
 import { respondToChannelView } from "./channel-view.ts";
@@ -115,7 +116,14 @@ export function webviewServers(
   let tableBack = false;
   const selectionSteps = ["press", "deny", "press", "allow", "press"];
   let selectionStep = 0;
+  let tapAndroid: TapAndroid | undefined;
+  const codeTaps = ["preview", "copy"];
+  let codeTap = 0;
+  let codeBack = false;
+  let codeRotated = false;
   let controlProgress = "not started";
+  let windowReceivedSocket: Socket | undefined;
+  let windowDataProgress = "not started";
   let onMacStep: ((stage: string) => void) | undefined;
   let controlRequests = 0;
   let sendRight: (() => Promise<void>) | undefined;
@@ -224,6 +232,18 @@ export function webviewServers(
           name: "old_room",
           type: "O",
           delete_at: 41,
+        },
+      },
+    ],
+    [
+      `/team/chat/api/v4/channels/${"z".repeat(26)}`,
+      {
+        name: "signed-link-identifier",
+        body: {
+          id: "z".repeat(26),
+          name: "release",
+          team_id: teamId,
+          type: "O",
         },
       },
     ],
@@ -545,7 +565,11 @@ export function webviewServers(
     ],
   ]);
   function hold(name: string, req: IncomingMessage, res: ServerResponse) {
-    req.socket.once("close", () => events.emit(`${name}-closed`));
+    if (name === "window") windowDataProgress = "held";
+    req.socket.once("close", () => {
+      if (name === "window") windowDataProgress = "closed";
+      events.emit(`${name}-closed`);
+    });
     events.emit(`${name}-received`);
     if (name === "body" || name.endsWith("-body"))
       res.writeHead(200, { "Content-Length": "100" }).write("A");
@@ -1672,6 +1696,9 @@ export function webviewServers(
           "table-rotation",
           "table-back",
           "table-selection",
+          "code-tap",
+          "code-back",
+          "code-rotation",
           "format-times",
           "received",
           "closed",
@@ -1764,6 +1791,28 @@ export function webviewServers(
       assert(sendEnter && !linkActivated && formattingTimes);
       if (!(await press(sendEnter))) return;
       linkActivated = true;
+    } else if (step === "code-tap") {
+      const tap = tapAndroid;
+      assert(tap);
+      const match = /^(preview|copy),([1-9]\d{0,3}),([1-9]\d{0,3})$/u.exec(
+        name,
+      );
+      assert(match);
+      assert.equal(match[1], codeTaps[codeTap]);
+      if (!(await press(() => tap(Number(match[2]), Number(match[3]))))) return;
+      codeTap++;
+    } else if (step === "code-back") {
+      assert(codeRotated && !codeBack && pressWorkspaceBack);
+      if (!(await press(pressWorkspaceBack))) return;
+      codeBack = true;
+    } else if (step === "code-rotation") {
+      const rotate = rotateAndroid;
+      assert(rotate && codeTap === codeTaps.length);
+      assert(name === "landscape" || name === "portrait");
+      assert.equal(name, codeRotated ? "portrait" : "landscape");
+      assert.equal(codeBack, codeRotated);
+      if (!(await press(() => rotate(name)))) return;
+      codeRotated = name === "landscape";
     } else if (step === "table-swipe") {
       const swipe = swipeAndroid;
       const swipePreview = swipePreviewAndroid;
@@ -1843,6 +1892,17 @@ export function webviewServers(
       const wait = held.get(name);
       assert(wait);
       assert(step === "received" || step === "closed");
+      if (name === "window") {
+        if (step === "received") {
+          assert(!windowReceivedSocket, "duplicate window received receipt");
+          windowReceivedSocket = req.socket;
+        } else {
+          assert(
+            windowReceivedSocket && req.socket !== windowReceivedSocket,
+            "window closed receipt must follow received on a fresh control socket",
+          );
+        }
+      }
       await wait[step];
       if (name === "reload" && step === "closed" && prepareKeyboard) {
         const sendTab = prepareKeyboard;
@@ -1865,7 +1925,7 @@ export function webviewServers(
   return {
     servers: [data, control, foreign],
     progress: () =>
-      `control=${controlProgress}, data visits=${visits.length} [${visits.slice(-6).join(", ")}], completed Back steps=${stepIndex}`,
+      `control=${controlProgress}, window data=${windowDataProgress}, data visits=${visits.length} [${visits.slice(-6).join(", ")}], completed Back steps=${stepIndex}`,
     onMacInputReady(send: SendMacKey, completed: (stage: string) => void) {
       onMacStep = completed;
       pressWorkspaceBack = () => send("escape");
@@ -1879,11 +1939,13 @@ export function webviewServers(
       rotate: RotateAndroid,
       runClipboardStep: ClipboardPolicyStep,
       swipePreview: PreviewSwipeAndroid,
+      tap: TapAndroid,
     ) {
       clipboard = runClipboardStep;
       swipeAndroid = swipe;
       swipePreviewAndroid = swipePreview;
       rotateAndroid = rotate;
+      tapAndroid = tap;
       prepareKeyboard = () => send("KEYCODE_TAB");
       pressWorkspaceBack = () => send("KEYCODE_BACK");
       sendRight = () => send("KEYCODE_DPAD_RIGHT");
@@ -1897,6 +1959,10 @@ export function webviewServers(
             systemPostReads.has("published-link-denied-back") &&
             systemPostReads.has("published-link-table-back"),
           "Missing table link refusal Back",
+        );
+        assert(
+          codeTap === codeTaps.length && codeBack && !codeRotated,
+          "Missing Android code tap, rotation or Back",
         );
         assert(
           tableBack,
@@ -1933,6 +1999,7 @@ export function webviewServers(
       assert.equal(entrySettings.size, 2);
       assert.equal(untrustedRequests, 0);
       const expected = [
+        "signed-link-identifier",
         ...collectionBackSteps,
         "signed-single-channel",
         "signed-named-channel",

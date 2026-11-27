@@ -48,6 +48,11 @@ import {
   type TeamRoleSnapshot,
 } from "./channel-permissions.ts";
 import type { ChannelProfile } from "./channel-profiles.ts";
+import type { ChannelsTarget } from "./channels-link.ts";
+import {
+  type KnownChannelName,
+  resolveConversationIdentifier,
+} from "./conversation-link-identifier.ts";
 import {
   type RecipientQuery,
   readConversationRecipients,
@@ -228,6 +233,17 @@ export async function openAccountRestConnection(
   }
   return {
     ...connection,
+    resolveConversationIdentifier(
+      target: Extract<ChannelsTarget, { kind: "conversation" }>,
+      known?: KnownChannelName,
+      signal?: AbortSignal,
+    ) {
+      return readWhileOpen(
+        () =>
+          resolveConversationIdentifier(config, userId, target, known, signal),
+        signal,
+      );
+    },
     ...accountFollowedThreads(config, readWhileOpen),
     ...accountPostCollections(config, userId, readWhileOpen),
     ...accountCollectionActions(config, userId, readWhileOpen),

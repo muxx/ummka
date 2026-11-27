@@ -79,7 +79,10 @@ try {
           fixture.webviewPorts,
           dir,
           config,
-          fixture.onMacInputReady,
+          {
+            registerKey: fixture.onMacInputReady,
+            progress: fixture.webviewProgress,
+          },
           workspaceBackOnly,
         );
       } catch (error) {

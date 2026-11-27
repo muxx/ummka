@@ -9,16 +9,17 @@ import {
   useState,
 } from "react";
 import { isAndroid } from "../build-platform.ts";
+import { CodeCopy, CodePreview } from "./PublishedCodeReader.tsx";
 import {
   PublishedLinkNavigation,
   PublishedPostLink,
 } from "./PublishedPostLink.tsx";
 import {
-  PublishedTableWindow,
-  type TableOrigin,
+  PublishedReaderWindow,
+  type ReaderOrigin,
   tableCopy,
   tableOpenLabel,
-} from "./PublishedTableWindow.tsx";
+} from "./PublishedReaderWindow.tsx";
 import { publishedPostDocument } from "./published-post-document.ts";
 import "./published-post.css";
 
@@ -54,7 +55,7 @@ function useHorizontalRegion<T extends HTMLElement>(label: string) {
   return { ref, ...keyboardRegion };
 }
 
-function PostCode({
+function DesktopCode({
   block,
   locale,
 }: {
@@ -67,10 +68,25 @@ function PostCode({
       : labels[locale].code,
   );
   return (
-    <pre {...region}>
-      <code>{block.text}</code>
-    </pre>
+    <div className="post-code-desktop">
+      <pre {...region}>
+        <code>{block.text}</code>
+      </pre>
+      <CodeCopy source={block.text} locale={locale} />
+    </div>
   );
+}
+
+function MobileCode({
+  block,
+  locale,
+}: {
+  block: Extract<Block, { kind: "codeBlock" }>;
+  locale: Locale;
+}) {
+  const origin = useContext(PostReaderOrigin);
+  if (!origin) throw Error("Mobile code requires its post");
+  return <CodePreview source={block} locale={locale} origin={origin} />;
 }
 
 function inlineNode(node: Inline, locale: Locale): React.ReactNode {
@@ -111,7 +127,7 @@ function inlines(nodes: Inline[], locale: Locale) {
 
 type TableBlock = Extract<Block, { kind: "table" }>;
 type TableProps = { table: TableBlock; locale: Locale };
-const PostTableOrigin = createContext<TableOrigin | null>(null);
+const PostReaderOrigin = createContext<ReaderOrigin | null>(null);
 
 function TableGrid({ table, locale, limit }: TableProps & { limit?: number }) {
   function row(cells: Inline[][], heading: boolean) {
@@ -159,8 +175,8 @@ function InlineTable(props: TableProps) {
 }
 
 function TablePreview({ table, locale }: TableProps) {
-  const controls = useContext(PublishedTableWindow);
-  const origin = useContext(PostTableOrigin);
+  const controls = useContext(PublishedReaderWindow);
+  const origin = useContext(PostReaderOrigin);
   if (!controls || !origin)
     throw new Error("A mobile table requires its workspace and post");
   const { limit, open } = controls;
@@ -212,6 +228,7 @@ function TablePreview({ table, locale }: TableProps) {
         onClick={({ currentTarget: button }) => {
           button.focus({ preventScroll: true });
           open({
+            kind: "table",
             ...origin,
             button,
             locale,
@@ -288,7 +305,11 @@ function blockNode(block: Block, locale: Locale): React.ReactNode {
         <InlineTable table={block} locale={locale} />
       );
     case "codeBlock":
-      return <PostCode block={block} locale={locale} />;
+      return isAndroid ? (
+        <MobileCode block={block} locale={locale} />
+      ) : (
+        <DesktopCode block={block} locale={locale} />
+      );
     case "rule":
       return <hr />;
     case "literal":
@@ -328,11 +349,11 @@ export const PublishedPostBody = memo(function PublishedPostBody({
 }: {
   message: string;
   locale: Locale;
-} & TableOrigin) {
+} & ReaderOrigin) {
   const document = useMemo(() => publishedPostDocument({ message }), [message]);
   return (
-    <PostTableOrigin value={{ authorName, inThread }}>
+    <PostReaderOrigin value={{ authorName, inThread }}>
       <div className="published-post">{blocks(document, locale)}</div>
-    </PostTableOrigin>
+    </PostReaderOrigin>
   );
 });
