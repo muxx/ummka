@@ -221,6 +221,7 @@ export function ChannelsWorkspace({
     connection,
     online,
     archivePolicy,
+    sessionIssue,
   );
   const mentionLabels = mentionCopy[language];
   const collectionLabels = collectionCopy[language];
@@ -709,21 +710,31 @@ export function ChannelsWorkspace({
   }
   function stepCollection(delta: -1 | 1, control: HTMLElement) {
     const postId = collectionOrigin?.ids[collectionIndex + delta];
-    if (!collectionDestination || !postId || workspace.messages.dialogOpen)
+    if (
+      !online ||
+      !collectionDestination ||
+      !postId ||
+      workspace.messages.dialogOpen
+    )
       return;
     void collections.activate(postId, (signal) =>
       workspace.messages.open({ kind: "post", id: postId }, signal, control),
     );
   }
-  function endCollection() {
+  function endCollection(control: HTMLButtonElement) {
     const id = position?.request.post.id;
-    const row =
-      id &&
-      host.current?.querySelector<HTMLElement>(
-        `[data-post-id="${CSS.escape(id)}"]`,
-      );
+    const posts = id
+      ? host.current?.querySelectorAll<HTMLElement>(
+          `[data-post-id="${CSS.escape(id)}"]`,
+        )
+      : undefined;
+    const visible =
+      posts && Array.from(posts).find((row) => row.getClientRects().length);
+    const heading = control
+      .closest(".channels-conversation, .channels-thread")
+      ?.querySelector<HTMLElement>(".channels-pane-head :is(h1, h2)");
     collections.close(false);
-    (row || timeline.viewport.current)?.focus({ preventScroll: true });
+    (visible ?? heading)?.focus({ preventScroll: true });
   }
 
   const notice = (message: string, retry?: () => void, alert = false) => (
@@ -1203,7 +1214,6 @@ export function ChannelsWorkspace({
               openRow={openCollectionRow}
               restore={collections.restore}
               close={() => collections.close()}
-              sessionIssue={sessionIssue}
             />
           ) : collections.view &&
             collections.view.kind !== "mentions" &&
@@ -1232,7 +1242,6 @@ export function ChannelsWorkspace({
               channelInfo={(id) => resultRooms.get(id)}
               authorName={(id) => author(id)?.name}
               savedIds={knownSaves.ids}
-              sessionIssue={sessionIssue}
               restore={collections.restore}
               openRow={openCollectionRow}
               close={() => collections.close()}

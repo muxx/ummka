@@ -43,7 +43,7 @@ export function CollectionResultSteps({
   blocked: boolean;
   step: (delta: -1 | 1, control: HTMLElement) => void;
   back: () => void;
-  end: () => void;
+  end: (control: HTMLButtonElement) => void;
 }) {
   const text = copy[language];
   const onStepKey = useEffectEvent((event: KeyboardEvent) => {
@@ -95,7 +95,7 @@ export function CollectionResultSteps({
         aria-label={text.previous}
         title={text.previous}
         aria-keyshortcuts={`Shift+${shortcut}`}
-        disabled={index === 0}
+        disabled={blocked || index === 0}
         onClick={(event) => step(-1, event.currentTarget)}
       >
         <StepIcon path="m14 5-7 7 7 7" />
@@ -106,7 +106,7 @@ export function CollectionResultSteps({
         aria-label={text.next}
         title={text.next}
         aria-keyshortcuts={shortcut}
-        disabled={index === count - 1}
+        disabled={blocked || index === count - 1}
         onClick={(event) => step(1, event.currentTarget)}
       >
         <StepIcon path="m10 5 7 7-7 7" />
@@ -119,7 +119,7 @@ export function CollectionResultSteps({
         className="channels-icon-action"
         aria-label={text.end}
         title={text.end}
-        onClick={end}
+        onClick={(event) => end(event.currentTarget)}
       >
         <StepIcon path="m6 6 12 12M18 6 6 18" />
       </button>

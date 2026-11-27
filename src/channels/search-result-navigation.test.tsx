@@ -1332,3 +1332,189 @@ test("a collection return requests the visible channel anchor from local history
   expect(account.readSavedPosts).toHaveBeenCalledTimes(1);
   expect(await screen.findByText(anchor.message)).toBeTruthy();
 });
+
+test.each(["saved", "mentions"] as const)(
+  "the account handles one rejected %s refresh while reading its result",
+  async (kind) => {
+    const { account } = fixture();
+    const name = kind === "saved" ? "Saved messages" : "Mentions";
+    const row = {
+      name: kind === "saved" ? /Saved reply preview/ : /Mentioned reply/,
+    };
+    let reject!: (reason: Error) => void;
+    const denied = () =>
+      new Promise<never>((_, fail) => {
+        reject = fail;
+      });
+    if (kind === "mentions") {
+      const readPage = vi
+        .fn()
+        .mockResolvedValueOnce({
+          items: [{ ...reply, message: "Mentioned reply" }],
+          nextPage: null,
+          firstInaccessiblePostTime: 0,
+        })
+        .mockImplementationOnce(denied);
+      account.openRecentMentions.mockResolvedValue({ readPage });
+    }
+    account.signOutOnDevice.mockImplementationOnce(() => new Promise(() => {}));
+    const trigger = await screen.findByRole("button", { name });
+    await waitFor(() => expect(trigger.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(trigger);
+    await screen.findByRole("button", row);
+    fireEvent.click(trigger);
+    if (kind === "saved") account.readSavedPosts.mockImplementationOnce(denied);
+    fireEvent.click(trigger);
+    await screen.findByText("Updating the list…");
+    fireEvent.click(screen.getByRole("button", row));
+    const thread = await screen.findByRole("complementary", { name: "Thread" });
+    await within(thread).findByText(reply.message);
+    expect(screen.queryByRole("complementary", { name })).toBeNull();
+    await act(async () =>
+      reject(new ResponseError(new Response(null, { status: 401 }))),
+    );
+    await waitFor(() =>
+      expect(account.signOutOnDevice).toHaveBeenCalledTimes(1),
+    );
+    expect(screen.queryByRole("complementary", { name: "Thread" })).toBeNull();
+  },
+);
+
+test("a late rejected refresh from a closed account cannot sign out a newly opened account", async () => {
+  const previous = fixture();
+  const trigger = await screen.findByRole("button", { name: "Saved messages" });
+  fireEvent.click(trigger);
+  await screen.findByRole("button", { name: /Saved reply preview/ });
+  fireEvent.click(trigger);
+  let reject!: (reason: Error) => void;
+  previous.account.readSavedPosts.mockImplementationOnce(
+    () =>
+      new Promise((_, fail) => {
+        reject = fail;
+      }),
+  );
+  fireEvent.click(trigger);
+  await waitFor(() =>
+    expect(previous.account.readSavedPosts).toHaveBeenCalledTimes(2),
+  );
+  const signal = previous.account.readSavedPosts.mock.calls[1][2];
+  previous.view.unmount();
+  expect(signal?.aborted).toBe(true);
+  const next = fixture({
+    launch: async () => ({
+      status: "ready",
+      serverUrl: "https://other.example.test",
+      userId: "b".repeat(26),
+    }),
+  });
+  const opener = await screen.findByRole("button", { name: "Saved messages" });
+  await act(async () =>
+    reject(new ResponseError(new Response(null, { status: 401 }))),
+  );
+  expect(opener.isConnected).toBe(true);
+  expect(previous.account.signOutOnDevice).not.toHaveBeenCalled();
+  expect(next.account.signOutOnDevice).not.toHaveBeenCalled();
+});
+
+test("dropping offline during a collection step preserves the verified result and disables both inputs", async () => {
+  const { account } = fixture();
+  const read = account.readSavedPosts.getMockImplementation();
+  account.readSavedPosts.mockImplementation(async (...args) => {
+    const data = await read?.(...args);
+    if (!data) throw Error("Fixture has no saved rows");
+    return {
+      ...data,
+      items: [
+        ...data.items,
+        { id: bookmark, channelId: design, createAt: 1, message: "Old sample" },
+      ],
+    };
+  });
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Saved messages" }),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Saved root preview/ }),
+  );
+  const group = within(
+    await screen.findByRole("group", { name: "Saved messages" }),
+  );
+  const before = group.getByRole<HTMLButtonElement>("button", {
+    name: "Previous in list",
+  });
+  const after = group.getByRole<HTMLButtonElement>("button", {
+    name: "Next in list",
+  });
+  expect(before.disabled || after.disabled).toBe(false);
+  let finish!: () => void;
+  const resolveAnchor = account.readPostAnchor.getMockImplementation();
+  if (!resolveAnchor) throw Error("Missing destination fixture");
+  account.readPostAnchor.mockImplementationOnce(async (...args) => {
+    await new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    return resolveAnchor(...args);
+  });
+  fireEvent.click(before);
+  await waitFor(() => expect(account.readPostAnchor).toHaveBeenCalledTimes(2));
+  const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+  try {
+    act(() => window.dispatchEvent(new Event("offline")));
+    await waitFor(() => expect(before.disabled && after.disabled).toBe(true));
+    await act(async () => finish());
+    fireEvent.click(before);
+    fireEvent.click(after);
+    fireEvent.keyDown(window, {
+      code: "KeyG",
+      key: "g",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+    fireEvent.keyDown(window, { code: "KeyG", key: "g", ctrlKey: true });
+    expect(account.readPostAnchor).toHaveBeenCalledTimes(2);
+    expect(group.getByRole("status").textContent).toBe("2 of 3");
+    expect(screen.queryByRole("complementary", { name: "Thread" })).toBeNull();
+    expect(await screen.findByText(root.message)).toBeTruthy();
+    fireEvent.click(
+      group.getByRole("button", { name: "Back to saved messages" }),
+    );
+    expect(
+      (
+        await screen.findByRole("button", { name: /Saved root preview/ })
+      ).getAttribute("aria-current"),
+    ).toBe("true");
+  } finally {
+    online.mockRestore();
+  }
+});
+
+test("finishing the collection from a thread focuses its visible addressed reply", async () => {
+  fixture();
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Saved messages" }),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Saved reply preview/ }),
+  );
+  const thread = await screen.findByRole("complementary", { name: "Thread" });
+  const post = (await within(thread).findByText(reply.message)).closest(
+    "article",
+  );
+  const main = screen.getByRole("main");
+  if (!post) throw Error("Reply article missing");
+  const hidden = post.cloneNode(false) as HTMLElement;
+  hidden.hidden = true;
+  main.append(hidden);
+  vi.spyOn(post, "getClientRects").mockReturnValue([
+    new DOMRect(0, 40, 300, 100),
+  ] as unknown as DOMRectList);
+  const end = await screen.findByRole("button", {
+    name: "Finish browsing the list",
+  });
+  end.focus();
+  fireEvent.click(end);
+  expect(document.activeElement).toBe(post);
+  expect(screen.queryByRole("group", { name: "Saved messages" })).toBeNull();
+  expect(thread.isConnected).toBe(true);
+  hidden.remove();
+});

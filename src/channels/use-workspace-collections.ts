@@ -36,6 +36,7 @@ export function useWorkspaceCollections(
   account: CollectionsAccount,
   online: boolean,
   archivedChannels: boolean | undefined,
+  sessionIssue: (issue: "session" | "unauthorized") => void,
 ) {
   const generation = useRef(0);
   const [view, setView] = useState<View | null>(null);
@@ -67,13 +68,35 @@ export function useWorkspaceCollections(
     mentions?.model.subscribe ?? subscribeToNothing,
     mentions?.model.getSnapshot ?? empty,
   );
+  const failure = state?.status ?? mentionState?.status;
+  const reported = useRef<View | null>(null);
+  useEffect(() => {
+    if (
+      view &&
+      view === owned.current &&
+      view !== reported.current &&
+      (failure === "session" || failure === "unauthorized") &&
+      view.model.getSnapshot().status === failure
+    ) {
+      reported.current = view;
+      sessionIssue(failure);
+    }
+  }, [view, failure, sessionIssue]);
+  useLayoutEffect(() => {
+    if (!online) {
+      activation.current?.controller.abort();
+      activation.current = null;
+    }
+  }, [online]);
   useEffect(() => {
     if (view && online) void view.model.refresh();
   }, [view, online]);
-  useEffect(
+  useLayoutEffect(
     () => () => {
       activation.current?.controller.abort();
-      if (owned.current?.kind === "pins") owned.current.model.close();
+      const previous = owned.current;
+      owned.current = null;
+      if (previous?.kind === "pins") previous.model.close();
       saved.current?.close();
       previousMentions.current?.model.close();
       saved.current = null;

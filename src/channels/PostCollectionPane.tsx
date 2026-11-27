@@ -73,7 +73,6 @@ export function PostCollectionPane({
   restore,
   openRow,
   close,
-  sessionIssue,
 }: {
   model: Model;
   state: Snapshot;
@@ -87,7 +86,6 @@ export function PostCollectionPane({
   restore: { id: string; scroll: number } | null;
   openRow: (id: string, trigger: HTMLButtonElement, scroll: number) => void;
   close: () => void;
-  sessionIssue: (issue: "session" | "unauthorized") => void;
 }) {
   const text = collectionCopy[language];
   const headingId = useId();
@@ -108,10 +106,6 @@ export function PostCollectionPane({
     if (!restoreCollectionRow(list.current, initial.current))
       heading.current?.focus();
   }, []);
-  useEffect(() => {
-    if (state.status === "unauthorized" || state.status === "session")
-      sessionIssue(state.status);
-  }, [sessionIssue, state.status]);
   const rows = useMemo(
     () => newestCollectionItems(state.value?.items ?? []),
     [state.value],

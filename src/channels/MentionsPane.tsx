@@ -100,7 +100,6 @@ export function MentionsPane({
   openRow,
   restore,
   close,
-  sessionIssue,
 }: {
   state: Snapshot;
   model: Model;
@@ -113,7 +112,6 @@ export function MentionsPane({
   openRow: (id: string, trigger: HTMLButtonElement, scroll: number) => void;
   restore: { id: string; scroll: number } | null;
   close: () => void;
-  sessionIssue: (issue: "session" | "unauthorized") => void;
 }) {
   const text = mentionCopy[language],
     common = collectionCopy[language];
@@ -150,10 +148,6 @@ export function MentionsPane({
     if (!restoreCollectionRow(list.current, initial.current))
       heading.current?.focus();
   }, []);
-  useEffect(() => {
-    if (state.status === "session" || state.status === "unauthorized")
-      sessionIssue(state.status);
-  }, [sessionIssue, state.status]);
   useEffect(() => {
     if (
       !online ||
