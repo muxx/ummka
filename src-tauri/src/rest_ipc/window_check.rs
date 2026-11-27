@@ -4,10 +4,7 @@ use crate::{device_document::SelectedDocument, draft_files};
 use objc2_foundation::NSURL;
 use reqwest::{Method, Request, StatusCode};
 use std::{future::ready, num::NonZeroU64, sync::Arc, time::Duration};
-use tauri::{
-    Manager, Runtime, Webview, WebviewUrl, WebviewWindowBuilder, WindowEvent,
-    webview::PageLoadEvent,
-};
+use tauri::{Manager, Runtime, Webview, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tokio::sync::Notify;
 
 fn stage(name: &str) {
@@ -39,25 +36,17 @@ async fn check<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<(), String> {
     );
     let control_base = format!("https://127.0.0.1:{}", ports.next().ok_or("control port")?);
     stage("create-window");
-    let loaded = Arc::new(Notify::new());
-    let page = loaded.clone();
+    // This fixture owns only native resources. Leave WKWebView at its initial
+    // blank document so navigation cannot retire those resources before destroy.
     let window = WebviewWindowBuilder::new(
         app,
         "window-lifetime-check",
-        WebviewUrl::App("ipc-result.html".into()),
+        WebviewUrl::External("about:blank".parse().expect("blank fixture URL")),
     )
-    .on_page_load(move |_, load| {
-        if load.event() == PageLoadEvent::Finished {
-            page.notify_one();
-        }
-    })
+    .on_navigation(|_| false)
     .visible(false)
     .build()
     .map_err(|_| "test window")?;
-    stage("wait-page");
-    // Navigation clears owner resources too. Let the fixture document finish
-    // loading before arming the resources that destruction must retire.
-    loaded.notified().await;
     let owner: &Webview<R> = window.as_ref();
     watch_window(owner);
     let destroyed = Arc::new(Notify::new());
