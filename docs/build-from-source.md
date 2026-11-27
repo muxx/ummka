@@ -10,11 +10,14 @@ npm ci
 
 ```sh
 make check-macos
-ditto -x -k artifacts/ummka-macos-arm64.zip /tmp/ummka-install
-open /tmp/ummka-install/ummka.app
+install_dir=$(mktemp -d)
+ditto -x -k artifacts/ummka-macos-arm64.zip "$install_dir"
+open "$install_dir/ummka.app"
 ```
 
-The first run downloads pinned versions of actionlint, ShellCheck, Trivy and jq into `.check-tools/`. The ZIP contains an ad-hoc-signed release build for local use. For live editing, run `npm run tauri -- dev`.
+The first run downloads pinned versions of actionlint, ShellCheck, Trivy and jq into `.check-tools/`. To keep the locally built app, move the extracted `ummka.app` to Applications in Finder. For live editing, run `npm run tauri -- dev`.
+
+The GitHub Actions ZIP is a development build. Tauri signs the bundle ad hoc by default. To use an Apple signing identity configured on your Mac, set `APPLE_SIGNING_IDENTITY` before building. For an internet release outside the App Store, Gatekeeper expects a Developer ID–signed, notarized app. [Apple notarization requirements](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution)
 
 **Android ARM64.** Install Temurin 17.0.21.1+2 and the Android SDK command-line tools. Set `ANDROID_HOME` to your SDK and `JAVA_HOME` to this JDK for the build. Install the SDK packages and the Rust target before building the APK.
 

@@ -54,10 +54,11 @@ jobs:
           UMMKA_CHECK_MACOS_OFFLINE: "1"
           UMMKA_CHECK_MACOS_BROWSER: "1"
           UMMKA_CHECK_EXTERNAL_HANDOFF: "1"
-      - name: Open the unpacked app twice offline on the disposable runner
+      - name: Verify and open the unpacked development build twice offline
         shell: bash
         run: |
           ditto -x -k artifacts/ummka-macos-arm64.zip "$RUNNER_TEMP/ummka-install"
+          codesign --verify --deep --strict "$RUNNER_TEMP/ummka-install/ummka.app"
           registry="$HOME/Library/Application Support/io.github.muxx.ummka.dev/installations.sqlite"
           test ! -e "$registry"
           bash scripts/with-macos-offline.sh bash scripts/smoke-macos.sh "$RUNNER_TEMP/ummka-install/ummka.app"
@@ -69,7 +70,8 @@ jobs:
           name: dependency-report
           path: artifacts/trivy.json
           if-no-files-found: error
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      - name: Upload the macOS development build (ad hoc by default)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ummka-macos-arm64
           path: artifacts/ummka-macos-arm64.zip

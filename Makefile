@@ -1,6 +1,6 @@
 export PATH := $(CURDIR)/.check-tools:$(PATH)
 
-.PHONY: check check-macos check-android check-android-package check-android-http check-contract generate-bindings check-mattermost check-mattermost-10.10.1 check-mattermost-12.1.0
+.PHONY: check check-macos package-macos check-android check-android-package check-android-http check-contract generate-bindings check-mattermost check-mattermost-10.10.1 check-mattermost-12.1.0
 check: check-macos check-android check-contract check-mattermost
 
 check-mattermost: check-mattermost-10.10.1 check-mattermost-12.1.0
@@ -31,7 +31,10 @@ check-macos: .check-tools/installed
 	node --test scripts/webview-check/macos.test.ts
 	npm run test:native-http -- macos
 	sh scripts/check-security.sh
-	ditto -c -k --keepParent src-tauri/target/release/bundle/macos/ummka.app artifacts/ummka-macos-arm64.zip
+	$(MAKE) package-macos
+
+package-macos:
+	bash scripts/package-macos.sh src-tauri/target/release/bundle/macos/ummka.app artifacts/ummka-macos-arm64.zip
 
 check-android: check-android-package check-android-http
 
