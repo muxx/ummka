@@ -279,7 +279,7 @@
   display: none;
 }
 @container (width <= 740px) {
-  .channels-thread .channels-icon-action {
+  .channels-thread > .channels-pane-head .channels-icon-action {
     order: -1;
   }
   .channels-thread .channels-pane-head {

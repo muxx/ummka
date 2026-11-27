@@ -65,10 +65,12 @@ function EntryRoute({
       : null;
   const request =
     inbox.request?.target.serverUrl === address ? inbox.request : undefined;
-  const notice = inbox.notice(
-    typeof launch === "object" && launch.status === "sign_in_required",
-    Boolean(inbox.request && address && !request),
-  );
+  const needsSignIn =
+    typeof launch === "object" && launch.status === "sign_in_required";
+  const signInLink = needsSignIn ? request : undefined;
+  const notice = signInLink
+    ? null
+    : inbox.notice(needsSignIn, Boolean(inbox.request && address && !request));
   function screen() {
     if (launch === "reading")
       return (
@@ -113,6 +115,9 @@ function EntryRoute({
         savedServer={
           launch.status === "sign_in_required" ? launch.serverUrl : undefined
         }
+        link={signInLink}
+        installations={signInLink ? inbox.installations : undefined}
+        selectSaved={inbox.selectSaved}
         onAccountChanged={reopen}
       />
     );

@@ -14,7 +14,11 @@ import type {
 import type { TimelineMessage } from "./conversation-rows.ts";
 import { TimelineDays } from "./TimelineDays.tsx";
 import { type TimelineAuthor, TimelinePost } from "./TimelinePost.tsx";
-import { measureTimeline, type TimelineViewport } from "./timeline-viewport.ts";
+import {
+  measureTimeline,
+  type TimelinePlace,
+  type TimelineViewport,
+} from "./timeline-viewport.ts";
 import "./timeline.css";
 
 const copy = {
@@ -61,6 +65,7 @@ export type TimelineProps = {
   openThreadPostId?: string;
   collapsedThreads?: boolean;
   address?: { requestId: number; anchorId: string };
+  restoredPosition?: { requestId: number; place: TimelinePlace };
   onReadEdge?: (direction: Direction, postId: string) => void;
   messages?: readonly TimelineMessage[];
   renderOutgoing?: (post: PendingPost) => ReactNode;
@@ -76,8 +81,8 @@ type ScrollProps = {
   viewport?: TimelineViewport;
   historical: boolean;
   hasRows: boolean;
+  restoredPosition?: TimelineProps["restoredPosition"];
 };
-type Place = ReturnType<typeof measureTimeline>;
 class TimelineScroller extends Component<ScrollProps> {
   private readonly pane = createRef<HTMLElement>();
   private readonly frame = createRef<HTMLDivElement>();
@@ -97,7 +102,8 @@ class TimelineScroller extends Component<ScrollProps> {
       (pane.clientHeight - bounds.height) / 2;
     return true;
   }
-  private hiddenPlace: Place | null | undefined = null;
+  private restoredRequest?: number;
+  private hiddenPlace: TimelinePlace | null | undefined = null;
   private lastCorrection?: { top: number; remainder: number };
 
   componentDidMount() {
@@ -107,7 +113,7 @@ class TimelineScroller extends Component<ScrollProps> {
     if (!pane || !frame) return;
     const size = frame.getBoundingClientRect();
     this.fitPane(pane, size);
-    pane.scrollTop = pane.scrollHeight;
+    if (this.restoredRequest === undefined) pane.scrollTop = pane.scrollHeight;
     this.resize = new ResizeObserver(([entry]) => {
       if (!this.pane.current || !entry) return;
       this.fitPane(pane, entry.contentRect);
@@ -134,7 +140,9 @@ class TimelineScroller extends Component<ScrollProps> {
   }
 
   // Measure the previous DOM immediately before React replaces it. Scrolling itself needs no listener.
-  getSnapshotBeforeUpdate(previous: ScrollProps): Place | null | "hidden" {
+  getSnapshotBeforeUpdate(
+    previous: ScrollProps,
+  ): TimelinePlace | null | "hidden" {
     const pane = this.pane.current;
     if (!pane || previous.channelId !== this.props.channelId) return null;
     if (!pane.clientHeight) return "hidden";
@@ -149,7 +157,7 @@ class TimelineScroller extends Component<ScrollProps> {
   componentDidUpdate(
     previous: ScrollProps,
     _state: unknown,
-    snapshot: Place | null | "hidden",
+    snapshot: TimelinePlace | null | "hidden",
   ) {
     const pane = this.pane.current;
     if (previous.viewport !== this.props.viewport) {
@@ -167,7 +175,12 @@ class TimelineScroller extends Component<ScrollProps> {
     if (place !== undefined) this.restore(pane, place);
   }
 
-  private restore(pane: HTMLElement, place: Place | null) {
+  private restore(pane: HTMLElement, place: TimelinePlace | null) {
+    const restored = this.props.restoredPosition;
+    if (restored && restored.requestId !== this.restoredRequest) {
+      this.restoredRequest = restored.requestId;
+      place = restored.place;
+    }
     const correction = this.lastCorrection;
     this.lastCorrection = undefined;
     if (!place) {
@@ -235,6 +248,7 @@ export function ChannelTimeline({
   openThreadPostId,
   collapsedThreads,
   address,
+  restoredPosition,
   onReadEdge,
   messages,
   renderOutgoing,
@@ -304,6 +318,7 @@ export function ChannelTimeline({
         channelId={channelId}
         label={text.history}
         viewport={viewport}
+        restoredPosition={restoredPosition}
         hasRows={ordered.length > 0}
         historical={!!page && page.newer.kind !== "end"}
       >

@@ -77,9 +77,6 @@
   background: var(--canvas);
   color: var(--text);
 }
-.attachment-details[data-input="pointer"] button:focus {
-  outline: none;
-}
 .attachment-details::backdrop {
   background: #06183966;
 }

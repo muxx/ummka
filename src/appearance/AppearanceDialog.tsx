@@ -99,17 +99,14 @@ export default function AppearanceDialog({
   close,
   opener,
   applied,
-  initialInput,
 }: {
   language: EntryLanguage;
   close: () => void;
   applied: (message: string) => void;
-  initialInput: "pointer" | "keyboard";
   opener: RefObject<HTMLButtonElement | null>;
 }) {
   const text = copy[language];
   const title = useId();
-  const [input, setInput] = useState(initialInput);
   const dialog = useRef<HTMLDialogElement>(null);
   const { settings, mode } = useSyncExternalStore(
     windowAppearance.subscribe,
@@ -161,15 +158,12 @@ export default function AppearanceDialog({
     <dialog
       ref={dialog}
       className="appearance-dialog modal-layout"
-      data-input={input}
-      onKeyDownCapture={() => setInput("keyboard")}
       aria-labelledby={title}
       onCancel={(event) => {
         event.preventDefault();
         close();
       }}
       onPointerDown={(event) => {
-        setInput("pointer");
         pressedBackdrop.current =
           event.target === dialog.current &&
           outside(event.currentTarget, event.clientX, event.clientY);
