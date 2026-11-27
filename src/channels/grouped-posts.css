@@ -237,7 +237,7 @@
     :is(.timeline-open-thread, .timeline-post-save) {
     display: none;
   }
-  .timeline-post .timeline-post-actions {
+  .timeline-post button.timeline-post-actions {
     position: absolute;
     inset-block: 0;
     inset-inline-end: 0;
@@ -247,6 +247,12 @@
     margin: 0;
     align-items: flex-start;
     padding-block-start: 3px;
+    border-color: transparent;
+    background: var(--canvas);
+  }
+  .timeline-post
+    .timeline-post-actions:is(:hover, :active, [aria-expanded="true"]) {
+    color: var(--accent);
   }
   .timeline-post .timeline-post-actions > svg {
     width: 24px;
