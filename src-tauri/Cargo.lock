@@ -4850,6 +4850,7 @@ version = "0.1.0"
 dependencies = [
  "block2",
  "core-foundation 0.10.1",
+ "dispatch2",
  "dirs",
  "futures-util",
  "jni 0.22.4",
