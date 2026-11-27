@@ -64,6 +64,7 @@ export function PostCollectionPane({
   model,
   state,
   kind,
+  roomTitle,
   language,
   online,
   canRemove,
@@ -77,6 +78,7 @@ export function PostCollectionPane({
   model: Model;
   state: Snapshot;
   kind: "all" | "pins";
+  roomTitle?: string;
   language: EntryLanguage;
   online: boolean;
   canRemove: boolean;
@@ -89,6 +91,13 @@ export function PostCollectionPane({
 }) {
   const text = collectionCopy[language];
   const headingId = useId();
+  const captionId = `${headingId}-caption`;
+  const caption =
+    kind === "all"
+      ? text.personal
+      : roomTitle
+        ? text.sharedIn(roomTitle)
+        : text.shared;
   const heading = useRef<HTMLHeadingElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const removeFocus = useRef<{
@@ -223,10 +232,17 @@ export function PostCollectionPane({
       <header className="channels-pane-head">
         <CollectionMark kind={kind} />
         <div className="collection-heading">
-          <h2 tabIndex={-1} id={headingId} ref={heading}>
+          <h2
+            tabIndex={-1}
+            id={headingId}
+            aria-describedby={captionId}
+            ref={heading}
+          >
             {kind === "all" ? text.saved : text.pins}
           </h2>
-          <span>{kind === "all" ? text.personal : text.shared}</span>
+          <span id={captionId} title={roomTitle ? caption : undefined}>
+            {caption}
+          </span>
         </div>
         {canRead && state.value && (
           <button

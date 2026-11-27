@@ -282,6 +282,9 @@
 }
 .collection-heading span {
   display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--muted);
   font-size: 0.8rem;
 }
