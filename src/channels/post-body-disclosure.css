@@ -26,9 +26,8 @@
 .post-body-disclosure-action:hover {
   text-decoration: underline;
 }
-.post-body-disclosure-action:focus-visible {
-  outline: 2px solid var(--keyboard-focus);
-  outline-offset: 2px;
+.post-body-disclosure-action:focus {
+  --focus-offset: 2px;
 }
 @media (pointer: coarse) {
   .post-body-disclosure-action {

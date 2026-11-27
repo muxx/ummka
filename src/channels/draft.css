@@ -10,9 +10,8 @@
   background: var(--canvas);
   color: var(--text);
 }
-.draft-box:focus-within {
+.draft-box:has(textarea:focus) {
   border-color: var(--focus);
-  box-shadow: 0 0 0 1px var(--focus);
 }
 .draft-box textarea {
   box-sizing: border-box;
@@ -23,7 +22,7 @@
   field-sizing: content;
   resize: none;
   border: 0;
-  outline: 0;
+  --focus-offset: -2px;
   border-radius: inherit;
   padding: 10px 12px;
   background: transparent;
