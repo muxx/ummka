@@ -328,7 +328,8 @@ pub(crate) fn report_check<R: Runtime>(webview: &Webview<R>, url: &tauri::Url) {
             phase @ ("registry-removed"
             | "registry-confirmed"
             | "registry-unsupported"
-            | "system-posts-shown"),
+            | "system-posts-shown"
+            | "workspace-back"),
         ) = url.query()
         {
             println!("UMMKA_WEBVIEW_CHECK {phase}");

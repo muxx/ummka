@@ -83,6 +83,14 @@ async function checkResources() {
       window.addEventListener("load", () => resolve(), { once: true }),
     );
   }
+  if (import.meta.env.VITE_UMMKA_CHECK_WORKSPACE_BACK === true) {
+    const [data, control] = String(
+      import.meta.env.VITE_UMMKA_CHECK_PORTS,
+    ).split(",");
+    await checkBrowserAction(data, control);
+    location.replace("/ipc-result.html?workspace-back");
+    return;
+  }
   await checkNotificationSoundAssets();
   // A fresh offline process resumes the saved registry before the first-run UI probes.
   if (await resumeRegistryCheck()) return;
