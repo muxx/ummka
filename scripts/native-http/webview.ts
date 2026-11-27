@@ -1573,9 +1573,11 @@ export function webviewServers(
         await sendTab();
       }
     }
-    controlProgress = `${controlId} ${marker} replied`;
-    if (knownStep) onMacStep?.(marker);
-    res.writeHead(204).end();
+    res.writeHead(204).end(() => {
+      if (controlId === controlRequests)
+        controlProgress = `${controlId} ${marker} replied`;
+      if (knownStep) onMacStep?.(marker);
+    });
   });
   let untrustedRequests = 0;
   const foreign = https.createServer(untrusted, (_req, res) => {
@@ -1585,7 +1587,7 @@ export function webviewServers(
   return {
     servers: [data, control, foreign],
     progress: () =>
-      `control=${controlProgress}, data visits=${visits.length}, completed Back steps=${stepIndex}`,
+      `control=${controlProgress}, data visits=${visits.length} [${visits.slice(-6).join(", ")}], completed Back steps=${stepIndex}`,
     onMacInputReady(send: SendMacKey, completed: (stage: string) => void) {
       onMacStep = completed;
       pressWorkspaceBack = () => send("escape");

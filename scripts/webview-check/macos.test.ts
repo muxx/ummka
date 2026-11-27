@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { startFixture } from "../native-http/fixture.ts";
+import { fixtureDeadline } from "./fixture-step.ts";
 import { watchWebviewSteps } from "./macos.ts";
 
 test("new fixture steps renew the deadline, but a repeating or stalled step expires", (t) => {
@@ -29,6 +30,27 @@ test("closing the fixture releases its watchdog", (t) => {
   watch.completed("before");
   watch.close();
   watch.completed("late");
+  t.mock.timers.tick(100);
+});
+
+test("a pending browser operation fails with the name of its await", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const stuck = fixtureDeadline(
+    "close-generated-connections",
+    () => new Promise<never>(() => {}),
+    100,
+  );
+  const failed = assert.rejects(
+    stuck,
+    /Fixture timed out waiting for close-generated-connections/u,
+  );
+  t.mock.timers.tick(100);
+  await failed;
+});
+
+test("a completed browser operation clears its deadline", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  assert.equal(await fixtureDeadline("wait-for-thread-draft", () => 4, 100), 4);
   t.mock.timers.tick(100);
 });
 

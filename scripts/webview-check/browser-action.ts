@@ -12,6 +12,7 @@ import {
   getCurrentAccountId,
 } from "../../src/mattermost/native-rest.ts";
 import { checkBrowserApp, waitForAppForeground } from "./browser-app.tsx";
+import { fixtureStep } from "./fixture-step.ts";
 import { checkDesktopBack } from "./workspace-back.tsx";
 
 function matches(actual: unknown, fields: Record<string, string>) {
@@ -27,24 +28,36 @@ function matches(actual: unknown, fields: Record<string, string>) {
 
 export async function checkBrowserAction(port: string, controlPort: string) {
   const server = `https://127.0.0.1:${port}/browser-action-check`;
-  const unchanged = await signInWithBrowser(server, "gitlab", () => {
-    throw Error("a browser opened for an unselected installation");
-  }).catch((error: unknown) => error);
+  const unchanged = await fixtureStep("reject-unselected-browser-sign-in", () =>
+    signInWithBrowser(server, "gitlab", () => {
+      throw Error("a browser opened for an unselected installation");
+    }).catch((error: unknown) => error),
+  );
   if (!matches(unchanged, { kind: "selection_changed" })) {
     throw Error(
       "unselected browser action did not report the selection change",
     );
   }
-  if (await cancelBrowserSignIn("00000000-0000-4000-8000-000000000000")) {
+  if (
+    await fixtureStep("cancel-inactive-browser-sign-in", () =>
+      cancelBrowserSignIn("00000000-0000-4000-8000-000000000000"),
+    )
+  ) {
     throw Error("inactive browser request was cancelled");
   }
   if (!navigator.userAgent.includes("Android")) {
-    await connectInstallation(server);
+    await fixtureStep("connect-desktop-installation", () =>
+      connectInstallation(server),
+    );
     try {
       await checkDesktopBack(controlPort);
     } finally {
-      await forgetLocalAccount(server, "f".repeat(26));
-      await forgetInstallation(server);
+      await fixtureStep("remove-desktop-account", () =>
+        forgetLocalAccount(server, "f".repeat(26)),
+      );
+      await fixtureStep("remove-desktop-installation", () =>
+        forgetInstallation(server),
+      );
     }
     return;
   }

@@ -10,6 +10,8 @@ fn main() {
         "sign_out_account",
         "sign_out_on_device",
         "close_rest_connection",
+        #[cfg(feature = "webview-check")]
+        "trace_webview_check",
         "read_composer_draft",
         "save_composer_draft",
         "transition_draft_command",

@@ -40,15 +40,30 @@ async function launch(
     timeout: register ? 300_000 : 45_000,
     env,
   });
+  let lastWebviewStep = "no browser stage reported";
   const watchdog = register
-    ? watchWebviewSteps(() => processRun.child.kill(), 120_000)
+    ? watchWebviewSteps(() => {
+        console.error(
+          `WKWebView made no further progress after ${lastWebviewStep}`,
+        );
+        processRun.child.kill();
+      }, 120_000)
     : undefined;
   try {
     if (register && watchdog) {
       const input = processRun.child.stdin;
       const output = processRun.child.stdout;
       assert(input && output);
-      const lines = createInterface({ input: output })[Symbol.asyncIterator]();
+      const outputLines = createInterface({ input: output });
+      outputLines.on("line", (line) => {
+        const step = /^UMMKA_WEBVIEW_STEP (started|completed) ([a-z-]+)$/u.exec(
+          line,
+        );
+        if (!step) return;
+        lastWebviewStep = `${step[1]} ${step[2]}`;
+        watchdog.completed(`browser ${lastWebviewStep}`);
+      });
+      const lines = outputLines[Symbol.asyncIterator]();
       register(async (key) => {
         await new Promise<void>((resolve, reject) => {
           input.write(`${key}\n`, (error) =>
@@ -71,8 +86,9 @@ async function launch(
       stdout.split(/\r?\n/u).includes(`UMMKA_WEBVIEW_CHECK ${expected}`),
       stdout,
     );
+    const stage = register ? ` (last browser stage: ${lastWebviewStep})` : "";
     console.log(
-      `WKWebView process ${processRun.child.pid} verified ${expected}.`,
+      `WKWebView process ${processRun.child.pid} verified ${expected}${stage}.`,
     );
   } finally {
     watchdog?.close();
