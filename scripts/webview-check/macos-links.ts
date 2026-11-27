@@ -62,12 +62,14 @@ export async function checkMacSystemLinks(
   env: NodeJS.ProcessEnv,
   posts?: ReturnType<typeof postLinks>,
   windowMode?: SystemPostWindowMode,
+  rejectInvalid = false,
 ) {
   // LaunchServices reports /private/var even when TMPDIR starts with /var.
+  const scenario = rejectInvalid ? "invalid-link" : windowMode;
   const bundle = join(
     await realpath(dir),
-    windowMode
-      ? `Post link ${windowMode} check.app`
+    scenario
+      ? `Post link ${scenario} check.app`
       : posts
         ? "Post link check.app"
         : "Link check.app",
@@ -87,7 +89,7 @@ export async function checkMacSystemLinks(
 <key>LSUIElement</key>${posts ? "<false/>" : "<true/>"}
 </dict></plist>`,
   );
-  const log = windowMode ? `link-launch-${windowMode}` : "link-launch";
+  const log = scenario ? `link-launch-${scenario}` : "link-launch";
   const output = join(dir, `${log}.stdout`);
   const stderr = join(dir, `${log}.stderr`);
   await writeFile(output, "");
@@ -158,6 +160,24 @@ export async function checkMacSystemLinks(
       assert.equal(Number(initial[1]), pid);
       assert.equal(Number(prepared[1]), pid);
       console.log(`${windowMode} ${initial[0]}\n${windowMode} ${prepared[0]}`);
+    }
+    if (rejectInvalid) {
+      assert(posts && windowMode === "minimized");
+      await exec("/usr/bin/open", [
+        "-a",
+        bundle,
+        `${posts.warm}?fixture-rejected-link`,
+      ]);
+      const rejected = await trace(
+        /^UMMKA_LINK_WINDOW rejected (\d+) (true|false) .+$/mu,
+      );
+      console.log(rejected[0]);
+      assert.equal(Number(rejected[1]), pid);
+      assert.equal(
+        rejected[2],
+        "true",
+        "an invalid link restored the minimized window",
+      );
     }
     await exec("/usr/bin/open", [
       ...background,

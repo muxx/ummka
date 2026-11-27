@@ -263,9 +263,13 @@ export async function checkMacWebview(
     const posts = postLinks(ports[0]);
     await checkMacSystemLinks(dir, env, posts);
     const linkWindowFailures: unknown[] = [];
-    for (const mode of ["hidden", "minimized"] as const) {
+    for (const [mode, rejectInvalid] of [
+      ["hidden", false],
+      ["minimized", false],
+      ["minimized", true],
+    ] as const) {
       try {
-        await checkMacSystemLinks(dir, env, posts, mode);
+        await checkMacSystemLinks(dir, env, posts, mode, rejectInvalid);
       } catch (error) {
         linkWindowFailures.push(error);
       }

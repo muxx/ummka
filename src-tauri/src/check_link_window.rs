@@ -3,7 +3,7 @@ use objc2::MainThreadMarker;
 use objc2_app_kit::{NSApplication, NSWindow, NSWindowOcclusionState};
 use serde::Serialize;
 use std::time::{Duration, Instant};
-use tauri::{Runtime, WebviewWindow};
+use tauri::{AppHandle, Manager, RunEvent, Runtime, WebviewWindow};
 use tokio::sync::oneshot;
 
 #[derive(Clone, Copy)]
@@ -34,6 +34,32 @@ impl Mode {
 
 pub(crate) fn enabled(scenario: &str) -> bool {
     Mode::for_scenario(scenario).is_some()
+}
+
+pub(crate) fn is_rejected_control(event: &RunEvent) -> bool {
+    matches!(event, RunEvent::Opened { urls }
+        if matches!(urls.as_slice(), [url] if url.host_str() == Some("127.0.0.1")
+            && url.query() == Some("fixture-rejected-link")))
+        && std::env::var("UMMKA_CHECK_SCENARIO").as_deref() == Ok("system-post-minimized")
+}
+
+pub(crate) fn observe_rejected_control<R: Runtime>(app: &AppHandle<R>) {
+    let window = app
+        .get_webview_window("main")
+        .expect("invalid link fixture window");
+    tauri::async_runtime::spawn(async move {
+        on_main(window, |app, window| {
+            let state = Observation::read(app, window);
+            let minimized = Mode::Minimized.reached(&state);
+            println!(
+                "UMMKA_LINK_WINDOW rejected {} {minimized} {state:?}",
+                std::process::id()
+            );
+            Ok(())
+        })
+        .await
+        .expect("observe AppKit after rejecting the fixture URL");
+    });
 }
 
 #[derive(Debug, Serialize)]

@@ -262,6 +262,12 @@ pub fn run() {
                 api.prevent_exit();
                 return;
             }
+            #[cfg(all(target_os = "macos", feature = "webview-check"))]
+            let rejected_control = check_link_window::is_rejected_control(&event);
             channels_links::receive(app, event);
+            #[cfg(all(target_os = "macos", feature = "webview-check"))]
+            if rejected_control {
+                check_link_window::observe_rejected_control(app);
+            }
         });
 }
