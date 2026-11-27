@@ -31,8 +31,8 @@
 .timeline-scroll[data-latest] > :first-child {
   margin-block-start: auto;
 }
-.timeline-scroll:focus-visible {
-  outline-offset: -2px;
+.timeline-scroll:focus {
+  --focus-offset: -2px;
 }
 .timeline-status,
 .timeline-limit,
@@ -240,7 +240,7 @@
 .timeline-post-body
   :is(.timeline-thread-count, .timeline-open-thread):is(
     :hover,
-    :focus-visible,
+    :where([data-keyboard-navigation] :focus-visible),
     [aria-expanded="true"]
   ) {
   background: var(--row-hover);
@@ -280,7 +280,11 @@
 .timeline-open-thread + .timeline-post-actions {
   margin-inline-start: 0;
 }
-.timeline-post-actions:is(:hover, :focus-visible, [aria-expanded="true"]) {
+.timeline-post-actions:is(
+  :hover,
+  :where([data-keyboard-navigation] :focus-visible),
+  [aria-expanded="true"]
+) {
   border-color: var(--divider);
   background: var(--row-hover);
 }
@@ -372,16 +376,12 @@
 .post-actions-options svg {
   color: var(--muted);
 }
-.post-actions-dialog button:hover,
-.post-actions-dialog[data-input="keyboard"] button:focus-visible {
+.post-actions-dialog {
+  --focus-offset: -2px;
+}
+.post-actions-dialog
+  button:is(:hover, :where([data-keyboard-navigation] :focus-visible)) {
   background: var(--row-hover);
-}
-.post-actions-dialog[data-input="pointer"] button:focus-visible {
-  outline: none;
-}
-.post-actions-dialog[data-input="keyboard"] button:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: -2px;
 }
 .post-action-notice {
   position: fixed;

@@ -204,9 +204,7 @@ export function ChannelsWorkspace({
   const replyField = useRef<HTMLTextAreaElement>(null);
   const [accountOpen, setAccountOpen] = useState(false);
   const appearanceButton = useRef<HTMLButtonElement>(null);
-  const [appearanceInput, setAppearanceInput] = useState<
-    "pointer" | "keyboard" | null
-  >(null);
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [appearanceNotice, setAppearanceNotice] = useState("");
   const appearanceLabel = language === "ru" ? "Оформление" : "Appearance";
   useEffect(() => {
@@ -783,7 +781,7 @@ export function ChannelsWorkspace({
   const manualThread =
     activeThread && closedRequest === position?.request.requestId;
   function workspaceBack() {
-    if (appearanceInput) return () => setAppearanceInput(null);
+    if (appearanceOpen) return () => setAppearanceOpen(false);
     if (channelMenuOpen)
       return () => {
         setChannelMenuOpen(false);
@@ -1051,9 +1049,9 @@ export function ChannelsWorkspace({
               title={appearanceLabel}
               aria-label={appearanceLabel}
               aria-haspopup="dialog"
-              onClick={(event) => {
+              onClick={() => {
                 setAppearanceNotice("");
-                setAppearanceInput(event.detail ? "pointer" : "keyboard");
+                setAppearanceOpen(true);
               }}
             >
               <AppearanceMark name="palette" />
@@ -1374,14 +1372,13 @@ export function ChannelsWorkspace({
           }}
         />
       )}
-      {appearanceInput && (
+      {appearanceOpen && (
         <Suspense fallback={null}>
           <AppearanceDialog
             language={language}
-            close={() => setAppearanceInput(null)}
+            close={() => setAppearanceOpen(false)}
             opener={appearanceButton}
             applied={setAppearanceNotice}
-            initialInput={appearanceInput}
           />
         </Suspense>
       )}
