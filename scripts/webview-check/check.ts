@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { configure } from "@testing-library/dom";
 import { openExternalPostLink } from "../../src/mattermost/external-post-link.ts";
 import { openNativeRestConnection } from "../../src/mattermost/native-rest.ts";
 import { findStandardEmoji } from "../../src/mattermost/standard-emoji.ts";
@@ -57,6 +58,10 @@ document.addEventListener(
   },
   true,
 );
+
+// A native UI transition can cross IPC, SQLite and a cold WebView chunk.
+// Keep the DOM assertion pending until the transition actually appears.
+configure({ asyncUtilTimeout: 10_000 });
 
 async function expectClosed(close: () => Promise<void>) {
   try {

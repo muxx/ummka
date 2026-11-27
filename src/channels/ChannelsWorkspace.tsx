@@ -43,6 +43,7 @@ import type { ReactionThread } from "./submit-channel-reaction.ts";
 import { TeamChannelDirectory } from "./TeamChannelDirectory.tsx";
 import { ThreadPane } from "./ThreadPane.tsx";
 import { useChannelTimeline } from "./use-channel-timeline.ts";
+import { useResultChannelIdentities } from "./use-result-channel-identities.ts";
 import { useWorkspaceBack } from "./use-workspace-back.ts";
 import { useWorkspaceCollections } from "./use-workspace-collections.ts";
 import { useWorkspaceProfiles } from "./use-workspace-profiles.ts";
@@ -371,10 +372,41 @@ export function ChannelsWorkspace({
         : null,
     [snapshot, chosen, directoryOpen],
   );
+  const search = useWorkspaceSearch(
+    workspace,
+    language,
+    (id) => resultRooms.get(id)?.title,
+    (id) => author(id)?.name,
+    {
+      channelId: chosen,
+      clear: workspace.messages.clear,
+      open: (source, signal, origin) =>
+        workspace.messages.open(source, signal, origin),
+      beforeOpen: () => {
+        collections.close(false);
+        setChannelMenuOpen(false);
+      },
+    },
+  );
   const mentionItems = collections.mentionState?.items;
+  const resultItems = savedItems ?? mentionItems ?? search.rows;
   const resultChannelIds = useMemo(
-    () => new Set((savedItems ?? mentionItems)?.map((post) => post.channelId)),
-    [savedItems, mentionItems],
+    () =>
+      new Set(resultItems?.map((row) => row.channelId).filter(isMattermostId)),
+    [resultItems],
+  );
+  const channels = snapshot?.data.channels;
+  const missingRooms = useMemo(() => {
+    const ids = new Set(resultChannelIds);
+    for (const room of channels ?? []) ids.delete(room.id);
+    return ids;
+  }, [resultChannelIds, channels]);
+  const extraRooms = useResultChannelIdentities(
+    connection,
+    collections.view?.model ?? search.session,
+    missingRooms,
+    online,
+    sessionIssue,
   );
   const profileQuery = useMemo(() => {
     const query = workspaceProfileQuery(
@@ -387,9 +419,20 @@ export function ChannelsWorkspace({
     const ids = new Set(query.ids);
     for (const post of collections.state?.value?.items ?? [])
       if (isMattermostId(post.userId)) ids.add(post.userId);
-    for (const post of collections.mentionState?.items ?? [])
+    const usernames = new Set(query.usernames);
+    for (const id of missingRooms) {
+      const room = extraRooms.get(id);
+      if (room?.kind === "D") {
+        const peer = directPartnerId(room.name, userId);
+        if (peer) ids.add(peer);
+      }
+      if (room?.kind === "G")
+        for (const name of room.displayName.split(", "))
+          if (name.trim()) usernames.add(name);
+    }
+    for (const post of resultItems ?? [])
       if (isMattermostId(post.userId)) ids.add(post.userId);
-    return { ...query, ids: [...ids] };
+    return { ids: [...ids], usernames: [...usernames] };
   }, [
     userId,
     current,
@@ -397,7 +440,9 @@ export function ChannelsWorkspace({
     timeline.page,
     collections.state?.value,
     resultChannelIds,
-    collections.mentionState?.items,
+    resultItems,
+    missingRooms,
+    extraRooms,
   ]);
   const saved = useWorkspaceProfiles(
     connection,
@@ -422,11 +467,10 @@ export function ChannelsWorkspace({
         : [],
     [current, settings, userId, profiles, language, compact],
   );
-  const channels = snapshot?.data.channels;
   const resultRooms = useMemo(() => {
     const result = new Map<string, { title: string; kind: string }>();
-    if (!channels || !resultChannelIds.size) return result;
-    for (const room of channels) {
+    if (!resultChannelIds.size) return result;
+    for (const room of [...extraRooms.values(), ...(channels ?? [])]) {
       if (!resultChannelIds.has(room.id)) continue;
       const title = conversationName(
         room,
@@ -440,6 +484,7 @@ export function ChannelsWorkspace({
     return result;
   }, [
     channels,
+    extraRooms,
     resultChannelIds,
     userId,
     profiles,
@@ -580,24 +625,6 @@ export function ChannelsWorkspace({
       ? { name: teammateName(profile, settings.nameFormat) }
       : undefined;
   }
-  const search = useWorkspaceSearch(
-    workspace,
-    language,
-    (id) =>
-      snapshot?.data.channels.find((row) => row.id === id)?.displayName ||
-      undefined,
-    (id) => author(id)?.name,
-    {
-      channelId: chosen,
-      clear: workspace.messages.clear,
-      open: (source, signal, origin) =>
-        workspace.messages.open(source, signal, origin),
-      beforeOpen: () => {
-        collections.close(false);
-        setChannelMenuOpen(false);
-      },
-    },
-  );
   function showCollection(
     source: Parameters<typeof collections.open>[0],
     opener: HTMLButtonElement,

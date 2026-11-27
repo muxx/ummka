@@ -95,7 +95,9 @@ export async function verifyWorkspaceBack(
     });
     const search = ui.getByRole("button", { name: "Search" });
     flushSync(() => fireEvent.click(search));
-    let form = within(await ui.findByRole("dialog"));
+    let form = within(
+      await ui.findByRole("dialog", { name: "What are you looking for?" }),
+    );
     flushSync(() =>
       fireEvent.input(form.getByRole("searchbox"), {
         target: { value: "window fixture" },
@@ -116,7 +118,9 @@ export async function verifyWorkspaceBack(
         results.getByRole("button", { name: /Edit.*window fixture/i }),
       ),
     );
-    form = within(await ui.findByRole("dialog"));
+    form = within(
+      await ui.findByRole("dialog", { name: "What are you looking for?" }),
+    );
     flushSync(() =>
       fireEvent.input(form.getByRole("searchbox"), {
         target: { value: "not submitted" },

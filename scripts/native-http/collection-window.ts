@@ -10,6 +10,8 @@ export function collectionWindowFixture() {
     user = "f".repeat(26);
   const root = "v".repeat(26),
     reply = "w".repeat(26);
+  const outside = "j".repeat(26),
+    outsidePost = "y".repeat(26);
   const oldest = "oldest".padEnd(26, "0");
   const raw = [
     reply,
@@ -96,7 +98,21 @@ export function collectionWindowFixture() {
         time_zone_offset: 0,
       });
       assert(query.page === 0 || query.page === 1);
-      send({ ...posts(query.page === 0 ? [reply] : []), matches: {} }, "POST");
+      const page = posts(query.page === 0 ? [reply, outsidePost] : []);
+      if (query.page === 0) {
+        page.posts[outsidePost].channel_id = outside;
+        page.posts[outsidePost].message = "Release notes mention @reader";
+      }
+      send({ ...page, matches: {} }, "POST");
+    } else if (path === `channels/${outside}`) {
+      send({
+        id: outside,
+        type: "P",
+        team_id: "s".repeat(26),
+        name: "releases",
+        display_name: "Outside releases",
+        delete_at: 0,
+      });
     } else if (path === "users/me/preferences") {
       send(
         raw.map((name) => ({

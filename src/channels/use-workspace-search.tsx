@@ -5,7 +5,9 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
+import { ResponseError } from "../../vendor/mattermost/index.js";
 import type { TeamWorkspace } from "../entry/AccountTeamWindow.tsx";
 import type { EntryLanguage } from "../entry/language.ts";
 import { searchTimezoneOffsetSeconds } from "../mattermost/search-timezone.ts";
@@ -21,6 +23,9 @@ const SearchDialog = lazy(async () => ({
 const SearchResultsPanel = lazy(async () => ({
   default: (await import("./SearchResultsPanel.tsx")).SearchResultsPanel,
 }));
+
+const noSubscription = () => () => {};
+const noResults = () => null;
 
 export function useWorkspaceSearch(
   workspace: Pick<TeamWorkspace, "team" | "online" | "sessionIssue"> & {
@@ -221,7 +226,18 @@ export function useWorkspaceSearch(
       }
     }
   }
+  const session = entry?.policyKey === policyKey ? entry.result : null;
+  const state = useSyncExternalStore(
+    session?.subscribe ?? noSubscription,
+    session?.getSnapshot ?? noResults,
+  );
+  const tab = state?.[state.selected];
+  const denied =
+    tab?.error instanceof ResponseError &&
+    [401, 403, 404].includes(tab.error.response.status);
   return {
+    session,
+    rows: denied ? undefined : tab?.items,
     origin: sourceRow.current,
     backLabel: text.back,
     restoreRow: () => {
