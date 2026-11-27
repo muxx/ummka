@@ -7,6 +7,7 @@ type Account = Pick<
 >;
 type Reader = Awaited<ReturnType<Account["openRecentMentions"]>>;
 type Page = Awaited<ReturnType<Reader["readPage"]>>;
+type Failure = ReturnType<typeof workspaceFailure>;
 
 export function openMentionList(account: Account, archivedChannels: boolean) {
   const listeners = new Set<() => void>();
@@ -14,10 +15,12 @@ export function openMentionList(account: Account, archivedChannels: boolean) {
     items: [] as Page["items"],
     nextPage: 0 as number | null,
     firstInaccessiblePostTime: 0,
+    hasResponse: false,
   };
   let state: typeof initial & {
-    status: "idle" | "loading" | "ready" | ReturnType<typeof workspaceFailure>;
-  } = { ...initial, status: "idle" };
+    status: "idle" | "loading" | "refreshing" | "ready" | Failure;
+    edge: "idle" | "loading" | "network" | "storage";
+  } = { ...initial, status: "idle", edge: "idle" };
   let reader: Reader | undefined;
   let pending: AbortController | undefined;
   let closed = false;
@@ -27,42 +30,61 @@ export function openMentionList(account: Account, archivedChannels: boolean) {
     for (const listener of listeners) listener();
   }
 
-  async function load() {
-    const page = state.nextPage;
+  async function read(first: boolean) {
+    const page = first ? 0 : state.nextPage;
     if (closed || pending || page === null) return;
+    const retry = state.status === "network" || state.status === "storage";
     const request = new AbortController();
     pending = request;
-    publish({ ...state, status: "loading" });
+    publish(
+      first
+        ? {
+            ...state,
+            status: state.hasResponse ? "refreshing" : "loading",
+            edge: "idle",
+          }
+        : { ...state, edge: "loading" },
+    );
     try {
       const session =
-        reader ??
+        ((!first || retry) && reader) ||
         (await account.openRecentMentions(archivedChannels, request.signal));
-      if (request.signal.aborted) return;
+      request.signal.throwIfAborted();
       reader = session;
       const result = await session.readPage(page, request.signal);
-      if (request.signal.aborted) return;
-      const rows = new Map(state.items.map((row) => [row.id, row]));
+      request.signal.throwIfAborted();
+      const rows = new Map(
+        first ? [] : state.items.map((row) => [row.id, row] as const),
+      );
       for (const row of result.items) rows.set(row.id, row);
       publish({
         status: "ready",
+        edge: "idle",
+        hasResponse: true,
         items: Array.from(rows.values()),
         nextPage: result.nextPage,
         firstInaccessiblePostTime: Math.max(
-          state.firstInaccessiblePostTime,
+          first ? 0 : state.firstInaccessiblePostTime,
           result.firstInaccessiblePostTime,
         ),
       });
     } catch (error) {
       if (request.signal.aborted) return;
       const status = workspaceFailure(error, "network");
-      publish(
-        mayKeepCache(status)
-          ? { ...state, status }
-          : { ...initial, nextPage: null, status },
-      );
+      if (!first && (status === "network" || status === "storage"))
+        publish({ ...state, edge: status });
+      else if (mayKeepCache(status)) publish({ ...state, status });
+      else {
+        reader = undefined;
+        publish({ ...initial, nextPage: null, status, edge: "idle" });
+      }
     } finally {
       if (pending === request) pending = undefined;
     }
+  }
+  function cancel() {
+    pending?.abort();
+    pending = undefined;
   }
   return {
     getSnapshot: () => state,
@@ -72,18 +94,21 @@ export function openMentionList(account: Account, archivedChannels: boolean) {
         listeners.delete(listener);
       };
     },
-    refresh() {
-      if (
-        state.status === "idle" ||
-        state.status === "network" ||
-        state.status === "storage"
-      )
-        return load();
+    refresh: () => read(true),
+    load: () =>
+      state.nextPage === null ? Promise.resolve() : read(!state.hasResponse),
+    suspend() {
+      cancel();
+      reader = undefined;
+      publish({
+        ...state,
+        status: state.hasResponse ? "ready" : "idle",
+        edge: "idle",
+      });
     },
-    load,
     close() {
       closed = true;
-      pending?.abort();
+      cancel();
       reader = undefined;
       listeners.clear();
     },

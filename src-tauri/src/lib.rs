@@ -129,7 +129,7 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
                 let native = unsafe { &*main.ns_window()?.cast::<objc2_app_kit::NSWindow>() };
                 if std::env::var_os("UMMKA_CHECK_KEY_INPUT").is_some() {
                     main.set_focus()?;
-                    check_keyboard::listen(&main);
+                    main.with_webview(check_keyboard::listen)?;
                 }
                 if native.minSize().width != 400.0 {
                     return Err("unexpected native minimum window width".into());
@@ -190,11 +190,10 @@ pub fn run() {
             main.url = tauri::WebviewUrl::App("picker-check.html".into());
             main.visible = true;
         }
-        if std::env::var_os("UMMKA_CHECK_SYSTEM_POST_WINDOW").is_some()
-            || std::env::var_os("UMMKA_CHECK_KEY_INPUT").is_some()
-        {
-            // Both interactive fixtures need a normally presented WKWebView from
-            // creation for AppKit focus, scrolling and foreground scheduling.
+        let visible = std::env::var_os("UMMKA_CHECK_SYSTEM_POST_WINDOW").is_some()
+            || std::env::var_os("UMMKA_CHECK_KEY_INPUT").is_some();
+        let scenario = std::env::var("UMMKA_CHECK_SCENARIO").ok();
+        if visible || scenario.is_some() {
             let main = config
                 .config_mut()
                 .app
@@ -202,7 +201,15 @@ pub fn run() {
                 .iter_mut()
                 .find(|window| window.label == "main")
                 .expect("missing main test window");
-            main.visible = true;
+            // AppKit focus and scrolling need a normally presented WKWebView.
+            main.visible = visible;
+            if let Some(scenario) = scenario {
+                assert!(matches!(
+                    scenario.as_str(),
+                    "formatting-320" | "formatting-820" | "workspace-back" | "external-handoff"
+                ));
+                main.url = tauri::WebviewUrl::App(format!("index.html?fixture={scenario}").into());
+            }
         }
         config
     };
