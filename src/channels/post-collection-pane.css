@@ -64,6 +64,97 @@
   padding: 0.5rem 1rem;
   border-radius: 6px;
 }
+.collection-channel-sheet {
+  position: fixed;
+  inset: auto 0 0;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: none;
+  max-height: 89dvh;
+  margin: 0;
+  padding: 0 0 env(safe-area-inset-bottom);
+  border: 1px solid
+    color-mix(in srgb, var(--strong-divider) 60%, var(--divider));
+  border-radius: 16px 16px 0 0;
+  color: var(--text);
+  background: var(--canvas);
+  box-shadow: 0 10px 34px rgb(0 0 0 / 18%);
+}
+.collection-channel-sheet::backdrop {
+  background: rgb(0 0 0 / 26%);
+}
+.collection-channel-sheet header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-block: 15px 10px;
+  padding-inline: max(18px, env(safe-area-inset-left))
+    max(18px, env(safe-area-inset-right));
+  box-shadow: inset 0 -1px var(--divider);
+  background: var(--surface);
+}
+.collection-sheet-mark {
+  flex: none;
+  box-sizing: border-box;
+  width: 26px;
+  height: 26px;
+  padding: 4px;
+  border-radius: 7px;
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+.collection-channel-sheet h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: visible;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.collection-channel-sheet header .channels-icon-action {
+  /* Fit the 44px target around the prototype's 32px control. */
+  margin: -6px;
+  color: var(--quote-text);
+}
+.collection-channel-sheet header .channels-icon-action:hover {
+  background: var(--canvas);
+  color: var(--accent);
+}
+.collection-sheet-actions {
+  display: grid;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-block: 4px 5px;
+  padding-inline: max(5px, env(safe-area-inset-left))
+    max(5px, env(safe-area-inset-right));
+}
+.collection-sheet-actions .collection-channel-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  font-size: 0.85rem;
+  font-weight: 510;
+  line-height: normal;
+}
+.collection-sheet-actions svg {
+  flex: none;
+  color: var(--sheet-action-icon, var(--muted));
+}
+.collection-sheet-actions .collection-channel-action:hover {
+  background: var(--accent-tint);
+}
+.collection-sheet-actions
+  .collection-channel-action:is(
+    :hover,
+    :where([data-keyboard-navigation] :focus-visible)
+  ) {
+  --sheet-action-icon: var(--accent);
+}
 .collection-rows {
   padding: 0.35rem 0.8rem 0.8rem;
 }
@@ -103,7 +194,7 @@
   padding-inline-end: 44px;
 }
 .collection-open:not([aria-disabled="true"]):hover,
-.collection-channel-action:hover,
+.collection-channel-actions .collection-channel-action:hover,
 .collection-page-action:hover {
   background: var(--row-hover);
 }

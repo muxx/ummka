@@ -1182,7 +1182,10 @@ export function ChannelsWorkspace({
                   headingId={id}
                   headingRef={ref}
                   title={channelTitle}
+                  kind={channel.kind}
+                  archived={channel.deleteAt > 0}
                   language={language}
+                  compact={compact}
                   trigger={channelMenuButton}
                   open={channelMenuOpen}
                   setOpen={setChannelMenuOpen}
