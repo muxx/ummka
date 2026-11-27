@@ -912,6 +912,18 @@ test.each(["retry", "decline"] as const)(
     expect(acks).toEqual([]);
     expect(account.changeOwnMembership).toHaveBeenCalledOnce();
     if (action === "retry") {
+      const attempts = account.readPostDestination.mock.calls.length;
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+      await waitFor(() =>
+        expect(account.readPostDestination).toHaveBeenCalledTimes(attempts + 1),
+      );
+      await screen.findByText("The message couldn’t open");
+      expect(
+        screen
+          .getByRole("alert")
+          .textContent?.match(/You joined the channel\./gu),
+      ).toEqual(["You joined the channel."]);
+      expect(account.changeOwnMembership).toHaveBeenCalledOnce();
       if (!loaded) throw Error("Missing history fixture");
       account.readChannelWindow.mockImplementation(loaded);
       account.refreshChannelHistory.mockResolvedValue(true);
@@ -919,6 +931,13 @@ test.each(["retry", "decline"] as const)(
       await waitFor(() =>
         expect(acks).toEqual([{ id: "first", row: root.id, thread: false }]),
       );
+      account.readPostDestination.mockRejectedValueOnce("network");
+      act(() => enqueue("next", href(reply.id)));
+      const nextFailure = await screen.findByText(
+        /Couldn’t open the linked message/,
+      );
+      expect(nextFailure.textContent).not.toContain("You joined the channel.");
+      expect(acks.map(({ id }) => id)).toEqual(["first"]);
     } else {
       fireEvent.click(
         screen.getByRole("button", { name: "Don’t open this link" }),

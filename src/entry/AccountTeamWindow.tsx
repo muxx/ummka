@@ -580,7 +580,7 @@ function AccountWindow({
   const openingActive = opening?.status === "waiting";
   useEffect(() => {
     if (!openingActive || !systemPost || handle) return;
-    if (!online) systemPost.stop("paused", undefined, "offline");
+    if (!online) systemPost.stop("paused", "offline");
     else if (!loading && notice) systemPost.stop("failed");
   }, [openingActive, systemPost, handle, online, loading, notice]);
   const teams = directory?.teams ?? [];
