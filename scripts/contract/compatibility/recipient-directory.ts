@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readConversationRecipients } from "../../../src/mattermost/conversation-recipients.ts";
 import {
   Configuration,
   ResponseError,
@@ -15,7 +16,8 @@ export async function checkRecipientDirectory(
   deactivateOutsider: () => Promise<void>,
   version: string,
 ) {
-  const api = new UsersApi(new Configuration({ basePath, accessToken }));
+  const signed = new Configuration({ basePath, accessToken });
+  const api = new UsersApi(signed);
   const anonymous = new UsersApi(new Configuration({ basePath }));
   const list = (inTeam?: string, page = 0, perPage = 100) =>
     api.getUsers({ active: true, page, perPage, inTeam });
@@ -56,7 +58,40 @@ export async function checkRecipientDirectory(
     1,
   );
 
+  for (const scope of ["team", "any"] as const) {
+    const getScope = async () => scope;
+    const matches = await readConversationRecipients(
+      signed,
+      teamId,
+      { kind: "search", term: `@${outsider.username}` },
+      getScope,
+    );
+    assert.deepEqual(
+      matches.profiles.map((p) => p.id),
+      scope === "any" ? [outsider.id] : [],
+    );
+    assert.equal(matches.nextPage, null);
+    const page = await readConversationRecipients(
+      signed,
+      teamId,
+      { kind: "page", page: 0 },
+      getScope,
+    );
+    assert.equal(
+      page.profiles.some((profile) => profile.id === outsider.id),
+      scope === "any",
+    );
+    assert.ok(page.profiles.some((profile) => profile.id === self.id));
+    assert.equal(page.nextPage, null);
+  }
   await deactivateOutsider();
+  const deactivated = await readConversationRecipients(
+    signed,
+    teamId,
+    { kind: "search", term: outsider.username },
+    async () => "any",
+  );
+  assert.deepEqual(deactivated, { profiles: [], nextPage: null });
   assert.deepEqual(await find(outsider.username), []);
   const inactive = await find(outsider.username, undefined, true);
   assert.equal(inactive.length, 1);

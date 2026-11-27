@@ -13,6 +13,13 @@ use tauri::{Resource, ResourceId, Runtime, Webview};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+mod transfer;
+use transfer::EntryState;
+pub use transfer::{
+    ChannelUploadDenial, UploadFailure, UploadPolicy, UploadState, channel_upload_denial,
+    confirm_channel_upload, start_upload,
+};
+
 const MAX_FILES: usize = 10;
 
 #[derive(Clone, Eq, Hash, PartialEq)]
@@ -39,6 +46,7 @@ impl DraftAddress {
 pub struct DraftFile {
     pub id: Uuid,
     pub document: DocumentInfo,
+    pub upload: UploadState,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -56,28 +64,38 @@ pub enum DraftFilesError {
     UnknownWorkspace,
     InvalidDraft,
     UnknownFile,
+    SourceUnavailable,
+    InvalidUploadPolicy,
     Cancelled,
 }
 
 struct Entry {
     id: Uuid,
-    source: Arc<SelectedDocument>,
+    document: DocumentInfo,
+    state: EntryState,
 }
 
 impl Entry {
     fn info(&self) -> DraftFile {
         DraftFile {
             id: self.id,
-            document: self.source.info().clone(),
+            document: self.document.clone(),
+            upload: self.state.snapshot(),
         }
     }
 }
 
 type Drafts = HashMap<DraftAddress, Vec<Entry>>;
 
+#[derive(Default)]
+struct WorkspaceState {
+    drafts: Drafts,
+    channel_denials: HashMap<String, ChannelUploadDenial>,
+}
+
 struct Workspace {
     lifetime: CancellationToken,
-    drafts: Mutex<Drafts>,
+    state: Mutex<WorkspaceState>,
 }
 
 impl Resource for Workspace {}
@@ -97,6 +115,10 @@ fn account<R: Runtime>(
 
 pub fn open<R: Runtime>(view: &Webview<R>, rid: ResourceId) -> Result<ResourceId, DraftFilesError> {
     let account = account(view, rid)?;
+    open_workspace(&account)
+}
+
+fn open_workspace(account: &Session) -> Result<ResourceId, DraftFilesError> {
     if !account.http.has_account() {
         return Err(DraftFilesError::AccountUnavailable);
     }
@@ -106,14 +128,14 @@ pub fn open<R: Runtime>(view: &Webview<R>, rid: ResourceId) -> Result<ResourceId
     let lifetime = account.lifetime.child_token();
     let workspace = Arc::new(Workspace {
         lifetime: lifetime.clone(),
-        drafts: Mutex::default(),
+        state: Mutex::default(),
     });
     let weak = Arc::downgrade(&workspace);
     // Retiring a login releases its sources even if the WebView keeps the old connection ID.
     tauri::async_runtime::spawn(async move {
         lifetime.cancelled().await;
         if let Some(workspace) = weak.upgrade() {
-            workspace.drafts.lock().unwrap().clear();
+            *workspace.state.lock().unwrap() = WorkspaceState::default();
         }
     });
     Ok(resources.add_arc(workspace))
@@ -125,6 +147,10 @@ pub fn close<R: Runtime>(
     workspace: ResourceId,
 ) -> Result<(), DraftFilesError> {
     let account = account(view, rid)?;
+    close_workspace(&account, workspace)
+}
+
+fn close_workspace(account: &Session, workspace: ResourceId) -> Result<(), DraftFilesError> {
     let mut resources = account
         .open_resources()
         .map_err(|_| DraftFilesError::AccountUnavailable)?;
@@ -139,7 +165,7 @@ pub fn close<R: Runtime>(
 fn with_workspace<T>(
     account: &Session,
     workspace: ResourceId,
-    operation: impl FnOnce(&Workspace) -> T,
+    operation: impl FnOnce(&Arc<Workspace>) -> T,
 ) -> Result<T, DraftFilesError> {
     let resources = account
         .open_resources()
@@ -167,7 +193,19 @@ pub async fn add<R: Runtime>(
     >,
 ) -> Result<Vec<AddResult>, DraftFilesError> {
     let account = account(view, rid)?;
-    let lifetime = with_workspace(&account, workspace, |owner| owner.lifetime.clone())?;
+    add_to_workspace(&account, workspace, draft, max_size, documents).await
+}
+
+async fn add_to_workspace(
+    account: &Session,
+    workspace: ResourceId,
+    draft: &DraftAddress,
+    max_size: NonZeroU64,
+    documents: impl IntoIterator<
+        Item = impl Future<Output = Result<Arc<SelectedDocument>, DocumentUnavailable>>,
+    >,
+) -> Result<Vec<AddResult>, DraftFilesError> {
+    let lifetime = with_workspace(account, workspace, |owner| owner.lifetime.clone())?;
     let prepare = async {
         let mut prepared = Vec::new();
         let mut usable = 0;
@@ -195,11 +233,11 @@ pub async fn add<R: Runtime>(
         _ = lifetime.cancelled() => return Err(DraftFilesError::Cancelled),
         prepared = prepare => prepared,
     };
-    let result = with_workspace(&account, workspace, |owner| {
+    let result = with_workspace(account, workspace, |owner| {
         if lifetime.is_cancelled() {
             return Err(DraftFilesError::Cancelled);
         }
-        let mut drafts = owner.drafts.lock().unwrap();
+        let mut state = owner.state.lock().unwrap();
         Ok(prepared
             .into_iter()
             .map(|source| {
@@ -207,13 +245,14 @@ pub async fn add<R: Runtime>(
                     Ok(source) => source,
                     Err(result) => return result,
                 };
-                let entries = drafts.entry(draft.clone()).or_default();
+                let entries = state.drafts.entry(draft.clone()).or_default();
                 if entries.len() == MAX_FILES {
                     return AddResult::LimitReached(source.info().clone());
                 }
                 let entry = Entry {
                     id: Uuid::new_v4(),
-                    source,
+                    document: source.info().clone(),
+                    state: EntryState::Selected(source),
                 };
                 let info = entry.info();
                 entries.push(entry);
@@ -233,11 +272,20 @@ pub fn list<R: Runtime>(
     workspace: ResourceId,
     draft: &DraftAddress,
 ) -> Result<Vec<DraftFile>, DraftFilesError> {
-    with_workspace(account(view, rid)?.as_ref(), workspace, |owner| {
+    list_workspace(account(view, rid)?.as_ref(), workspace, draft)
+}
+
+fn list_workspace(
+    account: &Session,
+    workspace: ResourceId,
+    draft: &DraftAddress,
+) -> Result<Vec<DraftFile>, DraftFilesError> {
+    with_workspace(account, workspace, |owner| {
         owner
-            .drafts
+            .state
             .lock()
             .unwrap()
+            .drafts
             .get(draft)
             .into_iter()
             .flatten()
@@ -255,15 +303,19 @@ pub fn source<R: Runtime>(
 ) -> Result<Arc<SelectedDocument>, DraftFilesError> {
     with_workspace(account(view, rid)?.as_ref(), workspace, |owner| {
         owner
-            .drafts
+            .state
             .lock()
             .unwrap()
+            .drafts
             .get(draft)
             .into_iter()
             .flatten()
             .find(|entry| entry.id == file)
-            .map(|entry| entry.source.clone())
-            .ok_or(DraftFilesError::UnknownFile)
+            .ok_or(DraftFilesError::UnknownFile)?
+            .state
+            .source()
+            .cloned()
+            .ok_or(DraftFilesError::SourceUnavailable)
     })?
 }
 
@@ -274,14 +326,25 @@ pub fn remove<R: Runtime>(
     draft: &DraftAddress,
     file: Uuid,
 ) -> Result<(), DraftFilesError> {
-    let removed = with_workspace(account(view, rid)?.as_ref(), workspace, |owner| {
-        let mut drafts = owner.drafts.lock().unwrap();
+    remove_from_workspace(account(view, rid)?.as_ref(), workspace, draft, file)
+}
+
+fn remove_from_workspace(
+    account: &Session,
+    workspace: ResourceId,
+    draft: &DraftAddress,
+    file: Uuid,
+) -> Result<(), DraftFilesError> {
+    let removed = with_workspace(account, workspace, |owner| {
+        let mut state = owner.state.lock().unwrap();
+        let drafts = &mut state.drafts;
         let entries = drafts.get_mut(draft).ok_or(DraftFilesError::UnknownFile)?;
         let index = entries
             .iter()
             .position(|entry| entry.id == file)
             .ok_or(DraftFilesError::UnknownFile)?;
         let removed = entries.remove(index);
+        removed.state.cancel();
         if entries.is_empty() {
             drafts.remove(draft);
         }
@@ -293,6 +356,9 @@ pub fn remove<R: Runtime>(
 
 #[cfg(all(test, target_os = "macos"))]
 mod tests;
+
+#[cfg(all(feature = "native-http-check", any(test, target_os = "android")))]
+pub(crate) mod checks;
 
 #[cfg(feature = "webview-check")]
 pub(crate) async fn fixture_connection<R: Runtime>(
