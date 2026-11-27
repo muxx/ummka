@@ -77,6 +77,7 @@ test("restores the thread opener, or the heading after removal, and keeps the co
   const thread = {
     id: "post",
     title: "Replies",
+    subtitle: "# General",
     content: <p>Reply content</p>,
     close: vi.fn(),
   };
@@ -84,7 +85,7 @@ test("restores the thread opener, or the heading after removal, and keeps the co
   fireEvent.click(open);
   rerender(<ChannelsFrame {...props} thread={thread} />);
   expect(document.activeElement).toBe(
-    screen.getByRole("heading", { name: "Replies" }),
+    screen.getByRole("heading", { name: "Replies", description: "# General" }),
   );
   // A desktop reader can return to the draft while the thread stays visible.
   draft.focus();
@@ -121,20 +122,31 @@ test("restores the second opener after switching threads and clicking back into 
   const thread = {
     id: "first",
     title: "First thread",
+    subtitle: "# General",
     content: <p>First reply</p>,
     close: vi.fn(),
   };
+  const otherContext =
+    "Darya Morozova, Egor Zimin, Alexandra Severova, Gleb Torosov";
   fireEvent.click(first);
   rerender(<ChannelsFrame {...props} thread={thread} />);
   fireEvent.click(second);
   rerender(
     <ChannelsFrame
       {...props}
-      thread={{ ...thread, id: "second", title: "Second thread" }}
+      thread={{
+        ...thread,
+        id: "second",
+        title: "Second thread",
+        subtitle: otherContext,
+      }}
     />,
   );
   expect(document.activeElement).toBe(
-    screen.getByRole("heading", { name: "Second thread" }),
+    screen.getByRole("heading", {
+      name: "Second thread",
+      description: otherContext,
+    }),
   );
   fireEvent.click(screen.getByRole("textbox"));
   rerender(<ChannelsFrame {...props} />);

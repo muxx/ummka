@@ -45,7 +45,7 @@ export const workspaceCopy = {
     nav: "Каналы",
     account: "Аккаунт",
     switchTeam: "Сменить команду",
-    thread: "Обсуждение",
+    thread: "Тред",
     closeThread: "Закрыть тред",
     choose: "Выберите канал",
     loading: "Загружаем каналы…",
