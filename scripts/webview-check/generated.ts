@@ -613,6 +613,25 @@ export async function checkGeneratedRequests(ports: string[]) {
       fileId = "f".repeat(26);
     const postAnchor = await accountPrefix.readPostAnchor(postId);
     const fileAnchor = await accountPrefix.readFileAnchor(fileId);
+    const fileDetails = await accountPrefix.readPostFiles(
+      channelId,
+      "j".repeat(26),
+    );
+    const deniedFiles = await rejected(
+      accountPrefix.readPostFiles(channelId, postId),
+    );
+    check(
+      deniedFiles instanceof ResponseError &&
+        deniedFiles.response.status === 403 &&
+        (await deniedFiles.response.json()).id ===
+          "api.file.get_file.abac_denied.app_error" &&
+        fileDetails.length === 2 &&
+        fileDetails[0]?.id === "1".repeat(26) &&
+        fileDetails[0].name === "zebra.txt" &&
+        fileDetails[1]?.id === "2".repeat(26) &&
+        fileDetails[1].name === "apple.txt",
+      "account-post-files",
+    );
     check(
       postAnchor.postId === postId &&
         postAnchor.channelId === channelId &&

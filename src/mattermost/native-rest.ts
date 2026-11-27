@@ -71,6 +71,7 @@ import {
   type OwnPostTarget,
 } from "./own-post.ts";
 import { createPostActivity } from "./post-activity.ts";
+import { readPostFiles } from "./post-attachments.ts";
 import { accountCollectionActions } from "./post-collection-actions.ts";
 import { readPostDestination } from "./post-destination.ts";
 import { readPostEditHistory } from "./post-edit-history.ts";
@@ -246,6 +247,12 @@ export async function openAccountRestConnection(
     },
     readPostAnchor(postId: string, signal?: AbortSignal) {
       return readWhileOpen(() => readPostAnchor(posts, postId, signal), signal);
+    },
+    readPostFiles(channelId: string, postId: string, signal?: AbortSignal) {
+      return readWhileOpen(
+        () => readPostFiles(posts, channelId, postId, signal),
+        signal,
+      );
     },
     readFileAnchor(fileId: string, signal?: AbortSignal) {
       return readWhileOpen(() => readFileAnchor(files, fileId, signal), signal);

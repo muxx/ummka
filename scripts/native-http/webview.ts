@@ -1771,6 +1771,8 @@ export function webviewServers(
         "single-file-info",
         "single-file-retention",
         "post-file-infos",
+        "post-file-infos",
+        "post-files-denied",
         "single-post-reply",
         "single-post-reply",
         "single-post-reply",

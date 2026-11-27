@@ -9,6 +9,7 @@ import {
   PostsApi,
   ResponseError,
 } from "../../../vendor/mattermost/index.js";
+import { uploadFixtureFile } from "./file-upload.ts";
 import { checkPostAttachments } from "./post-attachments.ts";
 import { checkMessageTarget } from "./search-target.ts";
 
@@ -30,23 +31,11 @@ export async function checkFileSearch(
   assert.ok(other?.id);
   const posts = new PostsApi(session);
   const owner = new FilesApi(session);
-  async function uploadFile(channel: string, name: string, contents: string) {
-    const data = new FormData();
-    data.set("channel_id", channel);
-    data.set("files", new Blob([contents], { type: "text/plain" }), name);
-    const upload = await fetch(`${session.basePath}/api/v4/files`, {
-      method: "POST",
-      headers: authorization,
-      body: data,
-    });
-    assert.equal(upload.status, 201, "Upload fixture attachment");
-    const id: unknown = (await upload.json()).file_infos[0].id;
-    assert.ok(typeof id === "string" && id.length === 26);
-    return id;
-  }
   async function attach(channel: string, number: number, rootId?: string) {
     const name = `${terms}-${number}.txt`;
-    const id = await uploadFile(
+    const id = await uploadFixtureFile(
+      session.basePath,
+      authorization,
       channel,
       name,
       "Synthetic file search fixture.",
@@ -89,7 +78,14 @@ export async function checkFileSearch(
   await checkPostAttachments(
     posts,
     new PostsApi(readerSession),
-    (name, contents) => uploadFile(channelId, name, contents),
+    (name, contents) =>
+      uploadFixtureFile(
+        session.basePath,
+        authorization,
+        channelId,
+        name,
+        contents,
+      ),
     channelId,
     root.id,
     version,

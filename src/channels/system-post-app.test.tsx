@@ -257,7 +257,7 @@ test.each([null, winter])(
       ...targetInfo,
       channel: { ...targetInfo.channel, kind: "P", joined: false },
     });
-    await screen.findByRole("dialog");
+    await screen.findByRole("dialog", { name: "Join the private channel?" });
     pressBack();
     await waitFor(() => expect(queue).toHaveLength(0));
     expect(account.changeOwnMembership).not.toHaveBeenCalled();
