@@ -23,9 +23,17 @@ function bookmarkDestination(bookmark: ChannelBookmarkWithFileInfo) {
       const { file, fileId } = bookmark;
       if (
         isMattermostId(fileId) &&
-        (!file || (file.id === fileId && typeof file.name === "string"))
+        (!file ||
+          (file.id === fileId &&
+            typeof file.name === "string" &&
+            (file.mimeType === undefined || typeof file.mimeType === "string")))
       )
-        return { kind: "file" as const, fileId, fileName: file?.name ?? null };
+        return {
+          kind: "file" as const,
+          fileId,
+          fileName: file?.name ?? null,
+          fileMimeType: file?.mimeType || null,
+        };
       break;
     }
     case "board": {

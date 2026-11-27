@@ -35,6 +35,7 @@ import {
   UsersApi,
 } from "../../../vendor/mattermost/index.js";
 import { checkAccountPostFiles } from "./account-post-files.ts";
+import { checkArchivedOwnChannelMembership } from "./archived-membership.ts";
 import {
   allowFixtureBrowserSignIn,
   checkBrowserSignIn,
@@ -1015,6 +1016,26 @@ await checkOwnMembershipChanges(
   team.id,
   extraTeam.id,
   joinable.id,
+);
+const soleMemberChannel = await (
+  await create(
+    "channels",
+    {
+      team_id: team.id,
+      name: "sole-member-archive",
+      display_name: "Sole member archive",
+      type: "P",
+    },
+    readerToken,
+  )
+).json();
+await checkArchivedOwnChannelMembership(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  reader.id,
+  team.id,
+  soleMemberChannel.id,
+  authorization,
+  version,
 );
 await checkJoinPostTarget(
   session,
