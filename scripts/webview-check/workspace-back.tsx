@@ -31,8 +31,6 @@ export async function verifyWorkspaceBack(
   channel: HTMLTextAreaElement,
 ) {
   const ui = within(host);
-  // The appearance and search dialogs load as separate chunks in the packaged WebView.
-  const dialogWait = { container: host, timeout: 10_000 };
   const threadText = "Unsent reply kept while searching";
   const channelText = channel.value;
   const control = await openNativeRestConnection(`https://127.0.0.1:${port}`);
@@ -64,7 +62,7 @@ export async function verifyWorkspaceBack(
     const palette = ui.getByRole("button", { name: "Appearance" });
     flushSync(() => fireEvent.click(palette));
     const appearance = within(
-      await ui.findByRole("dialog", { name: "Appearance" }, dialogWait),
+      await ui.findByRole("dialog", { name: "Appearance" }),
     );
     const dark = appearance.getByRole("button", { name: "Dark" });
     const light = appearance.getByRole("button", { name: "Light" });
@@ -98,11 +96,7 @@ export async function verifyWorkspaceBack(
     const search = ui.getByRole("button", { name: "Search" });
     flushSync(() => fireEvent.click(search));
     let form = within(
-      await ui.findByRole(
-        "dialog",
-        { name: "What are you looking for?" },
-        dialogWait,
-      ),
+      await ui.findByRole("dialog", { name: "What are you looking for?" }),
     );
     flushSync(() =>
       fireEvent.input(form.getByRole("searchbox"), {
@@ -125,11 +119,7 @@ export async function verifyWorkspaceBack(
       ),
     );
     form = within(
-      await ui.findByRole(
-        "dialog",
-        { name: "What are you looking for?" },
-        dialogWait,
-      ),
+      await ui.findByRole("dialog", { name: "What are you looking for?" }),
     );
     flushSync(() =>
       fireEvent.input(form.getByRole("searchbox"), {
