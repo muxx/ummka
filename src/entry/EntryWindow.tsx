@@ -9,9 +9,11 @@ type BackAction = { label: string; activate: () => void };
 export function EntryWindow({
   children,
   back,
+  notice,
 }: {
   children: ReactNode;
   back?: BackAction;
+  notice?: ReactNode;
 }) {
   const overlay = usesMacOSOverlay;
   return (
@@ -63,7 +65,10 @@ export function EntryWindow({
             width="403"
             height="121"
           />
-          <div className="entry-card">{children}</div>
+          <div className="entry-pane">
+            {notice}
+            <div className="entry-card">{children}</div>
+          </div>
         </div>
       </main>
     </div>

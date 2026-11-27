@@ -10,6 +10,7 @@ import { deniedPost } from "../webview-check/link-examples.ts";
 import type { SendMacKey } from "../webview-check/macos.ts";
 import { respondToAccount } from "./account.ts";
 import {
+  type AndroidImeBack,
   type ClipboardPolicyStep,
   clipboardPolicySteps,
   type PreviewSwipeAndroid,
@@ -146,6 +147,7 @@ export function webviewServers(
     "results",
     "thread",
     "reopened",
+    "channel-menu",
     "notifications",
     "directory",
     "attachment-search",
@@ -153,6 +155,8 @@ export function webviewServers(
   ];
   let stepIndex = 0;
   let pressWorkspaceBack: (() => Promise<void>) | undefined;
+  let pressSearchImeBack: AndroidImeBack | undefined;
+  let searchImeClosed = false;
   let clipboard: ClipboardPolicyStep | undefined;
   let disconnect: Socket | undefined;
   let profileImageSocket: Socket | undefined;
@@ -1690,6 +1694,7 @@ export function webviewServers(
           "release-submission",
           "disconnect",
           "external-handoff",
+          "search-ime-back",
         ].includes(step));
     const name = url.searchParams.get("case") ?? "";
     const marker =
@@ -1759,12 +1764,30 @@ export function webviewServers(
       assert(swipeAndroid && pressWorkspaceBack && !tableBack);
       if (!(await press(pressWorkspaceBack))) return;
       tableBack = true;
+    } else if (step === "search-ime-back") {
+      const dismiss = pressSearchImeBack;
+      const point = /^([1-9]\d{0,3}),([1-9]\d{0,3})$/u.exec(name);
+      assert(
+        dismiss &&
+          point &&
+          backSteps[stepIndex] === "dialog" &&
+          !searchImeClosed,
+        "Unexpected Android search keyboard Back",
+      );
+      if (!(await press(() => dismiss(Number(point[1]), Number(point[2])))))
+        return;
+      searchImeClosed = true;
     } else if (step?.startsWith("back-")) {
       assert.equal(step, "back-" + backSteps[stepIndex]);
       assert(
         pressWorkspaceBack,
         "expected the active platform's key input driver",
       );
+      if (step === "back-dialog" && pressSearchImeBack)
+        assert(
+          searchImeClosed,
+          "Close the Android IME before the search dialog",
+        );
       if (!(await press(pressWorkspaceBack))) return;
       stepIndex++;
     } else if (step === "format-right" || step === "format-right-up") {
@@ -1937,12 +1960,14 @@ export function webviewServers(
       runClipboardStep: ClipboardPolicyStep,
       swipePreview: PreviewSwipeAndroid,
       tap: TapAndroid,
+      imeBack: AndroidImeBack,
     ) {
       clipboard = runClipboardStep;
       swipeAndroid = swipe;
       swipePreviewAndroid = swipePreview;
       rotateAndroid = rotate;
       tapAndroid = tap;
+      pressSearchImeBack = imeBack;
       prepareKeyboard = () => send("KEYCODE_TAB");
       pressWorkspaceBack = () => send("KEYCODE_BACK");
       sendRight = () => send("KEYCODE_DPAD_RIGHT");
@@ -1950,6 +1975,7 @@ export function webviewServers(
     verify(platform: "macos" | "android") {
       if (platform === "android") {
         assert(systemPostReads.has("dismissed"), "Missing system-link Back");
+        assert(searchImeClosed, "Missing Android search keyboard Back");
         assert(
           codeTap === codeTaps.length && codeBack && !codeRotated,
           "Missing Android code tap, rotation or Back",

@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import { waitForAndroidBoot } from "./android.ts";
 import { checkNativeInstrumentation } from "./android-instrumentation.ts";
 import {
+  type AndroidImeBack,
   launchWebview,
   type PreviewSwipeAndroid,
   type RotateAndroid,
@@ -198,6 +199,79 @@ test("Android injects the exact hardware key requested by the running document",
   ]);
 });
 
+for (const scenario of [
+  {
+    name: "requires the keyboard to appear before sending its Back",
+    events: ["IME false"],
+    error: /shown after tapping the search field \(mInputShown=false\)/u,
+  },
+  {
+    name: "requires that keyboard Back to hide the keyboard",
+    events: ["IME true", "keyevent KEYCODE_BACK", "IME true"],
+    error: /hidden after the keyboard's Back \(mInputShown=true\)/u,
+  },
+  {
+    name: "permits app Back only after keyboard Back hid a visible keyboard",
+    events: [
+      "IME true",
+      "keyevent KEYCODE_BACK",
+      "IME false",
+      "IME false",
+      "keyevent KEYCODE_BACK",
+    ],
+    error: null,
+  },
+]) {
+  test(scenario.name, async (t) => {
+    let now = 0;
+    t.mock.method(Date, "now", () => now);
+    const states = scenario.events
+      .filter((event) => event.startsWith("IME "))
+      .map((event) => event.slice(4));
+    const events: string[] = [];
+    let appBack!: SendAndroidKey;
+    let keyboardBack!: AndroidImeBack;
+    const adb = async (...args: string[]) => {
+      if (args[1] === "am") return "Status: ok";
+      if (args[1] === "pidof") return "125";
+      if (args[1] === "dumpsys") {
+        assert.deepEqual(args, ["shell", "dumpsys", "input_method"]);
+        const state = states.shift();
+        assert.notEqual(state, undefined);
+        events.push(`IME ${state}`);
+        now += 5000;
+        return `mInputShown=${state}`;
+      }
+      if (args[1] === "input") {
+        const event = args.slice(2).join(" ");
+        assert.ok(event === "tap 200 330" || event === "keyevent KEYCODE_BACK");
+        events.push(event);
+        return "";
+      }
+      assert.equal(args[0], "logcat");
+      if (scenario.error)
+        await assert.rejects(keyboardBack(200, 330), scenario.error);
+      else {
+        await keyboardBack(200, 330);
+        await appBack("KEYCODE_BACK");
+      }
+      return "UMMKA_WEBVIEW_CHECK browser-checked";
+    };
+    await launchWebview(
+      adb,
+      "app",
+      "app/.MainActivity",
+      "browser-checked",
+      (send, _swipe, _rotate, _clipboard, _swipePreview, _tap, dismiss) => {
+        appBack = send;
+        keyboardBack = dismiss;
+      },
+    );
+    assert.equal(states.length, 0);
+    assert.deepEqual(events, ["tap 200 330", ...scenario.events]);
+  });
+}
+
 test("rotation waits for WindowManager to finish the requested transition", async () => {
   let rotate!: RotateAndroid;
   let reads = 0;
@@ -343,6 +417,9 @@ test("the new document receives its control response only after the keyboard eve
       },
       async () => {
         assert.fail("The reload check does not tap");
+      },
+      async () => {
+        assert.fail("The reload check does not use keyboard Back");
       },
     );
     let first: Promise<number | undefined> | undefined;

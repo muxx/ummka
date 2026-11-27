@@ -5,9 +5,9 @@ vi.mock("./mattermost/system-channels-links", () => ({
     _navigate: unknown,
     _failure: unknown,
     _signal: AbortSignal,
-    empty: () => void,
+    observers: { onEmpty: () => void },
   ) => {
-    empty();
+    observers.onEmpty();
     return { retry: vi.fn(), dismiss: vi.fn() };
   },
 }));
