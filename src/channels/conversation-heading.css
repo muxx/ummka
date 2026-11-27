@@ -1,0 +1,70 @@
+.collection-channel-menu {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+}
+.channels-pane-head .collection-channel-menu > h1 {
+  display: flex;
+  overflow: visible;
+  font-size: 1.09rem;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.026em;
+}
+.collection-channel-trigger {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: inherit;
+  background: transparent;
+  text-align: start;
+  cursor: pointer;
+}
+.conversation-heading-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.conversation-heading-title > bdi,
+.conversation-heading-description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.collection-channel-trigger svg {
+  flex: none;
+}
+.conversation-heading-mark {
+  width: 21px;
+  height: 21px;
+  color: var(--muted);
+}
+.conversation-heading-chevron {
+  margin-inline-start: -4px;
+}
+.conversation-heading-description {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 400;
+  letter-spacing: normal;
+  line-height: 1.5;
+}
+@container (width <= 740px) {
+  .collection-channel-trigger {
+    width: 100%;
+    min-height: 44px;
+    padding-inline-start: 3px;
+  }
+  .conversation-heading-description {
+    font-size: 0.7rem;
+  }
+}

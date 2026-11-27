@@ -17,7 +17,7 @@
   flex: 0 0 min(520px, 44cqi);
   min-width: 0;
   min-height: 30px;
-  margin-inline: 20px auto;
+  margin-inline-start: 20px;
   padding-inline: 9px;
   border: 1px solid color-mix(in srgb, var(--on-topbar) 18%, transparent);
   border-radius: 7px;
@@ -43,9 +43,6 @@
 .channels-bar:has(.channels-search-trigger) .channels-bar-brand {
   flex: 0 0 calc(var(--sidebar-width) - var(--bar-inset));
 }
-.channels-search-trigger + .channels-account {
-  margin-inline-start: auto;
-}
 @container (width <= 740px) {
   .channels-bar:has(.channels-search-trigger) .channels-bar-brand {
     flex: none;
@@ -53,7 +50,7 @@
   .channels-bar .channels-search-trigger {
     flex: 1;
     max-width: 380px;
-    margin: 0;
+    margin-inline: 0 7px;
     padding-inline: 8px;
     min-height: 32px;
     font-size: 0.78rem;
