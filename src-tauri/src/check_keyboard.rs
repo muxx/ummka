@@ -1,4 +1,4 @@
-use dispatch2::{DispatchQueue, DispatchTime, MainThreadBound};
+use dispatch2::{DispatchQueue, MainThreadBound};
 use objc2::{MainThreadMarker, rc::Retained};
 use objc2_app_kit::{
     NSEvent, NSEventModifierFlags, NSEventType, NSResponder, NSWindow, NSWindowOcclusionState,
@@ -6,13 +6,19 @@ use objc2_app_kit::{
 use objc2_foundation::{NSInteger, NSPoint, NSProcessInfo, ns_string};
 use std::{
     io::{self, BufRead},
-    time::Duration,
+    sync::{Arc, mpsc},
 };
-use tauri::{Runtime, WebviewWindow};
+use tauri::webview::PlatformWebview;
 
 /// The disposable WKWebView accepts keyboard input only from its test parent's stdin.
-pub(crate) fn listen<R: Runtime>(window: &WebviewWindow<R>) {
-    let window = window.clone();
+pub(crate) fn listen(view: PlatformWebview) {
+    let main_thread = MainThreadMarker::new().expect("capture keyboard fixture on the main thread");
+    // Setup supplies the window and responder for this disposable fixture.
+    let window = unsafe { Retained::retain(view.ns_window().cast::<NSWindow>()) }
+        .expect("get the fixture's NSWindow");
+    let webview = unsafe { Retained::retain(view.inner().cast::<NSResponder>()) }
+        .expect("get the fixture's WKWebView");
+    let target = Arc::new(MainThreadBound::new((window, webview), main_thread));
     std::thread::spawn(move || {
         for line in io::stdin().lock().lines().map_while(Result::ok) {
             let (key_code, kind) = match line.as_str() {
@@ -23,61 +29,53 @@ pub(crate) fn listen<R: Runtime>(window: &WebviewWindow<R>) {
                 _ => break,
             };
             println!("UMMKA_KEY_PHASE {line} queued");
-            let (sent, dispatched) = std::sync::mpsc::channel();
-            window
-                .with_webview(move |view| {
+            let (sent, dispatched) = mpsc::channel();
+            let target = Arc::clone(&target);
+            // Tao drains proxy messages before the run loop waits. Dispatch the
+            // fixture's native input without depending on that observer.
+            DispatchQueue::main().exec_async(move || {
+                let main_thread =
+                    MainThreadMarker::new().expect("deliver fixture keys on the main thread");
+                let (window, webview) = target.get(main_thread);
+                let window_number = window.windowNumber();
+                if kind == NSEventType::KeyUp {
+                    key_up(webview, window_number, key_code);
+                    let _ = sent.send(());
+                    return;
+                }
+                println!("UMMKA_KEY_PHASE keydown-started");
+                // DOM focus can survive a reload without the WKWebView owning native input.
+                assert!(
+                    window.makeFirstResponder(Some(webview)),
+                    "focus the keyboard fixture WebView"
+                );
+                println!(
+                    "UMMKA_KEY_WINDOW visible={} key={} unobscured={}",
+                    window.isVisible(),
+                    window.isKeyWindow(),
+                    window
+                        .occlusionState()
+                        .contains(NSWindowOcclusionState::Visible),
+                );
+                webview.keyDown(&key_event(NSEventType::KeyDown, window_number, key_code));
+                println!("UMMKA_KEY_PHASE keydown-returned");
+
+                // The browser acknowledges arrow scrolling before asking for the release.
+                if key_code == 124 {
+                    let _ = sent.send(());
+                    return;
+                }
+
+                // Keep the release in a separate main queue dispatch.
+                println!("UMMKA_KEY_PHASE keyup-scheduled");
+                DispatchQueue::main().exec_async(move || {
                     let main_thread =
-                        MainThreadMarker::new().expect("deliver fixture keys on the main thread");
-                    // Tauri supplies live native objects on the AppKit thread.
-                    // The asynchronous release keeps its own reference to the same WKWebView.
-                    let window = unsafe { &*view.ns_window().cast::<NSWindow>() };
-                    let webview = unsafe { Retained::retain(view.inner().cast::<NSResponder>()) }
-                        .expect("get the fixture's WKWebView");
-                    let window_number = window.windowNumber();
-                    if kind == NSEventType::KeyUp {
-                        key_up(&webview, window_number, key_code);
-                        let _ = sent.send(());
-                        return;
-                    }
-                    println!("UMMKA_KEY_PHASE keydown-started");
-                    // DOM focus can survive a reload without the WKWebView owning native input.
-                    assert!(
-                        window.makeFirstResponder(Some(&webview)),
-                        "focus the keyboard fixture WebView"
-                    );
-                    println!(
-                        "UMMKA_KEY_WINDOW visible={} key={} unobscured={}",
-                        window.isVisible(),
-                        window.isKeyWindow(),
-                        window
-                            .occlusionState()
-                            .contains(NSWindowOcclusionState::Visible),
-                    );
-                    webview.keyDown(&key_event(NSEventType::KeyDown, window_number, key_code));
-                    println!("UMMKA_KEY_PHASE keydown-returned");
-
-                    // The browser acknowledges arrow scrolling before asking for the release.
-                    if key_code == 124 {
-                        let _ = sent.send(());
-                        return;
-                    }
-
-                    // Complete presses release in a separate AppKit dispatch.
-                    let webview = MainThreadBound::new(webview, main_thread);
-                    let release_at = DispatchTime::try_from(Duration::ZERO)
-                        .expect("schedule fixture key release");
-                    println!("UMMKA_KEY_PHASE keyup-scheduled");
-                    DispatchQueue::main()
-                        .after(release_at, move || {
-                            let main_thread = MainThreadMarker::new()
-                                .expect("release fixture key on the main thread");
-                            let webview = webview.into_inner(main_thread);
-                            key_up(&webview, window_number, key_code);
-                            let _ = sent.send(());
-                        })
-                        .expect("deliver fixture key release");
-                })
-                .expect("deliver fixture keyboard input to its window");
+                        MainThreadMarker::new().expect("release fixture key on the main thread");
+                    let (_, webview) = target.get(main_thread);
+                    key_up(webview, window_number, key_code);
+                    let _ = sent.send(());
+                });
+            });
             if dispatched.recv().is_err() {
                 return;
             }
