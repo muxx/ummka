@@ -12,6 +12,8 @@ fn main() {
         "close_rest_connection",
         #[cfg(feature = "webview-check")]
         "trace_webview_check",
+        #[cfg(all(feature = "webview-check", target_os = "macos"))]
+        "check_system_post_window",
         "read_composer_draft",
         "save_composer_draft",
         "transition_draft_command",

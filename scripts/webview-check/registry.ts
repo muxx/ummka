@@ -24,7 +24,11 @@ import { checkSavedTeamWindow } from "./account-team-window.tsx";
 import { checkRefreshedAfterRestart } from "./channel-refresh.ts";
 import { checkDraftRestore } from "./composer-drafts.ts";
 import { verifyHistoryLoadsAfterRestart } from "./history-loads.ts";
-import { postLinks, signInLinkServer } from "./link-examples.ts";
+import {
+  postLinks,
+  type SystemPostWindowMode,
+  signInLinkServer,
+} from "./link-examples.ts";
 import { checkOfflineWindows } from "./local-history.ts";
 import { checkSubmissionRestore } from "./submission.ts";
 import { checkSystemLinks } from "./system-links.ts";
@@ -33,6 +37,18 @@ import { checkRestoredTeamRoles } from "./team-role-storage.ts";
 
 const first = "https://chat.example.test";
 const second = "https://chat.example.test/Team";
+
+export async function checkSystemPostWindowRestore(
+  port: string,
+  mode: SystemPostWindowMode,
+) {
+  const { server } = postLinks(port);
+  // Each cold launch starts from the same signed-in installation and tests a
+  // different state of its own window. The previous launch removed the target.
+  await selectInstallation(second);
+  await rememberInstallation(server);
+  await checkSystemPostApp(server, second, first, mode);
+}
 
 async function checkLink(server: string, saved: boolean) {
   const target = await resolveChannelsLink(`${server}/team/messages/%40Ada`);

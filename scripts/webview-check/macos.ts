@@ -260,7 +260,25 @@ export async function checkMacWebview(
       workspaceBackOnly ? 30_000 : undefined,
     );
     if (workspaceBackOnly) return;
-    await checkMacSystemLinks(dir, env, postLinks(ports[0]));
+    const posts = postLinks(ports[0]);
+    await checkMacSystemLinks(dir, env, posts);
+    const linkWindowFailures: unknown[] = [];
+    for (const [mode, rejectInvalid] of [
+      ["hidden", false],
+      ["minimized", false],
+      ["minimized", true],
+    ] as const) {
+      try {
+        await checkMacSystemLinks(dir, env, posts, mode, rejectInvalid);
+      } catch (error) {
+        linkWindowFailures.push(error);
+      }
+    }
+    if (linkWindowFailures.length)
+      throw new AggregateError(
+        linkWindowFailures,
+        "macOS system link window checks failed",
+      );
     // The ordinary build verifies the actual NSWindow without showing anything on a developer's Mac.
     await launch("browser-anchor", {
       ...env,
