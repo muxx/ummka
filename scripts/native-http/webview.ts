@@ -146,6 +146,7 @@ export function webviewServers(
     "results",
     "thread",
     "reopened",
+    "channel-menu",
     "notifications",
     "directory",
     "team-choice-direct",
