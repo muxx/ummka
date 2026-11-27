@@ -613,6 +613,13 @@ export async function checkGeneratedRequests(ports: string[]) {
       fileId = "f".repeat(26);
     const postAnchor = await accountPrefix.readPostAnchor(postId);
     const fileAnchor = await accountPrefix.readFileAnchor(fileId);
+    const fromChannel = await accountPrefix.readChannelFile(channelId, fileId);
+    check(
+      fromChannel.file.id === fileId &&
+        fromChannel.file.name === "fixture.txt" &&
+        fromChannel.postId === fileAnchor.postId,
+      "single signed channel file",
+    );
     const fileDetails = await accountPrefix.readPostFiles(
       channelId,
       "j".repeat(26),

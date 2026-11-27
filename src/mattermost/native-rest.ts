@@ -55,7 +55,11 @@ import type {
   LocalPost,
 } from "./local-history.ts";
 import { accountMentionGroups } from "./mention-group-reads.ts";
-import { readFileAnchor, readPostAnchor } from "./message-anchors.ts";
+import {
+  readChannelFile,
+  readFileAnchor,
+  readPostAnchor,
+} from "./message-anchors.ts";
 import { isMattermostId } from "./model-fields.ts";
 import { nativeFetch } from "./native-fetch.ts";
 import { loadAccountDirectory, loadTeamDirectory } from "./navigation-data.ts";
@@ -251,6 +255,12 @@ export async function openAccountRestConnection(
     readPostFiles(channelId: string, postId: string, signal?: AbortSignal) {
       return readWhileOpen(
         () => readPostFiles(posts, channelId, postId, signal),
+        signal,
+      );
+    },
+    readChannelFile(channelId: string, fileId: string, signal?: AbortSignal) {
+      return readWhileOpen(
+        () => readChannelFile(files, channelId, fileId, signal),
         signal,
       );
     },

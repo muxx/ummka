@@ -4,18 +4,7 @@ import type {
   PostsApi,
 } from "../../vendor/mattermost/index.js";
 import { isMattermostId } from "./model-fields.ts";
-
-interface ReceivedFile {
-  id: string;
-  name?: string;
-  extension?: string;
-  mimeType?: string;
-  size?: number;
-  width?: number;
-  height?: number;
-  hasPreviewImage?: boolean;
-  archived?: boolean;
-}
+import { type ReceivedFile, receivedFileDetails } from "./received-file.ts";
 
 interface ReceivedAttachments {
   fileIds?: string[];
@@ -29,42 +18,6 @@ function invalid(): never {
 
 function nonnegativeInteger(value: number) {
   return Number.isSafeInteger(value) && value >= 0;
-}
-
-function fileDetails(
-  file: FileInfo,
-  post: Pick<Post, "id" | "channelId">,
-): ReceivedFile {
-  if (
-    !isMattermostId(file?.id) ||
-    (file.postId !== undefined &&
-      file.postId !== "" &&
-      file.postId !== post.id) ||
-    (file.channelId !== undefined &&
-      file.channelId !== "" &&
-      file.channelId !== post.channelId)
-  )
-    invalid();
-  const result: ReceivedFile = { id: file.id };
-  for (const field of ["name", "extension", "mimeType"] as const) {
-    const value = file[field];
-    if (value === undefined) continue;
-    if (typeof value !== "string") invalid();
-    result[field] = value;
-  }
-  for (const field of ["size", "width", "height"] as const) {
-    const value = file[field];
-    if (value === undefined) continue;
-    if (!nonnegativeInteger(value)) invalid();
-    result[field] = value;
-  }
-  for (const field of ["hasPreviewImage", "archived"] as const) {
-    const value = file[field];
-    if (value === undefined) continue;
-    if (typeof value !== "boolean") invalid();
-    result[field] = value;
-  }
-  return result;
 }
 
 /** Keep the two server orders independent, including explicitly empty lists. */
@@ -110,7 +63,16 @@ function receivedFiles(
   if (!Array.isArray(files)) invalid();
   const seen = new Set<string>();
   return files.map((file) => {
-    const detail = fileDetails(file, post);
+    const detail = receivedFileDetails(file);
+    if (
+      (file.postId !== undefined &&
+        file.postId !== "" &&
+        file.postId !== post.id) ||
+      (file.channelId !== undefined &&
+        file.channelId !== "" &&
+        file.channelId !== post.channelId)
+    )
+      invalid();
     if (seen.has(detail.id)) invalid();
     seen.add(detail.id);
     return detail;
