@@ -1,5 +1,8 @@
 import type { Post } from "../../vendor/mattermost/index.js";
-import { channelPostChange } from "../mattermost/channel-post-records.ts";
+import {
+  channelPostChange,
+  mergePostObservation,
+} from "../mattermost/channel-post-records.ts";
 import type { LocalPost } from "../mattermost/local-history.ts";
 import {
   isMattermostId,
@@ -145,8 +148,10 @@ export function openThreadReplyWindow(
         // An imported post's timestamp can change between two page reads.
         const latest = new Map(state.replies.map((row) => [row.id, row]));
         for (const row of received) {
-          const prior = latest.get(row.id);
-          if (!prior || row.updateAt > prior.updateAt) latest.set(row.id, row);
+          latest.set(
+            row.id,
+            mergePostObservation(latest.get(row.id), row, "keep"),
+          );
         }
         replies = [...latest.values()].sort(
           (a, b) =>
@@ -162,8 +167,7 @@ export function openThreadReplyWindow(
       cursors[direction] = page.next ?? undefined;
       finish(direction, {
         ...state,
-        root:
-          state.root && state.root.updateAt > root.updateAt ? state.root : root,
+        root: mergePostObservation(state.root, root, "refresh"),
         replies,
         [direction]: { status: page.next ? "ready" : "end" },
       });

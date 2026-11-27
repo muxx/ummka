@@ -1,7 +1,16 @@
 import { expect, test, vi } from "vitest";
-import { FetchError, ResponseError } from "../../vendor/mattermost/index.js";
+import {
+  Configuration,
+  FetchError,
+  PostsApi,
+  PostToJSON,
+  ResponseError,
+} from "../../vendor/mattermost/index.js";
 import type { LocalPost } from "../mattermost/local-history.ts";
-import type { ThreadPageRequest } from "../mattermost/thread-page.ts";
+import {
+  readThreadPage,
+  type ThreadPageRequest,
+} from "../mattermost/thread-page.ts";
 import { openThreadReplyWindow } from "./thread-reply-window.ts";
 
 const channelId = "c".repeat(26),
@@ -330,6 +339,75 @@ test("a moved reply appearing again is rendered once at its newer position", asy
   await view.open();
   await view.more("down");
   expect(messages(view)).toEqual(["b", "edited", "z"]);
+});
+
+test("thread pages reconcile root and repeated reply origin by version", async () => {
+  const webhook = { from_webhook: "true" };
+  const malformed = { from_webhook: "false" };
+  const reply = local("a", 100);
+  const observations = [
+    {
+      at: 200,
+      rootProps: webhook,
+      replyProps: malformed,
+      origins: [true, undefined],
+    },
+    { at: 200, rootProps: {}, replyProps: webhook, origins: [true, true] },
+    {
+      at: 201,
+      rootProps: malformed,
+      replyProps: malformed,
+      origins: [true, true],
+    },
+    { at: 199, rootProps: {}, replyProps: {}, origins: [true, true] },
+    { at: 202, rootProps: {}, replyProps: {}, origins: [false, false] },
+  ];
+  const fetchApi = vi.fn<typeof fetch>();
+  observations.forEach(({ at, rootProps, replyProps }, index) => {
+    const createAt = reply.createAt + index * 2;
+    const cursor = local("b", createAt + 1);
+    const edge = { ...cursor, id: String(index).repeat(26) };
+    fetchApi.mockResolvedValueOnce(
+      Response.json({
+        order: [rootId, reply.id, edge.id],
+        has_next: index < observations.length - 1,
+        posts: {
+          [rootId]: PostToJSON({ ...root, updateAt: at, props: rootProps }),
+          [reply.id]: PostToJSON({
+            ...wire(reply),
+            createAt,
+            updateAt: at,
+            props: replyProps,
+          }),
+          [edge.id]: PostToJSON(wire(edge)),
+        },
+      }),
+    );
+  });
+  const posts = new PostsApi(
+    new Configuration({
+      basePath: "https://fixture.test",
+      fetchApi,
+    }),
+  );
+  const view = openThreadReplyWindow(
+    {
+      readThreadPage: (query, signal) => readThreadPage(posts, query, signal),
+    },
+    scope,
+  );
+  for (const [index, { origins }] of observations.entries()) {
+    if (index === 0) await view.open();
+    else await view.more("down");
+    const snapshot = view.getSnapshot();
+    const matched = snapshot.replies.filter((row) => row.id === reply.id);
+    expect(matched).toHaveLength(1);
+    expect([snapshot.root?.fromWebhook, matched[0].fromWebhook]).toEqual(
+      origins,
+    );
+  }
+  expect(view.getSnapshot().down.status).toBe("end");
+  expect(fetchApi).toHaveBeenCalledTimes(observations.length);
 });
 
 test("a subscriber can request the next page when the first page finishes", async () => {

@@ -23,6 +23,7 @@ const post = {
   message: "![sky](https://chat.example.test/api/v4/image?url=sky)",
   message_source: "![sky](https://images.example.test/sky.png)",
   hashtags: "",
+  props: { from_webhook: "true", override_username: "fixture", data: {} },
 };
 function changes(posts: object) {
   return channelPostChanges(
@@ -46,6 +47,7 @@ describe("channel post records", () => {
         message_source: undefined,
         hashtags: "#sky",
         is_pinned: false,
+        props: undefined,
       },
       [removed]: { ...post, id: removed, delete_at: 123 },
     };
@@ -65,6 +67,32 @@ describe("channel post records", () => {
     ).toEqual({ ...windowPage, changes: expected });
     expect(changes({})).toEqual([]);
     expect(() => channelPostChanges(channel, {})).toThrow(TypeError);
+  });
+  it.each([
+    [undefined, false],
+    [null, false],
+    [{}, false],
+    [{ other: "value" }, false],
+    [{ from_webhook: null }, false],
+    [{ from_webhook: "true" }, true],
+    [{ from_webhook: "false" }, undefined],
+    [{ from_webhook: "True" }, undefined],
+    [{ from_webhook: "" }, undefined],
+    [{ from_webhook: true }, undefined],
+    [{ from_webhook: false }, undefined],
+    [{ from_webhook: 0 }, undefined],
+    [{ from_webhook: 1 }, undefined],
+    [{ from_webhook: {} }, undefined],
+    [{ from_webhook: [] }, undefined],
+    [[], undefined],
+    ["malformed", undefined],
+  ])("observes only the canonical webhook marker in %j", (props, observed) => {
+    const [change] = changes({ [root]: { ...post, props } });
+    expect(change).toMatchObject({ kind: "save", id: root });
+    expect(change).not.toHaveProperty("props");
+    if (observed === undefined)
+      expect(change).not.toHaveProperty("fromWebhook");
+    else expect(change).toHaveProperty("fromWebhook", observed);
   });
   it("rejects the page when a dictionary key, channel or scalar field is invalid", () => {
     for (const broken of [

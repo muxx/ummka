@@ -169,6 +169,12 @@ export async function checkRefreshedAfterRestart(origin: string) {
         throw Error(
           "restored timeline does not match the successfully downloaded page and deletion",
         );
+      if (
+        page.posts.find((post) => post.id === root)?.fromWebhook !== true ||
+        (!collapsedThreads &&
+          page.posts.find((post) => post.id === reply)?.fromWebhook !== false)
+      )
+        throw Error("Restored history lost the confirmed webhook origins");
     }
   } finally {
     await connection.close();

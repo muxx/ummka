@@ -81,10 +81,13 @@ async function fetchPage(
         { signal },
       ),
     ]);
-    return channelHistoryPage(
-      { channelId, collapsedThreads, focusedPostId: anchorId },
-      assembleFocusedHistory({ anchorId, thread, ...neighbors }),
-    );
+    return assembleFocusedHistory({
+      channelId,
+      collapsedThreads,
+      anchorId,
+      thread,
+      ...neighbors,
+    });
   }
   const query: GetPostsForChannelRequest = { channelId, ...mode };
   if (request.kind === "since") {

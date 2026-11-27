@@ -8,25 +8,27 @@ import {
 const channelId = "c".repeat(26),
   id = "p".repeat(26);
 const request = { kind: "latest", channelId, collapsedThreads: false } as const;
-function response() {
+function wire(postId: string, props?: object) {
+  return {
+    id: postId,
+    channel_id: channelId,
+    user_id: "u".repeat(26),
+    root_id: "",
+    create_at: 10,
+    update_at: 10,
+    edit_at: 0,
+    delete_at: 0,
+    type: "",
+    message: "content",
+    hashtags: "",
+    is_pinned: false,
+    props,
+  };
+}
+function response(props?: object) {
   return Response.json({
     order: [id],
-    posts: {
-      [id]: {
-        id,
-        channel_id: channelId,
-        user_id: "u".repeat(26),
-        root_id: "",
-        create_at: 10,
-        update_at: 10,
-        edit_at: 0,
-        delete_at: 0,
-        type: "",
-        message: "content",
-        hashtags: "",
-        is_pinned: false,
-      },
-    },
+    posts: { [id]: wire(id, props) },
     prev_post_id: "",
     next_post_id: "",
   });
@@ -98,6 +100,29 @@ test("a cancelled outstanding ticket is released even when native begin complete
   expect(sent).not.toHaveBeenCalled();
 });
 
+test("a webhook page received after cancellation never reaches storage", async () => {
+  const started = gate<void>(),
+    delayed = gate<Response>();
+  const { api, writer } = setup(async () => {
+    started.resolve();
+    return delayed.pending;
+  });
+  const controller = new AbortController();
+  const operation = refreshChannelHistory(
+    api,
+    writer,
+    request,
+    controller.signal,
+  );
+  await started.pending;
+  const reason = Error("changed channel");
+  controller.abort(reason);
+  delayed.resolve(response({ from_webhook: "true" }));
+  await expect(operation).rejects.toBe(reason);
+  expect(writer.cancel).toHaveBeenCalledWith(17);
+  expect(writer.store).not.toHaveBeenCalled();
+});
+
 test("failed focus cancels the two sibling HTTP reads and stores no part of the page", async () => {
   const started = gate<void>(),
     failThread = gate<Response>(),
@@ -128,6 +153,90 @@ test("failed focus cancels the two sibling HTTP reads and stores no part of the 
   expect(signals.every((signal) => signal.aborted)).toBe(true);
   expect(writer.cancel).toHaveBeenCalledOnce();
   expect(writer.store).not.toHaveBeenCalled();
+});
+
+test("focus combines versioned observations before submitting a single history window", async () => {
+  const reply = "r".repeat(26);
+  const malformed = "m".repeat(26);
+  const confirmed = "w".repeat(26);
+  const removed = "d".repeat(26);
+  const webhook = { from_webhook: "true" };
+  const invalid = { from_webhook: "unexpected" };
+  const { api, writer } = setup(async (input) => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith("/thread")) {
+      return Response.json({
+        order: [id, reply],
+        posts: {
+          [id]: { ...wire(id, webhook), update_at: 30, message: "latest root" },
+          [reply]: { ...wire(reply, webhook), root_id: id, update_at: 20 },
+          [confirmed]: wire(confirmed, webhook),
+          [malformed]: wire(malformed, webhook),
+          [removed]: { ...wire(removed, webhook), update_at: 30 },
+        },
+      });
+    }
+    if (url.searchParams.has("after")) {
+      return Response.json({
+        order: [reply],
+        posts: {
+          [reply]: { ...wire(reply), root_id: id, update_at: 12 },
+          [confirmed]: wire(confirmed, invalid),
+        },
+      });
+    }
+    return Response.json({
+      order: [removed],
+      posts: {
+        [id]: wire(id),
+        [reply]: { ...wire(reply), root_id: id, update_at: 17 },
+        [confirmed]: wire(confirmed),
+        [malformed]: { ...wire(malformed, invalid), update_at: 11 },
+        [removed]: { ...wire(removed), delete_at: 15, update_at: 15 },
+      },
+    });
+  });
+  await expect(
+    refreshChannelHistory(api, writer, {
+      ...request,
+      kind: "focused",
+      postId: id,
+    }),
+  ).resolves.toEqual({ kind: "applied" });
+  expect(writer.store).toHaveBeenCalledExactlyOnceWith(
+    17,
+    expect.objectContaining({
+      order: [reply, id, removed],
+      changes: [
+        expect.objectContaining({
+          kind: "save",
+          id: reply,
+          updateAt: 20,
+          fromWebhook: true,
+        }),
+        expect.objectContaining({
+          kind: "save",
+          id: confirmed,
+          updateAt: 10,
+          fromWebhook: true,
+        }),
+        expect.objectContaining({
+          kind: "save",
+          id,
+          updateAt: 30,
+          message: "latest root",
+          fromWebhook: true,
+        }),
+        expect.objectContaining({
+          kind: "save",
+          id: malformed,
+          updateAt: 11,
+          fromWebhook: true,
+        }),
+        { kind: "remove", id: removed, channelId },
+      ],
+    }),
+  );
 });
 
 test("invalid input stops before reserving and malformed responses release the ticket", async () => {

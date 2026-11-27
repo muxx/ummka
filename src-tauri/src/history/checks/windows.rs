@@ -33,6 +33,7 @@ fn save(id: &str, stamp: i64) -> PostChange {
         message_source: None,
         hashtags: String::new(),
         is_pinned: false,
+        from_webhook: None,
         thread_summary: None,
         attachments: None,
     })

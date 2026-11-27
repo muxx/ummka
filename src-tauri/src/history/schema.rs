@@ -108,9 +108,12 @@ const TEAM_SEARCH_ORDER: &str =
 
 macro_rules! directory_objects {
     ($joined_teams:expr, $sidebar_channel:expr, $composer_draft:expr $(, $extra:expr)* $(,)?) => {
+        directory_objects!(@posts CREATE_POSTS; $joined_teams, $sidebar_channel, $composer_draft $(, $extra)*)
+    };
+    (@posts $posts:expr; $joined_teams:expr, $sidebar_channel:expr, $composer_draft:expr $(, $extra:expr)* $(,)?) => {
         [
             CREATE_OWNER,
-            CREATE_POSTS,
+            $posts,
             INDEX_REPLIES,
             CREATE_DELETIONS,
             WINDOWS,
@@ -653,7 +656,28 @@ pub(super) const MIGRATIONS: &[Migration] = &[
             WINDOWS_BY_CHANNEL
         ),
     },
+    Migration {
+        statements: &[ADD_POST_WEBHOOK_ORIGIN],
+        objects: &directory_objects!(
+            @posts POSTS_V29;
+            JOINED_TEAM_V19,
+            SIDEBAR_CHANNEL_V19,
+            COMPOSER_DRAFT_V21,
+            TEAM_SEARCH,
+            TEAM_SEARCH_ORDER,
+            THREAD_SUMMARY,
+            POST_ATTACHMENT,
+            CHANNEL_MEMBERSHIP_CHANGE,
+            DEPARTED_BY_TEAM,
+            POSTS_BY_CHANNEL,
+            WINDOWS_BY_CHANNEL,
+        ),
+    },
 ];
+
+const ADD_POST_WEBHOOK_ORIGIN: &str =
+    "ALTER TABLE history_post ADD COLUMN from_webhook INTEGER CHECK (from_webhook IN (0, 1))";
+const POSTS_V29: &str = include_str!("migrations/0029_posts_schema.sql");
 
 const THREAD_SUMMARY: &str = include_str!("migrations/0024_thread_summary.sql");
 

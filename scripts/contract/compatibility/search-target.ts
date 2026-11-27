@@ -31,6 +31,7 @@ export function expectedNavigationPost(
     messageSource: row.messageSource ?? null,
     hashtags: row.hashtags,
     isPinned: row.isPinned,
+    fromWebhook: false,
   };
 }
 

@@ -68,8 +68,10 @@ export function channelPostChange(
   const summary =
     collapsedThreads && rootId === "" ? threadSummary(post) : undefined;
   const attachments = receivedPostAttachments(post);
+  const fromWebhook = webhookOrigin(post.props);
   return {
     ...(attachments && { attachments }),
+    ...(fromWebhook !== undefined && { fromWebhook }),
     ...(summary && { threadSummary: summary }),
     kind: "save" as const,
     id,
@@ -85,6 +87,32 @@ export function channelPostChange(
     hashtags,
     isPinned,
   };
+}
+
+// Incoming webhooks use the string "true". Use the observation for display.
+// The servers can warn about malformed values without removing them.
+function webhookOrigin(props: unknown): boolean | undefined {
+  if (props == null) return false;
+  if (typeof props !== "object" || Array.isArray(props)) return undefined;
+  const marker = Object.getOwnPropertyDescriptor(props, "from_webhook")?.value;
+  if (marker === "true") return true;
+  return marker == null ? false : undefined;
+}
+
+export type ChannelPostChange = ReturnType<typeof channelPostChange>;
+
+/** Merge the flag under the same version rules as the native history writer. */
+export function mergePostObservation<
+  T extends { updateAt: number; fromWebhook?: boolean },
+>(previous: T | null | undefined, received: T, equal: "keep" | "refresh"): T {
+  if (!previous) return received;
+  if (received.updateAt < previous.updateAt) return previous;
+  const newer = received.updateAt > previous.updateAt;
+  const row = newer || equal === "refresh" ? received : previous;
+  const fromWebhook = newer
+    ? (received.fromWebhook ?? previous.fromWebhook)
+    : (previous.fromWebhook ?? received.fromWebhook);
+  return row.fromWebhook === fromWebhook ? row : { ...row, fromWebhook };
 }
 
 // Flat pages can report zero for a root with replies. Only a collapsed read calls this.
