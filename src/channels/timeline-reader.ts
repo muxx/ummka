@@ -26,7 +26,8 @@ export type TimelineRequest =
       teamId: string;
       post: LocalPost;
     }
-  | { kind: "latest"; requestId: number };
+  | { kind: "latest"; requestId: number }
+  | { kind: "restore"; requestId: number; position: readonly string[] };
 export type TimelineAccount = Pick<
   WorkspaceConnection,
   | "rid"
@@ -78,6 +79,7 @@ export function createTimelineReader(
   request?: TimelineRequest,
 ) {
   let target = request?.kind === "focus" ? request : undefined;
+  let restored = request?.kind === "restore" ? request.position : undefined;
   const eligible =
     !target ||
     (target.rid === account.rid &&
@@ -304,6 +306,24 @@ export function createTimelineReader(
               : 0,
           );
         }
+      } else if (restored) {
+        const result = await readCommittedTimeline(
+          account,
+          scope,
+          restored,
+          signal,
+        );
+        if (signal.aborted) return;
+        if (result.positionLost || !result.page) clearPage("positionLost");
+        else {
+          const { page } = result;
+          paged = true;
+          publish({
+            ...empty(online ? "ready" : "offline", page.newer.kind === "end"),
+            page,
+            firstInaccessiblePostTime: page.firstInaccessiblePostTime,
+          });
+        }
       } else {
         await observeWorkspaceRead({
           online,
@@ -408,6 +428,7 @@ export function createTimelineReader(
     showLatest() {
       if (state.status !== "positionLost") return;
       target = undefined;
+      restored = undefined;
       paged = false;
       publish(empty("loading", true));
       return read();
