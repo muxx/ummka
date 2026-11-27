@@ -27,6 +27,7 @@ mod thread_summary;
 pub use profiles::{ChannelProfile, ProfileLookup, ProfileQuery};
 mod reclamation;
 pub use lifecycle::AccountHistory;
+pub(crate) use posts::{CachedPostObservation, PostObservation};
 pub use posts::{ChannelPostLoad, PageWrite, PostChange, StoredPost};
 mod schema;
 mod settings;

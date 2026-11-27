@@ -2,6 +2,7 @@ import { expect, test, vi } from "vitest";
 import {
   Configuration,
   FetchError,
+  type PostList,
   PostsApi,
   PostToJSON,
   ResponseError,
@@ -54,10 +55,10 @@ function page(
     next: next ?? null,
   };
 }
-function pendingPage() {
-  let resolve!: (result: ReturnType<typeof page>) => void;
+function pendingPage<T = ReturnType<typeof page>>() {
+  let resolve!: (result: T) => void;
   let reject!: (reason: unknown) => void;
-  const promise = new Promise<ReturnType<typeof page>>((done, fail) => {
+  const promise = new Promise<T>((done, fail) => {
     resolve = done;
     reject = fail;
   });
@@ -409,6 +410,73 @@ test("thread pages reconcile root and repeated reply origin by version", async (
   expect(view.getSnapshot().down.status).toBe("end");
   expect(fetchApi).toHaveBeenCalledTimes(observations.length);
 });
+
+test.each(["up", "down"] as const)(
+  "latest started full observation wins for an equal-version thread when %s returns first",
+  async (first) => {
+    const afterFocus = wire(local("x", 101));
+    const beforeFocus = { ...afterFocus, createAt: 99 };
+    const priority = { priority: { priority: "important" } };
+    const important: PostList = {
+      order: [rootId, afterFocus.id],
+      posts: {
+        [rootId]: { ...root, metadata: priority },
+        [afterFocus.id]: beforeFocus,
+      },
+      hasNext: true,
+    };
+    const standard: PostList = {
+      ...important,
+      posts: { [rootId]: root, [afterFocus.id]: afterFocus },
+    };
+    const up = pendingPage<PostList>();
+    const down = pendingPage<PostList>();
+    const next = wire(local("z", 102));
+    const getPostThread = vi
+      .fn()
+      .mockReturnValueOnce(up.promise)
+      .mockReturnValueOnce(down.promise)
+      .mockResolvedValueOnce({
+        order: [rootId, next.id],
+        posts: { [rootId]: important.posts?.[rootId], [next.id]: next },
+        hasNext: false,
+      });
+    const view = openThreadReplyWindow(
+      {
+        readThreadPage: (query, signal) =>
+          readThreadPage({ getPostThread }, query, signal),
+      },
+      scope,
+      focus,
+    );
+    const settledPriority = () => [
+      view.getSnapshot().root?.displayPriority,
+      view.getSnapshot().replies.find((r) => r.id === afterFocus.id)
+        ?.displayPriority,
+    ];
+    const opening = view.open();
+    await Promise.resolve();
+    expect(getPostThread.mock.calls.map(([query]) => query.direction)).toEqual([
+      "up",
+      "down",
+    ]);
+    if (first === "up") up.resolve(important);
+    else down.resolve(standard);
+    await view.more(first);
+    expect(settledPriority()).toEqual([
+      first === "up" ? "important" : "standard",
+      "standard",
+    ]);
+    up.resolve(important);
+    down.resolve(standard);
+    await opening;
+    expect(settledPriority()).toEqual(["standard", "standard"]);
+    await view.more("down");
+    expect(settledPriority()).toEqual(["important", "standard"]);
+    expect(getPostThread).toHaveBeenCalledTimes(3);
+    view.close();
+  },
+);
 
 test("a subscriber can request the next page when the first page finishes", async () => {
   const a = local("a", 130),

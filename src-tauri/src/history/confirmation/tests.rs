@@ -1,6 +1,7 @@
 use super::*;
 use crate::history::{
     DraftSave, HistoryDatabase, PageWrite, PostChange, StagePost, StoredPost,
+    posts::DisplayPriority,
     schema::{MIGRATIONS, Migration},
 };
 use crate::realtime::{EventConnectionError, ServerEvent, StreamError};
@@ -47,7 +48,7 @@ fn canonical(id: &str, root: Option<&str>) -> DeliveryPost {
     }
 }
 fn saved(post: DeliveryPost) -> PostChange {
-    PostChange::Save(StoredPost {
+    PostChange::Save(Box::new(StoredPost {
         id: post.id,
         channel_id: post.channel_id,
         user_id: post.user_id,
@@ -61,9 +62,11 @@ fn saved(post: DeliveryPost) -> PostChange {
         hashtags: String::new(),
         is_pinned: false,
         from_webhook: None,
+        display_priority: None,
+        ai_attribution: None,
         thread_summary: None,
         attachments: None,
-    })
+    }))
 }
 fn apply(view: &mut AccountHistory, change: PostChange) {
     let load = view.begin_channel_load(ROOM).unwrap();
@@ -100,10 +103,10 @@ fn posted_and_http_can_arrive_in_either_order_and_survive_restart() {
     for (event_first, post_id, root) in [(true, ROOT, None), (false, REPLY, Some(ROOT))] {
         let pending = stage(&mut view, root);
         let post = canonical(post_id, root);
-        let receipt = posted(
-            wire_post(&post, &pending).to_string().into(),
-            json!({"channel_id": ROOM}),
-        );
+        let mut payload = wire_post(&post, &pending);
+        payload["metadata"] = json!({"priority": {"priority": "important"}});
+        payload["props"] = json!({"ai_generated_by": ME, "ai_generated_by_username": "fixture-ai"});
+        let receipt = posted(payload.to_string().into(), json!({"channel_id": ROOM}));
         if event_first {
             assert!(receipt.confirm_delivery(&mut view).unwrap());
         } else {
@@ -122,11 +125,28 @@ fn posted_and_http_can_arrive_in_either_order_and_survive_restart() {
                 .unwrap()
         );
         assert!(receipt.confirm_delivery(&mut view).unwrap());
-        apply(&mut view, saved(post));
+        assert_eq!(view.read_post(post_id).unwrap(), None);
+        let mut observed = saved(post);
+        let PostChange::Save(row) = &mut observed else {
+            unreachable!()
+        };
+        let priority = if root.is_none() {
+            DisplayPriority::Important
+        } else {
+            DisplayPriority::Standard
+        };
+        row.display_priority = Some(priority);
+        row.ai_attribution = serde_json::from_value(json!({"kind":"none"})).unwrap();
+        apply(&mut view, observed);
         assert_eq!(view.retire_delivered_posts(&[post_id, post_id]).unwrap(), 1);
         assert_eq!(view.retire_delivered_posts(&[post_id]).unwrap(), 0);
         assert!(view.pending_posts(ROOM, root, 0, 4).unwrap().is_empty());
-        assert!(view.read_post(post_id).unwrap().is_some());
+        let published = view.read_post(post_id).unwrap().unwrap();
+        assert_eq!(published.display_priority, Some(priority));
+        assert_eq!(
+            serde_json::to_value(published.ai_attribution).unwrap(),
+            json!({"kind":"none"})
+        );
     }
 }
 

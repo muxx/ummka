@@ -32,6 +32,8 @@ export function expectedNavigationPost(
     hashtags: row.hashtags,
     isPinned: row.isPinned,
     fromWebhook: false,
+    displayPriority: "standard",
+    aiAttribution: { kind: "none" },
   };
 }
 

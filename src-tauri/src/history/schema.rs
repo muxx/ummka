@@ -673,11 +673,37 @@ pub(super) const MIGRATIONS: &[Migration] = &[
             WINDOWS_BY_CHANNEL,
         ),
     },
+    Migration {
+        statements: &[
+            "ALTER TABLE history_post ADD COLUMN display_priority TEXT CHECK (display_priority IN ('standard', 'important', 'urgent', 'other'))",
+            "ALTER TABLE history_post ADD COLUMN priority_observation INTEGER CHECK (priority_observation > 0)",
+            "ALTER TABLE history_post ADD COLUMN ai_source TEXT",
+            "ALTER TABLE history_post ADD COLUMN ai_has_username INTEGER CHECK (ai_has_username IN (0, 1))",
+            POST_OBSERVATION,
+        ],
+        objects: &directory_objects!(
+            @posts POSTS_V30;
+            JOINED_TEAM_V19,
+            SIDEBAR_CHANNEL_V19,
+            COMPOSER_DRAFT_V21,
+            TEAM_SEARCH,
+            TEAM_SEARCH_ORDER,
+            THREAD_SUMMARY,
+            POST_ATTACHMENT,
+            CHANNEL_MEMBERSHIP_CHANGE,
+            DEPARTED_BY_TEAM,
+            POSTS_BY_CHANNEL,
+            WINDOWS_BY_CHANNEL,
+            POST_OBSERVATION,
+        ),
+    },
 ];
 
 const ADD_POST_WEBHOOK_ORIGIN: &str =
     "ALTER TABLE history_post ADD COLUMN from_webhook INTEGER CHECK (from_webhook IN (0, 1))";
 const POSTS_V29: &str = include_str!("migrations/0029_posts_schema.sql");
+const POSTS_V30: &str = include_str!("migrations/0030_posts_schema.sql");
+const POST_OBSERVATION: &str = include_str!("migrations/0030_post_observation.sql");
 
 const THREAD_SUMMARY: &str = include_str!("migrations/0024_thread_summary.sql");
 

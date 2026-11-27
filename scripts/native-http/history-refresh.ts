@@ -6,9 +6,11 @@ export function historyRefreshFixture(userId: string, onHold: () => void) {
     root = "k".repeat(26),
     reply = "l".repeat(26),
     old = "m".repeat(26),
+    urgent = "j".repeat(26),
     cursor = "x".repeat(26);
   const path = "/team/chat/api/v4";
   const calls: string[] = [];
+  let anchorReads = 0;
   let delayed: ServerResponse | undefined;
   function record(id: string, at: number, parent = "") {
     return {
@@ -26,21 +28,30 @@ export function historyRefreshFixture(userId: string, onHold: () => void) {
       is_pinned: false,
     };
   }
+  const cachedRoot = {
+    ...record(root, 200),
+    props: {
+      from_webhook: "true",
+      ai_generated_by_username: "fixture-unresolved-ai",
+    },
+    file_ids: ["b".repeat(26), "a".repeat(26)],
+    metadata: {
+      priority: { priority: "important" },
+      files: [{ id: "a".repeat(26), name: "offline.txt", size: 0 }],
+    },
+  };
   const records = {
     [reply]: {
       ...record(reply, 300, root),
       file_ids: [],
       metadata: { redacted_file_count: 2 },
     },
-    [root]: {
-      ...record(root, 200),
-      props: { from_webhook: "true" },
-      file_ids: ["b".repeat(26), "a".repeat(26)],
-      metadata: {
-        files: [{ id: "a".repeat(26), name: "offline.txt", size: 0 }],
-      },
-    },
+    [root]: cachedRoot,
     [old]: record(old, 100),
+    [urgent]: {
+      ...record(urgent, 450),
+      metadata: { priority: { priority: "urgent" } },
+    },
   };
   function page(
     res: ServerResponse,
@@ -62,7 +73,12 @@ export function historyRefreshFixture(userId: string, onHold: () => void) {
   return {
     handle(req: IncomingMessage, res: ServerResponse, url: URL) {
       const thread = url.pathname === `${path}/posts/${root}/thread`;
-      if (!thread && url.pathname !== `${path}/channels/${channel}/posts`)
+      const anchor = url.pathname === `${path}/posts/${root}`;
+      if (
+        !thread &&
+        !anchor &&
+        url.pathname !== `${path}/channels/${channel}/posts`
+      )
         return false;
       assert.equal(req.method, "GET");
       assert.equal(
@@ -71,7 +87,25 @@ export function historyRefreshFixture(userId: string, onHold: () => void) {
       );
       const q = url.searchParams;
       const time = q.get("fromCreateAt");
-      if (thread && (time === "300" || time === "301")) {
+      if (anchor) {
+        assert.equal(q.size, 0);
+        assert(anchorReads < 2);
+        const restored = ++anchorReads === 2;
+        calls.push(restored ? "anchor-important" : "anchor-standard");
+        res.writeHead(200, { "Content-Type": "application/json" }).end(
+          JSON.stringify({
+            ...cachedRoot,
+            props: {
+              ...cachedRoot.props,
+              ai_generated_by: userId,
+              ai_generated_by_username: "fixture-ai",
+            },
+            metadata: restored
+              ? cachedRoot.metadata
+              : { files: cachedRoot.metadata.files },
+          }),
+        );
+      } else if (thread && (time === "300" || time === "301")) {
         const up = q.get("direction") === "up";
         const continuing = q.has("fromPost");
         const own = "n".repeat(26);
@@ -164,16 +198,18 @@ export function historyRefreshFixture(userId: string, onHold: () => void) {
       } else if (q.get("after") === root) {
         assert.equal(q.get("per_page"), "30");
         calls.push("after");
-        page(res, [reply], root, "");
+        page(res, [urgent, reply], root, "");
       } else {
         assert.equal(q.get("per_page"), "60");
         const collapsed = q.get("collapsedThreads") === "true";
         calls.push(collapsed ? "collapsed" : "plain");
-        page(res, collapsed ? [root, old] : [reply, root, old], "", "", [
-          reply,
-          root,
-          old,
-        ]);
+        page(
+          res,
+          collapsed ? [urgent, root, old] : [urgent, reply, root, old],
+          "",
+          "",
+          [urgent, reply, root, old],
+        );
       }
       return true;
     },
@@ -197,6 +233,8 @@ export function historyRefreshFixture(userId: string, onHold: () => void) {
           "thread",
           "before",
           "after",
+          "anchor-standard",
+          "anchor-important",
           "error",
           "delayed",
           "remove",

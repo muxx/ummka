@@ -310,7 +310,59 @@ export async function openAccountRestConnection(
       );
     },
     readPostAnchor(postId: string, signal?: AbortSignal) {
-      return readWhileOpen(() => readPostAnchor(posts, postId, signal), signal);
+      return readWhileOpen(async () => {
+        signal?.throwIfAborted();
+        if (!isMattermostId(postId))
+          throw new TypeError("Invalid Mattermost post ID.");
+        const load = await invoke<number | null>(
+          "begin_cached_post_observation",
+          { rid, postId },
+        );
+        let anchor: Awaited<ReturnType<typeof readPostAnchor>>;
+        try {
+          if (retired) throw "cancelled";
+          anchor = await readPostAnchor(posts, postId, signal);
+          if (retired) throw "cancelled";
+          signal?.throwIfAborted();
+        } catch (error) {
+          if (load !== null && !retired) {
+            try {
+              await invoke("finish_cached_post_observation", {
+                rid,
+                load,
+                observation: null,
+              });
+            } catch (cause) {
+              if (cause !== "unknown_connection" && cause !== "cancelled")
+                throw cause;
+            }
+          }
+          throw error;
+        }
+        if (load !== null) {
+          const { channelId, post } = anchor;
+          const applied = await invoke<boolean>(
+            "finish_cached_post_observation",
+            {
+              rid,
+              load,
+              observation:
+                !post ||
+                (post.displayPriority === undefined &&
+                  post.aiAttribution === undefined)
+                  ? null
+                  : {
+                      channelId,
+                      updateAt: post.updateAt,
+                      displayPriority: post.displayPriority,
+                      aiAttribution: post.aiAttribution,
+                    },
+            },
+          );
+          if (applied) historyChanges.notify(channelId, signal);
+        }
+        return anchor;
+      }, signal);
     },
     readPostFiles(channelId: string, postId: string, signal?: AbortSignal) {
       return readWhileOpen(

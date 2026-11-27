@@ -20,7 +20,7 @@ const E: &str = "eeeeeeeeeeeeeeeeeeeeeeeeee";
 const F: &str = "ffffffffffffffffffffffffff";
 
 fn save(id: &str, stamp: i64) -> PostChange {
-    PostChange::Save(StoredPost {
+    PostChange::Save(Box::new(StoredPost {
         id: id.into(),
         channel_id: CHANNEL.into(),
         user_id: ALICE.into(),
@@ -34,9 +34,11 @@ fn save(id: &str, stamp: i64) -> PostChange {
         hashtags: String::new(),
         is_pinned: false,
         from_webhook: None,
+        display_priority: None,
+        ai_attribution: None,
         thread_summary: None,
         attachments: None,
-    })
+    }))
 }
 
 pub(super) fn page(source: WindowSource, posts: &[(&str, i64)]) -> ChannelHistoryPage {

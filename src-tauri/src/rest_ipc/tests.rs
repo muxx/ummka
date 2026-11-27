@@ -26,6 +26,120 @@ struct Marker;
 impl Resource for Marker {}
 
 #[test]
+fn cached_post_observation_is_consumed_even_when_ipc_payload_is_invalid() {
+    use crate::{
+        history::{AccountHistory, PageWrite},
+        sessions::{Account, fixture},
+    };
+    use std::sync::Arc;
+
+    let app = crate::build(mock_builder(), crate::context()).unwrap();
+    let window = WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    let main = window.as_ref();
+    let user = "a".repeat(26);
+    let channel = "c".repeat(26);
+    let post = "p".repeat(26);
+    let storage = tempfile::tempdir().unwrap();
+    let mut history =
+        AccountHistory::open(storage.path(), &Account::new(SERVER, &user).unwrap()).unwrap();
+    let initial = history.begin_channel_load(&channel).unwrap();
+    assert_eq!(
+        history
+            .apply_channel_page(
+                initial,
+                &[serde_json::from_value(json!({
+                    "kind": "save", "id": post, "channelId": channel, "userId": user,
+                    "createAt": 100, "updateAt": 100, "editAt": 0, "type": "",
+                    "message": "Cached post", "hashtags": "", "isPinned": false,
+                    "displayPriority": "urgent"
+                }))
+                .unwrap()],
+            )
+            .unwrap(),
+        PageWrite::Applied
+    );
+
+    let sessions = fixture::using(Arc::new(fixture::TestVault::default()));
+    let connection = tauri::async_runtime::block_on(async {
+        sessions
+            .activate(SERVER, &user, "fixture-token")
+            .await
+            .unwrap();
+        RestConnection::new(SERVER)
+            .unwrap()
+            .for_account(&sessions, &user)
+            .await
+            .unwrap()
+    });
+    let history = Arc::new(tokio::sync::Mutex::new(history));
+    let owner = Session::new(connection);
+    // Supply the cached SQLite connection without touching the platform credential store.
+    assert!(owner.history.set(Arc::downgrade(&history)).is_ok());
+    let rid = main.resources_table().add(owner);
+    let begin = || {
+        invoke(
+            main,
+            "begin_cached_post_observation",
+            LOCAL,
+            json!({ "rid": rid, "postId": post }),
+        )
+        .unwrap()
+        .deserialize::<ResourceId>()
+        .unwrap()
+    };
+    let finish = |load, observation: Value| {
+        invoke(
+            main,
+            "finish_cached_post_observation",
+            LOCAL,
+            json!({ "rid": rid, "load": load, "observation": observation }),
+        )
+        .map(|response| response.deserialize::<bool>().unwrap())
+    };
+    let priority = || {
+        invoke(
+            main,
+            "read_saved_post",
+            LOCAL,
+            json!({ "rid": rid, "channelId": channel, "postId": post }),
+        )
+        .unwrap()
+        .deserialize::<Value>()
+        .unwrap()["displayPriority"]
+            .clone()
+    };
+    let valid = json!({ "channelId": channel, "updateAt": 100, "displayPriority": "standard" });
+    let load = begin();
+    let mut malformed = valid.clone();
+    malformed["displayPriority"] = json!(false);
+    let error = finish(load, malformed).unwrap_err();
+    assert_eq!(
+        finish(load, valid.clone()),
+        Err(json!("unknown_history_load"))
+    );
+    assert_eq!(error, json!("invalid_history_request"));
+
+    let cancelled = begin();
+    assert_eq!(finish(cancelled, Value::Null), Ok(false));
+    assert_eq!(
+        finish(cancelled, valid.clone()),
+        Err(json!("unknown_history_load"))
+    );
+    assert_eq!(priority(), json!("urgent"));
+
+    let completed = begin();
+    assert_eq!(finish(completed, valid), Ok(true));
+    assert_eq!(
+        finish(completed, Value::Null),
+        Err(json!("unknown_history_load"))
+    );
+    assert_eq!(priority(), json!("standard"));
+    close(main, rid).unwrap();
+}
+
+#[test]
 fn only_the_local_main_webview_can_manage_its_own_connections() {
     let app = crate::build(mock_builder(), crate::context()).unwrap();
     let window = WebviewWindowBuilder::new(&app, "main", Default::default())
@@ -45,6 +159,14 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
             ),
             ("sign_out_account", json!({"rid": 0})),
             ("sign_out_on_device", json!({"rid": 0})),
+            (
+                "begin_cached_post_observation",
+                json!({"rid":0,"postId":"p".repeat(26)}),
+            ),
+            (
+                "finish_cached_post_observation",
+                json!({"rid":0,"load":0,"observation":null}),
+            ),
             (
                 "begin_channel_history_load",
                 json!({"rid":0,"channelId":"c".repeat(26)}),
@@ -257,6 +379,16 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
                 "begin_channel_history_load",
                 LOCAL,
                 json!({"rid":rid,"channelId":"c".repeat(26)})
+            )
+            .unwrap_err(),
+            expected
+        );
+        assert_eq!(
+            invoke(
+                main,
+                "begin_cached_post_observation",
+                LOCAL,
+                json!({"rid":rid,"postId":"p".repeat(26)})
             )
             .unwrap_err(),
             expected

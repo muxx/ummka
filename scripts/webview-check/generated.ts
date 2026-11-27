@@ -553,7 +553,7 @@ export async function checkGeneratedRequests(ports: string[]) {
       checkAccountResponses(accountPrefix, userId, observed),
     );
     await androidFixtureStep("channel-refresh", () =>
-      checkChannelRefresh(accountPrefix, observed),
+      checkChannelRefresh(accountPrefix, observed, userId),
     );
     await androidFixtureStep("timeline-commits", () =>
       checkOpenTimelineCommits(accountPrefix),

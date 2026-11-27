@@ -32,7 +32,7 @@ const visible = {
   isPinned: true,
 };
 function open() {
-  vi.mocked(invoke).mockResolvedValueOnce(27);
+  vi.mocked(invoke).mockResolvedValueOnce(27).mockResolvedValue(null);
   return openAccountRestConnection(
     "https://fixture.test/subpath",
     "u".repeat(26),
@@ -170,6 +170,8 @@ test("one account read returns the published post with its address; files identi
         hashtags: "#release",
         isPinned: true,
         fromWebhook: false,
+        displayPriority: "standard",
+        aiAttribution: { kind: "none" },
       },
     });
     expect(post).toHaveBeenCalledExactlyOnceWith(
@@ -197,6 +199,34 @@ test("a deleted post retains its address without exposing the former content", a
     postId,
     channelId,
     post: null,
+  });
+});
+
+test("cancels an acquired history observation before dispatching an abandoned anchor", async () => {
+  const account = await open();
+  const ipc = vi.mocked(invoke);
+  let grant!: (load: number) => void;
+  ipc.mockReturnValueOnce(
+    new Promise<number>((resolve) => {
+      grant = resolve;
+    }),
+  );
+  const request = vi.spyOn(PostsApi.prototype, "getPost");
+  const controller = new AbortController();
+  const pending = account.readPostAnchor(postId, controller.signal);
+  expect(ipc).toHaveBeenLastCalledWith("begin_cached_post_observation", {
+    rid: 27,
+    postId,
+  });
+  const reason = new Error("navigation cancelled");
+  controller.abort(reason);
+  grant(17);
+  await expect(pending).rejects.toBe(reason);
+  expect(request).not.toHaveBeenCalled();
+  expect(ipc).toHaveBeenLastCalledWith("finish_cached_post_observation", {
+    rid: 27,
+    load: 17,
+    observation: null,
   });
 });
 

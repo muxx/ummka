@@ -2,7 +2,10 @@ use super::attachments::{self, PostAttachments};
 use super::thread_summary::{LAST_OBSERVATION, ThreadSummary};
 use super::{AccountHistory, ChannelHistoryPage, HistoryError, HistoryOwner, windows};
 use crate::rest::is_mattermost_id;
-use rusqlite::{OptionalExtension, Row, Transaction, TransactionBehavior, params};
+use rusqlite::{
+    OptionalExtension, Row, Transaction, TransactionBehavior, params,
+    types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef},
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -27,9 +30,70 @@ pub struct StoredPost {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from_webhook: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_priority: Option<DisplayPriority>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai_attribution: Option<AiAttribution>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_summary: Option<Box<ThreadSummary>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) attachments: Option<Box<PostAttachments>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DisplayPriority {
+    Standard,
+    Important,
+    Urgent,
+    Other,
+}
+
+impl FromSql for DisplayPriority {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        match value.as_str()? {
+            "standard" => Ok(Self::Standard),
+            "important" => Ok(Self::Important),
+            "urgent" => Ok(Self::Urgent),
+            "other" => Ok(Self::Other),
+            _ => Err(FromSqlError::InvalidType),
+        }
+    }
+}
+
+impl ToSql for DisplayPriority {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok(match self {
+            Self::Standard => "standard",
+            Self::Important => "important",
+            Self::Urgent => "urgent",
+            Self::Other => "other",
+        }
+        .into())
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum AiAttribution {
+    None,
+    Source { user_id: String, has_username: bool },
+}
+
+impl AiAttribution {
+    fn columns(&self) -> (&str, bool) {
+        match self {
+            Self::None => ("", false),
+            Self::Source {
+                user_id,
+                has_username,
+            } => (user_id, *has_username),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -39,7 +103,7 @@ pub struct StoredPost {
     rename_all_fields = "camelCase"
 )]
 pub enum PostChange {
-    Save(StoredPost),
+    Save(Box<StoredPost>),
     Remove { id: String, channel_id: String },
 }
 
@@ -50,6 +114,21 @@ pub struct ChannelPostLoad {
     revision: i64,
     observed_summary: i64,
     observed_attachments: i64,
+    priority_order: i64,
+}
+
+pub(crate) struct CachedPostObservation {
+    load: ChannelPostLoad,
+    post_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct PostObservation {
+    pub channel_id: String,
+    pub update_at: i64,
+    pub display_priority: Option<DisplayPriority>,
+    pub ai_attribution: Option<AiAttribution>,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
@@ -70,25 +149,59 @@ pub enum PageWrite {
 pub(super) const READ: &str =
      "SELECT p.id, p.channel_id, p.user_id, p.root_id, p.create_at, p.update_at, p.edit_at,
               p.type, p.message, p.message_source, p.hashtags, p.is_pinned,
-              s.reply_count, s.last_reply_at, s.participant_ids, a.payload, p.from_webhook
+              s.reply_count, s.last_reply_at, s.participant_ids, a.payload, p.from_webhook,
+              p.display_priority, p.ai_source, p.ai_has_username
        FROM history_post p LEFT JOIN history_thread_summary s ON s.post_id=p.id AND p.root_id IS NULL
        LEFT JOIN history_post_attachment a ON a.post_id=p.id
        WHERE p.id=?1";
 pub(super) const REMOVE: &str =
     "DELETE FROM history_post WHERE channel_id = ?1 AND (id = ?2 OR root_id = ?2)";
 const SAVE: &str = "INSERT INTO history_post
-    (id, channel_id, user_id, root_id, create_at, update_at, edit_at, type, message, message_source, hashtags, is_pinned, from_webhook)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+    (id, channel_id, user_id, root_id, create_at, update_at, edit_at, type, message, message_source, hashtags, is_pinned,
+     from_webhook, display_priority, priority_observation, ai_source, ai_has_username)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
     ON CONFLICT(id) DO UPDATE SET user_id=excluded.user_id, root_id=excluded.root_id,
     create_at=excluded.create_at, update_at=excluded.update_at, edit_at=excluded.edit_at,
     type=excluded.type, message=excluded.message, message_source=excluded.message_source,
     hashtags=excluded.hashtags, is_pinned=excluded.is_pinned,
-    from_webhook=COALESCE(excluded.from_webhook,history_post.from_webhook)";
-const CONFIRM_ORIGIN: &str =
-    "UPDATE history_post SET from_webhook=?2 WHERE id=?1 AND from_webhook IS NULL";
+    from_webhook=COALESCE(excluded.from_webhook,history_post.from_webhook),
+    display_priority=COALESCE(excluded.display_priority,history_post.display_priority),
+    priority_observation=COALESCE(excluded.priority_observation,history_post.priority_observation),
+    ai_source=COALESCE(excluded.ai_source,history_post.ai_source),
+    ai_has_username=COALESCE(excluded.ai_has_username,history_post.ai_has_username)";
+const CONFIRM_OBSERVATIONS: &str = "UPDATE history_post SET
+    from_webhook=COALESCE(from_webhook,?2),
+    display_priority=CASE WHEN COALESCE(priority_observation,0) < ?4
+                              THEN ?3 ELSE display_priority END,
+    priority_observation=CASE WHEN COALESCE(priority_observation,0) < ?4
+                              THEN ?4 ELSE priority_observation END,
+    ai_source=COALESCE(ai_source,?5),
+    ai_has_username=COALESCE(ai_has_username,?6)
+    WHERE id=?1 AND channel_id=?7 AND update_at=?8 AND
+      (COALESCE(priority_observation,0) < ?4 OR
+       (from_webhook IS NULL AND ?2 IS NOT NULL) OR
+       (ai_source IS NULL AND ?5 IS NOT NULL))";
+const ADVANCE_PRIORITY_OBSERVATION: &str =
+    "INSERT INTO history_post_observation(owner,priority) VALUES(1,1)
+     ON CONFLICT(owner) DO UPDATE SET priority=history_post_observation.priority+1
+     RETURNING priority";
+
+struct PreviousPost {
+    channel_id: String,
+    update_at: i64,
+    create_at: i64,
+}
 
 impl StoredPost {
     pub(super) fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
+        let ai_attribution = match row.get::<_, Option<String>>(18)? {
+            None => None,
+            Some(id) if id.is_empty() => Some(AiAttribution::None),
+            Some(user_id) => Some(AiAttribution::Source {
+                user_id,
+                has_username: row.get(19)?,
+            }),
+        };
         Ok(Self {
             id: row.get(0)?,
             channel_id: row.get(1)?,
@@ -103,6 +216,8 @@ impl StoredPost {
             hashtags: row.get(10)?,
             is_pinned: row.get(11)?,
             from_webhook: row.get(16)?,
+            display_priority: row.get(17)?,
+            ai_attribution,
             thread_summary: ThreadSummary::from_row(row)?.map(Box::new),
             attachments: PostAttachments::from_row(row)?,
         })
@@ -121,6 +236,7 @@ impl PostChange {
                     || post.create_at <= 0
                     || post.update_at <= 0
                     || post.edit_at < 0
+                    || matches!(&post.ai_attribution, Some(AiAttribution::Source {user_id, ..}) if !is_mattermost_id(user_id))
                 {
                     return Err(HistoryError::InvalidPost);
                 }
@@ -150,6 +266,32 @@ fn deletion_revision(tx: &Transaction<'_>, channel: &str) -> rusqlite::Result<i6
         .map(Option::unwrap_or_default)
 }
 
+impl ChannelPostLoad {
+    fn begin(
+        tx: &Transaction<'_>,
+        owner: HistoryOwner,
+        channel_id: String,
+    ) -> rusqlite::Result<Self> {
+        Ok(Self {
+            owner,
+            revision: deletion_revision(tx, &channel_id)?,
+            channel_id,
+            observed_summary: tx.query_row(LAST_OBSERVATION, [], |row| row.get(0))?,
+            observed_attachments: tx
+                .query_row(attachments::LAST_OBSERVATION, [], |row| row.get(0))?,
+            // Reserve before dispatch; responses may commit in either order.
+            priority_order: tx
+                .prepare_cached(ADVANCE_PRIORITY_OBSERVATION)?
+                .query_row([], |row| row.get(0))?,
+        })
+    }
+
+    fn is_current(&self, tx: &Transaction<'_>) -> rusqlite::Result<bool> {
+        Ok(deletion_revision(tx, &self.channel_id)? == self.revision
+            && !super::departure::is_departed(tx, &self.channel_id)?)
+    }
+}
+
 impl AccountHistory {
     pub fn begin_channel_load(
         &mut self,
@@ -158,19 +300,67 @@ impl AccountHistory {
         if !is_mattermost_id(channel_id) {
             return Err(HistoryError::InvalidPost);
         }
-        let (revision, observed_summary, observed_attachments) = self.read(|tx| {
-            Ok((
-                deletion_revision(tx, channel_id)?,
-                tx.query_row(LAST_OBSERVATION, [], |row| row.get(0))?,
-                tx.query_row(attachments::LAST_OBSERVATION, [], |row| row.get(0))?,
-            ))
-        })?;
-        Ok(ChannelPostLoad {
-            owner: self.owner.clone(),
-            channel_id: channel_id.to_owned(),
-            revision,
-            observed_summary,
-            observed_attachments,
+        let owner = self.owner.clone();
+        self.write(|tx| ChannelPostLoad::begin(tx, owner, channel_id.to_owned()))
+    }
+
+    pub(crate) fn begin_cached_post_observation(
+        &mut self,
+        post_id: String,
+    ) -> Result<Option<CachedPostObservation>, HistoryError> {
+        if !is_mattermost_id(&post_id) {
+            return Err(HistoryError::InvalidPost);
+        }
+        let owner = self.owner.clone();
+        self.write(|tx| {
+            let channel = tx
+                .prepare_cached("SELECT channel_id FROM history_post WHERE id=?1")?
+                .query_row([&post_id], |row| row.get(0))
+                .optional()?;
+            channel
+                .map(|channel_id| {
+                    Ok(CachedPostObservation {
+                        load: ChannelPostLoad::begin(tx, owner, channel_id)?,
+                        post_id,
+                    })
+                })
+                .transpose()
+        })
+    }
+
+    pub(crate) fn observe_cached_post(
+        &mut self,
+        ticket: CachedPostObservation,
+        observation: PostObservation,
+    ) -> Result<bool, HistoryError> {
+        let CachedPostObservation { load, post_id } = ticket;
+        if load.owner != self.owner {
+            return Err(HistoryError::StaleOwner);
+        }
+        let ai = observation.ai_attribution.as_ref();
+        if observation.channel_id != load.channel_id
+            || observation.update_at <= 0
+            || matches!(ai, Some(AiAttribution::Source {user_id, ..}) if !is_mattermost_id(user_id))
+        {
+            return Err(HistoryError::InvalidPost);
+        }
+        self.write(|tx| {
+            if !load.is_current(tx)? {
+                return Ok(false);
+            }
+            // Point navigation may confirm current metadata. A page owns post versions and position.
+            let (ai_source, ai_has_username) = ai.map(AiAttribution::columns).unzip();
+            let count = tx.prepare_cached(CONFIRM_OBSERVATIONS)?.execute(params![
+                post_id,
+                None::<bool>,
+                observation.display_priority,
+                observation.display_priority.map(|_| load.priority_order),
+                ai_source,
+                ai_has_username,
+                load.channel_id,
+                observation.update_at,
+            ])?;
+            Ok(count != 0)
         })
     }
 
@@ -212,9 +402,7 @@ impl AccountHistory {
         }
         self.database
             .access(&self.owner, TransactionBehavior::Immediate, |tx| {
-                if deletion_revision(tx, &load.channel_id)? != load.revision
-                    || super::departure::is_departed(tx, &load.channel_id)?
-                {
+                if !load.is_current(tx)? {
                     return Ok(PageWrite::Superseded);
                 }
                 let removed = write_changes(
@@ -240,7 +428,7 @@ fn write_changes(
 ) -> Result<HashSet<String>, HistoryError> {
     let channel = load.channel_id.as_str();
     let mut previous = tx.prepare_cached(
-        "SELECT channel_id, update_at, create_at, from_webhook FROM history_post WHERE id = ?1",
+        "SELECT channel_id, update_at, create_at FROM history_post WHERE id = ?1",
     )?;
     let mut save = tx.prepare_cached(SAVE)?;
     let mut ids = HashSet::with_capacity(changes.len());
@@ -252,18 +440,14 @@ fn write_changes(
         }
         let stored = previous
             .query_row([id], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, i64>(1)?,
-                    r.get::<_, i64>(2)?,
-                    r.get::<_, Option<bool>>(3)?,
-                ))
+                Ok(PreviousPost {
+                    channel_id: r.get(0)?,
+                    update_at: r.get(1)?,
+                    create_at: r.get(2)?,
+                })
             })
             .optional()?;
-        if stored
-            .as_ref()
-            .is_some_and(|(old_channel, ..)| old_channel != channel)
-        {
+        if stored.as_ref().is_some_and(|row| row.channel_id != channel) {
             return Err(HistoryError::InvalidPost);
         }
         match change {
@@ -277,14 +461,22 @@ fn write_changes(
                 if let Some(attachments) = &p.attachments {
                     attachments.validate()?;
                 }
-                let old_version = stored.as_ref().map(|(_, version, _, _)| *version);
+                let old_version = stored.as_ref().map(|row| row.update_at);
                 if old_version.is_some_and(|version| version > p.update_at) {
                     continue;
                 }
-                if old_version != Some(p.update_at) {
+                let newer = old_version != Some(p.update_at);
+                let priority = p.display_priority;
+                let stamp = priority.map(|_| load.priority_order);
+                let (ai_source, ai_has_username) = p
+                    .ai_attribution
+                    .as_ref()
+                    .map(AiAttribution::columns)
+                    .unzip();
+                if newer {
                     if stored
                         .as_ref()
-                        .is_some_and(|(_, _, created, _)| *created != p.create_at)
+                        .is_some_and(|row| row.create_at != p.create_at)
                     {
                         windows::move_post_time(tx, id, p.create_at)?;
                     }
@@ -301,15 +493,23 @@ fn write_changes(
                         p.message_source,
                         p.hashtags,
                         p.is_pinned,
-                        p.from_webhook
+                        p.from_webhook,
+                        priority,
+                        stamp,
+                        ai_source,
+                        ai_has_username,
                     ])?;
-                } else if let Some(origin) = p.from_webhook
-                    && stored.is_some_and(|(_, _, _, origin)| origin.is_none())
-                {
-                    // Equal versions may confirm an origin on a migrated row.
-                    // Other fields and an already confirmed origin keep the stored observation.
-                    tx.prepare_cached(CONFIRM_ORIGIN)?
-                        .execute(params![id, origin])?;
+                } else if priority.is_some() || p.from_webhook.is_some() || ai_source.is_some() {
+                    tx.prepare_cached(CONFIRM_OBSERVATIONS)?.execute(params![
+                        id,
+                        p.from_webhook,
+                        priority,
+                        stamp,
+                        ai_source,
+                        ai_has_username,
+                        channel,
+                        p.update_at,
+                    ])?;
                 }
                 attachments::store(tx, p, load.observed_attachments)?;
                 if let Some(summary) = &p.thread_summary {

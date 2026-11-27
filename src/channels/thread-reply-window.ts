@@ -93,6 +93,8 @@ export function openThreadReplyWindow(
     down: { status: time === Number.MAX_SAFE_INTEGER ? "end" : "ready" },
   };
   const seen = new Set(focus ? [focus.id] : []);
+  let priorityObservation = 0;
+  const priorityByPost = new Map<string, number>();
   function publish(next: ReplyWindow) {
     state = next;
     for (const listener of listeners) listener();
@@ -108,6 +110,7 @@ export function openThreadReplyWindow(
     if (lifetime.signal.aborted) return;
     lifetime.abort();
     seen.clear();
+    priorityByPost.clear();
     publish({
       unavailable,
       ...(firstInaccessiblePostTime && { firstInaccessiblePostTime }),
@@ -122,6 +125,8 @@ export function openThreadReplyWindow(
     try {
       const { signal } = lifetime;
       signal.throwIfAborted();
+      // Full observations of the same post version are ordered by dispatch, not completion.
+      const stamp = ++priorityObservation;
       const page = await account.readThreadPage(
         {
           channelId,
@@ -143,21 +148,36 @@ export function openThreadReplyWindow(
       const root = visibleRow(channelId, page.root);
       const received = page.replies.map((post) => visibleRow(channelId, post));
       if (direction === "up") received.reverse();
+      function merge(
+        prior: LocalPost | null | undefined,
+        row: LocalPost,
+        equal: "keep" | "refresh",
+      ) {
+        const allowEqualPriority = (priorityByPost.get(row.id) ?? 0) < stamp;
+        if (
+          row.displayPriority !== undefined &&
+          (!prior ||
+            row.updateAt > prior.updateAt ||
+            (row.updateAt === prior.updateAt && allowEqualPriority))
+        )
+          priorityByPost.set(row.id, stamp);
+        return mergePostObservation(prior, row, equal, allowEqualPriority);
+      }
       let replies: LocalPost[];
       if (received.some((row) => seen.has(row.id))) {
         // An imported post's timestamp can change between two page reads.
         const latest = new Map(state.replies.map((row) => [row.id, row]));
         for (const row of received) {
-          latest.set(
-            row.id,
-            mergePostObservation(latest.get(row.id), row, "keep"),
-          );
+          latest.set(row.id, merge(latest.get(row.id), row, "keep"));
         }
         replies = [...latest.values()].sort(
           (a, b) =>
             a.createAt - b.createAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
         );
       } else {
+        for (const row of received)
+          if (row.displayPriority !== undefined)
+            priorityByPost.set(row.id, stamp);
         replies =
           direction === "up"
             ? [...received, ...state.replies]
@@ -167,7 +187,7 @@ export function openThreadReplyWindow(
       cursors[direction] = page.next ?? undefined;
       finish(direction, {
         ...state,
-        root: mergePostObservation(state.root, root, "refresh"),
+        root: merge(state.root, root, "refresh"),
         replies,
         [direction]: { status: page.next ? "ready" : "end" },
       });

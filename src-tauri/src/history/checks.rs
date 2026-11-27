@@ -2,6 +2,8 @@ mod attachments;
 pub(crate) mod departure;
 mod departure_schema;
 pub(crate) mod migrations;
+#[cfg(test)]
+mod post_observations;
 pub(crate) mod posts;
 pub(crate) mod reclamation;
 mod thread_summaries;

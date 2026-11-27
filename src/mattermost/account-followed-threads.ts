@@ -27,7 +27,9 @@ function visibleRoot(row: UserThread, id: string): LocalPost | null {
   if (!post || row.deleteAt !== 0) return null;
   if (!isMattermostId(post.channelId))
     throw new TypeError("Invalid Mattermost thread root channel.");
-  const projected = channelPostChange(post.channelId, id, post);
+  const projected = channelPostChange(post.channelId, id, post, {
+    priority: "partial",
+  });
   if (projected.kind === "remove") return null;
   if (projected.rootId !== null)
     throw new TypeError("Expected a root post in the Mattermost thread list.");
