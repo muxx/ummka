@@ -419,6 +419,8 @@ pub fn run_checks<'local>(
             crate::history::checks::posts::round_trip(fixtures)?;
             crate::history::checks::windows::round_trip(fixtures)?;
             crate::history::checks::reclamation::round_trip(fixtures)?;
+            report_stage("documents")?;
+            crate::device_document::check_android().await?;
             report_stage("transport")?;
             check_wire(NativeHttp::new()?, RestConnection::new, &ports, fixtures).await
         });

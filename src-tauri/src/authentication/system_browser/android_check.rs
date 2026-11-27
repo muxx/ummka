@@ -78,7 +78,10 @@ pub(crate) fn run<R: Runtime>(view: &Webview<R>) {
             Ok(())
         };
         match tokio::time::timeout(Duration::from_secs(30), check).await {
-            Ok(Ok(())) => println!("UMMKA_WEBVIEW_CHECK browser-checked"),
+            Ok(Ok(())) => {
+                println!("UMMKA_WEBVIEW_CHECK browser-checked");
+                crate::device_document::picker::android_check::run(&window).await;
+            }
             Ok(Err(stage)) => println!("UMMKA_WEBVIEW_CHECK FAIL browser {stage}"),
             Err(_) => println!("UMMKA_WEBVIEW_CHECK FAIL browser timeout"),
         }

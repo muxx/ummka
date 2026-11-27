@@ -8,6 +8,7 @@ import androidx.activity.enableEdgeToEdge
 
 class MainActivity : TauriActivity() {
   private var content: WebView? = null
+  private val documents = DocumentPicker(this)
 
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
@@ -38,13 +39,33 @@ class MainActivity : TauriActivity() {
     BrowserSignInActivity.dismiss(id)
   }
 
+  @Keep
+  fun presentDocumentPicker(id: String, multiple: Boolean) = runOnUiThread { documents.show(id, multiple) }
+
+  @Keep
+  fun dismissDocumentPicker(id: String) = runOnUiThread { documents.dismiss(id) }
+
+  @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+  override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+    if (!documents.receive(requestCode, resultCode, data)) super.onActivityResult(requestCode, resultCode, data)
+  }
+
+  override fun onSaveInstanceState(outState: Bundle) {
+    super.onSaveInstanceState(outState)
+    documents.save(outState)
+  }
+
   override fun onDestroy() {
-    if (!isChangingConfigurations) BrowserSignInActivity.ownerClosed()
+    if (!isChangingConfigurations) {
+      documents.ownerClosed()
+      BrowserSignInActivity.ownerClosed()
+    }
     super.onDestroy()
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    documents.restore(savedInstanceState)
   }
 }

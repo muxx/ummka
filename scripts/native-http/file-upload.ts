@@ -61,6 +61,8 @@ export function fileUploadFixture() {
       assert.equal(file.type, "application/octet-stream");
       assert.ok(Buffer.from(await file.arrayBuffer()).every((b) => b === 0xa5));
       assert.ok(Number(request.headers["content-length"]) > file.size);
+    } else if (file.name === "облако.bin") {
+      assert.equal(await file.text(), "hello");
     } else if (bookmark) {
       assert.equal(request.headers["content-length"], undefined);
       assert.equal(await file.text(), "✓");
@@ -106,6 +108,7 @@ export function fileUploadFixture() {
     verify() {
       assert.deepEqual(visits, [
         "план лето.bin",
+        "облако.bin",
         "reading",
         "закладка.txt",
         "wrong.txt",

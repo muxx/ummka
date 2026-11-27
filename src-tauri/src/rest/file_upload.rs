@@ -105,7 +105,7 @@ static ROUTE: LazyLock<[Route<'static>; 1]> = LazyLock::new(|| {
     .expect("verified native upload contract")
 });
 
-fn file_name(name: &str) -> bool {
+pub(crate) fn file_name(name: &str) -> bool {
     !name.is_empty()
         && name != "."
         && name != ".."

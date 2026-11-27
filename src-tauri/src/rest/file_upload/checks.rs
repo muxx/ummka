@@ -31,6 +31,33 @@ async fn gate(client: &NativeHttp, root: &str, step: &str) -> Check {
     assert_eq!(client.send(request).await?.text().await?, "OK");
     Ok(())
 }
+#[cfg(any(target_os = "macos", target_os = "android"))]
+async fn transfer_selection(owner: &RestConnection, cancel: &CancellationToken) -> Check {
+    use crate::device_document::SelectedDocument;
+    #[cfg(target_os = "macos")]
+    let directory = tempfile::tempdir()?;
+    #[cfg(target_os = "macos")]
+    let selected = {
+        let path = directory.path().join("облако.bin");
+        std::fs::write(&path, b"hello")?;
+        let url = objc2_foundation::NSURL::from_file_path(path).unwrap();
+        SelectedDocument::from_panel_url(url).await?
+    };
+    #[cfg(target_os = "android")]
+    let selected = SelectedDocument::from_picker_uri(
+        "content://io.github.muxx.ummka.dev.httpcheck.sourcecheck/range".into(),
+    )
+    .await?;
+    let reader = selected.open().await?;
+    let length = reader.length;
+    let info = selected.info();
+    let mut file = upload(reader, &info.name, length);
+    file.mime_type = info.mime_type.as_deref();
+    let saved = owner.upload_file(file, cancel, progress()).await?;
+    assert_eq!((saved.name.as_str(), saved.size), ("облако.bin", 5));
+    Ok(())
+}
+
 pub(crate) async fn wire(client: &NativeHttp, root: &str) -> Check {
     let base = format!("{root}/Uploads%20Site//A%2FB");
     let accounts = using(Arc::new(TestVault::default()));
@@ -58,6 +85,9 @@ pub(crate) async fn wire(client: &NativeHttp, root: &str) -> Check {
     let accepted = owner.upload_file(v, &cancel, tx).await?;
     assert_eq!(accepted.size, n);
     assert_eq!(*rx.borrow(), UploadProgress::Processing(n));
+
+    #[cfg(any(target_os = "macos", target_os = "android"))]
+    transfer_selection(&owner, &cancel).await?;
 
     for (name, length, expected) in [
         ("../device/file", Some(3), FileUploadError::InvalidFile),

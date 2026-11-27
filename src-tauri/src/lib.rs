@@ -5,6 +5,8 @@ mod channels_links;
 #[cfg(all(feature = "webview-check", target_os = "macos"))]
 mod check_keyboard;
 pub mod credentials;
+#[cfg(any(target_os = "macos", target_os = "android"))]
+pub mod device_document;
 mod external_post_link;
 pub mod history;
 mod installation_url;
@@ -18,6 +20,7 @@ mod registry_ipc;
 pub mod rest;
 mod rest_ipc;
 pub mod sessions;
+mod system_presentation;
 
 use tauri::{App, Builder, Context, Runtime};
 
@@ -121,6 +124,8 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
             if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
                 use tauri::Manager;
                 authentication::system_browser::owner_closed(window.app_handle());
+                #[cfg(any(target_os = "macos", target_os = "android"))]
+                device_document::picker::owner_closed(window.app_handle());
             }
         })
         .on_page_load(|webview, load| {
@@ -129,10 +134,25 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
                 if webview.label() == "main" {
                     use tauri::Manager;
                     authentication::system_browser::owner_closed(webview.app_handle());
+                    #[cfg(any(target_os = "macos", target_os = "android"))]
+                    device_document::picker::owner_closed(webview.app_handle());
                 }
             }
             #[cfg(feature = "webview-check")]
             if load.event() == tauri::webview::PageLoadEvent::Finished {
+                #[cfg(target_os = "macos")]
+                if load.url().path() == "/picker-check.html"
+                    && webview.label() == "main"
+                    && let Ok(mode) = std::env::var("UMMKA_CHECK_DOCUMENT_PICKER")
+                {
+                    use tauri::Manager;
+                    let window = webview
+                        .app_handle()
+                        .get_webview_window("main")
+                        .expect("picker fixture window");
+                    device_document::picker::mac_check::run(window, mode == "manual");
+                    return;
+                }
                 rest_ipc::report_check(webview, load.url());
             }
         })
@@ -143,8 +163,15 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
 pub fn run() {
     let config = context();
     #[cfg(all(feature = "webview-check", target_os = "macos"))]
+    let check_picker = std::env::var_os("UMMKA_CHECK_DOCUMENT_PICKER").is_some();
+    #[cfg(all(feature = "webview-check", target_os = "macos"))]
     let config = {
         let mut config = config;
+        if check_picker {
+            let main = &mut config.config_mut().app.windows[0];
+            main.url = tauri::WebviewUrl::App("picker-check.html".into());
+            main.visible = true;
+        }
         if std::env::var_os("UMMKA_CHECK_SYSTEM_POST_WINDOW").is_some()
             || std::env::var_os("UMMKA_CHECK_KEY_INPUT").is_some()
         {
@@ -181,5 +208,17 @@ pub fn run() {
     }
     build(Builder::default(), config)
         .expect("could not start ummka")
-        .run(channels_links::receive);
+        .run(move |app, event| {
+            #[cfg(all(feature = "webview-check", target_os = "macos"))]
+            if check_picker
+                && let tauri::RunEvent::ExitRequested {
+                    code: None, api, ..
+                } = event
+            {
+                // Let the fixture verify cancellation after the last window closes.
+                api.prevent_exit();
+                return;
+            }
+            channels_links::receive(app, event);
+        });
 }

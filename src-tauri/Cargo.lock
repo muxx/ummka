@@ -4862,6 +4862,7 @@ dependencies = [
  "reqwest",
  "reqwest-websocket",
  "rusqlite",
+ "rustix",
  "rustls-platform-verifier",
  "security-framework",
  "security-framework-sys",
