@@ -14,6 +14,11 @@ import { orderedItems } from "./ordered-items.ts";
 
 export const savedPageSize = 60;
 
+type SavedPostMembership = {
+  readonly ids: ReadonlySet<string>;
+  readonly upperBound: number;
+};
+
 type SavedScope =
   | { kind: "all" }
   | { kind: "channel"; channelId: string }
@@ -90,29 +95,25 @@ export function accountPostCollections(
     ) {
       return whileOpen(() => savedWindow(scope, offset, signal), signal);
     },
-    readSavedPostPreferences(signal?: AbortSignal, returnedPostId?: string) {
+    readSavedPostPreferences(
+      signal?: AbortSignal,
+    ): Promise<SavedPostMembership> {
       return whileOpen(async () => {
         signal?.throwIfAborted();
-        if (returnedPostId !== undefined && !isMattermostId(returnedPostId))
-          throw new TypeError("Invalid Mattermost saved post ID.");
         const rows = await preferences.getPreferences(
           { userId: "me" },
           { signal },
         );
         // A missing list is the server representation of an account with no preferences.
+        const ids = new Set<string>();
         let upperBound = 0;
-        let returnedPostSaved = false;
         for (const row of rows ?? []) {
           assertAccountPreference(row, userId);
-          if (row.category === "flagged_post") {
-            upperBound++;
-            returnedPostSaved ||= row.name === returnedPostId;
-          }
+          if (row.category !== "flagged_post") continue;
+          upperBound++;
+          if (isMattermostId(row.name)) ids.add(row.name);
         }
-        return {
-          upperBound,
-          ...(returnedPostId !== undefined && { returnedPostSaved }),
-        };
+        return { ids, upperBound };
       }, signal);
     },
   };

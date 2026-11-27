@@ -268,7 +268,7 @@ export function fixture({
     readSavedPostsAtOffset: vi.fn<Account["readSavedPostsAtOffset"]>(),
     readSavedPostPreferences: vi
       .fn<Account["readSavedPostPreferences"]>()
-      .mockResolvedValue({ upperBound: 2 }),
+      .mockResolvedValue({ ids: new Set([root.id, reply.id]), upperBound: 2 }),
     readPinnedChannelPosts: vi
       .fn<Account["readPinnedChannelPosts"]>()
       .mockResolvedValue({

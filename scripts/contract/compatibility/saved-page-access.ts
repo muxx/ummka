@@ -32,10 +32,18 @@ export async function checkSparseSavedPages(
   const scope = { kind: "team" as const, teamId };
   const ids: string[] = [];
   const times: number[] = [];
+  const root = await author.createPost({
+    createPostRequest: { channelId: visible, message: "Saved replies fixture" },
+  });
+  assert.ok(root.id);
   for (let n = 0; n < 121; n++) {
     const channelId = n > 0 && n <= 60 ? hidden : visible;
     const row = await author.createPost({
-      createPostRequest: { channelId, message: `Saved access fixture ${n}` },
+      createPostRequest: {
+        channelId,
+        message: `Saved access fixture ${n}`,
+        ...((n === 0 || n === 61) && { rootId: root.id }),
+      },
     });
     assert.ok(row.id && row.createAt);
     ids.push(row.id);
@@ -43,6 +51,10 @@ export async function checkSparseSavedPages(
   }
   assert.ok(times[0] < times[1] && times[60] < times[61]);
   const preferences = new PreferencesApi(config);
+  const otherValues = new Map([
+    [ids[0], "false"],
+    [ids[61], ""],
+  ]);
   for (const batch of [ids.slice(0, 100), ids.slice(100)])
     await preferences.updatePreferences({
       userId: "me",
@@ -50,7 +62,7 @@ export async function checkSparseSavedPages(
         userId: member.id,
         category: "flagged_post",
         name,
-        value: "true",
+        value: otherValues.get(name) ?? "true",
       })),
     });
   const adminHeaders = {
@@ -79,6 +91,10 @@ export async function checkSparseSavedPages(
   const view = openPostCollection(account, scope);
   try {
     await change(permissions.filter((p) => p !== "read_channel_content"));
+    assert.deepEqual(await account.readSavedPostPreferences(), {
+      ids: new Set(ids),
+      upperBound: ids.length,
+    });
     assert.deepEqual((await account.readSavedPosts(scope, 1)).items, []);
     assert.deepEqual(
       (await account.readSavedPosts(scope, 2)).items.map((row) => row.id),
@@ -106,6 +122,6 @@ export async function checkSparseSavedPages(
     await change(permissions);
   }
   console.log(
-    `Mattermost ${version} returned a visible saved post after a completely hidden 60-row page for an ordinary team member.`,
+    `Mattermost ${version} verified saved keys for distinct replies in one thread, including false and empty values, and continuation past a hidden 60-row page.`,
   );
 }

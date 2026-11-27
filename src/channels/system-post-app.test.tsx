@@ -1644,7 +1644,10 @@ test("cross-team saved reply returns to the same ID in a fresh list and keeps th
   expect(screen.queryByRole("button", { name: "Next in list" })).toBeNull();
   expect(screen.getByText("Team “Winter”")).toBeTruthy();
   const before = account.readSavedPosts.mock.calls.length;
-  account.readSavedPostPreferences.mockResolvedValueOnce({ upperBound: 61 });
+  account.readSavedPostPreferences.mockResolvedValueOnce({
+    ids: new Set([root.id, reply.id]),
+    upperBound: 61,
+  });
   account.readSavedPostsAtOffset.mockResolvedValueOnce({
     items: [
       {
@@ -2127,8 +2130,8 @@ test("stepping from a local saved post opens the cross-team reply and does not s
     firstInaccessiblePostTime: 0,
   });
   account.readSavedPostPreferences.mockResolvedValueOnce({
+    ids: new Set([local.id]),
     upperBound: 1,
-    returnedPostSaved: false,
   });
   fireEvent.click(await savedReturn());
   const pane = await savedPanel();
@@ -2209,8 +2212,8 @@ test("returning after removal focuses the fresh row at the old index after the f
   });
   await visitSavedReply();
   account.readSavedPostPreferences.mockResolvedValueOnce({
+    ids: new Set([older.id, newer.id]),
     upperBound: 1201,
-    returnedPostSaved: false,
   });
   account.readSavedPosts.mockResolvedValueOnce({
     items: [newer],
@@ -2252,7 +2255,6 @@ test("returning after removal focuses the fresh row at the old index after the f
   ).toEqual([60, 60]);
   expect(account.readSavedPostPreferences).toHaveBeenLastCalledWith(
     expect.any(AbortSignal),
-    reply.id,
   );
 });
 
@@ -2260,8 +2262,8 @@ test("a still-flagged but inaccessible post does not report a removed bookmark",
   const { account } = boot({ cross: true });
   await visitSavedReply();
   account.readSavedPostPreferences.mockResolvedValueOnce({
+    ids: new Set([root.id, reply.id]),
     upperBound: 2,
-    returnedPostSaved: true,
   });
   account.readSavedPosts.mockResolvedValueOnce({
     items: [
@@ -2285,8 +2287,8 @@ test("a concurrently returned saved row takes precedence over an absent flag sna
   const { account } = boot({ cross: true });
   await visitSavedReply();
   account.readSavedPostPreferences.mockResolvedValueOnce({
+    ids: new Set([root.id]),
     upperBound: 1201,
-    returnedPostSaved: false,
   });
   fireEvent.click(await savedReturn());
   const pane = await savedPanel();
@@ -2312,7 +2314,6 @@ test("manual reopening clears the previous return target and the next cross-team
   expect(replyRow.getAttribute("aria-current")).toBe("true");
   expect(account.readSavedPostPreferences).toHaveBeenLastCalledWith(
     expect.any(AbortSignal),
-    reply.id,
   );
 
   pressBack();
@@ -2331,7 +2332,6 @@ test("manual reopening clears the previous return target and the next cross-team
   );
   expect(account.readSavedPostPreferences).toHaveBeenLastCalledWith(
     expect.any(AbortSignal),
-    undefined,
   );
 
   fireEvent.click(rootLink);
@@ -2345,7 +2345,6 @@ test("manual reopening clears the previous return target and the next cross-team
   expect(secondReturn).not.toBe(firstReturn);
   expect(account.readSavedPostPreferences).toHaveBeenLastCalledWith(
     expect.any(AbortSignal),
-    root.id,
   );
 });
 
@@ -2357,8 +2356,8 @@ test("returning after removal of the only saved item focuses the empty heading",
     firstInaccessiblePostTime: 0,
   });
   account.readSavedPostPreferences.mockResolvedValueOnce({
+    ids: new Set(),
     upperBound: 0,
-    returnedPostSaved: false,
   });
   fireEvent.click(await savedReturn());
   const pane = within(await savedPanel());

@@ -132,9 +132,12 @@ test("checks inputs before sending, keeps access refusals and empty pages distin
   });
 });
 
-test("counts only the current owner's flagged preferences and detects an invalid owner", async () => {
+test("one preference read gives membership for every saved post and the pagination bound", async () => {
   const { fetchApi, account } = fixture();
   const owner = "u".repeat(26);
+  const anotherReply = "r".repeat(26);
+  const invalidId = `${"i".repeat(25)}!`;
+  const signal = new AbortController().signal;
   const rows = [
     { user_id: owner, category: "flagged_post", name: first, value: "true" },
     {
@@ -144,28 +147,68 @@ test("counts only the current owner's flagged preferences and detects an invalid
       value: "username",
     },
     { user_id: owner, category: "flagged_post", name: last, value: "false" },
+    { user_id: owner, category: "flagged_post", name: anotherReply, value: "" },
+    {
+      user_id: owner,
+      category: "flagged_post",
+      name: invalidId,
+      value: "true",
+    },
+    { user_id: owner, category: "flagged_post", name: first, value: "false" },
   ];
-  fetchApi
-    .mockResolvedValueOnce(Response.json(rows))
-    .mockResolvedValueOnce(
-      Response.json([{ ...rows[0], user_id: "x".repeat(26) }]),
-    )
-    .mockResolvedValueOnce(Response.json(null));
-  expect(await account.readSavedPostPreferences(undefined, last)).toEqual({
-    upperBound: 2,
-    returnedPostSaved: true,
-  });
-  expect(String(fetchApi.mock.calls[0][0])).toBe(
+  fetchApi.mockResolvedValueOnce(Response.json(rows));
+
+  const { ids, upperBound } = await account.readSavedPostPreferences(signal);
+  expect(upperBound).toBe(5);
+  expect(ids.size).toBe(3);
+  expect(ids.has(first)).toBe(true);
+  expect(ids.has(last)).toBe(true);
+  expect(ids.has(anotherReply)).toBe(true);
+  expect(ids.has(invalidId)).toBe(false);
+  expect(ids.has("name_format")).toBe(false);
+  expect(ids.has(channel)).toBe(false);
+  expect(fetchApi).toHaveBeenCalledExactlyOnceWith(
     "https://example.test/sub/api/v4/users/me/preferences",
+    expect.objectContaining({ method: "GET", signal }),
   );
-  await expect(account.readSavedPostPreferences()).rejects.toThrow();
-  expect(await account.readSavedPostPreferences(undefined, first)).toEqual({
-    upperBound: 0,
-    returnedPostSaved: false,
+});
+
+test("preference membership preserves owner validation, an empty result and read errors", async () => {
+  const { fetchApi, account } = fixture();
+  fetchApi
+    .mockResolvedValueOnce(
+      Response.json([
+        {
+          user_id: "x".repeat(26),
+          category: "flagged_post",
+          name: first,
+          value: "true",
+        },
+      ]),
+    )
+    .mockResolvedValueOnce(Response.json(null))
+    .mockResolvedValueOnce(Response.json([]));
+  const aborted = new AbortController();
+  aborted.abort();
+  await expect(
+    account.readSavedPostPreferences(aborted.signal),
+  ).rejects.toMatchObject({ name: "AbortError" });
+  expect(fetchApi).not.toHaveBeenCalled();
+  await expect(account.readSavedPostPreferences()).rejects.toMatchObject({
+    field: "preferences.owner",
   });
+  for (const _response of [null, []])
+    await expect(account.readSavedPostPreferences()).resolves.toEqual({
+      ids: new Set(),
+      upperBound: 0,
+    });
+  fetchApi.mockResolvedValueOnce(new Response(null, { status: 403 }));
+  await expect(account.readSavedPostPreferences()).rejects.toBeInstanceOf(
+    ResponseError,
+  );
   for (const offset of [-1, 0.5, Number.MAX_SAFE_INTEGER + 1])
     await expect(
       account.readSavedPostsAtOffset({ kind: "all" }, offset),
     ).rejects.toThrow();
-  expect(fetchApi).toHaveBeenCalledTimes(3);
+  expect(fetchApi).toHaveBeenCalledTimes(4);
 });
