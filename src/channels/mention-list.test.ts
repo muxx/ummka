@@ -29,7 +29,8 @@ test("keeps the signed cursor across skipped pages, a retry and duplicate posts;
   await list.refresh();
   await list.load();
   expect(list.getSnapshot()).toMatchObject({
-    status: "network",
+    status: "ready",
+    edge: "network",
     items: [row("a", "first")],
     nextPage: 3,
   });
@@ -77,4 +78,44 @@ test("coalesces a pending initial read and ignores the result of a closed accoun
   await first;
   expect(changed).toHaveBeenCalledTimes(changes);
   expect(list.getSnapshot().items).toHaveLength(0);
+});
+
+test("reopening uses the last answer and the new query ignores a closed response", async () => {
+  const previous = page([row("a", "previous")], 2);
+  let finish!: (value: typeof previous) => void;
+  const readPage = vi
+    .fn()
+    .mockResolvedValueOnce(previous)
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    )
+    .mockRejectedValueOnce(new TypeError("offline"))
+    .mockResolvedValueOnce(page([], null));
+  const openRecentMentions = vi.fn(async () => ({ readPage }));
+  const list = openMentionList({ openRecentMentions }, true);
+  await list.refresh();
+  const abandoned = list.refresh();
+  await Promise.resolve();
+  expect(list.getSnapshot()).toMatchObject({
+    status: "refreshing",
+    ...previous,
+  });
+  list.suspend();
+  await list.refresh();
+  finish(page([row("b", "late")], null));
+  await abandoned;
+  expect(list.getSnapshot()).toMatchObject({ status: "network", ...previous });
+  await list.refresh();
+  expect(list.getSnapshot()).toMatchObject({
+    status: "ready",
+    hasResponse: true,
+    items: [],
+    nextPage: null,
+  });
+  expect(readPage.mock.calls.map(([pageNumber]) => pageNumber)).toEqual([
+    0, 0, 0, 0,
+  ]);
 });

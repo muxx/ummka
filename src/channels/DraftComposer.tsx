@@ -455,35 +455,37 @@ function DraftField({
             void editor.flush().catch(() => {});
           }}
         />
-        <button
-          className="draft-send"
-          type="button"
-          aria-label={labelSend}
-          title={labelSend}
-          disabled={
-            !online ||
-            sending.busy ||
-            pending ||
-            state.conflict ||
-            !state.message.trim()
-          }
-          onClick={() => submit()}
-        >
-          <svg
-            aria-hidden="true"
-            viewBox="0 0 24 24"
-            width="20"
-            height="20"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinejoin="round"
-            strokeLinecap="round"
+        <div className="draft-send-row">
+          {!online && <small>{copy.offline}</small>}
+          <button
+            className="draft-send"
+            type="button"
+            aria-label={labelSend}
+            title={labelSend}
+            disabled={
+              !online ||
+              sending.busy ||
+              pending ||
+              state.conflict ||
+              !state.message.trim()
+            }
+            onClick={() => submit()}
           >
-            <path d="M3 4L21 12L3 20L6 12Z M6 12H20" />
-          </svg>
-        </button>
-        {!online && <small>{copy.offline}</small>}
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            >
+              <path d="M3 4L21 12L3 20L6 12Z M6 12H20" />
+            </svg>
+          </button>
+        </div>
       </div>
       {pending && !state.conflict && state.stored.revision && (
         <PendingCommandActions

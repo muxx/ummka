@@ -17,18 +17,6 @@
   font: inherit;
   line-height: normal;
 }
-.appearance-dialog[data-input="pointer"] button:focus {
-  outline: none;
-}
-.appearance-dialog[data-input="keyboard"] button:focus {
-  outline: 2px solid var(--focus);
-  outline-offset: -3px;
-}
-.appearance-dialog[data-input="keyboard"]
-  .appearance-actions
-  button:first-child:focus {
-  outline-offset: 2px;
-}
 .appearance-dialog::backdrop {
   background: #06183966;
 }
@@ -39,6 +27,7 @@
   margin: 0;
 }
 .appearance-dialog button {
+  --focus-offset: -3px;
   appearance: none;
   cursor: pointer;
   background: transparent;
@@ -188,6 +177,7 @@
   padding: 12px 18px 18px;
 }
 .appearance-actions button:first-child {
+  --focus-offset: 2px;
   font-size: 0.81rem;
   font-weight: 650;
   border-radius: 7px;

@@ -17,7 +17,7 @@
   flex: 0 0 min(520px, 44cqi);
   min-width: 0;
   min-height: 30px;
-  margin-inline: 20px auto;
+  margin-inline-start: 20px;
   padding-inline: 9px;
   border: 1px solid color-mix(in srgb, var(--on-topbar) 18%, transparent);
   border-radius: 7px;
@@ -43,9 +43,6 @@
 .channels-bar:has(.channels-search-trigger) .channels-bar-brand {
   flex: 0 0 calc(var(--sidebar-width) - var(--bar-inset));
 }
-.channels-search-trigger + .channels-account {
-  margin-inline-start: auto;
-}
 @container (width <= 740px) {
   .channels-bar:has(.channels-search-trigger) .channels-bar-brand {
     flex: none;
@@ -53,7 +50,7 @@
   .channels-bar .channels-search-trigger {
     flex: 1;
     max-width: 380px;
-    margin: 0;
+    margin-inline: 0 7px;
     padding-inline: 8px;
     min-height: 32px;
     font-size: 0.78rem;
@@ -104,6 +101,7 @@
 .channels-search-dialog button,
 .channels-search-dialog input,
 .channels-search-dialog select,
+.search-results-pane select,
 .search-results-pane button {
   font: inherit;
 }
@@ -193,6 +191,62 @@
 .search-result-list {
   padding-inline: 1rem;
 }
+.search-result-conditions {
+  display: grid;
+  gap: 0.375rem;
+  min-inline-size: 0;
+  padding: 0.375rem 1rem;
+}
+.search-result-conditions:empty {
+  display: none;
+}
+.search-result-conditions .search-scope {
+  flex-wrap: wrap;
+  font-size: 0.875rem;
+}
+.search-result-conditions .search-scope select {
+  min-block-size: 32px;
+  padding-block: 0.25rem;
+}
+.search-scope-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.search-conditions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  gap: 0.25rem 0.375rem;
+  font-size: 0.8rem;
+}
+.search-condition {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  box-sizing: border-box;
+  max-inline-size: 100%;
+  min-block-size: 30px;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--divider);
+  border-radius: 999px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 6%, var(--canvas));
+  text-align: start;
+  cursor: pointer;
+}
+.search-condition span:first-child {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+.search-condition:hover {
+  background: color-mix(in srgb, var(--text) 11%, var(--canvas));
+}
 .search-result-list li {
   padding: 0.75rem 0;
   border-top: 1px solid var(--divider);
@@ -206,6 +260,10 @@
   .search-results-pane {
     flex: 1;
     border: 0;
+  }
+  .search-condition,
+  .search-result-conditions .search-scope select {
+    min-block-size: 44px;
   }
 }
 @media (max-width: 740px) {

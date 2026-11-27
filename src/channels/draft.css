@@ -10,22 +10,21 @@
   background: var(--canvas);
   color: var(--text);
 }
-.draft-box:focus-within {
+.draft-box:has(textarea:focus) {
   border-color: var(--focus);
-  box-shadow: 0 0 0 1px var(--focus);
 }
 .draft-box textarea {
   box-sizing: border-box;
   display: block;
   width: 100%;
-  min-height: 44px;
-  max-height: 110px;
+  min-height: 42px;
+  max-height: min(24dvh, 192px);
   field-sizing: content;
   resize: none;
   border: 0;
-  outline: 0;
+  --focus-offset: -2px;
   border-radius: inherit;
-  padding: 10px 12px;
+  padding: 10px 12px 5px;
   background: transparent;
   color: inherit;
   font: inherit;
@@ -35,10 +34,6 @@
 .draft-box textarea::placeholder,
 .draft-box small {
   color: var(--muted);
-}
-.draft-box small {
-  display: block;
-  padding: 0 12px 8px;
 }
 .draft-conflict {
   min-inline-size: 0;
@@ -156,30 +151,53 @@
     min-height: 44px;
   }
 }
-.draft-box {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  column-gap: 4px;
+.draft-send-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 2px 6px 5px;
 }
-.draft-box small {
-  grid-column: 1 / -1;
+.draft-send-row small {
+  font-size: 0.63rem;
 }
 .draft-send {
+  position: relative;
   display: grid;
+  flex: none;
   place-items: center;
-  min-width: 44px;
-  min-height: 44px;
+  inline-size: 31px;
+  block-size: 26px;
+  padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--accent);
   color: var(--on-accent);
   cursor: pointer;
 }
 .draft-send:disabled {
-  background: transparent;
+  background: var(--surface);
   color: var(--muted);
   cursor: default;
+}
+@media (max-width: 740px), (pointer: coarse) {
+  .draft-send {
+    inline-size: 34px;
+    block-size: 34px;
+  }
+}
+@media (pointer: coarse) {
+  .draft-send-row {
+    padding-block-start: 5px;
+  }
+  .draft-send::after {
+    position: absolute;
+    inset-inline-end: -6px;
+    inset-block-end: -5px;
+    inline-size: 44px;
+    block-size: 44px;
+    content: "";
+  }
 }
 .draft-submit-error {
   color: var(--text);

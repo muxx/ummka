@@ -5,13 +5,15 @@ import { createRoot } from "react-dom/client";
 import { applyPalette, resolvePalette } from "../../src/appearance/palette.ts";
 import { isAndroid } from "../../src/build-platform.ts";
 import { ChannelTimeline } from "../../src/channels/ChannelTimeline.tsx";
+import { PublishedCodeReader } from "../../src/channels/PublishedCodeReader.tsx";
 import {
+  PublishedReaderWindow,
   PublishedTableScreen,
-  PublishedTableWindow,
-  usePublishedTableWindow,
-} from "../../src/channels/PublishedTableWindow.tsx";
+  usePublishedReaderWindow,
+} from "../../src/channels/PublishedReaderWindow.tsx";
+import { useWorkspaceBack } from "../../src/channels/use-workspace-back.ts";
 import type { LocalChannelWindow } from "../../src/mattermost/local-history.ts";
-import { fixtureDeadline } from "./fixture-step.ts";
+import { fixtureDeadline, fixtureStep } from "./fixture-step.ts";
 
 const longCode = `  const summary = "${"a".repeat(320)}";`;
 const extraCell = "wide".repeat(70);
@@ -97,19 +99,35 @@ function checkDisclosure(host: HTMLElement, width: number) {
     throw Error(`Closing the long post lost its visible action at ${width}px`);
 }
 
+type PressRight = (
+  kind: "code" | "table",
+  width: number,
+  phase?: "up",
+) => Promise<void>;
+
 async function checkArrowRight(
   element: HTMLElement,
   target: string,
   pressRight: () => Promise<void>,
   releaseRight?: () => Promise<void>,
+  desktop?: { trace: string[]; settle: boolean },
 ) {
   element.scrollIntoView({ block: "center" });
   element.focus();
   if (document.activeElement !== element || element.scrollLeft !== 0)
     throw Error("Scrollable block did not receive initial focus");
   const observed: string[] = [];
+  const started = performance.now();
+  const record = (stage: string) => {
+    desktop?.trace.push(
+      `${Math.round(performance.now() - started)}ms ${stage}`,
+    );
+  };
   let keydown: KeyboardEvent | undefined;
   let keyup = false;
+  let defaultObserved = false;
+  let lastScrollEnd: Event | undefined;
+  let wakeScrollEnd: (() => void) | undefined;
   let defaultActionObserved!: () => void;
   let bothPhasesObserved!: () => void;
   const readyToRelease = new Promise<void>((resolve) => {
@@ -121,8 +139,36 @@ async function checkArrowRight(
   const acknowledgeDefaultAction = () => {
     if (!keydown || (!keydown.defaultPrevented && element.scrollLeft === 0))
       return;
+    if (!defaultObserved) {
+      defaultObserved = true;
+      record(
+        keydown.defaultPrevented ? "dom-default-prevented" : "dom-scrolled",
+      );
+    }
     defaultActionObserved();
     if (keyup) bothPhasesObserved();
+  };
+  const observeScroll = (event: Event) => {
+    if (lastScrollEnd && event.isTrusted && event.target === element) {
+      lastScrollEnd = undefined;
+      record("dom-scroll-resumed");
+    }
+    acknowledgeDefaultAction();
+  };
+  const observeScrollEnd = (event: Event) => {
+    if (
+      event.isTrusted &&
+      event.target === element &&
+      keydown &&
+      !keydown.defaultPrevented &&
+      defaultObserved &&
+      document.activeElement === element &&
+      element.scrollLeft > 0
+    ) {
+      lastScrollEnd = event;
+      record("dom-scrollend");
+      wakeScrollEnd?.();
+    }
   };
   const observeRight = (event: KeyboardEvent) => {
     const tag =
@@ -135,15 +181,19 @@ async function checkArrowRight(
     ) {
       if (event.type === "keydown") keydown = event;
       else if (keydown) keyup = true;
+      record(`dom-trusted-${event.type}`);
       acknowledgeDefaultAction();
     }
   };
   window.addEventListener("keydown", observeRight, true);
   window.addEventListener("keyup", observeRight, true);
-  element.addEventListener("scroll", acknowledgeDefaultAction);
+  element.addEventListener("scroll", observeScroll);
+  if (desktop?.settle) element.addEventListener("scrollend", observeScrollEnd);
   window.addEventListener("keydown", acknowledgeDefaultAction);
   try {
+    record("press-request");
     await pressRight();
+    record("press-response");
     const deadline = performance.now() + 2500;
     if (releaseRight) {
       // AppKit can acknowledge keydown while WebContent is still running its
@@ -154,8 +204,14 @@ async function checkArrowRight(
           () => readyToRelease,
           2500,
         );
+        record("scroll-gate-resolved");
+      } catch (cause) {
+        record(`scroll-gate-rejected: ${String(cause)}`);
+        throw cause;
       } finally {
+        record("release-request");
         await releaseRight();
+        record("release-response");
       }
     }
     await fixtureDeadline(
@@ -169,6 +225,30 @@ async function checkArrowRight(
       document.activeElement !== element
     )
       throw Error("The trusted key press did not scroll the focused element");
+    if (desktop?.settle) {
+      // Keep the code focused until its last scroll ends. A new scroll can
+      // invalidate an end observed while waiting for the keyup or its reply.
+      await fixtureDeadline(
+        `${target} keyboard scrollend`,
+        async () => {
+          let end: Event;
+          do {
+            while (!lastScrollEnd)
+              await new Promise<void>((resolve) => {
+                wakeScrollEnd = resolve;
+              });
+            end = lastScrollEnd;
+            // Drain the rendering steps that can deliver a newly queued scroll.
+            await new Promise<void>((resolve) =>
+              requestAnimationFrame(() =>
+                requestAnimationFrame(() => resolve()),
+              ),
+            );
+          } while (lastScrollEnd !== end);
+        },
+        Math.max(0, deadline - performance.now()),
+      );
+    }
   } catch (cause) {
     throw Error(
       `${target} after native ArrowRight: events=${observed.join(",")} scroll=${element.scrollLeft} focus=${document.activeElement === element} prevented=${keydown?.defaultPrevented} overflow=${element.clientWidth}/${element.scrollWidth} visibility=${document.visibilityState}. ${String(cause)}`,
@@ -177,8 +257,35 @@ async function checkArrowRight(
   } finally {
     window.removeEventListener("keydown", observeRight, true);
     window.removeEventListener("keyup", observeRight, true);
-    element.removeEventListener("scroll", acknowledgeDefaultAction);
+    element.removeEventListener("scroll", observeScroll);
+    if (desktop?.settle)
+      element.removeEventListener("scrollend", observeScrollEnd);
     window.removeEventListener("keydown", acknowledgeDefaultAction);
+  }
+}
+
+async function checkDesktopArrow(
+  element: HTMLElement,
+  kind: "code" | "table",
+  width: number,
+  pressRight: PressRight,
+) {
+  const trace: string[] = [];
+  try {
+    await fixtureStep(`scroll-formatting-${kind}`, () =>
+      checkArrowRight(
+        element,
+        `${kind}-${width}`,
+        () => pressRight(kind, width),
+        () => pressRight(kind, width, "up"),
+        { trace, settle: kind === "code" },
+      ),
+    );
+  } catch (cause) {
+    // The outer fixture deadline can win before the key operation rejects.
+    throw Error(`${String(cause)} [${kind}-${width}: ${trace.join(", ")}]`, {
+      cause,
+    });
   }
 }
 
@@ -320,12 +427,14 @@ async function waitForTableSelection(table: HTMLElement, allowed: boolean) {
 }
 
 function FormattingWorkspace({ children }: { children: ReactNode }) {
-  const tables = usePublishedTableWindow("formatting", "# Formatting");
+  const tables = usePublishedReaderWindow("formatting", "# Formatting");
+  useWorkspaceBack(Boolean(tables.opening), null);
   return (
-    <PublishedTableWindow value={tables.value}>
+    <PublishedReaderWindow value={tables.value}>
       {children}
-      <PublishedTableScreen tables={tables} />
-    </PublishedTableWindow>
+      <PublishedTableScreen reader={tables} />
+      <PublishedCodeReader reader={tables} />
+    </PublishedReaderWindow>
   );
 }
 
@@ -570,13 +679,313 @@ async function checkMobileTable(
   flushSync(() => fireEvent.click(small.getByRole("button", { name: "Back" })));
 }
 
+type CodeInput = {
+  tap: (
+    phase: "preview" | "copy",
+    coordinates: [number, number],
+  ) => Promise<void>;
+  back: () => Promise<void>;
+  rotateCode: (orientation: "landscape" | "portrait") => Promise<void>;
+};
+
+async function checkCopyCode(scope: HTMLElement, source: string) {
+  const button = await within(scope).findByRole("button", {
+    name: "Copy code",
+  });
+  const original = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  let copied: string | undefined;
+  // Record this fixture's write without touching the user's desktop clipboard.
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText: async (value: string) => {
+        copied = value;
+      },
+    },
+  });
+  try {
+    flushSync(() => button.click());
+    await within(scope).findByText("Code copied.");
+    if (copied !== source)
+      throw Error("The clipboard did not receive the exact code source");
+  } finally {
+    if (original) Object.defineProperty(navigator, "clipboard", original);
+    else Reflect.deleteProperty(navigator, "clipboard");
+  }
+}
+
+async function tapCodeControl(
+  control: HTMLElement,
+  phase: "preview" | "copy",
+  tap: CodeInput["tap"],
+) {
+  let trusted = false;
+  const observe = (event: MouseEvent) => {
+    trusted = event.isTrusted;
+  };
+  control.addEventListener("click", observe, { once: true });
+  const bounds = control.getBoundingClientRect();
+  const scale = devicePixelRatio / 2;
+  try {
+    await tap(phase, [
+      Math.round(
+        (Math.max(0, bounds.left) + Math.min(innerWidth, bounds.right)) * scale,
+      ),
+      Math.round(
+        (Math.max(0, bounds.top) + Math.min(innerHeight, bounds.bottom)) *
+          scale,
+      ),
+    ]);
+    await waitFor(() => {
+      if (!trusted)
+        throw Error(`Code ${phase} did not receive a trusted Android tap`);
+    });
+  } finally {
+    control.removeEventListener("click", observe);
+  }
+}
+
+async function checkMobileCode(
+  host: HTMLElement,
+  width: number,
+  pressRight: () => Promise<void>,
+  physical?: CodeInput,
+) {
+  const trigger = Array.from(
+    host.querySelectorAll<HTMLButtonElement>(".post-code-preview"),
+  ).find(
+    (button) =>
+      button.querySelector("code")?.textContent === longCode &&
+      (!physical ||
+        button.closest("[data-post-id]")?.getAttribute("data-post-id") ===
+          "rotate-code"),
+  );
+  if (
+    !trigger ||
+    !within(host).getAllByRole("button", { name: "Open code: 1 line" }).length
+  )
+    throw Error("Missing mobile code trigger");
+  const pane = trigger.closest(".timeline-scroll");
+  if (!pane) throw Error("Missing code timeline");
+  trigger.scrollIntoView({ block: "center" });
+  let position = pane.scrollTop;
+  if (physical) {
+    await tapCodeControl(trigger, "preview", physical.tap);
+  } else {
+    flushSync(() => trigger.click());
+  }
+  const dialog = await within(host).findByRole("dialog", { name: "Code" });
+  const panel = within(dialog);
+  const region = panel.getByRole("region", { name: "Full code, 1 line" });
+  if (
+    document.activeElement !== region ||
+    region.querySelector("pre code")?.textContent !== longCode ||
+    panel.getByText("Ada · # Formatting") === null
+  )
+    throw Error("Wrong full code or initial reading focus");
+  await checkArrowRight(region, `code-${width}`, pressRight);
+  if (physical) {
+    const copy = await panel.findByRole("button", { name: "Copy code" });
+    await tapCodeControl(copy, "copy", physical.tap);
+    await waitFor(() => {
+      const status = panel.getByRole("status").textContent;
+      if (status !== "Code copied.")
+        throw Error(`Android system clipboard: ${status}`);
+    });
+  }
+  await checkCopyCode(dialog, longCode);
+  let returnTarget: HTMLElement = trigger;
+  const backState = () => {
+    const compact = (n: number) => Math.round(n * 100) / 100;
+    const bounds = (node: Element) => {
+      const { x, y, width, height } = node.getBoundingClientRect();
+      return [x, y, width, height].map(compact);
+    };
+    const identify = (node: Element | null) =>
+      node && `${node.localName}.${node.getAttribute("class") ?? ""}`;
+    const { activeElement, documentElement } = document;
+    const windowViewport = window.visualViewport;
+    return {
+      connected: dialog.isConnected,
+      open: dialog.matches("[open]"),
+      focused: activeElement === returnTarget,
+      active: identify(activeElement),
+      target: identify(returnTarget),
+      expanded: returnTarget.getAttribute("aria-expanded"),
+      openerClipped: trigger.hasAttribute("data-post-disclosure-clipped"),
+      openerInert: trigger.inert,
+      targetClipped: returnTarget.hasAttribute("data-post-disclosure-clipped"),
+      targetInert: returnTarget.inert,
+      scroll: [pane.scrollLeft, pane.scrollTop].map(compact),
+      paneBox: bounds(pane),
+      openerBox: bounds(trigger),
+      targetBox: bounds(returnTarget),
+      viewport: [
+        innerWidth,
+        innerHeight,
+        documentElement.clientWidth,
+        documentElement.clientHeight,
+      ],
+      visualViewport: windowViewport
+        ? [
+            windowViewport.offsetLeft,
+            windowViewport.offsetTop,
+            windowViewport.width,
+            windowViewport.height,
+          ].map(compact)
+        : null,
+    };
+  };
+  if (physical) {
+    const disclosure = trigger
+      .closest("[data-post-id]")
+      ?.querySelector<HTMLButtonElement>(".post-body-disclosure-action");
+    if (
+      disclosure?.getAttribute("aria-expanded") !== "false" ||
+      trigger.hasAttribute("inert")
+    )
+      throw Error("The code must initially be reachable in a folded post");
+    await physical.rotateCode("landscape");
+    await waitFor(() => {
+      if (!trigger.hasAttribute("data-post-disclosure-clipped"))
+        throw Error("Landscape did not clip the code opener");
+    });
+    returnTarget = disclosure;
+    position = pane.scrollTop;
+  }
+  // The rotated layout is sampled synchronously before sending Back.
+  const before = backState();
+  if (physical) await physical.back();
+  else flushSync(() => panel.getByRole("button", { name: "Back" }).click());
+  try {
+    await waitFor(() => {
+      if (
+        dialog.isConnected ||
+        document.activeElement !== returnTarget ||
+        (physical && returnTarget.getAttribute("aria-expanded") !== "false") ||
+        Math.abs(pane.scrollTop - position) > 1
+      )
+        throw Error("Back lost the available post action or reading position");
+    });
+  } catch (cause) {
+    const after = backState();
+    throw Error(
+      `Code reader Back expected scrollTop=${position} before=${JSON.stringify(before)} after=${JSON.stringify(after)}`,
+      { cause },
+    );
+  }
+  if (physical) await physical.rotateCode("portrait");
+}
+
+function codeBackGeometry(host: HTMLElement) {
+  const post = host.querySelector('[data-post-id="rotate-code"]');
+  const opener = post?.querySelector<HTMLButtonElement>(".post-code-preview");
+  const action = post?.querySelector<HTMLButtonElement>(
+    ".post-body-disclosure-action",
+  );
+  const pane = post?.closest(".timeline-scroll");
+  const dialog = host.querySelector("dialog.post-code-reader");
+  const active = document.activeElement;
+  const visual = window.visualViewport;
+  const round = (value: number) => Math.round(value * 100) / 100;
+  const box = (node: Element | null | undefined) => {
+    if (!node) return null;
+    const { left, top, right, bottom } = node.getBoundingClientRect();
+    return [left, top, right, bottom].map(round);
+  };
+  const paneBox = box(pane);
+  const actionBox = box(action);
+  return {
+    size: [
+      innerWidth,
+      innerHeight,
+      document.documentElement.clientWidth,
+      document.documentElement.clientHeight,
+    ],
+    visual: visual
+      ? [
+          visual.offsetLeft,
+          visual.offsetTop,
+          visual.width,
+          visual.height,
+          visual.scale,
+        ].map(round)
+      : null,
+    windowScroll: [scrollX, scrollY].map(round),
+    pane: paneBox,
+    scrollTop: pane ? round(pane.scrollTop) : null,
+    scrollHeight: pane?.scrollHeight,
+    opener: box(opener),
+    clipped: opener?.hasAttribute("data-post-disclosure-clipped"),
+    openerInert: opener?.inert,
+    action: actionBox,
+    actionInPane:
+      actionBox &&
+      paneBox &&
+      actionBox[0] >= paneBox[0] &&
+      actionBox[1] >= paneBox[1] &&
+      actionBox[2] <= paneBox[2] &&
+      actionBox[3] <= paneBox[3],
+    actionInert: action?.inert,
+    expanded: action?.getAttribute("aria-expanded"),
+    dialog: dialog
+      ? dialog.hasAttribute("open")
+        ? "open"
+        : "closed"
+      : "removed",
+    active:
+      active && `${active.localName}.${active.getAttribute("class") ?? ""}`,
+    focusedAction: active === action,
+    documentFocused: document.hasFocus(),
+  };
+}
+
+async function checkNativeCodeBack(
+  host: HTMLElement,
+  width: number,
+  pressRight: () => Promise<void>,
+  input: CodeInput,
+) {
+  type Geometry = ReturnType<typeof codeBackGeometry>;
+  let portrait: Geometry | undefined;
+  let landscape: Geometry | undefined;
+  let stage = "before rotation";
+  try {
+    await checkMobileCode(host, width, pressRight, {
+      ...input,
+      async rotateCode(orientation) {
+        stage = `rotate ${orientation}`;
+        if (orientation === "landscape") portrait = codeBackGeometry(host);
+        await input.rotateCode(orientation);
+        stage = "verify clipped opener";
+      },
+      async back() {
+        stage = "send Back";
+        landscape = codeBackGeometry(host);
+        await input.back();
+        stage = "verify return";
+      },
+    });
+  } catch (cause) {
+    if (!portrait) throw cause;
+    const reason =
+      cause instanceof Error
+        ? cause.cause instanceof Error
+          ? cause.cause.message
+          : cause.message
+        : String(cause);
+    throw Error(
+      `Android code Back (${stage}, tolerance=1 CSS px): ${reason.split("\n", 1)[0]}; ` +
+        `portrait=${JSON.stringify(portrait)} landscape=${JSON.stringify(landscape)} after=${JSON.stringify(codeBackGeometry(host))}`,
+      { cause },
+    );
+  }
+}
+
 export async function checkChannelFormatting(
-  pressRight: (
-    kind: "code" | "table",
-    width: number,
-    phase?: "up",
-  ) => Promise<void>,
-  mobile?: Parameters<typeof checkMobileTable>[4],
+  pressRight: PressRight,
+  mobile?: NonNullable<Parameters<typeof checkMobileTable>[4]> & CodeInput,
+  widths: readonly number[] = [320, 820],
 ) {
   const author = () => ({ name: "Ada" });
   const posts: LocalChannelWindow["posts"] = Array.from(
@@ -596,8 +1005,23 @@ export async function checkChannelFormatting(
       messageSource: "Original for editing",
     }),
   );
+  if (isAndroid && mobile) {
+    const prior = Array.from(
+      { length: 14 },
+      (_, line) => `- Reading line ${line + 1}`,
+    ).join("\n");
+    const after = Array.from(
+      { length: 25 },
+      (_, line) => `- Continuing reading ${line + 1}`,
+    ).join("\n");
+    posts[3] = {
+      ...posts[3],
+      id: "rotate-code",
+      message: `${prior}\n\n${bodies[3]}\n\n${after}`,
+    };
+  }
   const results = [];
-  for (const width of [320, 820]) {
+  for (const width of widths) {
     const host = document.createElement("div");
     host.style.width = `${width}px`;
     host.style.height = "420px";
@@ -637,19 +1061,6 @@ export async function checkChannelFormatting(
     try {
       const first = draw(),
         unchanged = draw();
-      const codeBlocks = [
-        ...host.querySelectorAll<HTMLPreElement>(".published-post pre"),
-      ];
-      const pre = codeBlocks.find((code) => code.textContent === longCode);
-      const shortCode = codeBlocks.find(
-        (code) => code.textContent === "let value;",
-      );
-      if (
-        !shortCode ||
-        shortCode.hasAttribute("tabindex") ||
-        shortCode.hasAttribute("role")
-      )
-        throw Error("short code adds a keyboard stop");
       const heading = host.querySelector<HTMLElement>(".published-post h1");
       const secondHeading = heading?.nextElementSibling;
       if (!(secondHeading instanceof HTMLElement) || !heading)
@@ -675,13 +1086,6 @@ export async function checkChannelFormatting(
         host.querySelector(".published-post a,.published-post img")
       )
         throw Error("formatted page semantics");
-      if (
-        !pre ||
-        pre.scrollWidth <= pre.clientWidth ||
-        pre.tabIndex !== 0 ||
-        pre.getAttribute("aria-label") !== "Code (ts)"
-      )
-        throw Error("overflowing code is not a keyboard target");
       const inline = Array.from(host.querySelectorAll("p code")).find(
         (code) => code.textContent === "const  value",
       )?.firstChild;
@@ -695,12 +1099,49 @@ export async function checkChannelFormatting(
       if (measure(5, 7) < 1.8 * measure(4, 5))
         throw Error("Inline code collapsed its repeated spaces");
 
-      await checkArrowRight(
-        pre,
-        `code-${width}`,
-        () => pressRight("code", width),
-        isAndroid ? undefined : () => pressRight("code", width, "up"),
-      );
+      let desktopCode: HTMLPreElement | undefined;
+      if (isAndroid) {
+        const arrow = () => pressRight("code", width);
+        if (width === 320 && mobile)
+          await checkNativeCodeBack(host, width, arrow, mobile);
+        else await checkMobileCode(host, width, arrow);
+      } else {
+        const codeBlocks = Array.from(
+          host.querySelectorAll<HTMLPreElement>(".published-post pre"),
+        );
+        const pre = codeBlocks.find((block) => block.textContent === longCode);
+        const short = codeBlocks.find(
+          (block) => block.textContent === "let value;",
+        );
+        if (
+          !pre ||
+          pre.scrollWidth <= pre.clientWidth ||
+          pre.tabIndex !== 0 ||
+          pre.getAttribute("aria-label") !== "Code (ts)" ||
+          !short ||
+          short.hasAttribute("tabindex") ||
+          short.hasAttribute("role")
+        )
+          throw Error("Wrong desktop code keyboard targets");
+        const code = pre.closest<HTMLElement>(".post-code-desktop");
+        if (!code) throw Error("Missing desktop code copy");
+        const source = pre.querySelector("code")?.firstChild;
+        if (!source) throw Error("Missing desktop code source");
+        pre.scrollLeft = pre.scrollWidth;
+        const end = document.createRange();
+        end.setStart(source, longCode.length - 3);
+        end.setEnd(source, longCode.length);
+        const text = end.getBoundingClientRect();
+        const button = within(code).getByRole("button", { name: "Copy code" });
+        if (
+          text.left < pre.getBoundingClientRect().left ||
+          text.right > button.getBoundingClientRect().left
+        )
+          throw Error("Copy covers the end of the first code line");
+        await checkCopyCode(code, longCode);
+        pre.scrollLeft = 0;
+        desktopCode = pre;
+      }
 
       function checkEmphasisSelection(node: HTMLElement) {
         const range = document.createRange();
@@ -762,8 +1203,7 @@ export async function checkChannelFormatting(
           fittingTable.hasAttribute("role")
         )
           throw Error("A fitting table added a keyboard stop");
-        // Use a stationary offset for the render check. The native key below
-        // starts a WebKit scroll animation that can continue after keyup.
+        // Verify the neighboring render before starting a keyboard scroll.
         table.scrollLeft = 100;
         const offset = table.scrollLeft;
         if (offset <= 1)
@@ -779,12 +1219,6 @@ export async function checkChannelFormatting(
             `The neighboring edit moved the table at ${width}px from ${offset} to ${table.scrollLeft}`,
           );
         table.scrollLeft = 0;
-        await checkArrowRight(
-          table,
-          `table-${width}`,
-          () => pressRight("table", width),
-          () => pressRight("table", width, "up"),
-        );
         const { range, selection } = checkEmphasisSelection(label);
         range.selectNodeContents(row[3]);
         selection.addRange(range);
@@ -809,6 +1243,14 @@ export async function checkChannelFormatting(
         checkDisclosure(host, width);
       } finally {
         posts.pop();
+      }
+      // Finish DOM updates and programmatic scrolls before testing AppKit's
+      // default action. WebKit can keep animating after keyup.
+      if (!isAndroid) {
+        if (!desktopCode || !table)
+          throw Error("Missing desktop scroll targets");
+        await checkDesktopArrow(desktopCode, "code", width, pressRight);
+        await checkDesktopArrow(table, "table", width, pressRight);
       }
       results.push({ width, first, unchanged });
     } finally {

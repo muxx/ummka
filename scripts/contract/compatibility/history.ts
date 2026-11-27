@@ -12,6 +12,8 @@ import {
   conversationName,
   indexChannelProfiles,
 } from "../../../src/mattermost/channel-profiles.ts";
+import { parseChannelsLink } from "../../../src/mattermost/channels-link.ts";
+import { resolveConversationIdentifier } from "../../../src/mattermost/conversation-link-identifier.ts";
 import {
   assembleFocusedHistory,
   readFocusedNeighbors,
@@ -1299,6 +1301,110 @@ for (const [source, expectedTeam, expectedName] of [
 }
 console.log(
   `Mattermost ${version} verified signed metadata for one channel, DM and group, and the three expected HTTP errors.`,
+);
+// The second channel's literal name is the first channel's server-assigned ID.
+const collision = await (
+  await create(
+    "channels",
+    {
+      team_id: team.id,
+      name: channel.id,
+      display_name: "Literal channel name",
+      type: "O",
+    },
+    token,
+  )
+).json();
+assert.notEqual(collision.id, channel.id);
+const hidden = await (
+  await create(
+    "channels",
+    {
+      team_id: team.id,
+      name: "hidden-link-address",
+      display_name: "Hidden link address",
+      type: "P",
+    },
+    token,
+  )
+).json();
+const classify = async (
+  identifier: string,
+  status?: number,
+  knownName?: string,
+) => {
+  const requests: [string, number][] = [];
+  const target = parseChannelsLink(
+    base,
+    `${base}/${team.name}/channels/${identifier}`,
+  );
+  assert.equal(target?.kind, "conversation");
+  const destination = await resolveConversationIdentifier(
+    new Configuration({
+      basePath: base,
+      accessToken: readerToken,
+      fetchApi: async (input, init) => {
+        const request = new Request(input, init);
+        assert.equal(request.method, "GET");
+        const reply = await fetch(request);
+        requests.push([request.url, reply.status]);
+        return reply;
+      },
+    }),
+    reader.id,
+    target,
+    knownName
+      ? {
+          serverUrl: base,
+          userId: reader.id,
+          team: team.name,
+          name: knownName,
+          kind: "O",
+        }
+      : undefined,
+  );
+  assert.deepEqual(
+    requests,
+    status === undefined
+      ? []
+      : [[`${base}/api/v4/channels/${identifier}`, status]],
+  );
+  return destination;
+};
+assert.deepEqual(await classify(channel.id, 200), {
+  kind: "channel-id",
+  id: channel.id,
+  teamId: team.id,
+  name: channel.name,
+});
+assert.deepEqual(await classify(channel.id, undefined, collision.name), {
+  kind: "channel-name",
+  name: collision.name,
+});
+const uppercase = await classify(channel.id.toUpperCase(), 404, collision.name);
+assert.equal(uppercase.kind, "channel-name");
+assert.equal(uppercase.name, collision.name);
+assert.equal(
+  (
+    await closedReader.getChannelByNameForTeamName({
+      teamName: team.name,
+      channelName: uppercase.name,
+    })
+  ).id,
+  collision.id,
+);
+assert.deepEqual(await classify(hidden.id, 403), { kind: "unavailable" });
+assert.deepEqual(await classify(dm.id, 200), { kind: "user-id", id: user.id });
+assert.deepEqual(await classify(group.id, 200), {
+  kind: "group-name",
+  name: group.name,
+});
+assert.deepEqual(await classify("q".repeat(26), 404), {
+  kind: "channel-name",
+  name: "q".repeat(26),
+});
+console.log(
+  `Mattermost ${version} verified the exact channel ID/name collision, GET count and 403/404 decisions, and resolved DM and group IDs.`,
 );
 const groupName = {
   kind: group.type,

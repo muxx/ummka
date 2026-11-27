@@ -40,7 +40,6 @@ function open(language: "en" | "ru") {
       close={close}
       applied={applied}
       opener={{ current: null }}
-      initialInput="keyboard"
     />,
   );
   return { close, applied };

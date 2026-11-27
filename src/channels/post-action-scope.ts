@@ -52,7 +52,6 @@ export function usePostActionScope(
   const [allowed, setAllowed] = useState(!isAndroid);
   const [menu, setMenu] = useState<{
     anchor: HTMLButtonElement;
-    keyboard: boolean;
     presentation: typeof presentation;
   } | null>(null);
   const [notice, setNotice] = useState<{
@@ -99,9 +98,7 @@ export function usePostActionScope(
   return {
     allowed,
     anchor: menu?.anchor,
-    keyboard: menu?.keyboard,
-    open: (anchor: HTMLButtonElement, keyboard: boolean) =>
-      setMenu({ anchor, keyboard, presentation }),
+    open: (anchor: HTMLButtonElement) => setMenu({ anchor, presentation }),
     close,
     notice,
     ownsRoute,
