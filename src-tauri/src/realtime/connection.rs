@@ -107,7 +107,7 @@ impl EventReader {
     ) -> Result<T, EventConnectionError> {
         token.authorize(&mut request);
         let response = http
-            .prepare_upgrade(request)
+            .prepare(request)
             .upgrade()
             .send()
             .await

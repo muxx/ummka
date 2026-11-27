@@ -11,6 +11,7 @@ use std::sync::{Arc, LazyLock};
 use tokio_util::sync::CancellationToken;
 
 pub mod file_transfer;
+pub mod file_upload;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "lowercase")]
