@@ -30,6 +30,7 @@ type FrameProps = {
   onAccount: () => void;
   navigation: ReactNode;
   children: ReactNode;
+  searchTrigger?: ReactNode;
   toolbar?: ReactNode;
   channelHeading?: (
     id: string,
@@ -81,6 +82,7 @@ export function ChannelsFrame({
   onAccount,
   navigation,
   children,
+  searchTrigger,
   toolbar,
   channelHeading,
   sidePanel,
@@ -195,22 +197,25 @@ export function ChannelsFrame({
             />
           )}
         </div>
-        {toolbar}
-        <button
-          ref={accountRef}
-          aria-haspopup={accountRef ? "dialog" : undefined}
-          className="channels-account"
-          data-profile={accountName.trim() ? "ready" : "pending"}
-          type="button"
-          onClick={onAccount}
-          aria-label={labels.account}
-          aria-description={accountDescription}
-          title={accountDescription ?? labels.account}
-        >
-          <span aria-hidden="true">
-            {Array.from(accountName.trim())[0]?.toLocaleUpperCase()}
-          </span>
-        </button>
+        {searchTrigger}
+        <div className="channels-bar-tools">
+          {toolbar}
+          <button
+            ref={accountRef}
+            aria-haspopup={accountRef ? "dialog" : undefined}
+            className="channels-account"
+            data-profile={accountName.trim() ? "ready" : "pending"}
+            type="button"
+            onClick={onAccount}
+            aria-label={labels.account}
+            aria-description={accountDescription}
+            title={accountDescription ?? labels.account}
+          >
+            <span aria-hidden="true">
+              {Array.from(accountName.trim())[0]?.toLocaleUpperCase()}
+            </span>
+          </button>
+        </div>
       </header>
       <div
         className="channels-panes"

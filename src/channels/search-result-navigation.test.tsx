@@ -933,6 +933,83 @@ test("a hidden saved page remains traversable, preserves the previous rows on re
   expect(pane.queryByText("Oldest visible")).toBeNull();
 });
 
+test.each([
+  ["O", "Public channel", "Home"],
+  ["P", "Private channel", "Home"],
+  ["D", "Direct message", "Direct message"],
+  ["G", "Group message", "Home"],
+] as const)(
+  "describes a %s conversation with no saved topic",
+  async (homeKind, description, title) => {
+    fixture({ homeKind, homeHeader: " \n " });
+    const button = await screen.findByRole("button", {
+      name: `Channel menu, ${title}`,
+      description,
+    });
+    expect(button.closest("h1")?.getAttribute("aria-label")).toBe(title);
+    expect(
+      button
+        .querySelector(".conversation-heading-mark")
+        ?.getAttribute("aria-hidden"),
+    ).toBe("true");
+  },
+);
+
+test("describes the known conversation with yourself through its channel identity", async () => {
+  fixture({ homeKind: "D", homeName: `${user}__${user}` });
+  expect(
+    await screen.findByRole("button", {
+      name: /^Channel menu,/,
+      description: "Notes to yourself",
+    }),
+  ).toBeTruthy();
+});
+
+test("shows the saved topic as text and replaces it on conversation switch", async () => {
+  const address = "https://example.test/releases";
+  const topic = `Релиз Release · مرحباً · ${address}`;
+  fixture({ homeHeader: `  Релиз Release \n مرحباً · ${address}  ` });
+  const button = await screen.findByRole("button", {
+    name: "Channel menu, Home",
+    description: topic,
+  });
+  expect(
+    within(button.closest("header") ?? document.body).queryByRole("link"),
+  ).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Third channel" }));
+  expect(
+    await screen.findByRole("button", {
+      name: "Channel menu, Third channel",
+      description: "Public channel",
+    }),
+  ).toBeTruthy();
+  expect(screen.queryByText(topic)).toBeNull();
+});
+
+test("does not show conversation metadata while its sidebar is unavailable", async () => {
+  const { account } = fixture({ homeHeader: "Private topic" });
+  const read = account.readTeamSidebar.getMockImplementation();
+  if (!read) throw Error("Expected a saved team sidebar fixture");
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  account.readTeamSidebar.mockImplementation(async (team) => {
+    await pending;
+    return read(team);
+  });
+  await waitFor(() => expect(account.readTeamSidebar).toHaveBeenCalled());
+  expect(screen.queryByRole("heading", { name: "Home" })).toBeNull();
+  expect(screen.queryByText("Private topic")).toBeNull();
+  release();
+  expect(
+    await screen.findByRole("button", {
+      name: "Channel menu, Home",
+      description: "Private topic",
+    }),
+  ).toBeTruthy();
+});
+
 test.each(["O", "P", "G"] as const)(
   "opens personal notifications from an active %s channel title",
   async (homeKind) => {
@@ -967,7 +1044,7 @@ test("a direct conversation keeps pins available and excludes channel notificati
 });
 
 test("revoked channel history closes its notifications and cancels the pending read", async () => {
-  const { account } = fixture();
+  const { account } = fixture({ homeHeader: "Restricted topic" });
   let rejectRefresh!: (reason: Error) => void;
   account.refreshChannelHistory.mockImplementation(
     () =>
@@ -979,7 +1056,10 @@ test("revoked channel history closes its notifications and cancels the pending r
     () => new Promise(() => {}),
   );
   fireEvent.click(
-    await screen.findByRole("button", { name: "Channel menu, Home" }),
+    await screen.findByRole("button", {
+      name: "Channel menu, Home",
+      description: "Restricted topic",
+    }),
   );
   fireEvent.click(screen.getByRole("menuitem", { name: "Notifications" }));
   await screen.findByRole("dialog", { name: "Notifications" });
@@ -994,6 +1074,8 @@ test("revoked channel history closes its notifications and cancels the pending r
   expect(
     screen.queryByRole("button", { name: "Channel menu, Home" }),
   ).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Home" })).toBeNull();
+  expect(screen.queryByText("Restricted topic")).toBeNull();
   expect(account.updateChannelNotifications).not.toHaveBeenCalled();
 });
 
@@ -1022,10 +1104,17 @@ test("removing the selected channel from the joined sidebar closes its notificat
 });
 
 test("archived channels show the pinned messages and keep the shared action hidden", async () => {
-  const { account } = fixture({ archivedHome: true });
+  const { account } = fixture({
+    archivedHome: true,
+    homeHeader: "Previous topic",
+  });
   fireEvent.click(
-    await screen.findByRole("button", { name: "Channel menu, Home" }),
+    await screen.findByRole("button", {
+      name: "Channel menu, Home",
+      description: "Archived channel",
+    }),
   );
+  expect(screen.queryByText("Previous topic")).toBeNull();
   expect(screen.queryByRole("menuitem", { name: "Notifications" })).toBeNull();
   fireEvent.click(screen.getByRole("menuitem", { name: "Pinned messages" }));
   const pins = within(

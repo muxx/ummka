@@ -936,8 +936,34 @@ export function ChannelsWorkspace({
     return activeThread ? closeThread : null;
   }
   const channelTitle = channel
-    ? selectedLabel || channel.displayName || text.nav
+    ? selectedLabel ||
+      conversationName(
+        channel,
+        userId,
+        profiles,
+        settings?.nameFormat ?? "username",
+        language,
+      ) ||
+      (channel.kind === "D" ? text.conversation.D : text.nav)
     : text.choose;
+  let channelDescription = "";
+  if (channel) {
+    const { kind } = channel;
+    if (channel.deleteAt > 0) channelDescription = text.conversation.archived;
+    else {
+      channelDescription = channel.header
+        .split(/\r?\n/u)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .join(" · ");
+      if (!channelDescription) {
+        if (kind === "D" && directPartnerId(channel.name, userId) === userId)
+          channelDescription = text.conversation.self;
+        else if (kind === "O" || kind === "P" || kind === "D" || kind === "G")
+          channelDescription = text.conversation[kind];
+      }
+    }
+  }
   const roomTitle =
     channel && (channel.kind === "O" || channel.kind === "P")
       ? `# ${channelTitle}`
@@ -1138,9 +1164,9 @@ export function ChannelsWorkspace({
           chooseTeam: text.switchTeam,
           closeThread: text.closeThread,
         }}
+        searchTrigger={search.trigger}
         toolbar={
           <>
-            {search.trigger}
             <button
               type="button"
               className="channels-icon-action mentions-trigger"
@@ -1198,6 +1224,7 @@ export function ChannelsWorkspace({
                   headingId={id}
                   headingRef={ref}
                   title={channelTitle}
+                  description={channelDescription}
                   kind={channel.kind}
                   archived={channel.deleteAt > 0}
                   language={language}
@@ -1362,7 +1389,7 @@ export function ChannelsWorkspace({
             : channel
               ? {
                   id: channel.id,
-                  title: channelTitle,
+                  title: historyDenied ? text.forbidden : channelTitle,
                 }
               : null
         }
