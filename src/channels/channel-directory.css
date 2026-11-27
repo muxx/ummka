@@ -81,9 +81,18 @@
   text-align: center;
   flex: none;
 }
-.directory-trigger {
-  gap: 10px;
-  min-height: 44px;
+.workspace-row.directory-trigger {
+  gap: 9px;
+  width: calc(100% - 18px);
+  min-height: 31px;
+  margin-inline: 9px;
+  padding-inline: 9px;
+  border-radius: 5px;
+}
+@media (width <= 740px) {
+  .workspace-row.directory-trigger {
+    min-height: 44px;
+  }
 }
 
 .workspace-conversation-route:not([hidden]) {

@@ -144,6 +144,7 @@ export function PublishedReaderDialog({
   className,
   regionClass,
   regionLabel,
+  clipboardNotice,
   actions,
   children,
 }: {
@@ -153,6 +154,7 @@ export function PublishedReaderDialog({
   className: string;
   regionClass: string;
   regionLabel?: string;
+  clipboardNotice?: string;
   actions?: (clipboard: ReaderClipboard) => ReactNode;
   children: ReactNode;
 }) {
@@ -268,6 +270,11 @@ export function PublishedReaderDialog({
       <p className="post-reader-screen-origin" id={origin}>
         {opening.authorName} · {place}
       </p>
+      {clipboardNotice && (
+        <p className="post-code-restriction" aria-live="polite">
+          {allowed ? "" : clipboardNotice}
+        </p>
+      )}
       <section
         ref={content}
         className={`post-reader-region ${regionClass}`}
