@@ -1,6 +1,6 @@
 // The main test window keeps the process alive while the test closes a second window.
 use super::{exchange::ExchangeError, open_rest_connection, open_transport, session, watch_window};
-use crate::{device_document::SelectedDocument, draft_files, rest::RestConnection};
+use crate::{device_document::SelectedDocument, draft_files};
 use objc2_foundation::NSURL;
 use reqwest::{Method, Request, StatusCode};
 use std::{future::ready, num::NonZeroU64, sync::Arc, time::Duration};
@@ -14,14 +14,14 @@ pub(super) fn run<R: Runtime>(main: &Webview<R>) {
             "UMMKA_WEBVIEW_CHECK {}",
             if result.is_ok() { "PASS" } else { "FAIL" }
         );
-        if let Err(error) = result {
+        if let Err(error) = &result {
             eprintln!("Window destruction check stopped at {error}");
         }
         app.exit(i32::from(result.is_err()));
     });
 }
 
-async fn check<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<(), &'static str> {
+async fn check<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<(), String> {
     let ports = std::env::var("UMMKA_WEBVIEW_CHECK_PORTS").map_err(|_| "server ports")?;
     let mut ports = ports.split(',');
     let base = format!(
@@ -29,7 +29,6 @@ async fn check<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<(), &'static str
         ports.next().ok_or("data port")?
     );
     let control_base = format!("https://127.0.0.1:{}", ports.next().ok_or("control port")?);
-    let control = open_transport(&control_base).map_err(|_| "control connection")?;
     let window = WebviewWindowBuilder::new(
         app,
         "window-lifetime-check",
@@ -61,7 +60,7 @@ async fn check<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<(), &'static str
     .await
     .map_err(|_| "attach draft source")?;
     if !matches!(selected.as_slice(), [draft_files::AddResult::Added(_)]) {
-        return Err("draft source was not attached");
+        return Err("draft source was not attached".into());
     }
     let connection = open_rest_connection(owner.clone(), base.clone(), None)
         .await
@@ -79,16 +78,16 @@ async fn check<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<(), &'static str
             )
             .await
     });
-    observe(&control, &control_base, "received").await?;
+    observe(&control_base, "received").await?;
     window.destroy().map_err(|_| "destroy")?;
     if !matches!(task.await, Ok(Err(ExchangeError::Cancelled))) {
-        return Err("active exchange survived");
+        return Err("active exchange survived".into());
     }
     if session(owner, connection).is_ok() {
-        return Err("connection still registered");
+        return Err("connection still registered".into());
     }
     if draft_files::list(owner, signed, workspace, &draft).is_ok() {
-        return Err("draft workspace survived window destruction");
+        return Err("draft workspace survived window destruction".into());
     }
     tokio::time::timeout(Duration::from_secs(1), async {
         while retained.upgrade().is_some() {
@@ -97,20 +96,27 @@ async fn check<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<(), &'static str
     })
     .await
     .map_err(|_| "draft source retained after window destruction")?;
-    observe(&control, &control_base, "closed").await
+    observe(&control_base, "closed").await
 }
 
-async fn observe(control: &RestConnection, base: &str, step: &str) -> Result<(), &'static str> {
+async fn observe(base: &str, step: &str) -> Result<(), String> {
+    // Each receipt is a separate barrier around window destruction. Its
+    // transport must not depend on the socket used for the previous receipt.
+    let control = open_transport(base)
+        .map_err(|error| format!("{step}(window) control connection: {error}"))?;
     let url = format!("{base}/api/v4/system/ping?step={step}&case=window")
         .parse()
-        .map_err(|_| "control URL")?;
+        .map_err(|error| format!("{step}(window) control URL: {error}"))?;
     let response = control
         .send(Request::new(Method::GET, url))
         .await
-        .map_err(|_| "control GET")?;
+        .map_err(|error| format!("{step}(window) control GET: {error}"))?;
     if response.status() == StatusCode::NO_CONTENT {
         Ok(())
     } else {
-        Err("control status")
+        Err(format!(
+            "{step}(window) control status: {}",
+            response.status()
+        ))
     }
 }

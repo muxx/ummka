@@ -95,6 +95,7 @@ export function webviewServers(
   const selectionSteps = ["press", "deny", "press", "allow", "press"];
   let selectionStep = 0;
   let controlProgress = "not started";
+  let windowReceivedSocket: Socket | undefined;
   let onMacStep: ((stage: string) => void) | undefined;
   let controlRequests = 0;
   let sendRight: (() => Promise<void>) | undefined;
@@ -1684,6 +1685,17 @@ export function webviewServers(
       const wait = held.get(name);
       assert(wait);
       assert(step === "received" || step === "closed");
+      if (name === "window") {
+        if (step === "received") {
+          assert(!windowReceivedSocket, "duplicate window received receipt");
+          windowReceivedSocket = req.socket;
+        } else {
+          assert(
+            windowReceivedSocket && req.socket !== windowReceivedSocket,
+            "window closed receipt must follow received on a fresh control socket",
+          );
+        }
+      }
       await wait[step];
       if (name === "reload" && step === "closed" && prepareKeyboard) {
         const sendTab = prepareKeyboard;
