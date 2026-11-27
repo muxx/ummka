@@ -13,6 +13,7 @@ import catalog from "../../contracts/mattermost/operations.json" with {
   type: "json",
 };
 import { correctAuthentication } from "./authentication-corrections.ts";
+import { correctBookmarkWrite } from "./bookmark-write.ts";
 import {
   correctChannelStats,
   correctChannelStatsQuery,
@@ -361,6 +362,13 @@ export function buildSpecification(
       };
       if (!success || !isDeepStrictEqual(operation, newer))
         throw new Error("Unrecognized channel bookmark list contract");
+    } else if (file === "bookmarks.yaml") {
+      const newerPath = object(read("bookmarks-12.1.0.yaml")[path], path);
+      operation = correctBookmarkWrite(
+        id,
+        originalOperation,
+        object(newerPath[method], id),
+      );
     } else if (id === "UploadFile")
       operation = correctFileUpload(
         originalOperation,

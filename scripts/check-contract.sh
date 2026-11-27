@@ -222,6 +222,16 @@ assigned?.[0]?.schemeManaged satisfies boolean | undefined;
 assigned satisfies Role[];
 // @ts-expect-error The endpoint requires an array of role names.
 roles.getRolesByNames({ requestBody: "channel_user" });
+import type { BookmarksApi } from "./compiled/index.js";
+declare const bookmarks: BookmarksApi;
+const bookmarkTarget = { channelId: "channel", bookmarkId: "bookmark" };
+const bookmarkEdit = await bookmarks.updateChannelBookmark({ ...bookmarkTarget, connectionId: "connection", updateChannelBookmarkRequest: { emoji: "" } });
+bookmarkEdit.updated?.id satisfies string | undefined;
+bookmarkEdit.deleted?.deleteAt satisfies number | undefined;
+// @ts-expect-error A partial update cannot change a bookmark's type.
+bookmarks.updateChannelBookmark({ ...bookmarkTarget, updateChannelBookmarkRequest: { type: "file" } });
+// @ts-expect-error Setting the order requires a numeric position in the request body.
+bookmarks.updateChannelBookmarkSortOrder(bookmarkTarget);
 import type { CommandsApi, CommandResponse } from "./compiled/index.js";
 declare const commands: CommandsApi;
 const command = await commands.executeCommand({ executeCommandRequest: { channelId: "dm", teamId: "workspace", rootId: "root", command: "/help" } });
