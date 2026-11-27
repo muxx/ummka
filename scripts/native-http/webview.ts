@@ -687,34 +687,42 @@ export function webviewServers(
         "Bearer fixture-prefixed-session",
       );
       assert.equal(req.headers.cookie, undefined);
+      let account: boolean;
       if (url.pathname.endsWith("/search")) {
         assert.equal(req.method, "POST");
         assert.equal(url.search, "");
-        assert.deepEqual(await json(req), {
-          term: "ан",
+        const body = await json(req);
+        assert.ok(body && typeof body === "object" && "term" in body);
+        account = body.term === "Анна";
+        assert.deepEqual(body, {
+          term: account ? "Анна" : "ан",
           team_id: teamId,
           allow_inactive: false,
-          limit: 12,
+          limit: account ? 100 : 12,
         });
-        visits.push("recipient-search");
+        visits.push(account ? "account-recipient-search" : "recipient-search");
       } else {
         assert.equal(req.method, "GET");
+        account = url.searchParams.get("page") === "2";
         assert.deepEqual(Object.fromEntries(url.searchParams), {
           in_team: teamId,
           active: "true",
-          page: "1",
-          per_page: "20",
+          page: account ? "2" : "1",
+          per_page: account ? "100" : "20",
         });
         assert.equal(await text(req), "");
-        visits.push("recipient-page");
+        visits.push(account ? "account-recipient-page" : "recipient-page");
       }
-      res
-        .writeHead(200, { "Content-Type": "application/json" })
-        .end(
-          JSON.stringify([
-            { id: userId, username: "anna", first_name: "Анна" },
-          ]),
-        );
+      res.writeHead(200, { "Content-Type": "application/json" }).end(
+        JSON.stringify([
+          {
+            id: account ? "a".repeat(26) : userId,
+            username: "anna",
+            first_name: "Анна",
+            delete_at: 0,
+          },
+        ]),
+      );
       return;
     }
     const collection = await collections(req, res, url);
@@ -1921,6 +1929,8 @@ export function webviewServers(
         "known-remote-recipient",
         "unseen-remote-recipient",
         "recipient-hold",
+        "account-recipient-page",
+        "account-recipient-search",
         "recipient-page",
         "recipient-search",
         "profile-image",

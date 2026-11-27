@@ -555,6 +555,33 @@ export async function checkGeneratedRequests(ports: string[]) {
         )) === "absent",
       "read-own-channel-membership",
     );
+    const directoryUser = "a".repeat(26);
+    for (const query of [
+      { kind: "search", term: " @Анна " },
+      { kind: "page", page: 2 },
+    ] as const) {
+      const result = await accountPrefix.readConversationRecipients(
+        teamId,
+        query,
+      );
+      check(
+        result.nextPage === null &&
+          result.profiles.length === 1 &&
+          result.profiles[0].id === directoryUser &&
+          result.profiles[0].firstName === "Анна" &&
+          result.profiles[0].deleteAt === 0,
+        "account reads scoped recipients",
+      );
+    }
+    const recipientCache = await accountPrefix.readSavedProfiles({
+      ids: [directoryUser],
+      usernames: ["anna"],
+    });
+    check(
+      !Object.hasOwn(recipientCache.profiles, directoryUser) &&
+        !Object.hasOwn(recipientCache.usernames, "anna"),
+      "recipient lookup does not populate history profiles",
+    );
     const recipientPage = await users.getUsers({
       page: 1,
       perPage: 20,

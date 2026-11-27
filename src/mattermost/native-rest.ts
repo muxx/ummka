@@ -48,6 +48,10 @@ import {
   type TeamRoleSnapshot,
 } from "./channel-permissions.ts";
 import type { ChannelProfile } from "./channel-profiles.ts";
+import {
+  type RecipientQuery,
+  readConversationRecipients,
+} from "./conversation-recipients.ts";
 import { executeAccountCommand } from "./execute-account-command.ts";
 import {
   type CommandIntent,
@@ -503,6 +507,25 @@ export async function openAccountRestConnection(
             }
           : saved;
       });
+    },
+    readConversationRecipients(
+      teamId: string,
+      query: RecipientQuery,
+      signal?: AbortSignal,
+    ) {
+      return readRecipientWhileOpen(
+        (active) =>
+          readConversationRecipients(
+            config,
+            teamId,
+            query,
+            async () =>
+              (await readWhileOpen(readWorkspaceSettings, active)).server
+                ?.dmRecipientScope,
+            active,
+          ),
+        signal,
+      );
     },
     async refreshWorkspaceServerPolicy(
       signal?: AbortSignal,

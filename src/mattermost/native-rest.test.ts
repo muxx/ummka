@@ -8,6 +8,8 @@ import {
   PostsApi,
   type Reaction,
   ReactionsApi,
+  type User,
+  UsersApi,
 } from "../../vendor/mattermost/index.js";
 import { channelUploadCapability } from "../channels/channel-upload-policy.ts";
 import * as emoji from "./account-custom-emoji.ts";
@@ -568,6 +570,7 @@ test("passes the canonical installation and closes the exact native handle", asy
   expect("readFollowedThreadTotals" in connection).toBe(false);
   expect("changeOwnMembership" in connection).toBe(false);
   expect("openRecipientConversation" in connection).toBe(false);
+  expect("readConversationRecipients" in connection).toBe(false);
   expect("addOwnReaction" in connection).toBe(false);
   expect("removeOwnReaction" in connection).toBe(false);
   expect("readPendingPosts" in connection).toBe(false);
@@ -633,6 +636,7 @@ test("opens a native account by installation and user ID", async () => {
     "readChannelTimezoneCount",
     "readChannelWindow",
     "readConversationRecipient",
+    "readConversationRecipients",
     "readCustomEmoji",
     "readDraft",
     "readFileAnchor",
@@ -1252,6 +1256,101 @@ test("closing an account discards its pending bookmark list", async () => {
   } finally {
     call.mockRestore();
   }
+});
+
+test("closing an account while its recipient scope loads never dispatches the search", async () => {
+  const userId = "u".repeat(26);
+  let complete!: (value: unknown) => void;
+  ipc
+    .mockResolvedValueOnce(9)
+    .mockReturnValueOnce(
+      new Promise((resolve) => {
+        complete = resolve;
+      }),
+    )
+    .mockResolvedValueOnce(undefined);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    userId,
+  );
+  const pending = account.readConversationRecipients("t".repeat(26), {
+    kind: "search",
+    term: "anna",
+  });
+  expect(ipc).toHaveBeenLastCalledWith("read_workspace_settings", { rid: 9 });
+  await account.close();
+  complete({ server: { dmRecipientScope: "any" } });
+  await expect(pending).rejects.toBe("cancelled");
+  expect(ipc).toHaveBeenCalledTimes(3);
+});
+
+test("a recipient result cannot outlive its account connection", async () => {
+  ipc
+    .mockResolvedValueOnce(9)
+    .mockResolvedValueOnce({ server: { dmRecipientScope: "any" } })
+    .mockResolvedValueOnce(undefined);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    "u".repeat(26),
+  );
+  let finish!: (profiles: User[]) => void;
+  const response = new Promise<User[]>((resolve) => {
+    finish = resolve;
+  });
+  const search = vi
+    .spyOn(UsersApi.prototype, "searchUsers")
+    .mockReturnValue(response);
+  try {
+    const pending = account.readConversationRecipients("t".repeat(26), {
+      kind: "search",
+      term: "anna",
+    });
+    await vi.waitFor(() => expect(search).toHaveBeenCalledOnce());
+    await account.close();
+    finish([{ id: "p".repeat(26), username: "anna", deleteAt: 0 }]);
+    await expect(pending).rejects.toBe("cancelled");
+    expect(search).toHaveBeenCalledOnce();
+    expect(ipc).toHaveBeenCalledTimes(3);
+  } finally {
+    search.mockRestore();
+  }
+});
+
+test("closing after reading the recipient scope never prepares a REST query", async () => {
+  ipc.mockResolvedValueOnce(9);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    "u".repeat(26),
+  );
+  let closed: Promise<void> | undefined;
+  const readScope = vi.fn(() => {
+    closed = account.close();
+    return "any";
+  });
+  ipc
+    .mockResolvedValueOnce({
+      server: {
+        get dmRecipientScope() {
+          return readScope();
+        },
+      },
+    })
+    .mockResolvedValueOnce(undefined)
+    .mockRejectedValueOnce("unknown_connection");
+  const [result] = await Promise.allSettled([
+    account.readConversationRecipients("t".repeat(26), {
+      kind: "search",
+      term: "anna",
+    }),
+  ]);
+  await closed;
+  expect(readScope).toHaveBeenCalledOnce();
+  expect(ipc.mock.calls.map(([command]) => command)).toEqual([
+    "open_rest_connection",
+    "read_workspace_settings",
+    "close_rest_connection",
+  ]);
+  expect(result).toEqual({ status: "rejected", reason: "cancelled" });
 });
 
 test("a recipient request belongs to its connection until the receipt arrives", async () => {
