@@ -9,7 +9,30 @@ import { runInNewContext } from "node:vm";
 import { startExternalLinkReceiver } from "../native-http/external-link.ts";
 import { startFixture } from "../native-http/fixture.ts";
 import { fixtureDeadline, fixtureStep } from "./fixture-step.ts";
-import { watchWebviewSteps } from "./macos.ts";
+import { isGitHubHostedMac, watchWebviewSteps } from "./macos.ts";
+
+test("interactive presentations require a GitHub-hosted Mac", () => {
+  const legacy = { UMMKA_CHECK_MACOS_BROWSER: "1" };
+  const github = { GITHUB_ACTIONS: "true" };
+  const hosted = { ...github, RUNNER_ENVIRONMENT: "github-hosted" };
+  assert.equal(isGitHubHostedMac("darwin", {}), false);
+  assert.equal(isGitHubHostedMac("darwin", legacy), false);
+  assert.equal(isGitHubHostedMac("darwin", { ...legacy, ...github }), false);
+  assert.equal(
+    isGitHubHostedMac("darwin", { RUNNER_ENVIRONMENT: "github-hosted" }),
+    false,
+  );
+  assert.equal(
+    isGitHubHostedMac("darwin", {
+      ...legacy,
+      ...github,
+      RUNNER_ENVIRONMENT: "self-hosted",
+    }),
+    false,
+  );
+  assert.equal(isGitHubHostedMac("linux", hosted), false);
+  assert.equal(isGitHubHostedMac("darwin", hosted), true);
+});
 
 test("new fixture steps renew the deadline, but a repeating or stalled step expires", (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
