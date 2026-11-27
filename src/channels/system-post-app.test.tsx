@@ -482,13 +482,29 @@ test.each([null, winter])(
   async (initialTeam) => {
     queue.push({ id: "1", href: href(root.id) });
     const { account, targetInfo } = boot({ initialTeam });
-    account.readPostDestination.mockResolvedValue({
-      ...targetInfo,
-      channel: { ...targetInfo.channel, kind: "P", joined: false },
-    });
-    await screen.findByRole("dialog", { name: "Join the private channel?" });
+    let deliverDestination!: () => void;
+    account.readPostDestination.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          deliverDestination = () =>
+            resolve({
+              ...targetInfo,
+              channel: { ...targetInfo.channel, kind: "P", joined: false },
+            });
+        }),
+    );
+    await waitFor(() =>
+      expect(account.readPostDestination).toHaveBeenCalledOnce(),
+    );
+    // Flush the Back subscription with the update that opens the dialog.
+    await act(async () => deliverDestination());
+    expect(
+      screen.getByRole("dialog", { name: "Join the private channel?" }),
+    ).toBeTruthy();
+    expect(acks).toEqual([]);
     pressBack();
     await waitFor(() => expect(queue).toHaveLength(0));
+    expect(acks).toEqual([{ id: "1", row: undefined, thread: false }]);
     expect(account.changeOwnMembership).not.toHaveBeenCalled();
   },
 );
