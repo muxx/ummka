@@ -19,6 +19,9 @@ import nativeAuth from "../../contracts/mattermost/native-auth.json" with {
 import nativeFiles from "../../contracts/mattermost/native-files.json" with {
   type: "json",
 };
+import nativeUploads from "../../contracts/mattermost/native-uploads.json" with {
+  type: "json",
+};
 import catalog from "../../contracts/mattermost/operations.json" with {
   type: "json",
 };
@@ -43,6 +46,7 @@ import {
   correctFileModel,
   correctFileSearch,
 } from "./file-search-corrections.ts";
+import { correctFileUpload } from "./file-upload-contract.ts";
 import {
   correctAssociatedGroup,
   correctGroupAssociations,
@@ -1338,7 +1342,11 @@ test("retains the catalog operations, security and transitive models", () => {
   }
   assert.deepEqual(
     Object.keys(object(contract.paths, "paths")).sort(),
-    [...new Set([...catalog, ...nativeFiles].map(({ path }) => path))].sort(),
+    [
+      ...new Set(
+        [...catalog, ...nativeFiles, ...nativeUploads].map(({ path }) => path),
+      ),
+    ].sort(),
   );
   assert.deepEqual(
     Object.keys(
@@ -1755,11 +1763,13 @@ test("applies the optional attachment count only while both pinned definitions o
 });
 
 const removals = [
-  ...[...catalog, ...nativeFiles].map(({ file, path, method }) => ({
-    file,
-    path: [path, method.toLowerCase()],
-    error: `Expected OpenAPI object ${method.toLowerCase()} ${path}`,
-  })),
+  ...[...catalog, ...nativeFiles, ...nativeUploads].map(
+    ({ file, path, method }) => ({
+      file,
+      path: [path, method.toLowerCase()],
+      error: `Expected OpenAPI object ${method.toLowerCase()} ${path}`,
+    }),
+  ),
   ...[
     ...definitionPaths,
     ...["Post", "PostList", "PostMetadata"].map((name) => [
@@ -2955,5 +2965,54 @@ test("preserves directory scopes, paging and search fields used by the recipient
         at(source, [...body, "properties", field]),
       );
     }
+  }
+});
+
+test("describes the upload purpose and preserves streaming multipart order outside the WebView catalog", () => {
+  const path = "/api/v4/files";
+  const base = object(at(read("files.yaml"), [path, "post"]), "upload");
+  const newer = read("files-12.1.0.yaml");
+  const upload = object(at(contract, ["paths", path, "post"]), "upload");
+  assert.deepEqual(upload, correctFileUpload(base, newer));
+  assert.deepEqual(
+    Object.keys(
+      object(
+        at(upload, [
+          "requestBody",
+          "content",
+          "multipart/form-data",
+          "schema",
+          "properties",
+        ]),
+        "fields",
+      ),
+    ),
+    ["channel_id", "client_ids", "files"],
+  );
+  assert.deepEqual((upload.parameters as Fields[]).at(-1), {
+    name: "bookmark",
+    in: "query",
+    required: false,
+    schema: { type: "boolean" },
+  });
+  assert.ok(
+    !catalog.some((route) => route.path === path && route.method === "POST"),
+  );
+  const revised = {
+    ...base,
+    parameters: [
+      ...(base.parameters as Fields[]),
+      { name: "bookmark", in: "query" },
+    ],
+  };
+  for (const [first, second] of [
+    [revised, base],
+    [base, revised],
+    [revised, revised],
+  ]) {
+    assert.throws(
+      () => correctFileUpload(first, { [path]: { post: second } }),
+      /Review both pinned file upload contracts/,
+    );
   }
 });

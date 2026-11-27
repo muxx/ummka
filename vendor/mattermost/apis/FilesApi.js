@@ -3,6 +3,7 @@ import { FileInfoFromJSON, } from '../models/FileInfo.js';
 import { FileInfoListFromJSON, } from '../models/FileInfoList.js';
 import { SearchFilesInAllTeamsRequestToJSON, } from '../models/SearchFilesInAllTeamsRequest.js';
 import { SearchFilesRequestToJSON, } from '../models/SearchFilesRequest.js';
+import { UploadFile201ResponseFromJSON, } from '../models/UploadFile201Response.js';
 export class FilesApi extends runtime.BaseAPI {
     async getFileRequestOpts(requestParameters) {
         if (requestParameters['fileId'] == null) {
@@ -203,6 +204,68 @@ export class FilesApi extends runtime.BaseAPI {
     }
     async searchFilesInAllTeams(requestParameters, initOverrides) {
         const response = await this.searchFilesInAllTeamsRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async uploadFileRequestOpts(requestParameters) {
+        if (requestParameters['channelId'] == null) {
+            throw new runtime.RequiredError('channelId', 'Required parameter "channelId" was null or undefined when calling uploadFile().');
+        }
+        if (requestParameters['clientIds'] == null) {
+            throw new runtime.RequiredError('clientIds', 'Required parameter "clientIds" was null or undefined when calling uploadFile().');
+        }
+        if (requestParameters['files'] == null) {
+            throw new runtime.RequiredError('files', 'Required parameter "files" was null or undefined when calling uploadFile().');
+        }
+        const queryParameters = {};
+        if (requestParameters['bookmark'] != null) {
+            queryParameters['bookmark'] = requestParameters['bookmark'];
+        }
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        const consumes = [
+            { contentType: 'multipart/form-data' },
+        ];
+        const canConsumeForm = runtime.canConsumeForm(consumes);
+        let formParams;
+        let useForm = false;
+        useForm = canConsumeForm;
+        if (useForm) {
+            formParams = new FormData();
+        }
+        else {
+            formParams = new URLSearchParams();
+        }
+        if (requestParameters['channelId'] != null) {
+            formParams.append('channel_id', requestParameters['channelId']);
+        }
+        if (requestParameters['clientIds'] != null) {
+            formParams.append('client_ids', requestParameters['clientIds']);
+        }
+        if (requestParameters['files'] != null) {
+            formParams.append('files', requestParameters['files']);
+        }
+        let urlPath = `/api/v4/files`;
+        return {
+            path: urlPath,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+            body: formParams,
+        };
+    }
+    async uploadFileRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.uploadFileRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => UploadFile201ResponseFromJSON(jsonValue));
+    }
+    async uploadFile(requestParameters, initOverrides) {
+        const response = await this.uploadFileRaw(requestParameters, initOverrides);
         return await response.value();
     }
 }

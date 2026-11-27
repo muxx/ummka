@@ -3,6 +3,7 @@ import { type FileInfo } from '../models/FileInfo.js';
 import { type FileInfoList } from '../models/FileInfoList.js';
 import { type SearchFilesInAllTeamsRequest } from '../models/SearchFilesInAllTeamsRequest.js';
 import { type SearchFilesRequest } from '../models/SearchFilesRequest.js';
+import { type UploadFile201Response } from '../models/UploadFile201Response.js';
 export interface GetFileRequest {
     fileId: string;
     range?: string;
@@ -25,6 +26,12 @@ export interface SearchFilesOperationRequest {
 export interface SearchFilesInAllTeamsOperationRequest {
     searchFilesInAllTeamsRequest: SearchFilesInAllTeamsRequest;
 }
+export interface UploadFileRequest {
+    channelId: string;
+    clientIds: string;
+    files: Blob;
+    bookmark?: boolean;
+}
 export declare class FilesApi extends runtime.BaseAPI {
     getFileRequestOpts(requestParameters: GetFileRequest): Promise<runtime.RequestOpts>;
     getFileRaw(requestParameters: GetFileRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<runtime.HttpFile>>;
@@ -44,4 +51,7 @@ export declare class FilesApi extends runtime.BaseAPI {
     searchFilesInAllTeamsRequestOpts(requestParameters: SearchFilesInAllTeamsOperationRequest): Promise<runtime.RequestOpts>;
     searchFilesInAllTeamsRaw(requestParameters: SearchFilesInAllTeamsOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<FileInfoList>>;
     searchFilesInAllTeams(requestParameters: SearchFilesInAllTeamsOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<FileInfoList>;
+    uploadFileRequestOpts(requestParameters: UploadFileRequest): Promise<runtime.RequestOpts>;
+    uploadFileRaw(requestParameters: UploadFileRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<UploadFile201Response>>;
+    uploadFile(requestParameters: UploadFileRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<UploadFile201Response>;
 }

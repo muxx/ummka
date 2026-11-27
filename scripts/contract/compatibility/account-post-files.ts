@@ -23,6 +23,35 @@ export async function checkAccountPostFiles(
   const reader = new PostsApi(
     new Configuration({ basePath, accessToken: readerToken }),
   );
+  const uploader = new FilesApi(
+    new Configuration({ basePath, accessToken: readerToken }),
+  );
+  const uploadName = "план смены.txt";
+  const file = new File(["✓"], uploadName, { type: "text/plain" });
+  const upload = { channelId, clientIds: "upload-ordinary", files: file };
+  for (const bookmark of [undefined, true]) {
+    const clientIds = bookmark ? "upload-bookmark" : upload.clientIds;
+    const response = await uploader.uploadFileRaw({
+      ...upload,
+      clientIds,
+      bookmark,
+    });
+    assert.equal(response.raw.status, 201);
+    const receipt = await response.value();
+    assert.deepEqual(receipt.clientIds, [clientIds]);
+    assert.equal(receipt.fileInfos?.length, 1);
+    const record = receipt.fileInfos[0];
+    assert.match(record.id ?? "", /^[a-z0-9]{26}$/);
+    assert.equal(record.channelId, channelId);
+    assert.equal(record.name, file.name);
+    assert.equal(record.size, file.size);
+    assert.equal(record.userId, bookmark ? "bookmark" : readerId);
+    assert.ok(!record.postId);
+  }
+  await assert.rejects(
+    new FilesApi(new Configuration({ basePath })).uploadFile(upload),
+    (e: unknown) => e instanceof ResponseError && e.response.status === 401,
+  );
   const auth = { Authorization: `Bearer ${ownerToken}` };
   const a = await uploadFixtureFile(basePath, auth, channelId, "a.txt", "a");
   const b = await uploadFixtureFile(basePath, auth, channelId, "b.txt", "bb");
@@ -92,6 +121,13 @@ export async function checkAccountPostFiles(
     userId: readerId,
   });
   assert.equal(removal.status, "OK");
+  await assert.rejects(
+    uploader.uploadFile({ ...upload, bookmark: true }),
+    (e: unknown) => e instanceof ResponseError && e.response.status === 403,
+  );
+  console.log(
+    `Mattermost ${version} verified named post and bookmark uploads, echoed client IDs, and denied anonymous and removed uploaders.`,
+  );
   await assert.rejects(
     details(reader),
     (error: unknown) =>
