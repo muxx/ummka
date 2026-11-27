@@ -1161,6 +1161,7 @@ export function ChannelsWorkspace({
     team.name,
     userId,
     language,
+    access === "writable",
   );
   useWorkspaceBack(
     accountOverlay !== null ||

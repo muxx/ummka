@@ -207,7 +207,12 @@ export function TimelinePost({
             </button>
           )}
           {!post.outgoing && (
-            <PublishedPostActions post={post} author={name} avatar={avatar} />
+            <PublishedPostActions
+              post={post}
+              author={name}
+              avatar={avatar}
+              openThread={inThread ? undefined : open}
+            />
           )}
         </header>
         {post.outgoing ? (

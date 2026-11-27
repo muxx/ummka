@@ -16,15 +16,19 @@ export function PublishedPostActions({
   post,
   author,
   avatar,
+  openThread,
 }: {
   post: LocalPost;
   author: string;
   avatar: ReactNode;
+  openThread?: () => void;
 }) {
   const scope = useContext(PostActionScope);
   const id = useId();
+  const thread = post.type === "burn_on_read" ? undefined : openThread;
   if (
-    !scope?.allowed ||
+    !scope ||
+    (!scope.allowed && !thread) ||
     !isMattermostId(post.id) ||
     post.type.startsWith("system_") ||
     (post.type === "burn_on_read" && post.userId !== scope.userId)
@@ -67,6 +71,7 @@ export function PublishedPostActions({
             avatar={avatar}
             postId={post.id}
             scope={scope}
+            openThread={thread}
           />,
           document.body,
         )}
@@ -80,12 +85,14 @@ function ActionDialog({
   avatar,
   postId,
   scope,
+  openThread,
 }: {
   anchor: HTMLButtonElement;
   author: string;
   avatar: ReactNode;
   postId: string;
   scope: NonNullable<ContextType<typeof PostActionScope>>;
+  openThread?: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const action = useRef<HTMLButtonElement>(null);
@@ -118,9 +125,12 @@ function ActionDialog({
     }
     position();
     action.current?.focus({ preventScroll: true });
+    const sizeObserver = new ResizeObserver(position);
+    sizeObserver.observe(modal);
     window.addEventListener("resize", position);
     return () => {
       dismissed.current = true;
+      sizeObserver.disconnect();
       window.removeEventListener("resize", position);
       const ownedFocus =
         modal.contains(document.activeElement) ||
@@ -142,6 +152,14 @@ function ActionDialog({
       });
     };
   }, [anchor, ownsRoute]);
+  useLayoutEffect(() => {
+    if (
+      !scope.allowed &&
+      (document.activeElement === document.body ||
+        document.activeElement === dialog.current)
+    )
+      action.current?.focus({ preventScroll: true });
+  }, [scope.allowed]);
   useEffect(
     () => () => {
       if (!anchor.isConnected) close(anchor);
@@ -170,7 +188,7 @@ function ActionDialog({
     } finally {
       copying.current = false;
     }
-    if (dismissed.current) return;
+    if (dismissed.current || !isCurrent()) return;
     dismiss();
     scope.notify(anchor, message);
   }
@@ -223,22 +241,54 @@ function ActionDialog({
         </button>
       </div>
       <div className="post-actions-options">
-        <button type="button" ref={action} onClick={() => void copy()}>
-          <svg
-            aria-hidden="true"
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.7"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+        {openThread && (
+          <button
+            type="button"
+            ref={action}
+            onClick={() => {
+              if (dismissed.current || !scope.isCurrent(anchor)) return;
+              dismiss();
+              openThread();
+            }}
           >
-            <path d="m9 15 6-6 M8 10l-2 2a4.25 4.25 0 0 0 6 6l2-2 M10 8l2-2a4.25 4.25 0 0 1 6 6l-2 2" />
-          </svg>
-          {text.copy}
-        </button>
+            <svg
+              aria-hidden="true"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M21 14l-3-3h-7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v10M14 15v2a1 1 0 0 1-1 1H6l-3 3V11a1 1 0 0 1 1-1h2" />
+            </svg>
+            {scope.canReply ? text.reply : text.openThread}
+          </button>
+        )}
+        {scope.allowed && (
+          <button
+            type="button"
+            ref={openThread ? undefined : action}
+            onClick={() => void copy()}
+          >
+            <svg
+              aria-hidden="true"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="m9 15 6-6 M8 10l-2 2a4.25 4.25 0 0 0 6 6l2-2 M10 8l2-2a4.25 4.25 0 0 1 6 6l-2 2" />
+            </svg>
+            {text.copy}
+          </button>
+        )}
       </div>
     </dialog>
   );
