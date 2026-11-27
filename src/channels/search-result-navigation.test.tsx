@@ -64,6 +64,9 @@ test.each([
     await waitFor(() =>
       expect(document.activeElement).toBe(row.closest("article")),
     );
+    expect(row.closest("article")?.hasAttribute("data-post-arrival")).toBe(
+      true,
+    );
     expect(account.readPostAnchor).toHaveBeenCalledTimes(1);
     expect(
       account.readChannelWindow.mock.calls.some(

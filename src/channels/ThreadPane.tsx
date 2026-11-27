@@ -16,6 +16,7 @@ import {
 } from "../mattermost/channel-profiles.ts";
 import type { LocalPost } from "../mattermost/local-history.ts";
 import type { TimelineMessage } from "./conversation-rows.ts";
+import { showPostArrival } from "./post-arrival.ts";
 import { TimelineDays } from "./TimelineDays.tsx";
 import {
   formatReplyCount,
@@ -71,6 +72,7 @@ type Props = {
   connection: WorkspaceConnection;
   userId: string;
   post: LocalPost;
+  arrivalRequest?: number;
   collapsedThreads: boolean;
   locale: EntryLanguage;
   online: boolean;
@@ -107,6 +109,7 @@ function ThreadContent({
   connection,
   userId,
   post,
+  arrivalRequest,
   online,
   locale,
   author,
@@ -231,13 +234,10 @@ function ThreadContent({
     collapsedThreads && (post.rootId ? savedRoot : post)?.threadSummary;
   function renderReply(row: TimelineMessage) {
     return (
-      <div
-        key={row.localId ?? row.id}
-        className="thread-reply"
-        data-selected={row.id === post.id || undefined}
-      >
+      <div key={row.localId ?? row.id} className="thread-reply">
         <TimelinePost
           post={row}
+          addressed={row.id === post.id}
           focusable
           inThread
           locale={locale}
@@ -254,6 +254,7 @@ function ThreadContent({
     <div className="thread-window">
       <ThreadFeed
         focusedId={post.rootId ? post.id : undefined}
+        arrivalRequest={arrivalRequest}
         state={state}
         label={text.replies}
       >
@@ -401,6 +402,7 @@ function ThreadEdge({
 type FeedProps = {
   state: WindowState;
   focusedId?: string;
+  arrivalRequest?: number;
   label: string;
   children: ReactNode;
 };
@@ -410,6 +412,8 @@ class ThreadFeed extends Component<FeedProps> {
   private readonly frame = createRef<HTMLDivElement>();
   private resize?: ResizeObserver;
   private readonly pane = createRef<HTMLElement>();
+  private clearArrival?: () => void;
+  private lastArrival?: number;
 
   private positionOpeningReply = true;
   private markUserScroll = () => {
@@ -442,6 +446,7 @@ class ThreadFeed extends Component<FeedProps> {
 
   componentWillUnmount() {
     this.resize?.disconnect();
+    this.clearArrival?.();
   }
 
   private centerOpeningReply(focus: boolean) {
@@ -451,12 +456,19 @@ class ThreadFeed extends Component<FeedProps> {
       `[data-post-id="${this.props.focusedId}"]`,
     );
     if (row && (focus || document.activeElement === row)) {
-      if (focus) row.focus({ preventScroll: true });
+      if (focus) {
+        this.clearArrival?.();
+        row.focus({ preventScroll: true });
+      }
       const bounds = row.getBoundingClientRect();
       pane.scrollTop +=
         bounds.top -
         pane.getBoundingClientRect().top -
         (pane.clientHeight - bounds.height) / 2;
+      if (focus) {
+        this.lastArrival = this.props.arrivalRequest;
+        this.clearArrival = showPostArrival(row);
+      }
     }
   }
   getSnapshotBeforeUpdate(): Place | null {
@@ -511,6 +523,13 @@ class ThreadFeed extends Component<FeedProps> {
     const pane = this.pane.current;
     if (!pane || !place) return;
     this.restorePlace(pane, place);
+    if (
+      this.props.arrivalRequest !== undefined &&
+      this.lastArrival !== this.props.arrivalRequest
+    ) {
+      this.positionOpeningReply = true;
+      this.centerOpeningReply(true);
+    }
     const { state } = this.props;
     if (
       this.positionOpeningReply &&

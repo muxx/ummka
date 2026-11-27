@@ -119,7 +119,7 @@ export function TimelinePost({
   author,
   ownName,
   focusable,
-  highlighted,
+  addressed,
   inThread,
   collapsedThreads,
   onOpenThread,
@@ -132,7 +132,7 @@ export function TimelinePost({
   author: TimelineAuthor;
   ownName?: string;
   focusable?: boolean;
-  highlighted?: boolean;
+  addressed?: boolean;
   inThread?: boolean;
   collapsedThreads?: boolean;
   onOpenThread?: (post: LocalPost) => void;
@@ -163,7 +163,7 @@ export function TimelinePost({
     <article
       className="timeline-post"
       data-post-id={post.id}
-      data-navigation-target={highlighted || undefined}
+      data-navigation-target={addressed || undefined}
       data-local-id={post.localId}
       data-outgoing={post.outgoing ? "" : undefined}
       tabIndex={focusable || post.outgoing || hasAttachments ? -1 : undefined}
