@@ -61,7 +61,7 @@ test("waits through an ordinary Chromium error and accepts the actual marker", a
   assert.equal(check.reads(), 2);
 });
 
-test("the fixed launch deadline reports the active browser step and fixture request", async (t) => {
+test("a stalled launch reports the active browser step and fixture request", async (t) => {
   let now = 1_000;
   t.mock.method(Date, "now", () => now);
   let checks = 0;
@@ -88,6 +88,61 @@ test("the fixed launch deadline reports the active browser step and fixture requ
     /timed out after 65000 ms; started channel-refresh; control=31 release-history received/u,
   );
   assert.equal(checks, 1);
+});
+
+test("a progressing full Android run can finish past the startup budget", async (t) => {
+  let elapsed = 0;
+  t.mock.method(Date, "now", () => elapsed);
+  const stages = [
+    "UMMKA_WEBVIEW_STEP completed channel-timeline",
+    "UMMKA_WEBVIEW_STEP completed seed-offline-registry",
+    "UMMKA_WEBVIEW_CHECK browser-checked",
+  ];
+  const adb = async (...args: string[]) => {
+    if (args[1] === "am") return "Status: ok";
+    if (args[1] === "pidof") return "125";
+    elapsed += 40_000;
+    return stages.shift() ?? assert.fail("terminal marker was missed");
+  };
+  assert.equal(
+    await launchWebview(adb, "fixture", "fixture/Main", "browser-checked"),
+    "125",
+  );
+});
+
+test("replaying the same Android phases cannot renew the deadline", async (t) => {
+  let elapsed = 0;
+  t.mock.method(Date, "now", () => elapsed);
+  const stages = ["started directory", "completed directory"];
+  let reads = 0;
+  const adb = async (...args: string[]) => {
+    if (args[1] === "am") return "Status: ok";
+    if (args[1] === "pidof") return "125";
+    elapsed += 25_000;
+    assert.ok(reads < 5);
+    return "UMMKA_WEBVIEW_STEP " + stages[reads++ % stages.length];
+  };
+  await assert.rejects(
+    launchWebview(adb, "fixture", "fixture/Main", "browser-checked"),
+    /timed out after 125000 ms/u,
+  );
+});
+
+test("even continuous Android progress has a total time limit", async (t) => {
+  let elapsed = 0;
+  t.mock.method(Date, "now", () => elapsed);
+  const stages = ["directory", "messages", "thread", "history"];
+  const adb = async (...args: string[]) => {
+    if (args[1] === "am") return "Status: ok";
+    if (args[1] === "pidof") return "125";
+    elapsed += 45_000;
+    const stage = stages.shift() ?? assert.fail("full run exceeded its cap");
+    return `UMMKA_WEBVIEW_STEP completed ${stage}`;
+  };
+  await assert.rejects(
+    launchWebview(adb, "fixture", "fixture/Main", "browser-checked"),
+    /timed out after 180000 ms/u,
+  );
 });
 
 test("Android injects the exact hardware key requested by the running document", async () => {

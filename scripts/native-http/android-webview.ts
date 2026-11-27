@@ -186,7 +186,9 @@ export async function launchWebview(
   const pid = (await adb("shell", "pidof", "-s", app)).trim();
   assert.match(pid, /^\d+$/);
   const launched = Date.now();
-  const deadline = launched + 65_000;
+  const idleBudget = 65_000;
+  let deadline = launched + idleBudget;
+  const seenStages = new Set<string>();
   let browserStage = "no browser stage reported";
   const progress = () =>
     [`after ${Date.now() - launched} ms`, browserStage, webviewProgress?.()]
@@ -210,6 +212,16 @@ export async function launchWebview(
     ].at(-1);
     if (step) {
       const current = `${step[1]} ${step[2]}`;
+      // The full interactive run spans many independent UI and native checks.
+      // Only a new stage observed before expiry earns more time.
+      if (
+        expected === "browser-checked" &&
+        !seenStages.has(current) &&
+        Date.now() < deadline
+      ) {
+        seenStages.add(current);
+        deadline = Math.min(launched + 180_000, Date.now() + idleBudget);
+      }
       if (browserStage !== current) {
         browserStage = current;
         console.log(`Android WebView process ${pid}: ${progress()}.`);
