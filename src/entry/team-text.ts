@@ -43,6 +43,8 @@ export const firstTeamText = {
     emptyDetail:
       "Вас ещё не добавили ни в одну команду на этом сервере. Когда администратор пригласит вас, проверьте снова.",
     checkAgain: "Проверить снова",
+    otherServer: "Другой сервер",
+    backToTeamChoice: "Назад к выбору команды",
     opening: "Открываем…",
     saving: (team: string) => `Сохраняем выбор команды «${team}»…`,
     saveFailed: (team: string) => `Не открыли «${team}»`,
@@ -61,6 +63,8 @@ export const firstTeamText = {
     emptyDetail:
       "You haven’t been added to any teams on this server. Check again after an administrator invites you.",
     checkAgain: "Check again",
+    otherServer: "Another server",
+    backToTeamChoice: "Back to team choice",
     opening: "Opening…",
     saving: (team: string) => `Saving your selection of “${team}”…`,
     saveFailed: (team: string) => `Couldn’t open “${team}”`,

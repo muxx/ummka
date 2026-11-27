@@ -10,7 +10,12 @@ export function respondToAccount(
   {
     browserToken = "fixture-browser-action",
     multipleBrowserTeams = false,
-  }: { browserToken?: string; multipleBrowserTeams?: boolean } = {},
+    emptyBrowserTeams = false,
+  }: {
+    browserToken?: string;
+    multipleBrowserTeams?: boolean;
+    emptyBrowserTeams?: boolean;
+  } = {},
 ): string | undefined {
   if (url.pathname === "/browser-action-check/api/v4/users/me") {
     assert.equal(request.method, "GET");
@@ -86,6 +91,10 @@ export function respondToAccount(
       ],
       "users/me/preferences": null,
     };
+    if (emptyBrowserTeams) {
+      replies["users/me/teams"] = [];
+      replies["users/me/teams/members"] = [];
+    }
     assert(
       Object.hasOwn(replies, path),
       "unexpected browser entry fixture route",

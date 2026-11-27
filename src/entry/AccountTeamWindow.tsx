@@ -4,6 +4,7 @@ import {
   useEffect,
   useEffectEvent,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -25,7 +26,9 @@ import { openAccountRestConnection } from "../mattermost/native-rest";
 import { EntryWindow } from "./EntryWindow";
 import { FirstTeamChoice, type FirstTeamSelection } from "./FirstTeamChoice";
 import type { EntryLanguage } from "./language";
-import { teamText } from "./team-text";
+import { SavedServerPicker } from "./SavedServerPicker";
+import { ServerSignIn } from "./ServerSignIn";
+import { firstTeamText, teamText } from "./team-text";
 import {
   type MessageNavigation,
   useMessageNavigation,
@@ -65,6 +68,13 @@ type Props = {
   serverUrl: string;
   userId: string;
   siteName?: string;
+  deviceServers?: {
+    installations: readonly string[];
+    select: (url: string) => Promise<void>;
+    restore: (url: string, signal: AbortSignal) => Promise<string[]>;
+    connect: Parameters<typeof ServerSignIn>[0]["connect"];
+    changed: Parameters<typeof ServerSignIn>[0]["onAccountChanged"];
+  };
   language: EntryLanguage;
   onSessionEnded: () => void;
   systemPost?: SystemPostRequest;
@@ -103,6 +113,7 @@ function AccountWindow({
   serverUrl,
   userId,
   siteName,
+  deviceServers,
   language,
   onSessionEnded,
   children,
@@ -121,6 +132,36 @@ function AccountWindow({
   );
   const [loading, setLoading] = useState(true);
   const [accountName, setAccountName] = useState("");
+  const [servers, setServers] = useState<"list" | "add" | "return" | null>(
+    null,
+  );
+  const [restoreOtherServer, setRestoreOtherServer] = useState(false);
+  const [updatedInstallations, setUpdatedInstallations] = useState<string[]>();
+  const selectSaved = deviceServers?.select;
+  const restoreSaved = deviceServers?.restore;
+  const installations = updatedInstallations ?? deviceServers?.installations;
+  const addServer = useMemo(() => {
+    if (!selectSaved || !restoreSaved || !installations) return;
+    const restoreSelection = restoreSaved;
+    async function restore(signal: AbortSignal) {
+      const latest = await restoreSelection(serverUrl, signal);
+      signal.throwIfAborted();
+      setUpdatedInstallations(latest);
+    }
+    return {
+      installations,
+      async select(url: string, signal: AbortSignal) {
+        if (url !== serverUrl) return selectSaved(url);
+        await restore(signal);
+        setRestoreOtherServer(true);
+        setServers(null);
+      },
+      async onBack(signal: AbortSignal) {
+        await restore(signal);
+        setServers("return");
+      },
+    };
+  }, [installations, restoreSaved, selectSaved, serverUrl]);
   const [needsTeam, setNeedsTeam] = useState<SystemPostRequest | null>(null);
   const connection = useRef<Connection | null>(null);
   const exiting = useRef<"working" | "cleanup" | null>(null);
@@ -532,6 +573,34 @@ function AccountWindow({
   const selected = teams.find((team) => team.id === directory?.selectedTeam);
   const hasWorkspace = selected && connection.current && !picker;
   useWorkspaceBack(Boolean(messageDialog && !hasWorkspace), null);
+  if (servers && deviceServers && addServer && !systemPost && !picker) {
+    if (servers === "add") {
+      return (
+        <ServerSignIn
+          language={language}
+          connect={deviceServers.connect}
+          onAccountChanged={deviceServers.changed}
+          addFromPicker={addServer}
+        />
+      );
+    }
+    return (
+      <SavedServerPicker
+        language={language}
+        currentUrl={serverUrl}
+        currentName={siteName ?? ""}
+        installations={addServer.installations}
+        focusAdd={servers === "return"}
+        backLabel={firstTeamText[language].backToTeamChoice}
+        onChoose={deviceServers.select}
+        onAdd={() => setServers("add")}
+        onClose={() => {
+          setRestoreOtherServer(true);
+          setServers(null);
+        }}
+      />
+    );
+  }
   if (selected && connection.current && !picker) {
     return (
       <>
@@ -575,6 +644,15 @@ function AccountWindow({
         directoryCode={directoryCode}
         choice={firstChoice}
         reload={() => (retryRemoval.current ?? retry)()}
+        otherServer={
+          installations && installations.length > 1
+            ? () => {
+                setRestoreOtherServer(false);
+                setServers("list");
+              }
+            : undefined
+        }
+        restoreOtherServer={restoreOtherServer}
         select={(team) =>
           void choose(team, {
             kind: "first",

@@ -126,6 +126,13 @@ function EntryRoute({
           onSessionEnded={reopen}
           systemPost={request}
           siteName={identity?.siteName}
+          deviceServers={{
+            installations: launch.installations,
+            select: inbox.selectSaved,
+            restore: inbox.restoreSaved,
+            connect: inbox.connect,
+            changed: reopen,
+          }}
         >
           {(workspace) => (
             <PublishedLinkNavigation.Provider value={links}>

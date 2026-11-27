@@ -4,6 +4,10 @@ import { createRoot } from "react-dom/client";
 import { App } from "../../src/App.tsx";
 import { isAndroid } from "../../src/build-platform.ts";
 import {
+  forgetInstallation,
+  rememberInstallation,
+} from "../../src/mattermost/installation-registry.ts";
+import {
   getCurrentAccountId,
   openAccountRestConnection,
   openNativeRestConnection,
@@ -13,6 +17,7 @@ import {
   openChannelNavigation,
 } from "./account-team-window.tsx";
 import { checkAvailableDirectoryWindow } from "./available-directory-window.ts";
+import { fixtureStep } from "./fixture-step.ts";
 import { systemReply, systemRoot } from "./link-examples.ts";
 import { checkModalScroll } from "./modal-scroll.ts";
 import { checkPendingCommandActions } from "./pending-command-actions.ts";
@@ -157,6 +162,7 @@ export async function checkBrowserApp(server: string, controlPort: string) {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
+  const otherServer = `${server}/other`;
   try {
     flushSync(() => root.render(<App language="en" />));
     const ui = within(host);
@@ -171,6 +177,8 @@ export async function checkBrowserApp(server: string, controlPort: string) {
       { timeout: 15_000 },
     );
     ui.getByRole("button", { name: "Google" });
+    await rememberInstallation(otherServer);
+    await firstTeamControl(controlPort, "first-team-empty");
     flushSync(() => fireEvent.click(provider));
     if (
       !ui.getByRole("heading", { name: "Continue in your browser" }) ||
@@ -178,6 +186,24 @@ export async function checkBrowserApp(server: string, controlPort: string) {
     )
       throw Error("browser wait lost the chosen installation");
     await waitForAppForeground();
+    await fixtureStep("first-team-picker-back", async () => {
+      const other = await ui.findByRole("button", { name: "Another server" });
+      flushSync(() => fireEvent.click(other));
+      ui.getByRole("heading", { name: "Servers on this device" });
+      ui.getByTitle(otherServer);
+      await firstTeamControl(controlPort, "first-team-back");
+      await waitFor(() => {
+        const restored = ui.getByRole("button", { name: "Another server" });
+        if (document.activeElement !== restored || ui.queryByRole("textbox"))
+          throw Error(
+            "Native Back did not restore the signed empty form and its focus",
+          );
+      });
+      await firstTeamControl(controlPort, "first-team-invite");
+      flushSync(() =>
+        fireEvent.click(ui.getByRole("button", { name: "Check again" })),
+      );
+    });
     await checkFirstTeamChoice(host, server, "Browser fixture");
     await ui.findByText("fixture-author");
     const fixture = await openAccountRestConnection(server, "f".repeat(26));
@@ -601,5 +627,22 @@ export async function checkBrowserApp(server: string, controlPort: string) {
   } finally {
     root.unmount();
     host.remove();
+    await forgetInstallation(otherServer);
+  }
+}
+
+async function firstTeamControl(
+  port: string,
+  step: "first-team-empty" | "first-team-back" | "first-team-invite",
+) {
+  const control = await openNativeRestConnection(`https://127.0.0.1:${port}`);
+  try {
+    const result = await control.fetchApi(
+      `${control.basePath}/api/v4/system/ping?step=${step}`,
+    );
+    if (result.status !== 204)
+      throw Error(`First team fixture did not complete ${step}`);
+  } finally {
+    await control.close();
   }
 }

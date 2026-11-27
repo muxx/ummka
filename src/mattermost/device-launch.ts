@@ -4,7 +4,12 @@ import { getCurrentAccountId } from "./native-rest.ts";
 type DeviceLaunch =
   | { status: "first_launch" }
   | { status: "sign_in_required"; serverUrl: string; installations: string[] }
-  | { status: "ready"; serverUrl: string; userId: string };
+  | {
+      status: "ready";
+      serverUrl: string;
+      userId: string;
+      installations: string[];
+    };
 
 export async function getDeviceLaunchContext(): Promise<DeviceLaunch> {
   const { installations, selected } = await readInstallationSelection();
@@ -12,5 +17,5 @@ export async function getDeviceLaunchContext(): Promise<DeviceLaunch> {
   const userId = await getCurrentAccountId(selected);
   return userId === null
     ? { status: "sign_in_required", serverUrl: selected, installations }
-    : { status: "ready", serverUrl: selected, userId };
+    : { status: "ready", serverUrl: selected, userId, installations };
 }

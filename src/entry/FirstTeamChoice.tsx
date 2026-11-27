@@ -87,6 +87,8 @@ export function FirstTeamChoice({
   choice,
   reload,
   select,
+  otherServer,
+  restoreOtherServer,
 }: {
   language: EntryLanguage;
   serverUrl: string;
@@ -100,6 +102,8 @@ export function FirstTeamChoice({
   choice: FirstTeamSelection | null;
   reload: () => void;
   select: (team: JoinedTeam) => void;
+  otherServer?: () => void;
+  restoreOtherServer: boolean;
 }) {
   const text = firstTeamText[language];
   const address = new URL(serverUrl);
@@ -108,6 +112,7 @@ export function FirstTeamChoice({
   const rows = useRef<HTMLUListElement>(null);
   const pending = useRef<HTMLButtonElement>(null);
   const retryRead = useRef<HTMLButtonElement>(null);
+  const other = useRef<HTMLButtonElement>(null);
   const retryWrite = useRef<HTMLButtonElement>(null);
   const saving = choice?.kind === "saving" ? choice : null;
   const failure = choice?.kind === "failed" ? choice : null;
@@ -134,21 +139,23 @@ export function FirstTeamChoice({
 
   useLayoutEffect(() => {
     const target =
-      state === "saving"
-        ? pending.current
-        : state === "save-failed"
-          ? canRetryWrite
-            ? retryWrite.current
-            : heading.current
-          : isMobile
-            ? heading.current
-            : state === "ready"
-              ? rows.current?.querySelector("button")
-              : retryRead.current;
+      state === "empty" && restoreOtherServer
+        ? other.current
+        : state === "saving"
+          ? pending.current
+          : state === "save-failed"
+            ? canRetryWrite
+              ? retryWrite.current
+              : heading.current
+            : isMobile
+              ? heading.current
+              : state === "ready"
+                ? rows.current?.querySelector("button")
+                : retryRead.current;
     (target ?? heading.current)?.focus({
       preventScroll: !target || target === heading.current,
     });
-  }, [state, canRetryWrite]);
+  }, [state, canRetryWrite, restoreOtherServer]);
 
   return (
     <EntryWindow>
@@ -237,14 +244,26 @@ export function FirstTeamChoice({
         {empty && (
           <>
             <p className="entry-first-team-hint">{text.emptyDetail}</p>
-            <button
-              ref={retryRead}
-              type="button"
-              className="entry-secondary entry-team-check"
-              onClick={reload}
-            >
-              {text.checkAgain}
-            </button>
+            <div className="entry-empty-team-actions">
+              <button
+                ref={retryRead}
+                type="button"
+                className="entry-secondary entry-team-check"
+                onClick={reload}
+              >
+                {text.checkAgain}
+              </button>
+              {otherServer && (
+                <button
+                  ref={other}
+                  className="entry-secondary entry-team-check"
+                  type="button"
+                  onClick={otherServer}
+                >
+                  {text.otherServer}
+                </button>
+              )}
+            </div>
           </>
         )}
         {hasRows && (

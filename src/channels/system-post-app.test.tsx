@@ -102,6 +102,7 @@ function boot(options: Parameters<typeof fixture>[0] = {}) {
             status: "ready",
             serverUrl: selected,
             userId: sessions.get(selected) as string,
+            installations: saved,
           }
         : {
             status: "sign_in_required",

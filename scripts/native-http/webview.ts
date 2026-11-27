@@ -93,6 +93,7 @@ export function webviewServers(
   const visits: string[] = [];
   const systemPostReads = new Set<string>();
   const collectionWindow = collectionWindowFixture();
+  let emptyBrowserTeams = false;
   let offlineHistoryRequests = 0;
   let connections = 0;
   let before = false;
@@ -1211,7 +1212,7 @@ export function webviewServers(
       url,
       userId,
       (name) => events.emit(name),
-      { multipleBrowserTeams: true },
+      { multipleBrowserTeams: true, emptyBrowserTeams },
     );
     if (account) {
       visits.push(account);
@@ -1749,6 +1750,9 @@ export function webviewServers(
           "disconnect",
           "external-handoff",
           "search-ime-back",
+          "first-team-empty",
+          "first-team-back",
+          "first-team-invite",
         ].includes(step));
     const name = url.searchParams.get("case") ?? "";
     const marker =
@@ -1787,6 +1791,14 @@ export function webviewServers(
         "prepared, cancelled and refused requests must not open a socket",
       );
       before = true;
+    } else if (step === "first-team-empty" || step === "first-team-invite") {
+      assert.equal(emptyBrowserTeams, step === "first-team-invite");
+      emptyBrowserTeams = step === "first-team-empty";
+      visits.push(step);
+    } else if (step === "first-team-back") {
+      assert(emptyBrowserTeams && pressWorkspaceBack && !visits.includes(step));
+      visits.push(step);
+      if (!(await press(pressWorkspaceBack))) return;
     } else if (step?.startsWith("collection-back-")) {
       assert(
         collectionBackSteps.includes(step) &&
@@ -2327,6 +2339,15 @@ export function webviewServers(
         expected.push(
           "account-logout-local-failure",
           "allow-design-posts",
+          "first-team-empty",
+          "first-team-back",
+          "first-team-invite",
+          "browser-entry-users/me/preferences",
+          "browser-entry-users/me/teams",
+          "browser-entry-users/me/teams/members",
+          // The empty directory and the later manual check each open a live account policy.
+          "live-config/client",
+          "live-license/client",
           // The explicit reconnect reloads account teams and workspace policy.
           "browser-entry-users/me/preferences",
           "browser-entry-users/me/teams",

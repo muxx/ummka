@@ -4,6 +4,7 @@ import { isMobile } from "../build-platform";
 import { useWorkspaceBack } from "../channels/use-workspace-back";
 import { getDeviceLaunchContext } from "../mattermost/device-launch";
 import {
+  enteredServerUrl,
   InstallationAddressError,
   inspectInstallation,
 } from "../mattermost/inspect-installation";
@@ -54,6 +55,7 @@ export function ServerSignIn({
   selectSaved,
   connect,
   onAccountChanged,
+  addFromPicker,
 }: {
   language: EntryLanguage;
   savedServer?: string;
@@ -63,6 +65,11 @@ export function ServerSignIn({
   selectSaved?: (serverUrl: string) => Promise<void>;
   connect: (serverUrl: string, signal: AbortSignal) => Promise<void>;
   onAccountChanged: (signedIn?: SignedInPresentation) => void;
+  addFromPicker?: {
+    installations: readonly string[];
+    select: (url: string, signal: AbortSignal) => Promise<void>;
+    onBack: (signal: AbortSignal) => Promise<void>;
+  };
 }) {
   const text = entryText[language];
   const [address, setAddress] = useState(savedServer ?? "");
@@ -74,7 +81,7 @@ export function ServerSignIn({
   const addressGroup = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLInputElement>(null);
   const coldOutcome = useRef(!savedServer && linkResult !== undefined);
-  const returnToField = useRef(false);
+  const returnToField = useRef(addFromPicker !== undefined);
   const closeShownOutcome = useRef<(() => void) | undefined>(undefined);
   const closeOutcome = step.name === "servers" ? undefined : linkResult?.close;
   // An arrival that has not reached this form belongs on the next screen.
@@ -90,6 +97,14 @@ export function ServerSignIn({
       setStep({ name: "checking", restoring: !explicit, picker });
       let readingDevice = false;
       try {
+        if (explicit && addFromPicker) {
+          const address = enteredServerUrl(input);
+          if (addFromPicker.installations.includes(address)) {
+            readingDevice = true;
+            await addFromPicker.select(address, request.signal);
+            return;
+          }
+        }
         const profile = await inspectInstallation(input, request.signal);
         if (request.signal.aborted) return;
         if (explicit) {
@@ -140,7 +155,7 @@ export function ServerSignIn({
         if (active.current === request) active.current = null;
       }
     },
-    [connect, onAccountChanged],
+    [addFromPicker, connect, onAccountChanged],
   );
 
   // The saved-server Back button must own the request from the first visible frame.
@@ -157,14 +172,16 @@ export function ServerSignIn({
       (coldOutcome.current || returnToField.current || step.issue)
     ) {
       const focusHeading =
-        isMobile && (coldOutcome.current || (step.picker && !step.issue));
+        isMobile &&
+        (coldOutcome.current ||
+          ((step.picker || addFromPicker) && !step.issue));
       (focusHeading ? heading.current : field.current)?.focus({
         preventScroll: Boolean(focusHeading),
       });
       coldOutcome.current = false;
       returnToField.current = false;
     }
-  }, [step]);
+  }, [addFromPicker, step]);
   const showAddressOutcome =
     linkResult !== undefined &&
     step.name !== "profile" &&
@@ -190,9 +207,27 @@ export function ServerSignIn({
     return () => observer.disconnect();
   }, [showAddressOutcome]);
   const picker = "picker" in step ? step.picker : undefined;
+  function backFromAdd() {
+    if (!addFromPicker || active.current) return;
+    const request = new AbortController();
+    active.current = request;
+    void addFromPicker
+      .onBack(request.signal)
+      .catch(() => {
+        if (!request.signal.aborted)
+          setStep({ name: "address", issue: "storage" });
+      })
+      .finally(() => {
+        if (active.current === request) active.current = null;
+      });
+  }
   const backToServers =
-    step.name === "address" && picker
-      ? () => setStep({ ...picker, focusAdd: true })
+    step.name === "address"
+      ? picker
+        ? () => setStep({ ...picker, focusAdd: true })
+        : addFromPicker
+          ? backFromAdd
+          : null
       : null;
   useWorkspaceBack(false, backToServers);
   if (step.name === "servers") {

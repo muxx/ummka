@@ -189,8 +189,8 @@ export function useSystemPermalink(
     ReturnType<typeof watchSystemChannelsLinks>
   > | null>(null);
   // The sign-in form and the link inbox both write the device's selected server.
-  const lastSelection = useRef(Promise.resolve());
-  const enqueueSelection = useCallback((operation: () => Promise<void>) => {
+  const lastSelection = useRef<Promise<unknown>>(Promise.resolve());
+  const enqueueSelection = useCallback(<T,>(operation: () => Promise<T>) => {
     const next = lastSelection.current.then(operation, operation);
     lastSelection.current = next;
     return next;
@@ -225,6 +225,20 @@ export function useSystemPermalink(
         reopen();
       }),
     [enqueueSelection, pauseForServer, reopen],
+  );
+  const restoreSaved = useCallback(
+    (serverUrl: string, signal: AbortSignal) =>
+      enqueueSelection(async () => {
+        signal.throwIfAborted();
+        const selection = await readInstallationSelection();
+        signal.throwIfAborted();
+        if (selection.selected !== serverUrl) {
+          await selectInstallation(serverUrl);
+          pauseForServer(serverUrl);
+        }
+        return selection.installations;
+      }),
+    [enqueueSelection, pauseForServer],
   );
   const finish = useCallback(
     (gate: Gate, outcome: "shown" | "dismissed" | "superseded") => {
@@ -533,6 +547,7 @@ export function useSystemPermalink(
     notice,
     connect,
     selectSaved,
+    restoreSaved,
   };
 }
 

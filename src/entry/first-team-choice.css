@@ -203,7 +203,14 @@
 .entry-window[data-mobile] .entry-team-error-retry {
   min-block-size: 44px;
 }
+.entry-empty-team-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.entry-window[data-mobile] .entry-empty-team-actions {
+  margin-block-end: 16px;
+}
 .entry-window[data-mobile] .entry-team-check {
   min-block-size: 48px;
-  margin-block-end: 16px;
 }
