@@ -920,6 +920,59 @@ test("archived channels show the pinned messages and keep the shared action hidd
   expect(account.setPostPinned).not.toHaveBeenCalled();
 });
 
+test("reopening Saved keeps the previous rows through a failed refresh and retries with focus", async () => {
+  const { account } = fixture();
+  const trigger = await screen.findByRole("button", { name: "Saved messages" });
+  fireEvent.click(trigger);
+  const pane = () =>
+    within(screen.getByRole("complementary", { name: "Saved messages" }));
+  const options = { name: /Saved reply preview/ };
+  await pane().findByRole("button", options);
+  fireEvent.click(trigger);
+  let fail!: (error: Error) => void;
+  account.readSavedPosts.mockImplementationOnce(
+    () =>
+      new Promise((_, reject) => {
+        fail = reject;
+      }),
+  );
+  fireEvent.click(trigger);
+  await pane().findByText("Updating the list…");
+  const stale = pane().getByRole("button", options);
+  stale.focus();
+  expect(stale.getAttribute("aria-disabled")).toBe("false");
+  await act(async () => fail(new TypeError("no connection")));
+  const retry = await pane().findByRole("button", {
+    name: "Retry update: Saved messages",
+  });
+  expect(document.activeElement).toBe(stale);
+  expect(
+    pane().getByText(
+      "Saved messages couldn’t update: no connection. Showing the previous response",
+    ),
+  ).toBeTruthy();
+  let finish!: (
+    value: Awaited<ReturnType<typeof account.readSavedPosts>>,
+  ) => void;
+  const previous = await account.readSavedPosts.mock.results[0].value;
+  account.readSavedPosts.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  retry.focus();
+  fireEvent.click(retry);
+  const waiting = await pane().findByText("Updating the list…");
+  expect(document.activeElement).toBe(waiting.parentElement);
+  await act(async () => finish(previous));
+  await pane().findByText("Saved messages updated");
+  expect(document.activeElement).toBe(stale);
+  expect(account.readSavedPosts.mock.calls.map(([, offset]) => offset)).toEqual(
+    [0, 0, undefined, 0],
+  );
+});
+
 test("closing the collection cancels its pending read including a late unauthorized response", async () => {
   const { account } = fixture();
   const trigger = await screen.findByRole("button", { name: "Saved messages" });
@@ -934,7 +987,7 @@ test("closing the collection cancels its pending read including a late unauthori
   const pane = within(
     await screen.findByRole("complementary", { name: "Saved messages" }),
   );
-  await pane.findByText("Loading messages…");
+  await pane.findByText("Loading saved messages…");
   await waitFor(() => expect(account.readSavedPosts).toHaveBeenCalledTimes(1));
   const signal = account.readSavedPosts.mock.calls[0][2];
   fireEvent.click(pane.getByRole("button", { name: "Close collection" }));

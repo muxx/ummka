@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
+import { CollectionReadNotice } from "./CollectionReadNotice.tsx";
 import { CollectionScroll } from "./CollectionScroll.tsx";
 import { collectionCopy } from "./collection-copy.ts";
 import type { openPostCollection } from "./post-collection.ts";
@@ -295,24 +296,36 @@ export function PostCollectionPane({
         {announcement}
       </span>
       <CollectionScroll pane={list}>
+        {kind === "all" && (
+          <CollectionReadNotice
+            kind="all"
+            status={state.status}
+            hasResponse={state.value !== null}
+            online={online}
+            language={language}
+            list={list}
+            heading={heading}
+            refresh={() => void model.refresh()}
+          />
+        )}
         {state.removing.length > 0 && (
           <p role="status">{kind === "all" ? text.removing : text.unpinning}</p>
         )}
-        {!online && (
+        {!online && (kind === "pins" || state.value) && (
           <p role="status">{state.value ? text.offline : text.offlineCold}</p>
         )}
-        {busy && (
+        {kind === "pins" && busy && (
           <p role="status">
             {state.status === "refreshing" ? text.refreshing : text.loading}
           </p>
         )}
         {state.status === "forbidden" && <p role="alert">{text.unavailable}</p>}
-        {retryList && (
+        {kind === "pins" && retryList && (
           <p role="alert">
             {state.status === "storage" ? text.storage : text.network}
           </p>
         )}
-        {(retryList || coldOffline) && (
+        {kind === "pins" && (retryList || coldOffline) && (
           <button
             className="collection-page-action"
             type="button"

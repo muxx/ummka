@@ -212,9 +212,13 @@ export function ChannelsWorkspace({
     const timeout = window.setTimeout(() => setAppearanceNotice(""), 2600);
     return () => window.clearTimeout(timeout);
   }, [appearanceNotice]);
-  const collections = useWorkspaceCollections(connection, online);
-  const mentionLabels = mentionCopy[language];
   const archivePolicy = policy.server.value?.search?.archivedChannels;
+  const collections = useWorkspaceCollections(
+    connection,
+    online,
+    archivePolicy,
+  );
+  const mentionLabels = mentionCopy[language];
   const collectionLabels = collectionCopy[language];
   const channelMenuButton = useRef<HTMLButtonElement>(null);
   const directoryButton = useRef<HTMLButtonElement>(null);
@@ -639,6 +643,14 @@ export function ChannelsWorkspace({
     opener: HTMLButtonElement,
   ) {
     setChannelMenuOpen(false);
+    if (
+      source.kind !== "pins" &&
+      collections.view?.kind === source.kind &&
+      !position
+    ) {
+      collections.close();
+      return;
+    }
     if (search.back || search.origin) search.dismiss();
     workspace.messages.clear();
     setDirectoryOpen(false);
@@ -758,9 +770,6 @@ export function ChannelsWorkspace({
   const mentionPolicyChanged =
     collections.view?.kind === "mentions" &&
     collections.view.archivedChannels !== archivePolicy;
-  useEffect(() => {
-    if (mentionPolicyChanged) collections.close();
-  }, [mentionPolicyChanged, collections.close]);
   function openCollectionRow(
     id: string,
     origin: HTMLButtonElement,

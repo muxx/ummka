@@ -7,7 +7,7 @@ export class CollectionScroll extends Component<Props> {
   // Capture the reading position before React changes row or status heights.
   getSnapshotBeforeUpdate(): RowPlace[] {
     const pane = this.props.pane.current;
-    if (!pane?.clientHeight) return [];
+    if (!pane?.clientHeight || pane.scrollTop <= 1) return [];
     const bounds = pane.getBoundingClientRect();
     const rows = pane.querySelectorAll<HTMLButtonElement>(
       "[data-collection-post]",

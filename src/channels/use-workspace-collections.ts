@@ -27,10 +27,16 @@ const empty = () => null;
 export function useWorkspaceCollections(
   account: CollectionsAccount,
   online: boolean,
+  archivedChannels: boolean | undefined,
 ) {
   const generation = useRef(0);
   const [view, setView] = useState<View | null>(null);
   const owned = useRef(view);
+  const saved = useRef<ReturnType<typeof openPostCollection> | null>(null);
+  const previousMentions = useRef<{
+    archivedChannels: boolean;
+    model: ReturnType<typeof openMentionList>;
+  } | null>(null);
   const returnFocus = useRef<HTMLButtonElement | null>(null);
   useLayoutEffect(() => {
     if (view || !returnFocus.current) return;
@@ -57,7 +63,11 @@ export function useWorkspaceCollections(
   useEffect(
     () => () => {
       activation.current?.abort();
-      owned.current?.model.close();
+      if (owned.current?.kind === "pins") owned.current.model.close();
+      saved.current?.close();
+      previousMentions.current?.model.close();
+      saved.current = null;
+      previousMentions.current = null;
     },
     [],
   );
@@ -70,24 +80,38 @@ export function useWorkspaceCollections(
     abort();
     const previous = owned.current;
     owned.current = null;
-    previous.model.close();
+    if (previous.kind === "pins") previous.model.close();
+    else previous.model.suspend();
     origin.current = null;
     setRestore(null);
     returnFocus.current = focus ? previous.opener : null;
     setView(null);
   }
+  useLayoutEffect(() => {
+    const remembered = previousMentions.current;
+    if (!remembered || remembered.archivedChannels === archivedChannels) return;
+    if (owned.current?.kind === "mentions") close();
+    remembered.model.close();
+    previousMentions.current = null;
+  });
   function show(source: Source | Mentions, opener: HTMLButtonElement) {
     close(false);
     returnFocus.current = null;
     const owner = { key: ++generation.current, opener };
-    const next =
-      source.kind === "mentions"
-        ? {
-            ...owner,
-            ...source,
-            model: openMentionList(account, source.archivedChannels),
-          }
-        : { ...owner, ...source, model: openPostCollection(account, source) };
+    let next: View;
+    if (source.kind === "mentions") {
+      previousMentions.current ??= {
+        archivedChannels: source.archivedChannels,
+        model: openMentionList(account, source.archivedChannels),
+      };
+      next = { ...owner, ...source, model: previousMentions.current.model };
+    } else {
+      const model =
+        source.kind === "all"
+          ? (saved.current ??= openPostCollection(account, source))
+          : openPostCollection(account, source);
+      next = { ...owner, ...source, model };
+    }
     owned.current = next;
     setView(next);
   }
