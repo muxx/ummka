@@ -28,7 +28,7 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
       `${driver.basePath}/api/v4/system/ping?step=collection-back-${step}`,
     );
     if (response.status !== 204)
-      throw Error("Native collection Back failed: " + step);
+      throw Error(`Native collection Back failed: ${step}`);
   }
   try {
     await connectInstallation(url);
@@ -59,9 +59,74 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
       !row.getClientRects().length
     )
       throw Error("Wrong collection layout for the native window");
+    const item = row.closest("li");
+    if (!item) throw Error("Saved message is outside the list");
+    const removal = within(item).getByRole("button", {
+      name: "Remove from saved",
+    });
+    const card = row.getBoundingClientRect();
+    const action = removal.getBoundingClientRect();
+    const actionSize = compact ? 44 : 32;
+    if (
+      Math.abs(action.left - card.right - 6) > 1 ||
+      action.width !== actionSize ||
+      action.height !== actionSize ||
+      getComputedStyle(item).borderBlockEndWidth !== "0px"
+    )
+      throw Error(
+        "Saved message hover and removal must have separate surfaces",
+      );
     click(row);
     const thread = await findPane("Thread");
     await thread.findByText(
+      "Reply visible only inside Town’s thread for @reader",
+    );
+    const steps = await ui.findByRole("group", { name: "Saved messages" });
+    const stepAction = within(steps);
+    if (stepAction.getByRole("status").textContent !== "1 of 60+")
+      throw Error("Saved result position or continuation is missing");
+    const backToSaved = stepAction.getByRole("button", {
+      name: "Back to saved messages",
+    });
+    if (compact) {
+      const bar = steps.getBoundingClientRect();
+      const head = host
+        .querySelector(".channels-thread > .channels-pane-head")
+        ?.getBoundingClientRect();
+      const hit = backToSaved.getBoundingClientRect();
+      const at = (y: number) =>
+        backToSaved.contains(
+          document.elementFromPoint(hit.x + hit.width / 2, y),
+        );
+      if (
+        !head ||
+        bar.top < head.bottom - 1 ||
+        hit.height < 44 ||
+        !at(hit.top + 1) ||
+        !at(hit.bottom - 1) ||
+        at(bar.top - 1)
+      )
+        throw Error(
+          "Compact saved return target extends outside the thread result bar",
+        );
+    }
+    click(stepAction.getByRole("button", { name: "Next in list" }));
+    await waitFor(() => {
+      if (ui.queryByRole("complementary", { name: "Thread" }))
+        throw Error("The saved step did not return to the channel post");
+      const indicator = within(
+        ui.getByRole("group", { name: "Saved messages" }),
+      ).getByRole("status");
+      if (indicator.textContent !== "2 of 60+")
+        throw Error("The saved step counter did not advance");
+    });
+    click(
+      within(ui.getByRole("group", { name: "Saved messages" })).getByRole(
+        "button",
+        { name: "Previous in list" },
+      ),
+    );
+    await (await findPane("Thread")).findByText(
       "Reply visible only inside Town’s thread for @reader",
     );
     await back("saved-reply");

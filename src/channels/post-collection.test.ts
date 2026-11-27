@@ -532,3 +532,33 @@ test("a confirmed removal during refresh cannot shrink an already updated prefer
   expect(account.readSavedPostsAtOffset.mock.calls[0][1]).toBe(59);
   expect(view.getSnapshot().value?.items).toEqual([last]);
 });
+
+test("suspending saved messages retains the answer, cancels a read and opens from offset zero", async () => {
+  const account = mockAccount();
+  const abandoned = deferredPage();
+  account.readSavedPosts
+    .mockResolvedValueOnce(page)
+    .mockReturnValueOnce(abandoned.promise)
+    .mockRejectedValueOnce(new TypeError("offline"))
+    .mockResolvedValueOnce(empty);
+  const view = openPostCollection(account, { kind: "all" });
+  await view.refresh();
+  const old = view.refresh();
+  await Promise.resolve();
+  view.suspend();
+  expect(account.readSavedPosts.mock.calls[1][2]?.aborted).toBe(true);
+  const pending = view.refresh();
+  expect(view.getSnapshot()).toMatchObject({
+    status: "refreshing",
+    value: page,
+  });
+  await pending;
+  abandoned.resolve(empty);
+  await old;
+  expect(view.getSnapshot()).toMatchObject({ status: "network", value: page });
+  await view.refresh();
+  expect(view.getSnapshot()).toMatchObject({ status: "ready", value: empty });
+  expect(account.readSavedPosts.mock.calls.map(([, offset]) => offset)).toEqual(
+    [0, 0, 0, 0],
+  );
+});

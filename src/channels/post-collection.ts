@@ -30,6 +30,10 @@ type Removal =
   | "unauthorized"
   | "session";
 
+export function newestCollectionItems(items: Collection["items"]) {
+  return [...items].sort((a, b) => (b.createAt ?? 0) - (a.createAt ?? 0));
+}
+
 export function openPostCollection(account: Account, source: Source) {
   const scope = { ...source };
   const listeners = new Set<() => void>();
@@ -70,7 +74,6 @@ export function openPostCollection(account: Account, source: Source) {
 
   function cancelRequests() {
     cancelNextPage();
-    cursor = undefined;
     requests.abort();
     requests = new AbortController();
     pending = undefined;
@@ -112,7 +115,10 @@ export function openPostCollection(account: Account, source: Source) {
       if (signal.aborted) return;
       const status = workspaceFailure(error, "network");
       next = { status, value: mayKeepCache(status) ? state.value : null };
-      if (!mayKeepCache(status)) cancelRequests();
+      if (!mayKeepCache(status)) {
+        cursor = undefined;
+        cancelRequests();
+      }
     }
     pending = undefined;
     publish(next);
@@ -153,6 +159,7 @@ export function openPostCollection(account: Account, source: Source) {
         pageIssue = status;
         publish(state);
       } else {
+        cursor = undefined;
         cancelRequests();
         publish({ status, value: null });
       }
@@ -170,6 +177,7 @@ export function openPostCollection(account: Account, source: Source) {
       removals.delete(postId);
       const reason = workspaceFailure(error, "network");
       if (reason === "unauthorized" || reason === "session") {
+        cursor = undefined;
         cancelRequests();
         publish({ status: reason, value: null });
         return reason;
@@ -250,8 +258,14 @@ export function openPostCollection(account: Account, source: Source) {
       publish(state);
       return result;
     },
+    suspend() {
+      if (state.status === "closed") return;
+      cancelRequests();
+      publish({ status: state.value ? "ready" : "idle", value: state.value });
+    },
     close() {
       if (state.status === "closed") return;
+      cursor = undefined;
       cancelRequests();
       publish({ status: "closed", value: null });
       listeners.clear();
