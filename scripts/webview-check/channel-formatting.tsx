@@ -99,19 +99,35 @@ function checkDisclosure(host: HTMLElement, width: number) {
     throw Error(`Closing the long post lost its visible action at ${width}px`);
 }
 
+type PressRight = (
+  kind: "code" | "table",
+  width: number,
+  phase?: "up",
+) => Promise<void>;
+
 async function checkArrowRight(
   element: HTMLElement,
   target: string,
   pressRight: () => Promise<void>,
   releaseRight?: () => Promise<void>,
+  desktop?: { trace: string[]; settle: boolean },
 ) {
   element.scrollIntoView({ block: "center" });
   element.focus();
   if (document.activeElement !== element || element.scrollLeft !== 0)
     throw Error("Scrollable block did not receive initial focus");
   const observed: string[] = [];
+  const started = performance.now();
+  const record = (stage: string) => {
+    desktop?.trace.push(
+      `${Math.round(performance.now() - started)}ms ${stage}`,
+    );
+  };
   let keydown: KeyboardEvent | undefined;
   let keyup = false;
+  let defaultObserved = false;
+  let lastScrollEnd: Event | undefined;
+  let wakeScrollEnd: (() => void) | undefined;
   let defaultActionObserved!: () => void;
   let bothPhasesObserved!: () => void;
   const readyToRelease = new Promise<void>((resolve) => {
@@ -123,8 +139,36 @@ async function checkArrowRight(
   const acknowledgeDefaultAction = () => {
     if (!keydown || (!keydown.defaultPrevented && element.scrollLeft === 0))
       return;
+    if (!defaultObserved) {
+      defaultObserved = true;
+      record(
+        keydown.defaultPrevented ? "dom-default-prevented" : "dom-scrolled",
+      );
+    }
     defaultActionObserved();
     if (keyup) bothPhasesObserved();
+  };
+  const observeScroll = (event: Event) => {
+    if (lastScrollEnd && event.isTrusted && event.target === element) {
+      lastScrollEnd = undefined;
+      record("dom-scroll-resumed");
+    }
+    acknowledgeDefaultAction();
+  };
+  const observeScrollEnd = (event: Event) => {
+    if (
+      event.isTrusted &&
+      event.target === element &&
+      keydown &&
+      !keydown.defaultPrevented &&
+      defaultObserved &&
+      document.activeElement === element &&
+      element.scrollLeft > 0
+    ) {
+      lastScrollEnd = event;
+      record("dom-scrollend");
+      wakeScrollEnd?.();
+    }
   };
   const observeRight = (event: KeyboardEvent) => {
     const tag =
@@ -137,15 +181,19 @@ async function checkArrowRight(
     ) {
       if (event.type === "keydown") keydown = event;
       else if (keydown) keyup = true;
+      record(`dom-trusted-${event.type}`);
       acknowledgeDefaultAction();
     }
   };
   window.addEventListener("keydown", observeRight, true);
   window.addEventListener("keyup", observeRight, true);
-  element.addEventListener("scroll", acknowledgeDefaultAction);
+  element.addEventListener("scroll", observeScroll);
+  if (desktop?.settle) element.addEventListener("scrollend", observeScrollEnd);
   window.addEventListener("keydown", acknowledgeDefaultAction);
   try {
+    record("press-request");
     await pressRight();
+    record("press-response");
     const deadline = performance.now() + 2500;
     if (releaseRight) {
       // AppKit can acknowledge keydown while WebContent is still running its
@@ -156,8 +204,14 @@ async function checkArrowRight(
           () => readyToRelease,
           2500,
         );
+        record("scroll-gate-resolved");
+      } catch (cause) {
+        record(`scroll-gate-rejected: ${String(cause)}`);
+        throw cause;
       } finally {
+        record("release-request");
         await releaseRight();
+        record("release-response");
       }
     }
     await fixtureDeadline(
@@ -171,6 +225,30 @@ async function checkArrowRight(
       document.activeElement !== element
     )
       throw Error("The trusted key press did not scroll the focused element");
+    if (desktop?.settle) {
+      // Keep the code focused until its last scroll ends. A new scroll can
+      // invalidate an end observed while waiting for the keyup or its reply.
+      await fixtureDeadline(
+        `${target} keyboard scrollend`,
+        async () => {
+          let end: Event;
+          do {
+            while (!lastScrollEnd)
+              await new Promise<void>((resolve) => {
+                wakeScrollEnd = resolve;
+              });
+            end = lastScrollEnd;
+            // Drain the rendering steps that can deliver a newly queued scroll.
+            await new Promise<void>((resolve) =>
+              requestAnimationFrame(() =>
+                requestAnimationFrame(() => resolve()),
+              ),
+            );
+          } while (lastScrollEnd !== end);
+        },
+        Math.max(0, deadline - performance.now()),
+      );
+    }
   } catch (cause) {
     throw Error(
       `${target} after native ArrowRight: events=${observed.join(",")} scroll=${element.scrollLeft} focus=${document.activeElement === element} prevented=${keydown?.defaultPrevented} overflow=${element.clientWidth}/${element.scrollWidth} visibility=${document.visibilityState}. ${String(cause)}`,
@@ -179,8 +257,35 @@ async function checkArrowRight(
   } finally {
     window.removeEventListener("keydown", observeRight, true);
     window.removeEventListener("keyup", observeRight, true);
-    element.removeEventListener("scroll", acknowledgeDefaultAction);
+    element.removeEventListener("scroll", observeScroll);
+    if (desktop?.settle)
+      element.removeEventListener("scrollend", observeScrollEnd);
     window.removeEventListener("keydown", acknowledgeDefaultAction);
+  }
+}
+
+async function checkDesktopArrow(
+  element: HTMLElement,
+  kind: "code" | "table",
+  width: number,
+  pressRight: PressRight,
+) {
+  const trace: string[] = [];
+  try {
+    await fixtureStep(`scroll-formatting-${kind}`, () =>
+      checkArrowRight(
+        element,
+        `${kind}-${width}`,
+        () => pressRight(kind, width),
+        () => pressRight(kind, width, "up"),
+        { trace, settle: kind === "code" },
+      ),
+    );
+  } catch (cause) {
+    // The outer fixture deadline can win before the key operation rejects.
+    throw Error(`${String(cause)} [${kind}-${width}: ${trace.join(", ")}]`, {
+      cause,
+    });
   }
 }
 
@@ -878,11 +983,7 @@ async function checkNativeCodeBack(
 }
 
 export async function checkChannelFormatting(
-  pressRight: (
-    kind: "code" | "table",
-    width: number,
-    phase?: "up",
-  ) => Promise<void>,
+  pressRight: PressRight,
   mobile?: NonNullable<Parameters<typeof checkMobileTable>[4]> & CodeInput,
   widths: readonly number[] = [320, 820],
 ) {
@@ -1148,23 +1249,8 @@ export async function checkChannelFormatting(
       if (!isAndroid) {
         if (!desktopCode || !table)
           throw Error("Missing desktop scroll targets");
-        const code = desktopCode;
-        await fixtureStep("scroll-formatting-code", () =>
-          checkArrowRight(
-            code,
-            `code-${width}`,
-            () => pressRight("code", width),
-            () => pressRight("code", width, "up"),
-          ),
-        );
-        await fixtureStep("scroll-formatting-table", () =>
-          checkArrowRight(
-            table,
-            `table-${width}`,
-            () => pressRight("table", width),
-            () => pressRight("table", width, "up"),
-          ),
-        );
+        await checkDesktopArrow(desktopCode, "code", width, pressRight);
+        await checkDesktopArrow(table, "table", width, pressRight);
       }
       results.push({ width, first, unchanged });
     } finally {
