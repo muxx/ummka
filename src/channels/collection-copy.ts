@@ -15,6 +15,7 @@ export const collectionCopy = {
     offlineCold:
       "Connect to load this collection. It isn’t stored on this device.",
     menu: "Channel menu",
+    closeMenu: "Close channel menu",
     close: "Close collection",
     loading: "Loading messages…",
     refreshing: "Updating messages…",
@@ -63,6 +64,7 @@ export const collectionCopy = {
     offlineCold:
       "Для загрузки нужна связь с сервером. Подборка не хранится на устройстве.",
     menu: "Меню канала",
+    closeMenu: "Закрыть меню канала",
     close: "Закрыть подборку",
     loading: "Загружаем сообщения…",
     refreshing: "Обновляем сообщения…",
