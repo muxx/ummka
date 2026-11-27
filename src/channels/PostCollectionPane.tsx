@@ -10,6 +10,7 @@ import type { EntryLanguage } from "../entry/language.ts";
 import { CollectionReadNotice } from "./CollectionReadNotice.tsx";
 import { CollectionScroll, restoreCollectionRow } from "./CollectionScroll.tsx";
 import { collectionCopy } from "./collection-copy.ts";
+import { PaneSizeToggle } from "./PaneWidthControls.tsx";
 import {
   newestCollectionItems,
   type openPostCollection,
@@ -268,6 +269,7 @@ export function PostCollectionPane({
             </svg>
           </button>
         )}
+        <PaneSizeToggle />
         <button
           type="button"
           className="channels-icon-action collection-close"

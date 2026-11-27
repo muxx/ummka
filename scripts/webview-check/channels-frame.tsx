@@ -1,3 +1,4 @@
+import { waitFor, within } from "@testing-library/dom";
 import { createRef } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
@@ -157,6 +158,14 @@ export async function checkChannelsFrame() {
         host.style.width = `${width}px`;
         const bounds = () => main.getBoundingClientRect();
         const narrow = width <= 740;
+        const sidebarWidth = width > 1100 ? 244 : width > 900 ? 216 : 180;
+        await waitFor(() => {
+          if (
+            scene.style.getPropertyValue("--navigation-choice") !==
+            (narrow ? "" : `${sidebarWidth}px`)
+          )
+            throw Error(`frame-width-layout-${width}`);
+        });
         const radius = narrow ? "0px" : "12px";
         if (
           getComputedStyle(main).borderStartStartRadius !== radius ||
@@ -187,7 +196,18 @@ export async function checkChannelsFrame() {
           toolBounds.width !== (narrow ? 176 : 141) ||
           Math.abs(barBounds.right - toolBounds.right - endInset) > 1
         )
-          throw Error(`frame-toolbar-targets-${width}`);
+          throw Error(
+            `frame-toolbar-targets-${width} ${JSON.stringify({
+              tools: toolBounds.width,
+              end: barBounds.right - toolBounds.right,
+              endInset,
+              actions: actionBounds.map((box) => [
+                box.width,
+                box.height,
+                center(box) - center(barBounds),
+              ]),
+            })}`,
+          );
         if (
           logoBounds &&
           (logoBounds.width !== 24 ||
@@ -242,7 +262,6 @@ export async function checkChannelsFrame() {
           }
         }
         if (!narrow) {
-          const sidebarWidth = width > 1100 ? 244 : width > 900 ? 216 : 180;
           const search = control(
             ".channels-search-trigger",
           ).getBoundingClientRect();
@@ -300,7 +319,7 @@ export async function checkChannelsFrame() {
           if (document.activeElement !== draft)
             throw Error("frame-conversation-during-thread");
         }
-        control("aside button").click();
+        within(aside).getByRole("button", { name: labels.closeThread }).click();
         if (
           document.activeElement !== (narrow ? open : second) ||
           draft !== control("input")
@@ -323,6 +342,96 @@ export async function checkChannelsFrame() {
             throw Error("frame-channel-focus");
         }
       }
+    }
+    host.style.width = "820px";
+    await waitFor(() => {
+      if (scene.style.getPropertyValue("--navigation-choice") !== "180px")
+        throw Error("frame-side-test-layout-820");
+    });
+    host.style.width = "1440px";
+    const frameUi = within(host);
+    const right = () =>
+      frameUi.getByRole("separator", { name: "Side pane width" });
+    const navigation = () =>
+      frameUi.getByRole("separator", { name: "Navigation pane width" });
+    const value = (width: number) => {
+      if (
+        right().getAttribute("aria-valuenow") !== String(width) ||
+        control("aside").getBoundingClientRect().width !== width
+      )
+        throw Error(`frame-right-width-${width}`);
+    };
+    const key = (target: HTMLElement, key: string, shiftKey = false) =>
+      flushSync(() =>
+        target.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key,
+            shiftKey,
+            bubbles: true,
+            cancelable: true,
+          }),
+        ),
+      );
+    const storageKey = "ummka.layout.width.right";
+    const previous = localStorage.getItem(storageKey);
+    try {
+      open.click();
+      await waitFor(() => {
+        value(400);
+        const range = ["orientation", "valuemin", "valuemax"].map((field) =>
+          right().getAttribute(`aria-${field}`),
+        );
+        if (range.join("/") !== "vertical/304/464")
+          throw Error(
+            `frame-right-range ${range.join("/")} at ${scene.clientWidth}px`,
+          );
+      });
+      right().focus();
+      key(right(), "End");
+      value(464);
+      key(right(), "ArrowRight", true);
+      value(416);
+      if (localStorage.getItem(storageKey) !== "416")
+        throw Error("frame-right-storage");
+      const expand = frameUi.getByRole("button", { name: "Expand panel" });
+      flushSync(() => expand.click());
+      if (
+        frameUi.queryByRole("separator", { name: "Side pane width" }) ||
+        control("aside").getBoundingClientRect().width !== 864 ||
+        document.activeElement !== expand ||
+        expand.getAttribute("aria-label") !== "Restore narrow panel"
+      )
+        throw Error("frame-right-expand");
+      flushSync(() => expand.click());
+      value(416);
+      right().focus();
+      host.style.width = "390px";
+      await waitFor(() => {
+        if (
+          frameUi.queryAllByRole("separator").length ||
+          control("aside").getBoundingClientRect().width !== 390 ||
+          document.activeElement !== control("h2")
+        )
+          throw Error("frame-compact-thread-width-or-focus");
+      });
+      host.style.width = "1440px";
+      await waitFor(() => value(416));
+      flushSync(() =>
+        right().dispatchEvent(new MouseEvent("dblclick", { bubbles: true })),
+      );
+      value(400);
+      if (
+        localStorage.getItem(storageKey) !== null ||
+        draft !== control("input")
+      )
+        throw Error("frame-reset-width");
+      frameUi.getByRole("button", { name: labels.closeThread }).click();
+      navigation().focus();
+      if (document.activeElement !== navigation())
+        throw Error("frame-navigation-separator-focus");
+    } finally {
+      if (previous === null) localStorage.removeItem(storageKey);
+      else localStorage.setItem(storageKey, previous);
     }
     // Let the wide layout reach the display before moving focus and narrowing it.
     await new Promise<void>((resolve, reject) => {

@@ -6,13 +6,13 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
-  useState,
 } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
 import { CollectionReadNotice } from "./CollectionReadNotice.tsx";
 import { CollectionScroll, restoreCollectionRow } from "./CollectionScroll.tsx";
 import { collectionCopy } from "./collection-copy.ts";
 import type { openMentionList } from "./mention-list.ts";
+import { PaneSizeToggle } from "./PaneWidthControls.tsx";
 import { publishedPostDocument } from "./published-post-document.ts";
 import { publishedPostExcerpt } from "./published-post-excerpt.ts";
 import "./mentions.css";
@@ -27,8 +27,6 @@ export const mentionCopy = {
     detail: "Mentions of you and the whole channel will appear here.",
     more: "Load earlier mentions",
     close: "Close panel",
-    wide: "Expand panel",
-    narrow: "Restore narrow panel",
   },
   ru: {
     title: "Упоминания",
@@ -37,8 +35,6 @@ export const mentionCopy = {
     detail: "Здесь появятся обращения к вам и ко всему каналу.",
     more: "Загрузить более ранние упоминания",
     close: "Закрыть панель",
-    wide: "Развернуть панель",
-    narrow: "Вернуть узкую панель",
   },
 };
 
@@ -115,7 +111,6 @@ export function MentionsPane({
 }) {
   const text = mentionCopy[language],
     common = collectionCopy[language];
-  const [wide, setWide] = useState(false);
   const id = useId();
   const heading = useRef<HTMLHeadingElement>(null);
   const list = useRef<HTMLDivElement>(null);
@@ -179,7 +174,6 @@ export function MentionsPane({
   return (
     <aside
       className="mentions-pane"
-      data-wide={wide || undefined}
       data-standalone={standalone || undefined}
       aria-labelledby={id}
     >
@@ -201,23 +195,7 @@ export function MentionsPane({
           </div>
           <p>{team}</p>
         </div>
-        {!standalone && (
-          <button
-            type="button"
-            className="channels-icon-action mentions-desktop-action"
-            aria-label={wide ? text.narrow : text.wide}
-            title={wide ? text.narrow : text.wide}
-            onClick={() => setWide(!wide)}
-          >
-            <PanelGlyph
-              path={
-                wide
-                  ? "M4 9h5V4m6 16v-5h5M4 4l5 5m11 11-5-5"
-                  : "M4 9V4h5m6 16h5v-5M4 4l6 6m10 10-6-6"
-              }
-            />
-          </button>
-        )}
+        <PaneSizeToggle />
         <button
           type="button"
           className="channels-icon-action mentions-desktop-action"

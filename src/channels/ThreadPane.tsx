@@ -407,6 +407,8 @@ type FeedProps = {
 type Place = { top: number; id?: string; offset?: number; edge?: Direction };
 
 class ThreadFeed extends Component<FeedProps> {
+  private readonly frame = createRef<HTMLDivElement>();
+  private resize?: ResizeObserver;
   private readonly pane = createRef<HTMLElement>();
 
   private positionOpeningReply = true;
@@ -415,7 +417,31 @@ class ThreadFeed extends Component<FeedProps> {
   };
 
   componentDidMount() {
+    const frame = this.frame.current;
+    const pane = this.pane.current;
+    if (frame && pane) {
+      const fit = ({ width, height }: DOMRectReadOnly) => {
+        if (!width || !height) return;
+        const inline = `${width}px`;
+        const block = `${height}px`;
+        if (pane.style.width === inline && pane.style.height === block) return;
+        // Measure against the previous line wrapping before sizing the feed.
+        const place = this.getSnapshotBeforeUpdate();
+        pane.style.width = inline;
+        pane.style.height = block;
+        if (place) this.restorePlace(pane, place);
+      };
+      fit(frame.getBoundingClientRect());
+      this.resize = new ResizeObserver(([entry]) => {
+        if (entry) fit(entry.contentRect);
+      });
+      this.resize.observe(frame);
+    }
     this.centerOpeningReply(true);
+  }
+
+  componentWillUnmount() {
+    this.resize?.disconnect();
   }
 
   private centerOpeningReply(focus: boolean) {
@@ -463,13 +489,7 @@ class ThreadFeed extends Component<FeedProps> {
     }
     return place;
   }
-  componentDidUpdate(
-    previous: FeedProps,
-    _state: unknown,
-    place: Place | null,
-  ) {
-    const pane = this.pane.current;
-    if (!pane || !place) return;
+  private restorePlace(pane: HTMLElement, place: Place) {
     const row =
       place.id &&
       pane.querySelector<HTMLElement>(
@@ -481,6 +501,16 @@ class ThreadFeed extends Component<FeedProps> {
         pane.getBoundingClientRect().top -
         (place.offset ?? 0);
     else pane.scrollTop = place.top;
+  }
+
+  componentDidUpdate(
+    previous: FeedProps,
+    _state: unknown,
+    place: Place | null,
+  ) {
+    const pane = this.pane.current;
+    if (!pane || !place) return;
+    this.restorePlace(pane, place);
     const { state } = this.props;
     if (
       this.positionOpeningReply &&
@@ -523,18 +553,20 @@ class ThreadFeed extends Component<FeedProps> {
   }
   render() {
     return (
-      <section
-        ref={this.pane}
-        onPointerDown={this.markUserScroll}
-        onWheel={this.markUserScroll}
-        onKeyDown={this.markUserScroll}
-        // biome-ignore lint/a11y/noNoninteractiveTabindex: Keyboard users can page through this independently scrollable thread.
-        tabIndex={0}
-        className="timeline-scroll thread-feed"
-        aria-label={this.props.label}
-      >
-        {this.props.children}
-      </section>
+      <div className="timeline-frame" ref={this.frame}>
+        <section
+          ref={this.pane}
+          onPointerDown={this.markUserScroll}
+          onWheel={this.markUserScroll}
+          onKeyDown={this.markUserScroll}
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: Keyboard users can page through this independently scrollable thread.
+          tabIndex={0}
+          className="timeline-scroll thread-feed"
+          aria-label={this.props.label}
+        >
+          {this.props.children}
+        </section>
+      </div>
     );
   }
 }
