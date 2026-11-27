@@ -110,7 +110,6 @@ function EntryRoute({
                 ])}
                 workspace={workspace}
                 language={language}
-                onEnded={reopen}
               />
             </PublishedLinkNavigation.Provider>
           )}

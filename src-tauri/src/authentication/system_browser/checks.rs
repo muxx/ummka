@@ -9,7 +9,15 @@ use tauri::{Builder, Context, Manager, RunEvent, WebviewWindow, Wry};
 pub(crate) fn run(mut context: Context<Wry>, mode: &str) {
     let show = match mode {
         "anchor" => false,
-        "start" => true,
+        "start" => {
+            if std::env::var("GITHUB_ACTIONS").as_deref() != Ok("true")
+                || std::env::var("RUNNER_ENVIRONMENT").as_deref() != Ok("github-hosted")
+            {
+                eprintln!("The browser start fixture requires GitHub-hosted macOS.");
+                std::process::exit(1);
+            }
+            true
+        }
         _ => panic!("unknown browser presentation check"),
     };
     let window = &mut context.config_mut().app.windows[0];

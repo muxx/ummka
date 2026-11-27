@@ -20,6 +20,17 @@ type InteractiveFixture = {
 };
 const windowStepTimeout = 10_000;
 
+export function isGitHubHostedMac(
+  platform: NodeJS.Platform,
+  env: NodeJS.ProcessEnv,
+) {
+  return (
+    platform === "darwin" &&
+    env.GITHUB_ACTIONS === "true" &&
+    env.RUNNER_ENVIRONMENT === "github-hosted"
+  );
+}
+
 export function watchWebviewSteps(expire: () => void, timeoutMs: number) {
   const steps = new Set<string>();
   let timer: NodeJS.Timeout | undefined = setTimeout(expire, timeoutMs);
@@ -255,7 +266,7 @@ export async function checkMacWebview(
       ...env,
       UMMKA_CHECK_BROWSER_PRESENTATION: "anchor",
     });
-    if (process.env.UMMKA_CHECK_MACOS_BROWSER === "1") {
+    if (isGitHubHostedMac(process.platform, env)) {
       const bundle = join(dir, "BrowserCheck.app");
       await cp("src-tauri/target/release/bundle/macos/ummka.app", bundle, {
         recursive: true,

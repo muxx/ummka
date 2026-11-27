@@ -42,6 +42,8 @@ make check-android
 
 The network test builds a separate optimized APK and installs its temporary TLS root on that emulator. The same APK uses Android WebView to read a binary HTTPS response, cancel in-flight requests and check cleanup across a reload. Run `make check-android-http` to repeat both checks. On macOS, `make check-macos` exercises the same page in WKWebView and closes a hidden window with a pending request. The test root is limited to the test client on macOS. For the offline Android startup check, open the distributable APK twice in airplane mode, stopping its process between launches.
 
+The macOS check validates the actual window that anchors AuthenticationServices. The GitHub-hosted macOS job also opens the native file picker and starts and cancels a browser session.
+
 The frontend and its REST tests use the generated ES modules and TypeScript declarations in `vendor/mattermost/`. A native connection supplies the generated client's `basePath` and `fetchApi`. The platform checks call `SystemApi.getPing` over HTTPS at the server root and under a path prefix. After `npm ci`, run `npm test` or `npm run build`.
 
 To verify the bindings, set `JAVA_HOME` to Temurin 17 and run `make check-contract`. It selects operations from the pinned Mattermost 10.10.1 sources, applies the verified history corrections, compares the generated files and tests requests against a local HTTP server. The native connection checks each request against `contracts/mattermost/operations.json`. The verified document is written to `artifacts/mattermost-v10.10.1.openapi.json`. When updating the contract, run `make generate-bindings` with rsync installed and review the generated changes. [History corrections](../scripts/contract/history-corrections.ts)
