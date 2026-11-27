@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { startFixture } from "../native-http/fixture.ts";
-import { fixtureDeadline } from "./fixture-step.ts";
+import { fixtureDeadline, fixtureStep } from "./fixture-step.ts";
 import { watchWebviewSteps } from "./macos.ts";
 
 test("new fixture steps renew the deadline, but a repeating or stalled step expires", (t) => {
@@ -52,6 +52,27 @@ test("a completed browser operation clears its deadline", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   assert.equal(await fixtureDeadline("wait-for-thread-draft", () => 4, 100), 4);
   t.mock.timers.tick(100);
+});
+
+test("a stuck trace uses the same deadline as its browser step", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      __TAURI_INTERNALS__: {
+        invoke: () => new Promise<never>(() => {}),
+      },
+    },
+  });
+  t.after(() => Reflect.deleteProperty(globalThis, "window"));
+  const failed = assert.rejects(
+    fixtureStep("wait-for-thread-draft", () =>
+      assert.fail("trace never replied"),
+    ),
+    /wait-for-thread-draft: Fixture timed out waiting for wait-for-thread-draft/u,
+  );
+  t.mock.timers.tick(30_000);
+  await failed;
 });
 
 test("a driver failure closes the control request without recording a completed key step", async (t) => {

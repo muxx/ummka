@@ -58,6 +58,8 @@ impl Operation<'_> {
                             .parse::<u64>()
                             .is_ok_and(|ms| ms <= JS_MAX_SAFE_INTEGER)
                 }
+                "{username}" => valid_profile_username(actual),
+                "{email}" => valid_profile_email(actual),
                 "{emoji_name}" => valid_emoji_name(actual),
                 literal => actual == literal,
             };
@@ -97,6 +99,65 @@ fn valid_emoji_name(segment: &str) -> bool {
         }
     }
     length != 0
+}
+
+fn valid_profile_username(segment: &str) -> bool {
+    let name = percent_encoding::percent_decode_str(segment).collect::<Vec<_>>();
+    (1..=64).contains(&name.len())
+        && name != b"."
+        && name != b".."
+        && name
+            .iter()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b':'))
+}
+
+fn valid_profile_email(segment: &str) -> bool {
+    // Accept one mailbox path segment. Leave mailbox syntax and visibility to Mattermost.
+    let Ok(email) = percent_encoding::percent_decode_str(segment).decode_utf8() else {
+        return false;
+    };
+    let Some((local, domain)) = email.rsplit_once('@') else {
+        return false;
+    };
+    if email.len() > 128
+        || local.is_empty()
+        || domain.is_empty()
+        || domain.contains(['?', '#'])
+        || email
+            .chars()
+            .any(|c| c.is_control() || matches!(c, '/' | '\\'))
+    {
+        return false;
+    }
+
+    let bytes = email.as_bytes();
+    let mut has_escape = false;
+    let mut has_bare_percent = false;
+    for (offset, byte) in bytes.iter().enumerate() {
+        if *byte != b'%' {
+            continue;
+        }
+        let in_local = offset < local.len();
+        let Some(escape) = bytes
+            .get(offset..offset + 3)
+            .filter(|triplet| triplet[1..].iter().all(u8::is_ascii_hexdigit))
+        else {
+            has_bare_percent |= in_local;
+            continue;
+        };
+        // Forward the original path. If a later component decodes again, these
+        // literal escapes can only yield letters or digits, never delimiters.
+        if !in_local
+            || !percent_encoding::percent_decode(escape)
+                .next()
+                .is_some_and(|byte| byte.is_ascii_alphanumeric())
+        {
+            return false;
+        }
+        has_escape = true;
+    }
+    // A bare percent could form a new escape next to a decoded letter or digit.
+    !(has_escape && has_bare_percent)
 }
 
 fn has_json_content_type(request: &Request) -> bool {
@@ -316,6 +377,43 @@ impl RestConnection {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exact_profile_routes_accept_one_readable_identifier() {
+        for (field, value, allowed) in [
+            ("username", "local.name_1-2", true),
+            ("username", "remote%3Ahost", true),
+            ("email", "person%2Bchat%40example.test", true),
+            ("email", "person%3F%23%40example.test", true),
+            ("email", "person%2542%40example.test", true),
+            ("email", "person%2542%2539%40example.test", true),
+            ("email", "person%25qa%40example.test", true),
+            ("email", "person%40example%2542.test", false),
+            ("email", "person%40example.test%3Fextra", false),
+            ("email", "person%40example.test%23extra", false),
+            ("email", "person%253F%40example.test", false),
+            ("email", "person%252%2546%40example.test", false),
+            ("email", "person%25252F%40example.test", false),
+            ("email", "person%40example.test%2Fextra", false),
+            ("email", "person%40example.test%252Fextra", false),
+            ("email", "%0Aperson%40example.test", false),
+            ("email", "missing-domain%40", false),
+            ("username", "..", false),
+            ("username", "a%2Fb", false),
+            ("username", "", false),
+            ("username", &"a".repeat(65), false),
+            (
+                "email",
+                &format!("{}%40example.test", "a".repeat(118)),
+                false,
+            ),
+        ] {
+            let path = format!("/api/v4/users/{field}/{value}");
+            let permits = |m| OPERATIONS.iter().any(|op| op.allows(m, &path));
+            assert_eq!(permits(&reqwest::Method::GET), allowed);
+            assert!(!permits(&reqwest::Method::POST));
+        }
+    }
 
     #[test]
     fn personal_category_writes_accept_custom_and_builtin_ids() {

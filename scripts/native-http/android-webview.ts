@@ -29,6 +29,11 @@ export type SwipeAndroid = (
   y2: number,
   duration?: number,
 ) => Promise<void>;
+export type PreviewSwipeAndroid = (
+  x: number,
+  start: number,
+  end: number,
+) => Promise<void>;
 export type RotateAndroid = (
   orientation: "landscape" | "portrait",
 ) => Promise<void>;
@@ -37,6 +42,7 @@ export type OnAndroidInputReady = (
   swipe: SwipeAndroid,
   rotate: RotateAndroid,
   clipboard: ClipboardPolicyStep,
+  swipePreview: PreviewSwipeAndroid,
 ) => void;
 
 export async function launchWebview(
@@ -153,6 +159,23 @@ export async function launchWebview(
         ),
         /Broadcast completed: result=-1/u,
       );
+    },
+    async (x, start, end) => {
+      const motion = async (action: string, y: number) => {
+        await adb(
+          "shell",
+          "input",
+          "motionevent",
+          action,
+          String(x),
+          String(y),
+        );
+      };
+      // input swipe can spend its entire duration delivering DOWN on a slow emulator.
+      await motion("DOWN", start);
+      for (const step of [1, 2, 3, 4])
+        await motion("MOVE", Math.round(start + ((end - start) * step) / 4));
+      await motion("UP", end);
     },
   );
   assert.match(

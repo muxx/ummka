@@ -30,6 +30,35 @@ export function watchWebviewSteps(expire: () => void, timeoutMs: number) {
   };
 }
 
+async function reportMainThread(pid: number) {
+  try {
+    const { stdout } = await exec(
+      "/usr/bin/sample",
+      [String(pid), "1", "10", "-file", "/dev/stdout"],
+      { timeout: 4000 },
+    );
+    const lines = stdout.split("\n");
+    const start = lines.findIndex((line) =>
+      /^ {4}\d+ Thread_.*com\.apple\.main-thread/u.test(line),
+    );
+    assert(start >= 0, "sample contains no main thread");
+    const end = lines.findIndex(
+      (line, index) =>
+        index > start && (!line.trim() || /^ {4}\d+ Thread_/u.test(line)),
+    );
+    console.error(
+      lines
+        .slice(start, Math.min(end < 0 ? lines.length : end, start + 64))
+        .join("\n"),
+    );
+  } catch (error) {
+    console.error(
+      "Could not sample the fixture main thread",
+      error instanceof Error ? error.message : error,
+    );
+  }
+}
+
 async function launch(
   expected: string,
   env = process.env,
@@ -41,13 +70,21 @@ async function launch(
     env,
   });
   let lastWebviewStep = "no browser stage reported";
+  let stalled = false;
   const watchdog = register
-    ? watchWebviewSteps(() => {
-        console.error(
-          `WKWebView made no further progress after ${lastWebviewStep}`,
-        );
-        processRun.child.kill();
-      }, 120_000)
+    ? watchWebviewSteps(
+        () => {
+          stalled = true;
+          console.error(
+            `WKWebView made no further progress after ${lastWebviewStep}`,
+          );
+          const pid = processRun.child.pid;
+          if (pid)
+            void reportMainThread(pid).finally(() => processRun.child.kill());
+          else processRun.child.kill();
+        },
+        expected === "workspace-back" ? 30_000 : 120_000,
+      )
     : undefined;
   try {
     if (register && watchdog) {
@@ -82,6 +119,7 @@ async function launch(
       }, watchdog.completed);
     }
     const { stdout } = await processRun;
+    assert(!stalled, `WKWebView stalled at ${lastWebviewStep}`);
     assert(
       stdout.split(/\r?\n/u).includes(`UMMKA_WEBVIEW_CHECK ${expected}`),
       stdout,
@@ -106,6 +144,7 @@ export async function checkMacWebview(
   dir: string,
   config: string,
   registerKey: KeyDriver,
+  workspaceBackOnly = false,
 ) {
   const keychain = join(dir, "sessions.keychain-db");
   const env = {
@@ -142,7 +181,12 @@ export async function checkMacWebview(
       ...env,
       UMMKA_CHECK_SEED_ACCOUNTS: "1",
     });
-    await launch("PASS", { ...env, UMMKA_CHECK_KEY_INPUT: "1" }, registerKey);
+    await launch(
+      workspaceBackOnly ? "workspace-back" : "PASS",
+      { ...env, UMMKA_CHECK_KEY_INPUT: "1" },
+      registerKey,
+    );
+    if (workspaceBackOnly) return;
     await checkMacSystemLinks(dir, env, postLinks(ports[0]));
     // The ordinary build verifies the actual NSWindow without showing anything on a developer's Mac.
     await launch("browser-anchor", {
