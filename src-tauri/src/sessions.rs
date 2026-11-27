@@ -323,7 +323,11 @@ impl AccountSessions {
     }
 }
 
-#[cfg(any(test, all(feature = "native-http-check", target_os = "android")))]
+#[cfg(any(
+    test,
+    feature = "webview-check",
+    all(feature = "native-http-check", target_os = "android")
+))]
 pub(crate) mod fixture;
 
 #[cfg(test)]

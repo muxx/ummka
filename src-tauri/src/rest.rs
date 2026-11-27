@@ -250,6 +250,11 @@ impl RestConnection {
         self.owner.clone()
     }
 
+    #[cfg(any(target_os = "macos", target_os = "android"))]
+    pub(crate) fn has_account(&self) -> bool {
+        self.account.is_some()
+    }
+
     pub async fn send(&self, request: Request) -> Result<Response, TransportError> {
         self.exchange(request, |response, _| response).await
     }

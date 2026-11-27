@@ -1,7 +1,9 @@
 // The main test window keeps the process alive while the test closes a second window.
 use super::{exchange::ExchangeError, open_rest_connection, open_transport, session, watch_window};
-use crate::rest::RestConnection;
+use crate::{device_document::SelectedDocument, draft_files, rest::RestConnection};
+use objc2_foundation::NSURL;
 use reqwest::{Method, Request, StatusCode};
+use std::{future::ready, num::NonZeroU64, sync::Arc, time::Duration};
 use tauri::{Manager, Runtime, Webview, WebviewUrl, WebviewWindowBuilder};
 
 pub(super) fn run<R: Runtime>(main: &Webview<R>) {
@@ -38,6 +40,29 @@ async fn check<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<(), &'static str
     .map_err(|_| "test window")?;
     let owner: &Webview<R> = window.as_ref();
     watch_window(owner);
+    let signed = draft_files::fixture_connection(owner).await?;
+    let workspace = draft_files::open(owner, signed).map_err(|_| "workspace")?;
+    let draft = draft_files::DraftAddress::new("c".repeat(26), None).map_err(|_| "draft")?;
+    let fixture_path = std::env::current_exe().map_err(|_| "fixture path")?;
+    let selection = SelectedDocument::from_panel_url(
+        NSURL::from_file_path(&fixture_path).ok_or("fixture URL")?,
+    )
+    .await
+    .map_err(|_| "draft source")?;
+    let retained = Arc::downgrade(&selection);
+    let selected = draft_files::add(
+        owner,
+        signed,
+        workspace,
+        &draft,
+        NonZeroU64::MAX,
+        [ready(Ok(selection))],
+    )
+    .await
+    .map_err(|_| "attach draft source")?;
+    if !matches!(selected.as_slice(), [draft_files::AddResult::Added(_)]) {
+        return Err("draft source was not attached");
+    }
     let connection = open_rest_connection(owner.clone(), base.clone(), None)
         .await
         .map_err(|_| "open")?;
@@ -62,6 +87,16 @@ async fn check<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<(), &'static str
     if session(owner, connection).is_ok() {
         return Err("connection still registered");
     }
+    if draft_files::list(owner, signed, workspace, &draft).is_ok() {
+        return Err("draft workspace survived window destruction");
+    }
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while retained.upgrade().is_some() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .map_err(|_| "draft source retained after window destruction")?;
     observe(&control, &control_base, "closed").await
 }
 

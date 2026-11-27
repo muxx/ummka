@@ -20,6 +20,9 @@ mod registry_ipc;
 pub mod rest;
 mod rest_ipc;
 pub mod sessions;
+
+#[cfg(any(target_os = "macos", target_os = "android"))]
+pub use rest_ipc::draft_files;
 mod system_presentation;
 
 use tauri::{App, Builder, Context, Runtime};

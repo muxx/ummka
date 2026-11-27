@@ -2,6 +2,8 @@
 pub(crate) mod attachment_check;
 pub(crate) mod delivery;
 pub(crate) mod directory;
+#[cfg(any(target_os = "macos", target_os = "android"))]
+pub mod draft_files;
 pub(crate) mod drafts;
 mod exchange;
 pub(crate) mod history;
