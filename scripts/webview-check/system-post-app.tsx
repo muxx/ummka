@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { waitFor, within } from "@testing-library/dom";
 import { createRoot } from "react-dom/client";
 import { App } from "../../src/App.tsx";
+import { isAndroid } from "../../src/build-platform.ts";
 import {
   forgetInstallation,
   selectInstallation,
@@ -125,6 +126,14 @@ export async function checkSystemPostApp(
       if (await invoke("pending_channels_link"))
         throw Error("The reply is still pending in the native queue");
     });
+    try {
+      await checkPublishedLinks(host, server);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw Error(`system-post-flow published links: ${detail}`, {
+        cause: error,
+      });
+    }
     await preserveSourceDraft(source, false);
     await selectInstallation(restore);
     await forgetInstallation(server);
@@ -135,4 +144,167 @@ export async function checkSystemPostApp(
     host.removeEventListener("scroll", inspect, true);
     host.remove();
   }
+}
+
+async function checkPublishedLinks(host: HTMLElement, server: string) {
+  const page = within(host);
+  const reply = host.querySelector<HTMLElement>(
+    `[data-post-id="${systemReply}"]`,
+  );
+  const thread = reply?.closest(".thread-feed");
+  if (!reply || !thread) throw Error("Missing the published source reply");
+  const insideReply = within(reply);
+  const threadOffset = thread.scrollTop;
+  const opener = isAndroid
+    ? insideReply.getByRole("button", { name: /^Open table:/ })
+    : undefined;
+  if (opener) {
+    if (insideReply.queryByRole("link", { name: "Open published root" }))
+      throw Error("The clipped table preview exposed a link");
+    opener.click();
+  } else {
+    (
+      await insideReply.findByRole("button", { name: "Show full message" })
+    ).click();
+    await insideReply.findByRole("button", { name: "Collapse message" });
+  }
+  let table = opener
+    ? await page.findByRole("dialog", { name: "Table" })
+    : reply;
+  const body = within(table);
+  async function nativeBack(screen: "notice" | "denied" | "table") {
+    const control = await openNativeRestConnection(server);
+    try {
+      const result = await control.fetchApi(
+        `${control.basePath}/api/v4/system/ping?step=published-link-${screen}-back`,
+      );
+      if (result.status !== 204)
+        throw Error(`Published link Back did not close the ${screen}`);
+    } finally {
+      await control.close();
+    }
+  }
+  const refusal = body.getByRole("link", { name: "Unsupported conversation" });
+  const scroll = isAndroid
+    ? body.getByRole("region", { name: "Table" })
+    : thread;
+  function checkRestored(link: HTMLElement, offset: number) {
+    if (
+      !table.isConnected ||
+      scroll.scrollTop !== offset ||
+      document.activeElement !== link
+    ) {
+      const viewport = scroll.getBoundingClientRect();
+      const bounds = link.getBoundingClientRect();
+      const active = document.activeElement;
+      throw Error(
+        `${link.textContent} was not restored: source=${table.isConnected} scroll=${scroll.scrollTop}/${offset} focus=${active === link} active=${active?.tagName}.${active?.className} linkY=${bounds.top}:${bounds.bottom} feedY=${viewport.top}:${viewport.bottom} inert=${Boolean(link.closest("[inert]"))}`,
+      );
+    }
+  }
+  refusal.scrollIntoView({ block: "center" });
+  refusal.focus({ preventScroll: true });
+  if (scroll.scrollTop <= 0)
+    throw Error("The refusal link was not below the fold");
+  const offset = scroll.scrollTop;
+  refusal.click();
+  await page.findByText("This type of link is not supported yet.");
+  if (opener) {
+    page.getByRole("dialog", { name: "Message link" });
+    await nativeBack("notice");
+  } else {
+    page.getByRole("button", { name: "Don’t open this link" }).click();
+  }
+  await waitFor(() => checkRestored(refusal, offset), {
+    onTimeout: (error) => error,
+  });
+
+  const denied = body.getByRole("link", { name: "Denied published message" });
+  denied.scrollIntoView({ block: "center" });
+  denied.focus({ preventScroll: true });
+  const deniedOffset = scroll.scrollTop;
+  denied.click();
+  const acknowledge = await page.findByRole("button", { name: "OK" });
+  if (opener) await nativeBack("denied");
+  else acknowledge.click();
+  await waitFor(() => checkRestored(denied, deniedOffset), {
+    onTimeout: (error) => error,
+  });
+  if (opener) {
+    await nativeBack("table");
+    await waitFor(() => {
+      if (
+        table.isConnected ||
+        !thread.isConnected ||
+        thread.scrollTop !== threadOffset ||
+        document.activeElement !== opener
+      )
+        throw Error("Back after a link refusal lost the original thread");
+    });
+    opener.click();
+    table = await page.findByRole("dialog", { name: "Table" });
+  }
+  const rootLink = within(table).getByRole("link", {
+    name: "Open published root",
+  });
+  rootLink.scrollIntoView({ block: "center" });
+  rootLink.click();
+  const channelRoot = () =>
+    host.querySelector<HTMLElement>(
+      `.channels-conversation [data-post-id="${systemRoot}"]`,
+    );
+  function shown(row: Element | null) {
+    if (!row || document.activeElement !== row || !document.hasFocus())
+      return false;
+    const viewport = row.closest(".timeline-scroll")?.getBoundingClientRect();
+    const box = row.getBoundingClientRect();
+    return (
+      document.visibilityState === "visible" &&
+      viewport?.width &&
+      viewport.height &&
+      box.width &&
+      box.height &&
+      viewport.right > box.left &&
+      box.right > viewport.left &&
+      viewport.bottom > box.top &&
+      box.bottom > viewport.top
+    );
+  }
+  await waitFor(
+    () => {
+      if (!shown(channelRoot()))
+        throw Error(
+          "The published table link did not focus its signed destination",
+        );
+      if (opener && table.isConnected)
+        throw Error(
+          "The table remained open after the linked destination was shown",
+        );
+    },
+    {
+      timeout: 10_000,
+      onTimeout: (error) => {
+        const active = document.activeElement;
+        return Error(
+          `${error.message} pane=${host.querySelector<HTMLElement>(".channels-panes")?.dataset.page} active=${active?.tagName}.${active?.className} row=${Boolean(channelRoot())} tabIndex=${channelRoot()?.tabIndex} table=${opener ? table.isConnected : "inline"} source=${rootLink.isConnected} status=${host.querySelector(".system-post-notice [role=status]")?.textContent}`,
+        );
+      },
+    },
+  );
+  const destination = channelRoot();
+  if (!destination)
+    throw Error("The linked root was removed before activation");
+  within(destination)
+    .getByRole("link", { name: "Open published reply" })
+    .click();
+  await waitFor(
+    () => {
+      const returned = host.querySelector(`[data-post-id="${systemReply}"]`);
+      if (!shown(returned) || !returned?.closest(".thread-feed"))
+        throw Error("The published feed link did not reopen the signed reply");
+    },
+    { timeout: 10_000 },
+  );
+  if (await invoke("pending_channels_link"))
+    throw Error("A published link entered the operating-system queue");
 }

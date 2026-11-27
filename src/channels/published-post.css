@@ -129,6 +129,24 @@
   }
 }
 
+.published-post a:any-link {
+  color: var(--message-link);
+  text-decoration: none;
+  text-underline-offset: 0.14em;
+}
+.published-post a:is(:hover, :focus-visible),
+.published-post :is(blockquote, h6) a:any-link {
+  text-decoration: underline;
+}
+.published-post a:focus-visible {
+  border-radius: 2px;
+}
+@media (forced-colors: active) {
+  .published-post a:any-link {
+    color: LinkText;
+  }
+}
+
 .post-table {
   max-inline-size: 100%;
   overflow-x: auto;

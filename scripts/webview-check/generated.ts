@@ -26,7 +26,10 @@ import {
 } from "../../vendor/mattermost/index.js";
 import { checkAccountResponses } from "./account.ts";
 import { checkAccountThreadReadState } from "./account-thread-read-state.ts";
-import { checkChannelFormatting } from "./channel-formatting.tsx";
+import {
+  checkChannelFormatting,
+  checkPublishedLinkKey,
+} from "./channel-formatting.tsx";
 import { checkChannelRefresh } from "./channel-refresh.ts";
 import { checkCollectionWindow } from "./collection-window.tsx";
 import { checkDraftWrites } from "./composer-drafts.ts";
@@ -221,6 +224,7 @@ export async function checkGeneratedRequests(ports: string[]) {
         observed("format-times", encodeURIComponent(JSON.stringify(times))),
       );
     }
+    await checkPublishedLinkKey(() => observed("format-link", ""));
     await fixtureStep("generated-root-ping", async () => {
       const atRoot = await new SystemApi(new Configuration(root)).getPing(
         query,

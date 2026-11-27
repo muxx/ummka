@@ -9,7 +9,7 @@ import { checkDocumentPicker } from "./android-document-picker.ts";
 
 type Adb = (...args: string[]) => Promise<string>;
 export type SendAndroidKey = (
-  key: "KEYCODE_TAB" | "KEYCODE_BACK" | "KEYCODE_DPAD_RIGHT",
+  key: "KEYCODE_TAB" | "KEYCODE_BACK" | "KEYCODE_DPAD_RIGHT" | "KEYCODE_ENTER",
 ) => Promise<void>;
 export const clipboardPolicySteps = [
   "true",

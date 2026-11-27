@@ -25,6 +25,7 @@ pub(crate) fn listen(view: PlatformWebview) {
                 "right-down" => (124, NSEventType::KeyDown),
                 "right-up" => (124, NSEventType::KeyUp),
                 "escape" => (53, NSEventType::KeyDown),
+                "enter" => (36, NSEventType::KeyDown),
                 _ => break,
             };
             println!("UMMKA_KEY_PHASE {line} queued");
@@ -65,7 +66,7 @@ pub(crate) fn listen(view: PlatformWebview) {
                     return;
                 }
 
-                // Keep Escape's release in a separate main queue dispatch.
+                // Keep the release in a separate main queue dispatch.
                 println!("UMMKA_KEY_PHASE keyup-scheduled");
                 DispatchQueue::main().exec_async(move || {
                     let main_thread =
@@ -91,10 +92,11 @@ fn key_up(webview: &NSResponder, window_number: NSInteger, key_code: u16) {
 
 fn key_event(kind: NSEventType, window_number: NSInteger, key_code: u16) -> Retained<NSEvent> {
     // Deliver to the fixture's WKWebView even if its NSWindow is not the key window.
-    let key = if key_code == 124 {
-        ns_string!("\u{f703}")
-    } else {
-        ns_string!("\u{1b}")
+    let key = match key_code {
+        124 => ns_string!("\u{f703}"),
+        53 => ns_string!("\u{1b}"),
+        36 => ns_string!("\r"),
+        _ => unreachable!("invalid fixture key"),
     };
     NSEvent::keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_characters_charactersIgnoringModifiers_isARepeat_keyCode(
         kind,

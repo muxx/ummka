@@ -11,7 +11,7 @@ import { checkMacSystemLinks } from "./macos-links.ts";
 const exec = promisify(execFile);
 
 export type SendMacKey = (
-  key: "right-down" | "right-up" | "escape",
+  key: "right-down" | "right-up" | "escape" | "enter",
 ) => Promise<void>;
 type KeyDriver = (send: SendMacKey, completed: (stage: string) => void) => void;
 type InteractiveFixture = {
