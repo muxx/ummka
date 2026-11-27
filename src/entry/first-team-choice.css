@@ -214,3 +214,9 @@
 .entry-window[data-mobile] .entry-team-check {
   min-block-size: 48px;
 }
+.entry-signed-link-opening .entry-team-wait:not(:empty) {
+  min-block-size: 1.3em;
+}
+.entry-window[data-mobile] .entry-signed-link-opening .entry-team-check {
+  inline-size: 100%;
+}

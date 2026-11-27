@@ -43,7 +43,7 @@ function Icon({ name }: { name: keyof typeof symbols }) {
   );
 }
 
-function IssueBanner({
+export function EntryActionIssue({
   title,
   detail,
   code,
@@ -72,6 +72,35 @@ function IssueBanner({
       {retry}
     </div>
   );
+}
+
+export function EntryInstallationPlate({
+  serverUrl,
+  siteName,
+}: {
+  serverUrl: string;
+  siteName?: string;
+}) {
+  const address = new URL(serverUrl);
+  return (
+    <div className="entry-identity entry-link-identity entry-ordinary-identity entry-first-team-identity">
+      <span className="entry-monogram" aria-hidden="true">
+        {siteName ? Array.from(siteName)[0] : <Icon name="world" />}
+      </span>
+      <div>
+        {siteName && <strong className="entry-link-server">{siteName}</strong>}
+        <p className="entry-address" dir="ltr" title={serverUrl}>
+          {address.protocol === "https:" && <Icon name="lock" />}
+          {address.host}
+          <strong>{serverUrl.slice(address.origin.length)}</strong>
+        </p>
+      </div>
+    </div>
+  );
+}
+
+export function EntryRetryMark() {
+  return <Icon name="refresh" />;
 }
 
 export function FirstTeamChoice({
@@ -106,7 +135,6 @@ export function FirstTeamChoice({
   restoreOtherServer: boolean;
 }) {
   const text = firstTeamText[language];
-  const address = new URL(serverUrl);
   const headingId = useId();
   const heading = useRef<HTMLHeadingElement>(null);
   const rows = useRef<HTMLUListElement>(null);
@@ -159,24 +187,10 @@ export function FirstTeamChoice({
 
   return (
     <EntryWindow>
-      <div className="entry-identity entry-link-identity entry-ordinary-identity entry-first-team-identity">
-        <span className="entry-monogram" aria-hidden="true">
-          {siteName ? Array.from(siteName)[0] : <Icon name="world" />}
-        </span>
-        <div>
-          {siteName && (
-            <strong className="entry-link-server">{siteName}</strong>
-          )}
-          <p className="entry-address" dir="ltr" title={serverUrl}>
-            {address.protocol === "https:" && <Icon name="lock" />}
-            {address.host}
-            <strong>{serverUrl.slice(address.origin.length)}</strong>
-          </p>
-        </div>
-      </div>
+      <EntryInstallationPlate serverUrl={serverUrl} siteName={siteName} />
       <div className="entry-first-teams">
         {failure && (
-          <IssueBanner
+          <EntryActionIssue
             title={text.saveFailed(failure.name)}
             detail={retryTeam ? text.saveDetail : text.unavailable}
             code={failure.code}
@@ -197,7 +211,7 @@ export function FirstTeamChoice({
           />
         )}
         {readIssue && !waiting && !failure && (
-          <IssueBanner
+          <EntryActionIssue
             title={text.readFailed}
             detail={
               directoryCode?.endsWith(".http-403")

@@ -736,6 +736,266 @@ test("a saved server with a pending link keeps sign-in and dismissal in the same
   ).toBeNull();
   expect(selected).toBe(base);
 });
+
+function signInForPendingPost(options: Parameters<typeof boot>[0] = {}) {
+  sessions.delete(base);
+  queue.push({ id: "first", href: href(root.id) });
+  vi.mocked(inspectInstallation).mockResolvedValue({
+    serverUrl: base,
+    siteName: "Winter",
+    version: "10.10.1",
+    passwordIdentifiers: [],
+    ssoProviders: ["gitlab"],
+    guestMagicLink: false,
+  });
+  vi.mocked(signInWithBrowser).mockImplementationOnce(
+    async (_url, _provider, started) => {
+      started("signed-link-fixture");
+      sessions.set(base, user);
+      return user;
+    },
+  );
+  return boot(options);
+}
+
+async function openSignInForPost() {
+  const provider = await screen.findByRole("button", {
+    name: "Sign in with GitLab",
+  });
+  fireEvent.click(provider);
+  return screen.findByRole("heading", { name: "Opening the message" });
+}
+
+test("successful linked sign-in shows one stage until the exact post can open", async () => {
+  const { account, targetInfo } = signInForPendingPost({ initialTeam: winter });
+  let release!: (value: typeof targetInfo) => void;
+  account.readPostDestination.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  const heading = await openSignInForPost();
+  await waitFor(() => expect(release).toBeTypeOf("function"));
+  expect(document.activeElement).toBe(heading);
+  expect(screen.getByRole("status").textContent).toBe("Waiting for the server");
+  expect(screen.getByTitle(base).textContent).toBe("example.test");
+  expect(screen.getByText("Winter")).toBeTruthy();
+  expect(document.querySelector(".system-post-notice")).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Choose a team" })).toBeNull();
+  expect(account.readPostAnchor).not.toHaveBeenCalled();
+  expect(acks).toEqual([]);
+  await act(async () => release(targetInfo));
+  await waitFor(() =>
+    expect(acks).toEqual([{ id: "first", row: root.id, thread: false }]),
+  );
+  expect(
+    screen.queryByRole("heading", { name: "Opening the message" }),
+  ).toBeNull();
+});
+
+test("dismissing a signed opening preserves sign-in, discards its late reply and allows the next delivery", async () => {
+  const { account, targetInfo } = signInForPendingPost({ initialTeam: null });
+  let release!: (value: typeof targetInfo) => void;
+  account.readPostDestination.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  await openSignInForPost();
+  await waitFor(() => expect(release).toBeTypeOf("function"));
+  fireEvent.click(screen.getByRole("button", { name: "Don’t open this link" }));
+  await screen.findByRole("heading", { name: "Choose a team" });
+  expect(sessions.get(base)).toBe(user);
+  await act(async () => release(targetInfo));
+  expect(account.readPostAnchor).not.toHaveBeenCalled();
+  await waitFor(() =>
+    expect(acks).toEqual([{ id: "first", row: undefined, thread: false }]),
+  );
+  act(() => enqueue("next", href(reply.id)));
+  await waitFor(() => expect(acks.at(-1)?.row).toBe(reply.id));
+  expect(acks.map(({ id }) => id)).toEqual(["first", "next"]);
+  expect(signInWithBrowser).toHaveBeenCalledOnce();
+});
+
+test("offline signed opening retries the same pending delivery only after the user acts", async () => {
+  let online = true;
+  vi.spyOn(navigator, "onLine", "get").mockImplementation(() => online);
+  const { account, targetInfo } = signInForPendingPost();
+  let release!: (value: typeof targetInfo) => void;
+  account.readPostDestination.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  await openSignInForPost();
+  await waitFor(() => expect(release).toBeTypeOf("function"));
+  online = false;
+  act(() => window.dispatchEvent(new Event("offline")));
+  const retry = await screen.findByRole("button", { name: "Retry" });
+  expect(document.activeElement).toBe(
+    isMobile
+      ? screen.getByRole("heading", { name: "Opening the message" })
+      : retry,
+  );
+  expect(screen.getByRole("alert").textContent).toContain("You’re offline.");
+  expect(
+    screen.getByRole("button", { name: "Don’t open this link" }),
+  ).toBeTruthy();
+  expect(acks).toEqual([]);
+  online = true;
+  act(() => window.dispatchEvent(new Event("online")));
+  await act(async () => release(targetInfo));
+  expect(account.readPostDestination).toHaveBeenCalledTimes(1);
+  expect(account.readPostAnchor).not.toHaveBeenCalled();
+  fireEvent.click(retry);
+  await waitFor(() =>
+    expect(acks).toEqual([{ id: "first", row: root.id, thread: false }]),
+  );
+  expect(
+    account.readPostDestination.mock.calls.map(([postId]) => postId),
+  ).toEqual([root.id, root.id]);
+  expect(signInWithBrowser).toHaveBeenCalledOnce();
+});
+
+test("changing accounts while opening a signed link prevents the old response from opening a post", async () => {
+  const { account, targetInfo } = signInForPendingPost({ initialTeam: null });
+  let release!: (value: typeof targetInfo) => void;
+  let retire!: (cause: unknown) => void;
+  account.readPostDestination.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  account.readSavedProfiles.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, reject) => {
+        retire = reject;
+      }),
+  );
+  await openSignInForPost();
+  await waitFor(() => expect(release).toBeTypeOf("function"));
+  sessions.set(base, otherUser);
+  await act(async () => retire("session_unavailable"));
+  await screen.findByText(/linked message is waiting/);
+  expect(openAccountRestConnection).toHaveBeenLastCalledWith(base, otherUser);
+  await act(async () => release(targetInfo));
+  expect(account.readPostAnchor).not.toHaveBeenCalled();
+  expect(acks).toEqual([]);
+});
+
+test.each(["retry", "decline"] as const)(
+  "a signed link shows a confirmed private join and never writes it again on %s",
+  async (action) => {
+    const { account, targetInfo } = signInForPendingPost();
+    const pending = {
+      ...targetInfo,
+      channel: { ...targetInfo.channel, kind: "P" as const, joined: false },
+    };
+    account.readPostDestination
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce(pending);
+    const loaded = account.readChannelWindow.getMockImplementation();
+    account.readChannelWindow.mockResolvedValue(null);
+    account.refreshChannelHistory.mockRejectedValue(new TypeError("offline"));
+    await openSignInForPost();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Join and open" }),
+    );
+    await screen.findByText("The message couldn’t open");
+    expect(screen.getByRole("alert").textContent).toContain(
+      "You joined the channel.",
+    );
+    expect(acks).toEqual([]);
+    expect(account.changeOwnMembership).toHaveBeenCalledOnce();
+    if (action === "retry") {
+      if (!loaded) throw Error("Missing history fixture");
+      account.readChannelWindow.mockImplementation(loaded);
+      account.refreshChannelHistory.mockResolvedValue(true);
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+      await waitFor(() =>
+        expect(acks).toEqual([{ id: "first", row: root.id, thread: false }]),
+      );
+    } else {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Don’t open this link" }),
+      );
+      await waitFor(() =>
+        expect(acks).toEqual([{ id: "first", row: undefined, thread: false }]),
+      );
+      expect(sessions.get(base)).toBe(user);
+    }
+    expect(account.changeOwnMembership).toHaveBeenCalledOnce();
+  },
+);
+
+test.each([false, true])(
+  "declining a signed DM’s required team chooser releases its scope (%s)",
+  async (queued) => {
+    const { account, targetInfo } = signInForPendingPost({
+      direct: true,
+      initialTeam: null,
+    });
+    const direct = {
+      postId: root.id,
+      channel: {
+        id: design,
+        kind: "D" as const,
+        displayName: "",
+        joined: true,
+      },
+      team: null,
+    };
+    let release!: (value: typeof direct) => void;
+    account.readPostDestination.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    await openSignInForPost();
+    await waitFor(() => expect(release).toBeTypeOf("function"));
+    await act(async () => release(direct));
+    await screen.findByRole("button", { name: "Summer" });
+    expect(acks).toEqual([]);
+    expect(account.readPostAnchor).not.toHaveBeenCalled();
+    let next!: (value: typeof targetInfo) => void;
+    if (queued) {
+      account.readPostDestination.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            next = resolve;
+          }),
+      );
+      act(() => enqueue("next", href(reply.id)));
+    }
+    fireEvent.click(
+      screen.getByRole("button", { name: "Don’t open this link" }),
+    );
+    await waitFor(() =>
+      expect(acks).toEqual([{ id: "first", row: undefined, thread: false }]),
+    );
+    expect(account.selectJoinedTeam).not.toHaveBeenCalled();
+    if (queued) {
+      await waitFor(() => expect(next).toBeTypeOf("function"));
+      expect(screen.queryByRole("button", { name: "Summer" })).toBeNull();
+      await act(async () =>
+        next({
+          ...targetInfo,
+          postId: reply.id,
+          team: { id: winter, kind: "O", displayName: "Winter", joined: true },
+        }),
+      );
+      await waitFor(() => expect(acks.at(-1)?.row).toBe(reply.id));
+      expect(acks.map(({ id }) => id)).toEqual(["first", "next"]);
+    } else {
+      expect(document.querySelector(".entry-first-team-options")).toBeTruthy();
+    }
+  },
+);
 test("cancelled SSO keeps the head until authentication on that installation", async () => {
   sessions.delete(nested);
   queue.push({ id: "1", href: href(root.id, nested) });

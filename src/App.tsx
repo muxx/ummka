@@ -82,6 +82,12 @@ function EntryRoute({
   const needsSignIn =
     typeof launch === "object" && launch.status === "sign_in_required";
   const signInLink = needsSignIn ? request : undefined;
+  const opening =
+    typeof launch === "object" &&
+    launch.status === "ready" &&
+    inbox.opening?.serverUrl === launch.serverUrl
+      ? inbox.opening
+      : undefined;
   const resultInEntry =
     launch === "reading" ||
     (typeof launch === "object" && launch.status !== "ready");
@@ -125,6 +131,8 @@ function EntryRoute({
           language={language}
           onSessionEnded={reopen}
           systemPost={request}
+          opening={opening}
+          linkNotice={opening ? notice : null}
           siteName={identity?.siteName}
           deviceServers={{
             installations: launch.installations,
@@ -173,7 +181,7 @@ function EntryRoute({
   return (
     <>
       {screen()}
-      {notice}
+      {opening ? null : notice}
     </>
   );
 }

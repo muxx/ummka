@@ -244,8 +244,8 @@ export function useMessageNavigation(
       returnFocus.current.focus({ preventScroll: true });
     returnFocus.current = null;
   }, [modal]);
-  const clear = useCallback(() => {
-    external.current?.stop("paused");
+  const clear = useCallback((connection?: "offline") => {
+    external.current?.stop("paused", undefined, connection);
     external.current = null;
     current.current?.abort();
     current.current = null;
@@ -265,7 +265,7 @@ export function useMessageNavigation(
     return () => current.current?.abort();
   }, [connection]);
   useEffect(() => {
-    if (!online && current.current) clear();
+    if (!online && current.current) clear("offline");
   }, [online, clear]);
   async function open(
     source: Source,
@@ -275,7 +275,7 @@ export function useMessageNavigation(
     const system = origin instanceof HTMLElement ? undefined : origin;
     if (!connection || !directory || originSignal.aborted) return;
     if (!online) {
-      system?.request.stop("paused");
+      system?.request.stop("paused", undefined, "offline");
       return;
     }
     if (current.current) {

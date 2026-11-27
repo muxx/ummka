@@ -45,13 +45,21 @@ export type SystemPostRequest = {
   positioned: () => void;
   shown: (postId: string) => void;
   dismiss: () => void;
-  stop: (reason: Stop, membership?: string) => void;
+  stop: (reason: Stop, membership?: string, connection?: "offline") => void;
+};
+export type SignedLinkOpening = {
+  serverUrl: string;
+  status: "waiting" | "offline" | "failed";
+  membership?: string;
+  retry: () => void;
+  dismiss: () => void;
 };
 type State =
   | {
       kind: "switching" | "external" | Stop;
       serverUrl?: string;
       membership?: string;
+      offline?: boolean;
     }
   | (RejectedLink & { id: string; close: () => void })
   | { kind: "target"; request: SystemPostRequest; installations: string[] }
@@ -355,14 +363,19 @@ export function useSystemPermalink(
           dismiss: () => {
             if (!signal.aborted) finish(gate, "dismissed");
           },
-          stop: (kind, membership) => {
+          stop: (kind, membership, connection) => {
             if (signal.aborted || current.current !== gate) return;
             if (kind === "paused" && gate.source) {
               finish(gate, "dismissed");
               return;
             }
             controller.abort();
-            setState({ kind, serverUrl: target.serverUrl, membership });
+            setState({
+              kind,
+              serverUrl: target.serverUrl,
+              membership,
+              offline: connection === "offline",
+            });
           },
         };
         setState({ kind: "target", request, installations });
@@ -484,6 +497,33 @@ export function useSystemPermalink(
       else subscribeAgain.current?.();
     } else if (current.current) void start(current.current, reload);
   }
+  const gate = current.current;
+  const route = gate?.route;
+  const signedOpening =
+    !gate?.source &&
+    route?.status === "sign_in_required" &&
+    route.target.kind === "permalink";
+  const openingStatus =
+    state?.kind === "target" || state?.kind === "switching"
+      ? "waiting"
+      : state?.kind === "paused" && state.offline
+        ? "offline"
+        : state?.kind === "failed"
+          ? "failed"
+          : undefined;
+  const opening: SignedLinkOpening | undefined =
+    signedOpening && openingStatus
+      ? {
+          serverUrl: route.target.serverUrl,
+          status: openingStatus,
+          membership:
+            state?.kind === "failed" || state?.kind === "paused"
+              ? state.membership
+              : undefined,
+          retry: () => retry(false),
+          dismiss,
+        }
+      : undefined;
   const text = copy[language];
   function notice(needsSignIn: boolean, otherServer: boolean) {
     if (!state) return null;
@@ -548,6 +588,7 @@ export function useSystemPermalink(
     connect,
     selectSaved,
     restoreSaved,
+    opening,
   };
 }
 

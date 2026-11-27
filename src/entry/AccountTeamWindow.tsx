@@ -28,6 +28,7 @@ import { FirstTeamChoice, type FirstTeamSelection } from "./FirstTeamChoice";
 import type { EntryLanguage } from "./language";
 import { SavedServerPicker } from "./SavedServerPicker";
 import { ServerSignIn } from "./ServerSignIn";
+import { SignedLinkOpeningWindow } from "./SignedLinkOpeningWindow";
 import { firstTeamText, teamText } from "./team-text";
 import {
   type MessageNavigation,
@@ -37,7 +38,10 @@ import "./connect.css";
 import "./team-window.css";
 
 import { resumeChannelsLink } from "../mattermost/route-channels-link";
-import type { SystemPostRequest } from "./use-system-permalink";
+import type {
+  SignedLinkOpening,
+  SystemPostRequest,
+} from "./use-system-permalink";
 
 type Connection = Awaited<ReturnType<typeof openAccountRestConnection>>;
 type SessionCleanup = { confirmed: boolean; cause: unknown };
@@ -78,6 +82,8 @@ type Props = {
   language: EntryLanguage;
   onSessionEnded: () => void;
   systemPost?: SystemPostRequest;
+  opening?: SignedLinkOpening;
+  linkNotice?: ReactNode;
   children: (workspace: TeamWorkspace) => ReactNode;
 };
 
@@ -118,6 +124,8 @@ function AccountWindow({
   onSessionEnded,
   children,
   systemPost,
+  opening,
+  linkNotice,
   retry,
 }: Props & { retry: () => void }) {
   const text = teamText[language];
@@ -125,7 +133,6 @@ function AccountWindow({
   const [report, setNotice] = useState<Notice>(null);
   const notice = issueOf(report);
   const directoryCode = typeof report === "object" ? report?.code : undefined;
-  const [picker, setPicker] = useState(false);
   const [choosing, setChoosing] = useState(false);
   const [firstChoice, setFirstChoice] = useState<FirstTeamSelection | null>(
     null,
@@ -163,6 +170,7 @@ function AccountWindow({
     };
   }, [installations, restoreSaved, selectSaved, serverUrl]);
   const [needsTeam, setNeedsTeam] = useState<SystemPostRequest | null>(null);
+  const picker = systemPost !== undefined && needsTeam === systemPost;
   const connection = useRef<Connection | null>(null);
   const exiting = useRef<"working" | "cleanup" | null>(null);
   const [cleanup, setCleanup] = useState<SessionCleanup | null>(null);
@@ -192,7 +200,9 @@ function AccountWindow({
   const readVersion = useRef(0);
   const retryRemoval = useRef<(() => void) | null>(null);
   const ended = useEffectEvent(onSessionEnded);
-  const ordinaryChoice = useEffectEvent(() => !systemPost);
+  const canReadAccountName = useEffectEvent(
+    () => !systemPost || opening !== undefined,
+  );
   const read = useCallback(
     async (current: Connection, isCurrent: () => boolean = () => true) => {
       const version = ++readVersion.current;
@@ -283,7 +293,7 @@ function AccountWindow({
         return;
       }
       if (signal.aborted) return;
-      if (!initial?.selectedTeam && ordinaryChoice())
+      if (!initial?.selectedTeam && canReadAccountName())
         void readAccountName(acquired);
       await refresh();
     }
@@ -456,7 +466,6 @@ function AccountWindow({
             const source = selected ?? message?.directory ?? previous;
             return source && { ...source, selectedTeam: team.id };
           });
-          setPicker(false);
           if (systemPost && needsTeam === systemPost && !signal)
             setNeedsTeam(null);
           setNotice((previous) =>
@@ -546,7 +555,6 @@ function AccountWindow({
             request,
             chooseTeam: () => {
               setNeedsTeam(request);
-              setPicker(true);
             },
           },
         );
@@ -569,10 +577,41 @@ function AccountWindow({
     void inspectSystem(systemPost, signal);
     return () => local.abort();
   }, [systemPost, handle, serverUrl, needsTeam]);
+  const openingActive = opening?.status === "waiting";
+  useEffect(() => {
+    if (!openingActive || !systemPost || handle) return;
+    if (!online) systemPost.stop("paused", undefined, "offline");
+    else if (!loading && notice) systemPost.stop("failed");
+  }, [openingActive, systemPost, handle, online, loading, notice]);
   const teams = directory?.teams ?? [];
   const selected = teams.find((team) => team.id === directory?.selectedTeam);
   const hasWorkspace = selected && connection.current && !picker;
-  useWorkspaceBack(Boolean(messageDialog && !hasWorkspace), null);
+  const waitingForLink =
+    opening &&
+    !picker &&
+    (!systemPost || messages.position?.system !== systemPost);
+  useWorkspaceBack(
+    Boolean(messageDialog && (!hasWorkspace || waitingForLink)),
+    null,
+  );
+  if (waitingForLink) {
+    return (
+      <>
+        <SignedLinkOpeningWindow
+          language={language}
+          siteName={siteName}
+          opening={{
+            ...opening,
+            retry: () => {
+              if (!handle) retry();
+              opening.retry();
+            },
+          }}
+        />
+        {messageDialog}
+      </>
+    );
+  }
   if (servers && deviceServers && addServer && !systemPost && !picker) {
     if (servers === "add") {
       return (
@@ -728,6 +767,7 @@ function AccountWindow({
           {text.retry}
         </button>
       )}
+      {opening && linkNotice}
     </EntryWindow>
   );
 }
