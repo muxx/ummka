@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { afterEach, expect, test, vi } from "vitest";
 import {
+  type FileInfo,
   FilesApi,
   PostsApi,
   ResponseError,
@@ -37,6 +38,112 @@ function open() {
     "u".repeat(26),
   );
 }
+
+test("reads only the addressed file and preserves standalone and empty files", async () => {
+  const account = await open();
+  const signal = new AbortController().signal;
+  const fetch = vi.spyOn(FilesApi.prototype, "getFileInfoRaw");
+  for (const [id, linked] of [
+    [fileId, postId],
+    ["b".repeat(26), ""],
+    ["a".repeat(26), undefined],
+  ] as const) {
+    const file = { id, name: "note.txt", size: 0 };
+    fetch.mockClear();
+    fetch.mockResolvedValueOnce({
+      raw: new Response(),
+      value: async () => ({
+        ...file,
+        channelId,
+        postId: linked,
+        userId: "u".repeat(26),
+      }),
+    });
+    expect(await account.readChannelFile(channelId, id, signal)).toStrictEqual({
+      file,
+      postId: linked || null,
+    });
+    expect(fetch).toHaveBeenCalledExactlyOnceWith({ fileId: id }, { signal });
+  }
+});
+
+test("rejects malformed input, mismatched file addresses and invalid metadata", async () => {
+  const account = await open();
+  const fetch = vi.spyOn(FilesApi.prototype, "getFileInfoRaw");
+  await expect(account.readChannelFile("", fileId)).rejects.toThrow();
+  await expect(account.readChannelFile(channelId, "short")).rejects.toThrow();
+  expect(fetch).not.toHaveBeenCalled();
+  for (const invalid of [
+    { id: postId },
+    { channelId: postId },
+    { channelId: undefined },
+    { postId: "invalid" },
+    { size: -1 },
+    { height: Infinity },
+  ]) {
+    fetch.mockResolvedValueOnce({
+      raw: new Response(),
+      value: async () => ({ id: fileId, channelId, ...invalid }),
+    });
+    await expect(
+      account.readChannelFile(channelId, fileId),
+    ).rejects.toBeInstanceOf(TypeError);
+  }
+});
+
+test("discards partial file information and preserves server refusals", async () => {
+  const account = await open();
+  const fetch = vi.spyOn(FilesApi.prototype, "getFileInfoRaw");
+  const cancel = vi.fn();
+  const value = vi.fn().mockResolvedValue({ id: fileId, channelId });
+  fetch.mockResolvedValueOnce({
+    raw: new Response(new ReadableStream({ cancel }), { status: 206 }),
+    value,
+  });
+  await expect(account.readChannelFile(channelId, fileId)).rejects.toThrow(
+    "Incomplete",
+  );
+  expect(cancel).toHaveBeenCalledOnce();
+  expect(value).not.toHaveBeenCalled();
+  for (const status of [403, 404]) {
+    const failure = new ResponseError(new Response(null, { status }));
+    fetch.mockRejectedValueOnce(failure);
+    await expect(account.readChannelFile(channelId, fileId)).rejects.toBe(
+      failure,
+    );
+  }
+});
+
+test.each(["cancel", "close"])(
+  "discards late file details after %s",
+  async (action) => {
+    const account = await open();
+    const controller = new AbortController();
+    let finish!: (info: FileInfo) => void;
+    const decoded = new Promise<FileInfo>((resolve) => {
+      finish = resolve;
+    });
+    const fetch = vi
+      .spyOn(FilesApi.prototype, "getFileInfoRaw")
+      .mockResolvedValueOnce({
+        raw: new Response(),
+        value: () => decoded,
+      });
+    const read = () =>
+      account.readChannelFile(channelId, fileId, controller.signal);
+    const pending = read();
+    if (action === "close") await account.close();
+    else controller.abort(new Error("left files"));
+    finish({ id: fileId, channelId });
+    await expect(pending).rejects.toBe(
+      action === "close" ? "cancelled" : controller.signal.reason,
+    );
+    await expect(read()).rejects.toBe(
+      action === "close" ? "unknown_connection" : controller.signal.reason,
+    );
+    expect(fetch).toHaveBeenCalledOnce();
+  },
+);
 
 test("one account read returns the published post with its address; files identify their post", async () => {
   const account = await open();

@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { openSearchResults } from "../../../src/channels/search-results-session.ts";
 import { accountSearch } from "../../../src/mattermost/account-search.ts";
-import { readFileAnchor } from "../../../src/mattermost/message-anchors.ts";
+import {
+  readChannelFile,
+  readFileAnchor,
+} from "../../../src/mattermost/message-anchors.ts";
 import {
   ChannelsApi,
   Configuration,
@@ -46,6 +49,13 @@ export async function checkFileSearch(
     assert.equal(unattached.id, id);
     assert.equal(unattached.name, name);
     assert.equal(unattached.postId, undefined);
+    const single = await readChannelFile(owner, channel, id);
+    assert.equal(single.postId, null);
+    assert.equal(single.file.name, name);
+    assert.equal(
+      single.file.size,
+      Buffer.byteLength("Synthetic file search fixture."),
+    );
     assert.deepEqual(await readFileAnchor(owner, id), {
       fileId: id,
       channelId: channel,

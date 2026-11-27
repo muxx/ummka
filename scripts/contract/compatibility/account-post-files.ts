@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
+import { readChannelFile } from "../../../src/mattermost/message-anchors.ts";
 import { readPostFiles } from "../../../src/mattermost/post-attachments.ts";
 import {
   ChannelsApi,
   Configuration,
+  FilesApi,
   PostsApi,
   ResponseError,
 } from "../../../vendor/mattermost/index.js";
@@ -74,6 +76,17 @@ export async function checkAccountPostFiles(
   }
   assert.deepEqual(await readPostFiles(reader, channelId, root.id), []);
   await details(reader);
+  const readerFiles = new FilesApi(
+    new Configuration({ basePath, accessToken: readerToken }),
+  );
+  const selected = await readChannelFile(readerFiles, channelId, b);
+  assert.equal(selected.file.id, b);
+  assert.equal(selected.file.size, 2);
+  assert.equal(selected.postId, postId);
+  await assert.rejects(
+    readChannelFile(readerFiles, "x".repeat(26), b),
+    /another channel/,
+  );
   const removal = await new ChannelsApi(ownerConfig).removeUserFromChannel({
     channelId,
     userId: readerId,
@@ -83,6 +96,10 @@ export async function checkAccountPostFiles(
     details(reader),
     (error: unknown) =>
       error instanceof ResponseError && error.response.status === 403,
+  );
+  await assert.rejects(
+    readChannelFile(readerFiles, channelId, b),
+    (e: unknown) => e instanceof ResponseError && e.response.status === 403,
   );
   await details(owner);
   console.log(
