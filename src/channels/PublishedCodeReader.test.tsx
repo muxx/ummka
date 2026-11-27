@@ -164,18 +164,24 @@ test("Android keeps tabs, empty lines, Unicode and HTML and updates focus and po
   expect(
     within(dialog).queryByRole("button", { name: "Copy code" }),
   ).toBeNull();
+  expect(
+    within(dialog).getByText("Copying code is disabled on this device."),
+  ).toBeTruthy();
   const copyEvent = () =>
     new Event("copy", { bubbles: true, cancelable: true });
   expect(region.dispatchEvent(copyEvent())).toBe(false);
 
   policy(true);
+  expect(
+    within(dialog).queryByText("Copying code is disabled on this device."),
+  ).toBeNull();
   expect(region.dispatchEvent(copyEvent())).toBe(true);
   const pending = deferred<void>();
   write.mockReturnValueOnce(pending.promise);
   const button = action();
   fireEvent.click(button);
   fireEvent.click(button);
-  expect(action().textContent).toBe("Copying…");
+  expect(action().getAttribute("aria-disabled")).toBe("true");
   await waitFor(() => expect(write).toHaveBeenCalledExactlyOnceWith(exact));
   expect(within(dialog).getByRole("status").textContent).toBe("");
   await act(async () => pending.resolve(undefined));
@@ -218,7 +224,7 @@ test("Android rechecks immediately before writing and abandons a detached or rev
   const checked = deferred<boolean>();
   environment.read.mockReturnValueOnce(checked.promise);
   fireEvent.click(action());
-  expect(action().textContent).toBe("Copying…");
+  expect(action().getAttribute("aria-disabled")).toBe("true");
   policy(false);
   await act(async () => checked.resolve(true));
   expect(write).not.toHaveBeenCalled();
@@ -226,11 +232,7 @@ test("Android rechecks immediately before writing and abandons a detached or rev
   policy(true);
   environment.read.mockResolvedValueOnce(false);
   fireEvent.click(action());
-  await waitFor(() => {
-    expect(within(code()).getByRole("status").textContent).toBe(
-      "Copying code is restricted.",
-    );
-  });
+  await within(code()).findByText("Copying code is disabled on this device.");
   expect(write).not.toHaveBeenCalled();
   expect(
     within(code()).queryByRole("button", { name: "Copy code" }),
@@ -403,4 +405,40 @@ test("desktop keeps the entire block and copies only that source at 320px", asyn
   await waitFor(() => expect(screen.getByText("Code copied.")).toBeTruthy());
   expect(write).toHaveBeenNthCalledWith(2, "other source");
   expect(environment.read).not.toHaveBeenCalled();
+});
+
+test("copy errors last four seconds and each successful copy starts a new two-second result", async () => {
+  environment.android = false;
+  vi.useFakeTimers();
+  try {
+    render(<Workspace message={first} />);
+    const button = screen.getByRole("button", { name: "Copy code" });
+    const status = screen.getByRole("status");
+    button.focus();
+    expect(fireEvent.pointerDown(button)).toBe(false);
+    write.mockRejectedValueOnce(new DOMException("Denied", "NotAllowedError"));
+    await act(async () => fireEvent.click(button));
+    expect(status.textContent).toBe("Could not copy code.");
+    expect(screen.getByText("Not copied")).toBeTruthy();
+    act(() => vi.advanceTimersByTime(3999));
+    expect(screen.getByText("Not copied")).toBeTruthy();
+    act(() => vi.advanceTimersByTime(1));
+    expect(status.textContent).toBe("");
+
+    await act(async () => fireEvent.click(button));
+    expect(status.textContent).toBe("Code copied.");
+    const firstAnnouncement = status.firstElementChild;
+    act(() => vi.advanceTimersByTime(1999));
+    await act(async () => fireEvent.click(button));
+    expect(status.firstElementChild).not.toBe(firstAnnouncement);
+    act(() => vi.advanceTimersByTime(1999));
+    expect(screen.getByText("Copied")).toBeTruthy();
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.queryByText("Copied")).toBeNull();
+    expect(status.textContent).toBe("");
+    expect(document.activeElement).toBe(button);
+    expect(write.mock.calls).toEqual([[exact], [exact], [exact]]);
+  } finally {
+    vi.useRealTimers();
+  }
 });
