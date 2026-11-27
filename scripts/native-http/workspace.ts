@@ -8,6 +8,7 @@ import {
 const team = "Team0123456789012345678901";
 const town = "c".repeat(26);
 const townFile = "h".repeat(26);
+const replyFile = "g".repeat(26);
 const design = "d".repeat(26);
 const member = "f".repeat(26);
 
@@ -56,6 +57,21 @@ function postList(
         type: "",
         hashtags: "",
         is_pinned: false,
+        ...(channelId === town &&
+          userId === member &&
+          id === townRoot && {
+            file_ids: [townFile],
+            metadata: {
+              files: [
+                {
+                  id: townFile,
+                  name: "window-fixture.pdf",
+                  size: 42,
+                  mime_type: "application/pdf",
+                },
+              ],
+            },
+          }),
       },
     },
     prev_post_id: "",
@@ -166,6 +182,17 @@ export async function respondToWorkspace(
     create_at: 561,
     update_at: 561,
     message: "Reply visible only inside Town’s thread",
+    file_ids: [replyFile],
+    metadata: {
+      files: [
+        {
+          id: replyFile,
+          name: "reply-photo.png",
+          size: 0,
+          mime_type: "image/png",
+        },
+      ],
+    },
   };
   const destination = {
     channel_id: town,

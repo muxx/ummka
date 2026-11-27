@@ -39,6 +39,10 @@ import { channelDirectoryCopy } from "./JoinedChannelDirectory.tsx";
 import { MentionMark, MentionsPane, mentionCopy } from "./MentionsPane.tsx";
 import { CollectionMark, PostCollectionPane } from "./PostCollectionPane.tsx";
 import { PrivateChannelIcon } from "./PrivateChannelIcon.tsx";
+import {
+  AttachmentWindow,
+  useAttachmentWindow,
+} from "./PublishedAttachments.tsx";
 import type { ReactionThread } from "./submit-channel-reaction.ts";
 import { TeamChannelDirectory } from "./TeamChannelDirectory.tsx";
 import { ThreadPane } from "./ThreadPane.tsx";
@@ -793,8 +797,32 @@ export function ChannelsWorkspace({
     if (visibleSearchPanel) return search.back;
     return activeThread ? closeThread : null;
   }
+  const channelTitle = channel
+    ? selectedLabel || channel.displayName || text.nav
+    : text.choose;
+  const attachments = useAttachmentWindow(
+    workspace,
+    JSON.stringify([
+      connection.rid,
+      team.id,
+      chosen,
+      activeThread?.id,
+      position?.request.requestId,
+      page,
+      directoryOpen,
+      historyDenied,
+      collections.view?.key,
+      Boolean(search.panel),
+    ]),
+    channel && (channel.kind === "O" || channel.kind === "P")
+      ? `# ${channelTitle}`
+      : channelTitle,
+  );
   useWorkspaceBack(
-    accountOpen || notificationRoom !== null || workspace.messages.dialogOpen,
+    accountOpen ||
+      notificationRoom !== null ||
+      workspace.messages.dialogOpen ||
+      Boolean(attachments.selected),
     workspaceBack(),
   );
   useEffect(() => {
@@ -907,9 +935,6 @@ export function ChannelsWorkspace({
     timeline.status,
     confirmedThread,
   ]);
-  const channelTitle = channel
-    ? selectedLabel || channel.displayName || text.nav
-    : text.choose;
   function composer(rootId?: string, reader?: ReactionThread) {
     if (historyDenied) return null;
     if (access !== "writable" || !channel) {
@@ -950,7 +975,7 @@ export function ChannelsWorkspace({
       />
     );
   }
-  return (
+  const content = (
     <div ref={host} className="workspace-window">
       <ChannelsFrame
         labels={{
@@ -1353,4 +1378,5 @@ export function ChannelsWorkspace({
       )}
     </div>
   );
+  return <AttachmentWindow value={attachments}>{content}</AttachmentWindow>;
 }

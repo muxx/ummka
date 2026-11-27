@@ -5,6 +5,10 @@ import { App } from "../../src/App.tsx";
 import { openNativeRestConnection } from "../../src/mattermost/native-rest.ts";
 import { checkAvailableDirectoryWindow } from "./available-directory-window.ts";
 import { checkChannelNotificationsWindow } from "./channel-notifications-window.ts";
+import {
+  verifyAttachmentReturn,
+  verifySearchAttachment,
+} from "./published-attachments.ts";
 
 export function findThreadDraft(host: HTMLElement) {
   const ui = within(host);
@@ -57,8 +61,22 @@ export async function verifyWorkspaceBack(
       );
   }
   try {
-    const { field: reply } = await findThreadDraft(host);
+    const { field: reply, thread } = await findThreadDraft(host);
     flushSync(() => fireEvent.input(reply, { target: { value: threadText } }));
+    const replyRow = thread
+      .getByText("Reply visible only inside Town’s thread")
+      .closest("article");
+    if (!replyRow) throw Error("Missing thread attachment row");
+    await verifyAttachmentReturn(replyRow, "reply-photo.png", "0 B", () =>
+      press("attachment-reply"),
+    );
+    if (
+      !reply.isConnected ||
+      reply.value !== threadText ||
+      !channel.isConnected ||
+      channel.value !== channelText
+    )
+      throw Error("Returning from the reply attachment lost a composer draft");
     const palette = ui.getByRole("button", { name: "Appearance" });
     flushSync(() => fireEvent.click(palette));
     const appearance = within(
@@ -241,6 +259,24 @@ export async function checkDesktopBack(port: string) {
     const opener = within(town).getByRole("button", { name: /Open thread/ });
     flushSync(() => fireEvent.click(opener));
     await verifyWorkspaceBack(host, port, opener, channel);
+    flushSync(() =>
+      fireEvent.click(ui.getByRole("button", { name: "Search" })),
+    );
+    const query = within(
+      await ui.findByRole("dialog", { name: "What are you looking for?" }),
+    );
+    flushSync(() =>
+      fireEvent.input(query.getByRole("searchbox"), {
+        target: { value: "window fixture" },
+      }),
+    );
+    flushSync(() =>
+      fireEvent.click(query.getByRole("button", { name: "Search" })),
+    );
+    const results = await verifySearchAttachment(host, port, channel);
+    flushSync(() =>
+      fireEvent.click(results.getByRole("button", { name: "Close search" })),
+    );
     await checkAvailableDirectoryWindow(host, port);
   } finally {
     root.unmount();

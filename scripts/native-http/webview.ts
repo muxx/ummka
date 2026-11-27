@@ -80,6 +80,7 @@ export function webviewServers(
     "collection-back-mentions-list",
   ];
   const backSteps = [
+    "attachment-reply",
     "appearance",
     "dialog",
     "results",
@@ -87,6 +88,7 @@ export function webviewServers(
     "reopened",
     "notifications",
     "directory",
+    "attachment-search",
     "directory-dialog",
   ];
   let stepIndex = 0;
@@ -1813,6 +1815,11 @@ export function webviewServers(
           `live-posts-${"c".repeat(26)}`,
           "live-roles",
           "live-search-posts",
+          "live-search-posts",
+          "live-search-files",
+          "live-search-file-anchor",
+          "live-search-destination",
+          "live-search-post-anchor",
           "live-window-thread",
           "live-window-thread",
           "live-window-thread",
