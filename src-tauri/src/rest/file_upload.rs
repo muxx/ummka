@@ -39,7 +39,7 @@ pub enum UploadProgress {
     Processing(u64),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UploadedFile {
     pub id: String,
     pub name: String,
@@ -65,7 +65,7 @@ impl fmt::Display for SourceError {
 }
 impl std::error::Error for SourceError {}
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FileUploadError {
     Transport(TransportError),
     InvalidFile,

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { openRecipientConversation } from "../../../src/mattermost/recipient-conversation.ts";
 import {
   type ApiResponse,
   type Channel,
@@ -15,7 +16,8 @@ export async function checkConversationCreation(
   version: string,
 ) {
   assert.equal(new Set([self, ...peers]).size, 9);
-  const api = new ChannelsApi(new Configuration({ basePath, accessToken }));
+  const signed = new Configuration({ basePath, accessToken });
+  const api = new ChannelsApi(signed);
   const anonymous = new ChannelsApi(new Configuration({ basePath }));
   const direct = (requestBody: string[]) =>
     api.createDirectChannelRaw({ requestBody });
@@ -69,6 +71,18 @@ export async function checkConversationCreation(
     maximumId,
   );
 
+  for (const [recipients, channelId, channelKind] of [
+    [[self], selfId, "D"],
+    [[first], directId, "D"],
+    [[first, second], groupId, "G"],
+    [[second, first], groupId, "G"],
+    [maximum.slice(1), maximumId, "G"],
+  ] as const) {
+    assert.deepEqual(
+      await openRecipientConversation(signed, self, recipients),
+      { kind: "applied", channelId, channelKind },
+    );
+  }
   const rejects = (status: number) => (e: unknown) =>
     e instanceof ResponseError && e.response.status === status;
   await assert.rejects(direct([first, second]), rejects(403));
@@ -84,7 +98,13 @@ export async function checkConversationCreation(
     anonymous.createGroupChannel({ requestBody: [first, second] }),
     rejects(401),
   );
+  assert.deepEqual(
+    await openRecipientConversation(new Configuration({ basePath }), self, [
+      first,
+    ]),
+    { kind: "unauthorized" },
+  );
   console.log(
-    `Mattermost ${version} verified personal and group conversations, exact rosters, re-entry, self, the 3..8 limit, and refused access.`,
+    `Mattermost ${version} verified personal and group conversations, exact rosters, account receipts after reordered selection, self, the 3..8 limit, and refused access.`,
   );
 }
