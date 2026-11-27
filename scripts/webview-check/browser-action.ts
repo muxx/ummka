@@ -61,6 +61,18 @@ export async function checkBrowserAction(port: string, controlPort: string) {
     return;
   }
 
+  await fixtureStep("android-browser-sign-in", () =>
+    checkAndroidBrowserSignIn(server),
+  );
+  await checkBrowserApp(server, controlPort);
+  await fixtureStep("verify-browser-sign-out", async () => {
+    if ((await getCurrentAccountId(server)) !== null)
+      throw Error("explicit device sign-out retained the account");
+    await forgetInstallation(server);
+  });
+}
+
+async function checkAndroidBrowserSignIn(server: string) {
   await connectInstallation(server);
   await waitForAppForeground();
   let googleId: string | undefined;
@@ -95,9 +107,5 @@ export async function checkBrowserAction(port: string, controlPort: string) {
     throw Error("browser account was not restored after system sign-in");
   }
   await forgetLocalAccount(server, user);
-  await forgetInstallation(server);
-  await checkBrowserApp(server, controlPort);
-  if ((await getCurrentAccountId(server)) !== null)
-    throw Error("explicit device sign-out retained the account");
   await forgetInstallation(server);
 }
