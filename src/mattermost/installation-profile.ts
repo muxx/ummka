@@ -51,7 +51,7 @@ export function selectStringFields<K extends string>(
   return values;
 }
 
-export async function readStringFields<K extends string>(
+async function readStringFields<K extends string>(
   request: Promise<ApiResponse<void>>,
   fields: readonly K[],
 ) {

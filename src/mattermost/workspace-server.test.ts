@@ -25,6 +25,7 @@ test("projects display and mention policy from the old config and license endpoi
           PostEditTimeLimit: "9007199254740993",
           EnableCrossTeamSearch: "true",
           EnableFileAttachments: "true",
+          MaxFileSize: "9007199254740993",
           ExperimentalViewArchivedChannels: "false",
           RestrictDirectMessage: "team",
           FeatureFlagEnableSharedChannelsDMs: "true",
@@ -58,6 +59,7 @@ test("projects display and mention policy from the old config and license endpoi
     sharedChannelDMs: true,
     dmRecipientScope: "team",
     search: { allTeams: true, files: true, archivedChannels: false },
+    fileUpload: { kind: "enabled", maxFileBytes: "9007199254740993" },
     uniqueReactionLimit: "-2",
     postEditLimitSeconds: "9007199254740993",
     mentions: {
@@ -68,6 +70,93 @@ test("projects display and mention policy from the old config and license endpoi
     },
   });
 });
+
+test("publishes a zero limit, distinguishes disabled uploads and isolates invalid upload settings", async () => {
+  let settings: Record<string, unknown> = {
+    EnableFileAttachments: "true",
+    EnableFileSearch: "false",
+    MaxFileSize: "0",
+    CollapsedThreads: "always_on",
+  };
+  const config = new Configuration({
+    basePath,
+    fetchApi: async (url) =>
+      Response.json(String(url).includes("/config/") ? settings : {}),
+  });
+  const initial = await loadWorkspaceServerPolicy(config);
+  expect(initial.fileUpload).toEqual({ kind: "enabled", maxFileBytes: "0" });
+  expect(initial.search?.files).toBe(false);
+
+  for (const bad of [
+    undefined,
+    null,
+    5,
+    "",
+    "05",
+    "-1",
+    "-0",
+    "1.5",
+    "1e5",
+    "1\n",
+    "9223372036854775808",
+  ]) {
+    settings = { ...settings, MaxFileSize: bad };
+    const policy = await loadWorkspaceServerPolicy(config);
+    expect(policy.fileUpload).toBeUndefined();
+    expect(policy.collapsedThreads).toBe("always_on");
+    expect(policy.search?.files).toBe(false);
+  }
+  settings = { ...settings, EnableFileAttachments: "false" };
+  expect((await loadWorkspaceServerPolicy(config)).fileUpload).toEqual({
+    kind: "disabled",
+  });
+  settings = { ...settings, EnableFileAttachments: false, MaxFileSize: "30" };
+  expect((await loadWorkspaceServerPolicy(config)).fileUpload).toBeUndefined();
+  settings = { ...settings, EnableFileAttachments: "true" };
+  expect((await loadWorkspaceServerPolicy(config)).fileUpload).toEqual({
+    kind: "enabled",
+    maxFileBytes: "30",
+  });
+});
+
+test.each([
+  ["true", "true", "false", "disabled"],
+  ["true", "true", "true", "enabled"],
+  ["true", "true", undefined, "enabled"],
+  ["true", "true", "", "enabled"],
+  ["true", "true", "unexpected", "disabled"],
+  ["true", "false", "false", "enabled"],
+  ["true", undefined, "false", "enabled"],
+  ["false", "true", "false", "enabled"],
+  [undefined, "true", "false", "enabled"],
+  [undefined, undefined, "false", "enabled"],
+] as const)(
+  "matches Mobile for license %s, Compliance %s and upload flag %s independently of desktop",
+  async (IsLicensed, Compliance, EnableMobileFileUpload, kind) => {
+    const config = new Configuration({
+      basePath,
+      fetchApi: async (url) =>
+        Response.json(
+          String(url).includes("/config/")
+            ? {
+                EnableFileAttachments: "true",
+                EnableMobileFileUpload,
+                MaxFileSize: "256",
+                EnableCompliance: "false",
+              }
+            : { IsLicensed, Compliance },
+        ),
+    });
+    expect(
+      (await loadWorkspaceServerPolicy(config, undefined, "android"))
+        .fileUpload,
+    ).toEqual(kind === "disabled" ? { kind } : { kind, maxFileBytes: "256" });
+    expect(
+      (await loadWorkspaceServerPolicy(config, undefined, "desktop"))
+        .fileUpload,
+    ).toEqual({ kind: "enabled", maxFileBytes: "256" });
+  },
+);
 
 test("invalid fields and cancellation both release the outstanding sibling", async () => {
   const pending: AbortSignal[] = [];

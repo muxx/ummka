@@ -4,17 +4,20 @@ import {
 } from "../../vendor/mattermost/index.js";
 import {
   readClientObject,
-  readStringFields,
   selectStringFields,
 } from "./installation-profile.ts";
 import { readDirectory } from "./navigation-data.ts";
-import { workspaceServerPolicy } from "./workspace-preferences.ts";
+import {
+  type WorkspacePolicyPlatform,
+  workspaceServerPolicy,
+} from "./workspace-preferences.ts";
 
 export type AccountEventRoute = "sameInstallation" | "unsupported";
 
 export function loadWorkspaceConfiguration(
   config: Configuration,
   signal?: AbortSignal,
+  platform: WorkspacePolicyPlatform = "desktop",
 ) {
   return readDirectory(signal, async (request) => {
     const api = new SystemApi(config);
@@ -34,7 +37,6 @@ export function loadWorkspaceConfiguration(
           "CollapsedThreads",
           "RestrictDirectMessage",
           "EnableCrossTeamSearch",
-          "EnableFileAttachments",
           "EnableFileSearch",
           "ExperimentalViewArchivedChannels",
           "FeatureFlagEnableSharedChannelsDMs",
@@ -43,7 +45,18 @@ export function loadWorkspaceConfiguration(
           "LockTeammateNameDisplay",
         ] as const);
         return {
-          policy,
+          policy: {
+            ...policy,
+            EnableFileAttachments:
+              typeof data.EnableFileAttachments === "string"
+                ? data.EnableFileAttachments
+                : undefined,
+            EnableMobileFileUpload: data.EnableMobileFileUpload,
+            MaxFileSize:
+              typeof data.MaxFileSize === "string"
+                ? data.MaxFileSize
+                : undefined,
+          },
           eventAddress: {
             url:
               typeof data.WebsocketURL === "string" ? data.WebsocketURL : null,
@@ -54,16 +67,22 @@ export function loadWorkspaceConfiguration(
           },
         };
       }),
-      request((options) =>
-        readStringFields(api.getClientLicenseRaw(format, options), [
-          "IsLicensed",
-          "LDAPGroups",
-          "LockTeammateNameDisplay",
-        ] as const),
-      ),
+      request(async (options) => {
+        const data = await readClientObject(
+          api.getClientLicenseRaw(format, options),
+        );
+        return {
+          ...selectStringFields(data, [
+            "IsLicensed",
+            "LDAPGroups",
+            "LockTeammateNameDisplay",
+          ] as const),
+          Compliance: data.Compliance,
+        };
+      }),
     ]);
     return {
-      server: workspaceServerPolicy(settings.policy, license),
+      server: workspaceServerPolicy(settings.policy, license, platform),
       eventAddress: settings.eventAddress,
     };
   });
@@ -72,6 +91,7 @@ export function loadWorkspaceConfiguration(
 export async function loadWorkspaceServerPolicy(
   config: Configuration,
   signal?: AbortSignal,
+  platform?: WorkspacePolicyPlatform,
 ) {
-  return (await loadWorkspaceConfiguration(config, signal)).server;
+  return (await loadWorkspaceConfiguration(config, signal, platform)).server;
 }

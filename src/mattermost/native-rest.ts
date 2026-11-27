@@ -7,6 +7,7 @@ import {
   FilesApi,
   PostsApi,
 } from "../../vendor/mattermost/index.js";
+import { isAndroid } from "../build-platform.ts";
 import { accountChannelReadState } from "./account-channel-read-state.ts";
 import { readCustomEmoji } from "./account-custom-emoji.ts";
 import { accountDelivery } from "./account-delivery.ts";
@@ -92,6 +93,7 @@ import {
 
 import {
   type SavedWorkspaceSettings,
+  type ServerPolicy,
   sidebarPreferences,
 } from "./workspace-preferences.ts";
 import {
@@ -192,6 +194,7 @@ export async function openAccountRestConnection(
   const commands = new CommandsApi(config);
   const search = accountSearch(config, readWhileOpen);
   let latestPolicyRead: symbol | undefined;
+  let liveFileUpload: ServerPolicy["fileUpload"];
   return {
     ...connection,
     ...accountFollowedThreads(config, readWhileOpen),
@@ -426,7 +429,15 @@ export async function openAccountRestConnection(
       );
     },
     readWorkspaceSettings() {
-      return readWhileOpen(readWorkspaceSettings);
+      return readWhileOpen(async (): Promise<SavedWorkspaceSettings> => {
+        const saved = await readWorkspaceSettings();
+        return saved.server && liveFileUpload
+          ? {
+              ...saved,
+              server: { ...saved.server, fileUpload: liveFileUpload },
+            }
+          : saved;
+      });
     },
     async refreshWorkspaceServerPolicy(
       signal?: AbortSignal,
@@ -435,27 +446,43 @@ export async function openAccountRestConnection(
       signal?.throwIfAborted();
       const read = Symbol();
       latestPolicyRead = read;
-      const route = await readWhileOpen(
+      const published = await readWhileOpen(
         () =>
           refreshNavigation(
             signal,
             () => invoke<number>("begin_workspace_policy_load", { rid }),
-            () => loadWorkspaceConfiguration(config, signal),
-            (load, { server, eventAddress }) =>
-              invoke<AccountEventRoute | null>("store_workspace_policy", {
-                rid,
-                load,
-                server,
-                eventAddress,
-              }),
+            () =>
+              loadWorkspaceConfiguration(
+                config,
+                signal,
+                isAndroid ? "android" : "desktop",
+              ),
+            async (
+              load,
+              { server: { fileUpload, ...server }, eventAddress },
+            ) => {
+              // Upload uses live settings. Keep the saved JSON readable by older clients.
+              const route = await invoke<AccountEventRoute | null>(
+                "store_workspace_policy",
+                {
+                  rid,
+                  load,
+                  server,
+                  eventAddress,
+                },
+              );
+              return route && { route, fileUpload };
+            },
             (load) =>
               invoke<void>("cancel_workspace_policy_load", { rid, load }),
           ),
         signal,
       );
-      if (!route) return false;
-      if (!retired && latestPolicyRead === read && !signal?.aborted)
-        onEventRoute?.(route);
+      if (!published) return false;
+      if (!retired && latestPolicyRead === read && !signal?.aborted) {
+        liveFileUpload = published.fileUpload;
+        onEventRoute?.(published.route);
+      }
       return true;
     },
     readTeamSidebar(teamId: string) {

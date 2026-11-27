@@ -9,6 +9,7 @@ import {
   type Reaction,
   ReactionsApi,
 } from "../../vendor/mattermost/index.js";
+import { channelUploadCapability } from "../channels/channel-upload-policy.ts";
 import * as emoji from "./account-custom-emoji.ts";
 import * as roles from "./channel-permissions.ts";
 import { channelProfile } from "./channel-profiles.ts";
@@ -27,7 +28,9 @@ import * as workspace from "./workspace-server.ts";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const ipc = vi.mocked(invoke);
-beforeEach(() => ipc.mockReset());
+beforeEach(() => {
+  ipc.mockReset();
+});
 
 const localQuery = {
   kind: "latest",
@@ -1375,6 +1378,135 @@ test("a closed account drops an in-flight channel identity", async () => {
     call.mockRestore();
   }
 });
+test("uses the signed account's mobile upload policy on phone and tablet widths without saving it", async () => {
+  const stored = {
+    collapsedThreads: "always_on",
+    separateUnreads: false,
+    nameFormat: "username",
+    lockNameFormat: false,
+    userStatusesEnabled: true,
+    search: { allTeams: false, files: false, archivedChannels: true },
+    sharedChannelDMs: false,
+  } as const;
+  const eventAddress = { url: "", securePort: "443" };
+  const url = "https://chat.example.test/prefix";
+  const user = "u".repeat(26);
+  const peer = "p".repeat(26);
+  let sequence = 50;
+  let limit: string | undefined;
+  let mobile: string;
+  const bodies = new Map<number, ArrayBuffer>();
+  const requests: string[] = [];
+  ipc.mockImplementation(async (command, input) => {
+    const args = input as Record<string, unknown> | undefined;
+    switch (command) {
+      case "open_rest_connection":
+        expect(args?.basePath).toBe(url);
+        expect([user, peer]).toContain(args?.userId);
+        return args?.userId === user ? 41 : 42;
+      case "begin_workspace_policy_load":
+        expect(args).toEqual({ rid: 41 });
+        return 10;
+      case "prepare_rest_request":
+        expect(args).toEqual({ connection: 41 });
+        return ++sequence;
+      case "send_rest_request": {
+        expect(args?.connection).toBe(41);
+        expect(args?.method).toBe("GET");
+        const request = String(args?.url);
+        requests.push(request);
+        const configuration =
+          request === `${url}/api/v4/config/client?format=old`;
+        if (!configuration)
+          expect(request).toBe(`${url}/api/v4/license/client?format=old`);
+        const response = configuration
+          ? {
+              CollapsedThreads: "always_on",
+              EnableFileAttachments: "true",
+              EnableFileSearch: "false",
+              EnableMobileFileUpload: mobile,
+              MaxFileSize: limit,
+              WebsocketURL: "",
+              WebsocketSecurePort: "443",
+            }
+          : { IsLicensed: "true", Compliance: "true" };
+        const bytes = new TextEncoder().encode(JSON.stringify(response));
+        const body = new ArrayBuffer(bytes.length);
+        new Uint8Array(body).set(bytes);
+        bodies.set(Number(args?.exchange), body);
+        return { status: 200, headers: [], hasBody: true };
+      }
+      case "read_rest_body": {
+        const id = Number(args?.exchange);
+        const body = bodies.get(id);
+        bodies.delete(id);
+        return body ?? new ArrayBuffer(0);
+      }
+      case "store_workspace_policy":
+        expect(args).toEqual({
+          rid: 41,
+          load: 10,
+          server: stored,
+          eventAddress,
+        });
+        return "sameInstallation";
+      case "read_workspace_settings":
+        return { server: stored, preferences: null };
+      case "close_rest_connection":
+        return undefined;
+      default:
+        throw Error(`Unexpected IPC command ${command}`);
+    }
+  });
+  const account = await openAccountRestConnection(url, user);
+  const other = await openAccountRestConnection(url, peer);
+  const widthBefore = window.innerWidth;
+  const platform = process.env.TAURI_ENV_PLATFORM;
+  const channel = { kind: "P", roles: "channel_user" };
+  const check = roles.savedChannelPermissions(
+    {
+      systemRoles: "",
+      definitions: [{ name: "channel_user", permissions: ["upload_file"] }],
+    },
+    "",
+  );
+  try {
+    expect((await account.readWorkspaceSettings()).server).toEqual(stored);
+    for (const [width, flag, bytes] of [
+      [360, "false", "0"],
+      [1200, "false", "9007199254740993"],
+      [1200, "true", "9007199254740993"],
+      [1200, "true", undefined],
+    ] as const) {
+      window.innerWidth = width;
+      mobile = flag;
+      limit = bytes;
+      await expect(account.refreshWorkspaceServerPolicy()).resolves.toBe(true);
+      const { server } = await account.readWorkspaceSettings();
+      const kind = !bytes
+        ? "unknown"
+        : platform === "android" && flag === "false"
+          ? "denied"
+          : "allowed";
+      const capability = channelUploadCapability(server, check, channel);
+      expect(capability.kind).toBe(kind);
+      if (capability.kind === "allowed")
+        expect(capability.maxFileBytes).toBe(bytes);
+      expect((await other.readWorkspaceSettings()).server).toEqual(stored);
+    }
+    for (const path of ["config", "license"])
+      expect(
+        requests.filter(
+          (request) => request === `${url}/api/v4/${path}/client?format=old`,
+        ),
+      ).toHaveLength(4);
+  } finally {
+    window.innerWidth = widthBefore;
+    await account.close();
+    await other.close();
+  }
+});
+
 test.each(["newer", "abort", "close", "storage", "superseded"] as const)(
   "only delivers an accepted event route to the current account read (%s)",
   async (outcome) => {
@@ -1392,6 +1524,7 @@ test.each(["newer", "abort", "close", "storage", "superseded"] as const)(
           nameFormat: "username",
           lockNameFormat: false,
           userStatusesEnabled: true,
+          fileUpload: { kind: "enabled", maxFileBytes: "16" },
         },
         eventAddress: { url: "", securePort: "443" },
       });
@@ -1420,6 +1553,17 @@ test.each(["newer", "abort", "close", "storage", "superseded"] as const)(
         }),
       );
       if (outcome === "newer") {
+        config.mockResolvedValueOnce({
+          server: {
+            collapsedThreads: "disabled",
+            separateUnreads: false,
+            nameFormat: "username",
+            lockNameFormat: false,
+            userStatusesEnabled: true,
+            fileUpload: { kind: "disabled" },
+          },
+          eventAddress: { url: "", securePort: "443" },
+        });
         ipc.mockResolvedValueOnce(11).mockResolvedValueOnce("unsupported");
         await expect(
           account.refreshWorkspaceServerPolicy(undefined, consumer),
@@ -1442,6 +1586,21 @@ test.each(["newer", "abort", "close", "storage", "superseded"] as const)(
       expect(consumer.mock.calls).toEqual(
         outcome === "newer" ? [["unsupported"]] : [],
       );
+      if (outcome !== "close") {
+        ipc.mockResolvedValueOnce({
+          preferences: null,
+          server: {
+            collapsedThreads: "disabled",
+            separateUnreads: false,
+            nameFormat: "username",
+            lockNameFormat: false,
+            userStatusesEnabled: true,
+          },
+        });
+        expect(
+          (await account.readWorkspaceSettings()).server?.fileUpload,
+        ).toEqual(outcome === "newer" ? { kind: "disabled" } : undefined);
+      }
     } finally {
       config.mockRestore();
     }

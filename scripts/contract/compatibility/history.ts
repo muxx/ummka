@@ -49,6 +49,7 @@ import {
   checkChannelNotifications,
   checkPersonalNotificationUpdate,
 } from "./channel-notifications.ts";
+import { checkChannelUploadPolicy } from "./channel-upload-policy.ts";
 import { checkCollectionActions } from "./collection-actions.ts";
 import { checkCommands } from "./commands.ts";
 import { checkConversationCreation } from "./conversation-creation.ts";
@@ -1370,6 +1371,14 @@ await checkTeamChannelSearch(
   version,
 );
 await checkSearchScopePolicy(base, token, readerToken, version);
+await checkChannelUploadPolicy(
+  base,
+  token,
+  { id: reader.id, token: readerToken },
+  team.id,
+  { P: closed.id, D: knownDirect.id, G: knownGroup.id },
+  version,
+);
 await checkEventConfiguration(base, token, readerToken, version);
 await checkPostEditWindow(base, token, readerToken);
 await checkMobileFilePolicy(base, token, readerToken);
