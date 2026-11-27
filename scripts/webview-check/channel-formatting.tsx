@@ -747,6 +747,44 @@ async function tapCodeControl(
   }
 }
 
+function readingActionFrame(
+  action: HTMLElement,
+  pane: Element,
+  expected?: readonly number[],
+) {
+  const frame = action.getBoundingClientRect();
+  const paneBox = pane.getBoundingClientRect();
+  const left = paneBox.left + pane.clientLeft;
+  const top = paneBox.top + pane.clientTop;
+  const viewport = window.visualViewport;
+  const viewportLeft = viewport?.offsetLeft ?? 0;
+  const viewportTop = viewport?.offsetTop ?? 0;
+  const viewportRight = viewportLeft + (viewport?.width ?? innerWidth);
+  const viewportBottom = viewportTop + (viewport?.height ?? innerHeight);
+  if (
+    !pane.contains(action) ||
+    frame.width <= 0 ||
+    frame.height <= 0 ||
+    frame.left < Math.max(left, viewportLeft) ||
+    frame.top < Math.max(top, viewportTop) ||
+    frame.right > Math.min(left + pane.clientWidth, viewportRight) ||
+    frame.bottom > Math.min(top + pane.clientHeight, viewportBottom)
+  )
+    throw Error("The post action is outside the reading viewport");
+  const edges = [
+    frame.left - left,
+    frame.top - top,
+    frame.right - left,
+    frame.bottom - top,
+  ];
+  if (
+    expected &&
+    edges.some((edge, index) => Math.abs(edge - expected[index]) > 1)
+  )
+    throw Error("Back moved the post action within the reading viewport");
+  return edges;
+}
+
 async function checkMobileCode(
   host: HTMLElement,
   width: number,
@@ -770,7 +808,7 @@ async function checkMobileCode(
   const pane = trigger.closest(".timeline-scroll");
   if (!pane) throw Error("Missing code timeline");
   trigger.scrollIntoView({ block: "center" });
-  let position = pane.scrollTop;
+  const position = pane.scrollTop;
   if (physical) {
     await tapCodeControl(trigger, "preview", physical.tap);
   } else {
@@ -853,26 +891,36 @@ async function checkMobileCode(
         throw Error("Landscape did not clip the code opener");
     });
     returnTarget = disclosure;
-    position = pane.scrollTop;
   }
-  // The rotated layout is sampled synchronously before sending Back.
   const before = backState();
+  // Scroll anchoring can move the document offset as other posts reflow.
+  const beforeFrame = physical && readingActionFrame(returnTarget, pane);
   if (physical) await physical.back();
   else flushSync(() => panel.getByRole("button", { name: "Back" }).click());
   try {
     await waitFor(() => {
+      if (dialog.isConnected || document.activeElement !== returnTarget)
+        throw Error("Back did not restore focus to the post action");
+      if (!beforeFrame) {
+        if (Math.abs(pane.scrollTop - position) > 1)
+          throw Error("Back changed the reading scroll offset");
+        return;
+      }
       if (
-        dialog.isConnected ||
-        document.activeElement !== returnTarget ||
-        (physical && returnTarget.getAttribute("aria-expanded") !== "false") ||
-        Math.abs(pane.scrollTop - position) > 1
+        returnTarget.getAttribute("aria-expanded") !== "false" ||
+        returnTarget.closest("[inert]") ||
+        returnTarget.matches(':disabled, [aria-disabled="true"]') ||
+        !within(pane)
+          .queryAllByRole("button", { name: "Show full message" })
+          .includes(returnTarget)
       )
-        throw Error("Back lost the available post action or reading position");
+        throw Error("Back did not restore the available folded post action");
+      readingActionFrame(returnTarget, pane, beforeFrame);
     });
   } catch (cause) {
     const after = backState();
     throw Error(
-      `Code reader Back expected scrollTop=${position} before=${JSON.stringify(before)} after=${JSON.stringify(after)}`,
+      `Code reader Back before=${JSON.stringify(before)} after=${JSON.stringify(after)}`,
       { cause },
     );
   }
