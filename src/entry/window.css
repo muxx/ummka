@@ -51,8 +51,8 @@ body {
 .entry-back:hover {
   background: #ffffff26;
 }
-.entry-back:focus-visible {
-  outline: 2px solid currentColor;
+.entry-back:focus {
+  --keyboard-focus: currentColor;
 }
 .entry-brand-small {
   display: none;

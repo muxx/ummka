@@ -44,7 +44,7 @@ export function PublishedPostActions({
         title={scope.text.actions}
         onClick={(e) => {
           e.currentTarget.focus({ preventScroll: true });
-          scope.open(e.currentTarget, e.detail === 0);
+          scope.open(e.currentTarget);
         }}
       >
         <svg
@@ -179,10 +179,6 @@ function ActionDialog({
       ref={dialog}
       id={`${anchor.id}-menu`}
       className="post-actions-dialog"
-      data-input={scope.keyboard ? "keyboard" : "pointer"}
-      onKeyDownCapture={(event) => {
-        event.currentTarget.dataset.input = "keyboard";
-      }}
       aria-labelledby={title}
       onCancel={(event) => {
         event.preventDefault();

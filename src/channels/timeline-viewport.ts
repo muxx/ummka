@@ -27,6 +27,8 @@ export function measureTimeline(pane: HTMLElement, followEnd = false) {
   };
 }
 
+export type TimelinePlace = ReturnType<typeof measureTimeline>;
+
 export type ReadingPosition = "latest" | readonly string[];
 
 export function readingPosition(
