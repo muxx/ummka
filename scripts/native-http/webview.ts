@@ -32,6 +32,11 @@ export function webviewServers(
   trusted: https.ServerOptions,
   untrusted: https.ServerOptions,
 ) {
+  const pendingProfileImages = new Map([
+    ["97", "profile-image-cancel"],
+    ["98", "profile-image-retire"],
+    ["99", "profile-image-network"],
+  ]);
   const cases = [
     "headers",
     "body",
@@ -44,6 +49,7 @@ export function webviewServers(
     "batch-body",
     "account-error-body",
     "account-retire",
+    ...pendingProfileImages.values(),
     "refresh-late",
     "submit-post",
   ];
@@ -99,6 +105,7 @@ export function webviewServers(
   let pressWorkspaceBack: (() => Promise<void>) | undefined;
   let clipboard: ClipboardPolicyStep | undefined;
   let disconnect: Socket | undefined;
+  let profileImageSocket: Socket | undefined;
   let pingSocket: Socket | undefined;
   const settings = new Map<string, ServerResponse>();
   const entrySettings = new Map<string, ServerResponse>();
@@ -660,7 +667,11 @@ export function webviewServers(
       visits.push("profiles-by-name");
       res
         .writeHead(200, { "Content-Type": "application/json" })
-        .end(JSON.stringify([{ id: userId, username: "fixture" }]));
+        .end(
+          JSON.stringify([
+            { id: userId, username: "fixture", last_picture_update: -23 },
+          ]),
+        );
       return;
     }
     if (url.pathname === `/team/chat/api/v4/users/${userId}/image`) {
@@ -669,7 +680,19 @@ export function webviewServers(
         req.headers.authorization,
         "Bearer fixture-prefixed-session",
       );
-      visits.push("profile-image");
+      const revision = url.searchParams.get("_");
+      const name = pendingProfileImages.get(revision ?? "");
+      if (name) {
+        if (name === "profile-image-network") profileImageSocket = req.socket;
+        visits.push(name);
+        hold(name, req, res);
+        res
+          .writeHead(200, { "Content-Type": "image/png" })
+          .write(Buffer.from([0x89, 0x50]));
+        return;
+      }
+      assert([null, "-23"].includes(revision));
+      visits.push(revision ? "account-profile-image" : "profile-image");
       res
         .writeHead(200, { "Content-Type": "image/png" })
         .end(
@@ -1571,8 +1594,10 @@ export function webviewServers(
     } else if (step === "release-submission") {
       submissions.release();
     } else if (step === "disconnect") {
-      assert(disconnect);
-      disconnect.destroy();
+      const socket =
+        name === "profile-image-network" ? profileImageSocket : disconnect;
+      assert(socket);
+      socket.destroy();
     } else {
       const wait = held.get(name);
       assert(wait);
@@ -1676,6 +1701,10 @@ export function webviewServers(
         "recipient-page",
         "recipient-search",
         "profile-image",
+        "account-profile-image",
+        "profile-image-cancel",
+        "profile-image-retire",
+        "profile-image-network",
         "account-logout-confirmed",
         "account-logout-unconfirmed",
         "account-first",

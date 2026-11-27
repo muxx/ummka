@@ -4,6 +4,7 @@ import { resolveComposerSubmission } from "../../src/channels/composer-submissio
 import { readGroupMentionAudience } from "../../src/channels/group-mention-audience.ts";
 import { readPostMentionDecision } from "../../src/channels/post-mention-decision.ts";
 import { openPostNavigation } from "../../src/channels/post-navigation.ts";
+import { readProfileImage } from "../../src/mattermost/account-profile-image.ts";
 import { inspectInstallation } from "../../src/mattermost/inspect-installation.ts";
 import {
   openAccountRestConnection,
@@ -196,9 +197,11 @@ export async function checkGeneratedRequests(ports: string[]) {
     );
     await accountPrefix.refreshSavedProfiles(lookup);
     const named = await accountPrefix.readSavedProfiles(lookup);
+    const picture = named.profiles[userId];
     check(
       named.usernames.fixture === userId &&
-        named.profiles[userId]?.username === "fixture" &&
+        picture?.username === "fixture" &&
+        picture.lastPictureUpdate === -23 &&
         !Object.hasOwn(named.usernames, "unknown"),
       "stored-profile-by-name",
     );
@@ -225,6 +228,79 @@ export async function checkGeneratedRequests(ports: string[]) {
         bytes.getUint32(20) === 48,
       "generated-profile-image",
     );
+    const avatar = await accountPrefix.readProfileImage(picture);
+    const original = new Uint8Array(bytes.buffer);
+    const encoded = new Uint8Array(await avatar.arrayBuffer());
+    check(
+      avatar.type === "image/png" &&
+        original.length === encoded.length &&
+        original.every((byte, index) => byte === encoded[index]),
+      "account-profile-image",
+    );
+    const leaving = new AbortController();
+    const heldImage = rejected(
+      accountPrefix.readProfileImage(
+        { id: userId, lastPictureUpdate: 97 },
+        leaving.signal,
+      ),
+    );
+    await Promise.race([
+      observed("received", "profile-image-cancel"),
+      heldImage.then(() => {
+        throw Error("profile-image-ended-early");
+      }),
+    ]);
+    const leaveReason = new Error("profile selection changed");
+    leaving.abort(leaveReason);
+    check((await heldImage) === leaveReason, "profile-image-abort");
+    await observed("closed", "profile-image-cancel");
+    const retiredAvatar = await openAccountRestConnection(
+      prefixed.basePath,
+      userId,
+    );
+    const retiredRequest = rejected(
+      retiredAvatar.readProfileImage({ id: userId, lastPictureUpdate: 98 }),
+    );
+    await Promise.race([
+      observed("received", "profile-image-retire"),
+      retiredRequest.then(() => {
+        throw Error("profile-image-retired-early");
+      }),
+    ]);
+    await retiredAvatar.close();
+    const failure = await retiredRequest;
+    const transportFailure =
+      failure instanceof FetchError ? failure.cause : failure;
+    check(
+      transportFailure instanceof TypeError &&
+        (transportFailure.cause === "cancelled" ||
+          transportFailure.cause === "unknown_connection"),
+      "retired-profile-image",
+    );
+    await observed("closed", "profile-image-retire");
+    check(
+      (await rejected(
+        retiredAvatar.readProfileImage({ id: userId, lastPictureUpdate: 23 }),
+      )) === "unknown_connection",
+      "closed-profile-image",
+    );
+    const dropping = new Configuration({
+      ...accountPrefix,
+      async fetchApi(input, init) {
+        const response = await accountPrefix.fetchApi(input, init);
+        check(response.status === 200, "profile-image-before-disconnect");
+        await observed("disconnect", "profile-image-network");
+        return response;
+      },
+    });
+    const disconnection = await rejected(
+      readProfileImage(dropping, { id: userId, lastPictureUpdate: 99 }),
+    );
+    check(
+      disconnection instanceof TypeError && disconnection.cause === "network",
+      "profile-image-network",
+    );
+    await observed("closed", "profile-image-network");
     const batch = { requestBody: [userId, "b".repeat(26)], since: 123 };
     const profiles = await (await users.getUsersByIdsRaw(batch)).value();
     check(

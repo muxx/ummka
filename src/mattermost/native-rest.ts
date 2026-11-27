@@ -15,6 +15,10 @@ import { atDirectoryStep } from "./account-directory-error.ts";
 import { accountFollowedThreads } from "./account-followed-threads.ts";
 import { accountPostCollections } from "./account-post-collections.ts";
 import { accountPostReactions } from "./account-post-reactions.ts";
+import {
+  type ProfileImageIdentity,
+  readProfileImage,
+} from "./account-profile-image.ts";
 import { accountSearch } from "./account-search.ts";
 import { accountChannelAudience } from "./channel-audience.ts";
 import { readChannelBookmarks } from "./channel-bookmarks.ts";
@@ -331,6 +335,12 @@ export async function openAccountRestConnection(
           await invoke<void>("store_channel_profiles", { rid, profiles });
         signal?.throwIfAborted();
       });
+    },
+    readProfileImage(profile: ProfileImageIdentity, signal?: AbortSignal) {
+      return readWhileOpen(
+        () => readProfileImage(config, profile, signal),
+        signal,
+      );
     },
     readVisibleProfiles(query: VisibleProfileQuery, signal?: AbortSignal) {
       return readWhileOpen(() => loadVisibleProfiles(config, query, signal));

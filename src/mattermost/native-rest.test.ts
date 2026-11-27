@@ -11,6 +11,7 @@ import {
 } from "../../vendor/mattermost/index.js";
 import { channelUploadCapability } from "../channels/channel-upload-policy.ts";
 import * as emoji from "./account-custom-emoji.ts";
+import * as pictures from "./account-profile-image.ts";
 import * as roles from "./channel-permissions.ts";
 import { channelProfile } from "./channel-profiles.ts";
 import {
@@ -599,6 +600,7 @@ test("opens a native account by installation and user ID", async () => {
     "readPostFiles",
     "readPostReactions",
     "readPostSearchPage",
+    "readProfileImage",
     "readRecentTeamSearches",
     "readSavedPost",
     "readSavedPostUpperBound",
@@ -1606,3 +1608,41 @@ test.each(["newer", "abort", "close", "storage", "superseded"] as const)(
     }
   },
 );
+
+test("discard an old profile picture even if its reader finishes after the account changes", async () => {
+  const id = "p".repeat(26);
+  const picture = { id, lastPictureUpdate: 7 };
+  ipc.mockResolvedValueOnce(71);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    id,
+  );
+  let finish!: (value: Blob) => void;
+  const read = vi.spyOn(pictures, "readProfileImage").mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  try {
+    const old = account.readProfileImage(picture);
+    await account.close();
+    finish(new Blob(["old"]));
+    await expect(old).rejects.toBe("cancelled");
+    await expect(account.readProfileImage(picture)).rejects.toBe(
+      "unknown_connection",
+    );
+    ipc.mockResolvedValueOnce(72);
+    const next = await openAccountRestConnection(
+      "https://chat.example.test",
+      "a".repeat(26),
+    );
+    const fresh = new Blob(["new"]);
+    read.mockResolvedValueOnce(fresh);
+    await expect(next.readProfileImage(picture)).resolves.toBe(fresh);
+    expect(read).toHaveBeenCalledTimes(2);
+    await next.close();
+  } finally {
+    read.mockRestore();
+  }
+});

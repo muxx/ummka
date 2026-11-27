@@ -68,6 +68,7 @@ fn updates_are_atomic_and_versions_survive_reopening() {
         current
     );
     current.update_at = Some(85);
+    current.last_picture_update = Some(-85);
     current.delete_at = Some(86);
     current.remote_username = "remote-user".into();
     other.store_profiles(&[current.clone()]).unwrap();
@@ -153,6 +154,10 @@ fn validates_batches_and_expires_old_accounts_and_views() {
         },
         ChannelProfile {
             username: " ".into(),
+            ..person(2, Some(4))
+        },
+        ChannelProfile {
+            last_picture_update: Some(-(1_i64 << 53)),
             ..person(2, Some(4))
         },
         ChannelProfile {

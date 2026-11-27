@@ -72,11 +72,16 @@ test("projects only the public identity fields used by Channels", () => {
     lastPictureUpdate: null,
     isBot: false,
   });
+  expect(
+    channelProfile({ ...raw, lastPictureUpdate: -789 }).lastPictureUpdate,
+  ).toBe(-789);
   for (const change of [
     { id: "invalid" },
     { username: " " },
     { remote_id: "bad" },
     { delete_at: -1 },
+    { update_at: -1 },
+    { last_picture_update: Number.MIN_SAFE_INTEGER - 1 },
     { last_picture_update: 1.2 },
     { is_bot: "false" },
     { nickname: {} },
