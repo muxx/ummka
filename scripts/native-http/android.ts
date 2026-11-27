@@ -121,33 +121,6 @@ export async function checkAndroid(
       },
     },
   );
-  execFileSync(
-    "npm",
-    [
-      "run",
-      "tauri",
-      "--",
-      "android",
-      "build",
-      "--ci",
-      "--apk",
-      "--target",
-      arm ? "aarch64" : "x86_64",
-      "--config",
-      config,
-      "--features",
-      "native-http-check,webview-check",
-      "--",
-      "--locked",
-    ],
-    {
-      stdio: "inherit",
-      env: {
-        ...process.env,
-        ORG_GRADLE_PROJECT_ummkaNativeHttpCheck: "true",
-      },
-    },
-  );
   const apk =
     "src-tauri/gen/android/app/build/native-http-check/outputs/apk/universal/release/app-universal-release.apk";
   const env = { ...process.env, ANDROID_AVD_HOME: join(dir, "avd") };
@@ -202,7 +175,20 @@ export async function checkAndroid(
     { env, stdio: ["ignore", fd, fd] },
   );
   closeSync(fd);
-  const stopOnExit = () => emulator.kill("SIGKILL");
+  let buildPid: number | undefined;
+  const stopBuild = () => {
+    if (buildPid === undefined) return;
+    try {
+      // The fixture build owns its npm, Tauri, Cargo and Gradle client processes.
+      process.kill(-buildPid, "SIGKILL");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+    }
+  };
+  const stopOnExit = () => {
+    emulator.kill("SIGKILL");
+    stopBuild();
+  };
   const stopOnSignal = (signal: NodeJS.Signals) => {
     stopOnExit();
     // The once listener has been removed. Preserve the caller's signal status.
@@ -211,29 +197,94 @@ export async function checkAndroid(
   process.once("exit", stopOnExit);
   process.once("SIGINT", stopOnSignal);
   process.once("SIGTERM", stopOnSignal);
+  const emulatorExited = new AbortController();
+  emulator.once("exit", (code, signal) => {
+    emulatorExited.abort(Error(`Android emulator exited (${signal ?? code})`));
+    stopBuild();
+  });
   const ended = new Promise<void>((resolve) =>
     emulator.once("close", () => resolve()),
   );
   try {
     await once(emulator, "spawn");
+    console.log("Android emulator started.");
     const [socket] = await once(control, "connection", {
-      signal: AbortSignal.timeout(45_000),
+      signal: AbortSignal.any([
+        AbortSignal.timeout(45_000),
+        emulatorExited.signal,
+      ]),
     });
     let reported = "";
     for await (const part of socket) reported += part;
     assert.match(reported, /^\d{4,5}$/);
-    const adb = async (...args: string[]) =>
-      (
-        await exec(
-          join(sdk, "platform-tools/adb"),
-          ["-s", `emulator-${reported}`, ...args],
-          {
-            timeout: args[0] === "wait-for-device" ? 180_000 : 90_000,
-            maxBuffer: 2 << 20,
-          },
-        )
-      ).stdout;
+    const adb = async (...args: string[]) => {
+      const request = exec(
+        join(sdk, "platform-tools/adb"),
+        ["-s", `emulator-${reported}`, ...args],
+        {
+          signal: emulatorExited.signal,
+          timeout: args[0] === "wait-for-device" ? 180_000 : 90_000,
+          maxBuffer: 2 << 20,
+        },
+      );
+      const closed = new Promise<void>((resolve) =>
+        request.child.once("close", () => resolve()),
+      );
+      try {
+        return (await request).stdout;
+      } finally {
+        // An aborted exec promise rejects before the ADB client has exited.
+        await closed;
+      }
+    };
+    emulatorExited.signal.throwIfAborted();
+    console.log("Building the fixture APK while the Android emulator boots.");
+    const build = spawn(
+      "npm",
+      [
+        "run",
+        "tauri",
+        "--",
+        "android",
+        "build",
+        "--ci",
+        "--apk",
+        "--target",
+        arm ? "aarch64" : "x86_64",
+        "--config",
+        config,
+        "--features",
+        "native-http-check,webview-check",
+        "--",
+        "--locked",
+      ],
+      {
+        detached: true,
+        stdio: "inherit",
+        env: {
+          ...process.env,
+          ORG_GRADLE_PROJECT_ummkaNativeHttpCheck: "true",
+        },
+      },
+    );
+    buildPid = build.pid;
+    try {
+      const [code, signal] = await once(build, "close");
+      emulatorExited.signal.throwIfAborted();
+      assert.equal(
+        code,
+        0,
+        `Android fixture APK assembly failed (${signal ?? code})`,
+      );
+    } catch (error) {
+      stopBuild();
+      throw error;
+    } finally {
+      buildPid = undefined;
+    }
+    console.log("Android fixture APK assembled.");
     await waitForAndroidBoot(adb, emulator, () => readFile(policyLog, "utf8"));
+    console.log("Android emulator is ready.");
     assert.equal((await adb("emu", "avd", "name")).split(/\r?\n/)[0], name);
     await adb("shell", "wm", "dismiss-keyguard");
     for (const port of [...ports, ...webviewPorts])
