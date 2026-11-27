@@ -806,7 +806,7 @@ async function checkMobileCode(
   )
     throw Error("Missing mobile code trigger");
   const pane = trigger.closest(".timeline-scroll");
-  if (!pane) throw Error("Missing code timeline");
+  if (!(pane instanceof HTMLElement)) throw Error("Missing code timeline");
   trigger.scrollIntoView({ block: "center" });
   const position = pane.scrollTop;
   if (physical) {
