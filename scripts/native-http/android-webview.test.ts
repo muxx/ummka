@@ -153,12 +153,17 @@ test("the new document receives its control response only after the keyboard eve
       delivered = resolve;
     });
     let keys = 0;
-    fixture.onAndroidInputReady(async (key) => {
-      assert.equal(key, "KEYCODE_TAB");
-      keys++;
-      entered();
-      await delivery;
-    });
+    fixture.onAndroidInputReady(
+      async (key) => {
+        assert.equal(key, "KEYCODE_TAB");
+        keys++;
+        entered();
+        await delivery;
+      },
+      async () => {
+        throw Error("unexpected clipboard policy request");
+      },
+    );
     let first: Promise<number | undefined> | undefined;
     try {
       assert.equal(await control("received"), 204);

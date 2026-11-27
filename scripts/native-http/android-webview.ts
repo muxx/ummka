@@ -11,7 +11,21 @@ type Adb = (...args: string[]) => Promise<string>;
 export type SendAndroidKey = (
   key: "KEYCODE_TAB" | "KEYCODE_BACK" | "KEYCODE_DPAD_RIGHT",
 ) => Promise<void>;
-export type OnAndroidInputReady = (send: SendAndroidKey) => void;
+export const clipboardPolicySteps = [
+  "true",
+  "resume",
+  "false",
+  "malformed",
+  "boolean",
+  "unset",
+] as const;
+export type ClipboardPolicyStep = (
+  step: (typeof clipboardPolicySteps)[number],
+) => Promise<void>;
+export type OnAndroidInputReady = (
+  send: SendAndroidKey,
+  clipboard: ClipboardPolicyStep,
+) => void;
 
 export async function launchWebview(
   adb: Adb,
@@ -20,22 +34,62 @@ export async function launchWebview(
   expected: string,
   onAndroidInputReady?: OnAndroidInputReady,
 ) {
-  onAndroidInputReady?.(async (key) => {
-    if (key === "KEYCODE_BACK") {
-      // This case exercises app navigation. Android gives a visible IME the first Back.
-      const deadline = Date.now() + 5_000;
-      while (true) {
-        const input = await adb("shell", "dumpsys", "input_method");
-        if (/\bmInputShown=false\b/u.test(input)) break;
-        assert(
-          Date.now() < deadline,
-          "Thread navigation requires a hidden IME",
-        );
-        await delay(50);
+  onAndroidInputReady?.(
+    async (key) => {
+      if (key === "KEYCODE_BACK") {
+        // This case exercises app navigation. Android gives a visible IME the first Back.
+        const deadline = Date.now() + 5_000;
+        while (true) {
+          const input = await adb("shell", "dumpsys", "input_method");
+          if (/\bmInputShown=false\b/u.test(input)) break;
+          assert(
+            Date.now() < deadline,
+            "Thread navigation requires a hidden IME",
+          );
+          await delay(50);
+        }
       }
-    }
-    await adb("shell", "input", "keyevent", key);
-  });
+      await adb("shell", "input", "keyevent", key);
+    },
+    async (step) => {
+      if (step === "resume") {
+        const pid = (await adb("shell", "pidof", "-s", app)).trim();
+        assert.match(pid, /^\d+$/u);
+        assert.match(
+          await adb(
+            "shell",
+            "am",
+            "start",
+            "-W",
+            "-a",
+            "android.intent.action.MAIN",
+            "-c",
+            "android.intent.category.HOME",
+          ),
+          /Status: ok/u,
+        );
+        assert.match(
+          await adb("shell", "am", "start", "-W", "-n", activity),
+          /Status: ok/u,
+        );
+        assert.equal((await adb("shell", "pidof", "-s", app)).trim(), pid);
+        return;
+      }
+      assert.match(
+        await adb(
+          "shell",
+          "am",
+          "broadcast",
+          "-n",
+          `${app}/io.github.muxx.ummka.dev.ClipboardPolicyCheckReceiver`,
+          "--es",
+          "value",
+          step,
+        ),
+        /Broadcast completed: result=-1/u,
+      );
+    },
+  );
   assert.match(
     await adb("shell", "am", "start", "-W", "-n", activity),
     /Status: ok/,
