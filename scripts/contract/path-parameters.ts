@@ -38,6 +38,7 @@ export function checkPathParameters(
   for (const segment of path.split("/")) {
     if (
       segment === "{user_id}" ||
+      segment === "{other_user_id}" ||
       segment === "{team_id}" ||
       segment === "{name}" ||
       segment === "{team_name}" ||

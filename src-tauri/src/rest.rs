@@ -40,9 +40,8 @@ impl Operation<'_> {
             };
             let matched = match expected {
                 "{user_id}" => actual == "me" || (!self.self_only && is_mattermost_id(actual)),
-                "{team_id}" | "{channel_id}" | "{post_id}" | "{thread_id}" | "{file_id}" => {
-                    is_mattermost_id(actual)
-                }
+                "{other_user_id}" | "{team_id}" | "{channel_id}" | "{post_id}" | "{thread_id}"
+                | "{file_id}" => is_mattermost_id(actual),
                 "{name}" | "{team_name}" | "{channel_name}" => {
                     (1..=64).contains(&actual.len())
                         && actual
@@ -583,6 +582,30 @@ mod tests {
                 "name {name}"
             );
         }
+    }
+
+    #[test]
+    fn remote_dm_capability_requires_self_and_a_concrete_recipient() {
+        let recipient = "p".repeat(26);
+        let path =
+            |owner: &str, peer: &str| format!("/api/v4/sharedchannels/users/{owner}/can_dm/{peer}");
+        let method = reqwest::Method::GET;
+        let route = path("me", &recipient);
+        let operation = OPERATIONS
+            .iter()
+            .find(|op| op.allows(&method, &route))
+            .unwrap();
+        assert!(operation.self_only);
+        assert!(!operation.allows(&method, &path(&"u".repeat(26), &recipient)));
+        assert!(!operation.allows(&method, &path("me", "me")));
+        assert!(!operation.allows(&method, &path("me", "short")));
+        let base = "https://fixture.test/sub";
+        let connection = RestConnection::new(base).unwrap();
+        let request = Request::new(method, Url::parse(&format!("{base}{route}")).unwrap());
+        assert_eq!(
+            connection.check_request(&request),
+            Err(TransportError::OperationDenied)
+        );
     }
 
     #[test]

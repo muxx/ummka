@@ -66,6 +66,7 @@ import {
 } from "./post-mutation-corrections.ts";
 import { correctPostSearchResults } from "./post-search-corrections.ts";
 import {
+  correctDmCapability,
   correctProfileImage,
   correctProfileTimezone,
   correctUserProfile,
@@ -525,6 +526,12 @@ export function buildSpecification(
       );
     else if (id === "GetSidebarCategoriesForTeamForUser")
       paths[path][method] = correctSidebarResponse(operation);
+    else if (id === "CanUserDirectMessage")
+      paths[path][method] = correctDmCapability(
+        operation,
+        read("sharedchannels.yaml"),
+        path,
+      );
     else if (id === "GetProfileImage")
       paths[path][method] = correctProfileImage(operation);
     else paths[path][method] = correctAuthentication(operation);

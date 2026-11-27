@@ -5,6 +5,7 @@ import {
   ChannelsApi,
   Configuration,
   ResponseError,
+  SharedChannelsApi,
   TeamsApi,
 } from "../../vendor/mattermost/index.js";
 import { listen } from "./test-server.ts";
@@ -150,4 +151,44 @@ test("an empty managed category map is a successful team-scoped read", async (t)
     }),
   );
   assert.deepEqual(await api.getManagedCategories({ teamId }), {});
+});
+
+test("reads both DM decisions without treating an unavailable operation as a refusal", async (t) => {
+  const responses = [true, false];
+  let requests = 0;
+  const { base } = await listen(t, (req, res) => {
+    requests++;
+    assert.equal(req.method, "GET");
+    assert.equal(
+      req.url,
+      `/chat/api/v4/sharedchannels/users/me/can_dm/${userId}`,
+    );
+    assert.equal(req.headers.authorization, "Bearer synthetic-session");
+    const answer = responses.shift();
+    res.writeHead(answer === undefined ? 404 : 200, {
+      "content-type": "application/json",
+    });
+    res.end(
+      JSON.stringify(
+        answer === undefined
+          ? { id: "api.context.404.app_error" }
+          : { can_dm: answer },
+      ),
+    );
+  });
+  const api = new SharedChannelsApi(
+    new Configuration({
+      ...createRestTransport(`${base}/chat`, fetch),
+      accessToken: "synthetic-session",
+    }),
+  );
+  const pair = { userId: "me", otherUserId: userId };
+  for (const expected of [true, false])
+    assert.deepEqual(await api.canUserDirectMessage(pair), { canDm: expected });
+  await assert.rejects(
+    api.canUserDirectMessage(pair),
+    (error: unknown) =>
+      error instanceof ResponseError && error.response.status === 404,
+  );
+  assert.equal(requests, 3);
 });

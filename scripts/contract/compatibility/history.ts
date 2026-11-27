@@ -32,6 +32,7 @@ import {
   PostsApi,
   PostToJSON,
   ResponseError,
+  SharedChannelsApi,
   UsersApi,
 } from "../../../vendor/mattermost/index.js";
 import { checkAccountPostFiles } from "./account-post-files.ts";
@@ -979,6 +980,27 @@ await checkFileSearch(
   channelId,
   extraTeam.id,
   version,
+);
+const sharedChannels = new SharedChannelsApi(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+);
+const dmCheck = sharedChannels.canUserDirectMessageRaw({
+  userId: "me",
+  otherUserId: user.id,
+});
+if (version === "12.1.0") {
+  const reply = await dmCheck;
+  assert.equal(reply.raw.status, 200);
+  assert.equal((await reply.value()).canDm, true);
+} else {
+  await assert.rejects(
+    dmCheck,
+    (cause: unknown) =>
+      cause instanceof ResponseError && cause.response.status === 404,
+  );
+}
+console.log(
+  `Mattermost ${version} verified the remote DM capability route for an ordinary member.`,
 );
 const managedApi = new ChannelsApi(
   new Configuration({ basePath: base, accessToken: readerToken }),

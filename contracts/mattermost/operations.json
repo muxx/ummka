@@ -24,6 +24,13 @@
     "id": "GetUser"
   },
   {
+    "file": "sharedchannels-12.1.0.yaml",
+    "method": "GET",
+    "path": "/api/v4/sharedchannels/users/{user_id}/can_dm/{other_user_id}",
+    "id": "CanUserDirectMessage",
+    "selfOnly": true
+  },
+  {
     "file": "roles.yaml",
     "method": "POST",
     "path": "/api/v4/roles/names",

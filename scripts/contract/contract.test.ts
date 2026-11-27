@@ -75,6 +75,7 @@ import {
   correctPatchPost,
 } from "./post-mutation-corrections.ts";
 import {
+  correctDmCapability,
   correctProfileImage,
   correctProfileTimezone,
   correctUserProfile,
@@ -1268,6 +1269,8 @@ test("retains the catalog operations, security and transitive models", () => {
         source,
         read("groups-12.1.0.yaml"),
       );
+    if (source.operationId === "CanUserDirectMessage")
+      expected = correctDmCapability(source, read("sharedchannels.yaml"), path);
     if (path === profileImage) expected = correctProfileImage(source);
     assert.deepEqual(actual, expected);
   }
@@ -1897,6 +1900,7 @@ function copySources() {
     "introduction.yaml",
     "definitions.yaml",
     "definitions-12.1.0.yaml",
+    "sharedchannels.yaml",
     "roles-12.1.0.yaml",
     "teams-12.1.0.yaml",
     "users-12.1.0.yaml",
@@ -3057,4 +3061,33 @@ test("describes the upload purpose and preserves streaming multipart order outsi
       /Review both pinned file upload contracts/,
     );
   }
+});
+
+test("requires the shared-DM decision published only by the newer server", () => {
+  const path = "/api/v4/sharedchannels/users/{user_id}/can_dm/{other_user_id}";
+  const baseline = read("sharedchannels.yaml");
+  const source = object(
+    at(read("sharedchannels-12.1.0.yaml"), [path, "get"]),
+    path,
+  );
+  const schema = ["responses", "200", "content", "application/json", "schema"];
+  assert.equal(Object.hasOwn(baseline, path), false);
+  assert.equal(
+    Object.hasOwn(object(at(source, schema), path), "required"),
+    false,
+  );
+  assert.deepEqual(
+    at(contract, ["paths", path, "get", ...schema, "required"]),
+    ["can_dm"],
+  );
+  assert.throws(
+    () => correctDmCapability(source, { ...baseline, [path]: {} }, path),
+    /Review the pinned DM capability/,
+  );
+  const drift = structuredClone(source);
+  object(at(drift, [...schema, "properties", "can_dm"]), path).type = "string";
+  assert.throws(
+    () => correctDmCapability(drift, baseline, path),
+    /Review the pinned DM capability/,
+  );
 });
