@@ -28,7 +28,7 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
       `${driver.basePath}/api/v4/system/ping?step=collection-back-${step}`,
     );
     if (response.status !== 204)
-      throw Error("Native collection Back failed: " + step);
+      throw Error(`Native collection Back failed: ${step}`);
   }
   try {
     await connectInstallation(url);

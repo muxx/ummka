@@ -690,6 +690,47 @@ async function checkMobileCode(
   }
   await checkCopyCode(dialog, longCode);
   let returnTarget: HTMLElement = trigger;
+  const backState = () => {
+    const compact = (n: number) => Math.round(n * 100) / 100;
+    const bounds = (node: Element) => {
+      const { x, y, width, height } = node.getBoundingClientRect();
+      return [x, y, width, height].map(compact);
+    };
+    const identify = (node: Element | null) =>
+      node && `${node.localName}.${node.getAttribute("class") ?? ""}`;
+    const { activeElement, documentElement } = document;
+    const windowViewport = window.visualViewport;
+    return {
+      connected: dialog.isConnected,
+      open: dialog.matches("[open]"),
+      focused: activeElement === returnTarget,
+      active: identify(activeElement),
+      target: identify(returnTarget),
+      expanded: returnTarget.getAttribute("aria-expanded"),
+      openerClipped: trigger.hasAttribute("data-post-disclosure-clipped"),
+      openerInert: trigger.inert,
+      targetClipped: returnTarget.hasAttribute("data-post-disclosure-clipped"),
+      targetInert: returnTarget.inert,
+      scroll: [pane.scrollLeft, pane.scrollTop].map(compact),
+      paneBox: bounds(pane),
+      openerBox: bounds(trigger),
+      targetBox: bounds(returnTarget),
+      viewport: [
+        innerWidth,
+        innerHeight,
+        documentElement.clientWidth,
+        documentElement.clientHeight,
+      ],
+      visualViewport: windowViewport
+        ? [
+            windowViewport.offsetLeft,
+            windowViewport.offsetTop,
+            windowViewport.width,
+            windowViewport.height,
+          ].map(compact)
+        : null,
+    };
+  };
   if (physical) {
     const disclosure = trigger
       .closest("[data-post-id]")
@@ -707,17 +748,27 @@ async function checkMobileCode(
     returnTarget = disclosure;
     position = pane.scrollTop;
   }
+  // The rotated layout is sampled synchronously before sending Back.
+  const before = backState();
   if (physical) await physical.back();
   else flushSync(() => panel.getByRole("button", { name: "Back" }).click());
-  await waitFor(() => {
-    if (
-      dialog.isConnected ||
-      document.activeElement !== returnTarget ||
-      (physical && returnTarget.getAttribute("aria-expanded") !== "false") ||
-      Math.abs(pane.scrollTop - position) > 1
-    )
-      throw Error("Back lost the available post action or reading position");
-  });
+  try {
+    await waitFor(() => {
+      if (
+        dialog.isConnected ||
+        document.activeElement !== returnTarget ||
+        (physical && returnTarget.getAttribute("aria-expanded") !== "false") ||
+        Math.abs(pane.scrollTop - position) > 1
+      )
+        throw Error("Back lost the available post action or reading position");
+    });
+  } catch (cause) {
+    const after = backState();
+    throw Error(
+      `Code reader Back expected scrollTop=${position} before=${JSON.stringify(before)} after=${JSON.stringify(after)}`,
+      { cause },
+    );
+  }
   if (physical) await physical.rotateCode("portrait");
 }
 
