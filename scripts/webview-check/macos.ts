@@ -10,7 +10,9 @@ import { checkMacSystemLinks } from "./macos-links.ts";
 
 const exec = promisify(execFile);
 
-export type SendMacKey = (key: "right" | "escape") => Promise<void>;
+export type SendMacKey = (
+  key: "right-down" | "right-up" | "escape",
+) => Promise<void>;
 type KeyDriver = (send: SendMacKey, completed: (stage: string) => void) => void;
 
 export function watchWebviewSteps(expire: () => void, timeoutMs: number) {
@@ -30,30 +32,32 @@ export function watchWebviewSteps(expire: () => void, timeoutMs: number) {
   };
 }
 
-async function reportMainThread(pid: number) {
+// sample also prints a symbol index and binary images after the call graph.
+export function fixtureThreadStacks(sample: string) {
+  const graph = sample.split("\nTotal number in stack", 1)[0];
+  const blocks = graph.split(/(?=^ {4}\d+ Thread_)/mu).slice(1);
+  const selected = blocks.filter((block) =>
+    /com\.apple\.main-thread|scrolling/iu.test(block.split("\n", 1)[0]),
+  );
+  assert(selected.length > 0, "sample contains no fixture thread stacks");
+  return selected
+    .map((block) =>
+      block.split("\n\n", 1)[0].trimEnd().split("\n").slice(0, 64).join("\n"),
+    )
+    .join("\n");
+}
+
+async function reportFixtureThreads(pid: number) {
   try {
     const { stdout } = await exec(
       "/usr/bin/sample",
       [String(pid), "1", "10", "-file", "/dev/stdout"],
-      { timeout: 4000 },
+      { timeout: 10_000, maxBuffer: 4 * 1024 * 1024 },
     );
-    const lines = stdout.split("\n");
-    const start = lines.findIndex((line) =>
-      /^ {4}\d+ Thread_.*com\.apple\.main-thread/u.test(line),
-    );
-    assert(start >= 0, "sample contains no main thread");
-    const end = lines.findIndex(
-      (line, index) =>
-        index > start && (!line.trim() || /^ {4}\d+ Thread_/u.test(line)),
-    );
-    console.error(
-      lines
-        .slice(start, Math.min(end < 0 ? lines.length : end, start + 64))
-        .join("\n"),
-    );
+    console.error(fixtureThreadStacks(stdout));
   } catch (error) {
     console.error(
-      "Could not sample the fixture main thread",
+      "Could not sample the fixture threads",
       error instanceof Error ? error.message : error,
     );
   }
@@ -80,7 +84,9 @@ async function launch(
           );
           const pid = processRun.child.pid;
           if (pid)
-            void reportMainThread(pid).finally(() => processRun.child.kill());
+            void reportFixtureThreads(pid).finally(() =>
+              processRun.child.kill(),
+            );
           else processRun.child.kill();
         },
         expected === "workspace-back" ? 30_000 : 120_000,
@@ -107,7 +113,7 @@ async function launch(
             error ? reject(error) : resolve(),
           );
         });
-        // Each serial fixture step waits for AppKit to dispatch both physical phases.
+        // Each serial fixture command waits for AppKit to dispatch its event.
         // A successful pipe write only means that Node queued bytes for the child.
         for (;;) {
           const line = await lines.next();

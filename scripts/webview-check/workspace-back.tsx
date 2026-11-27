@@ -59,7 +59,7 @@ export function findThreadDraft(host: HTMLElement) {
         );
       }
       within(reply).getByText("Reply visible only inside Town’s thread");
-      return { pane, thread: within(pane), field };
+      return { pane, thread: within(pane), reply, field };
     },
     { container: host, timeout: 10_000, onTimeout: (error) => error },
   );
@@ -334,15 +334,15 @@ export async function checkDesktopBack(port: string, server: string) {
     );
     flushSync(() => fireEvent.click(opener));
   });
-  await fixtureStep("copy-desktop-reply-permalink", async () => {
-    const { thread } = await findThreadDraft(host);
-    const reply = thread
-      .getByText("Reply visible only inside Town’s thread")
-      .closest("article");
-    if (!reply) throw Error("The desktop reply is outside its published row");
-    inspectReplyTable(desktopTable(reply));
-    await checkRowPermalink(reply, `${server}/browser/pl/${systemReply}`, true);
-  });
+  const { reply } = await fixtureStep("locate-desktop-thread-reply", () =>
+    findThreadDraft(host),
+  );
+  await fixtureStep("inspect-desktop-reply-table", () =>
+    inspectReplyTable(desktopTable(reply)),
+  );
+  await fixtureStep("copy-desktop-reply-permalink", () =>
+    checkRowPermalink(reply, `${server}/browser/pl/${systemReply}`, true),
+  );
   await verifyWorkspaceBack(host, port, opener, channel);
   flushSync(() => fireEvent.click(ui.getByRole("button", { name: "Search" })));
   const query = within(

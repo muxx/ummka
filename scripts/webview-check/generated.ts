@@ -189,7 +189,11 @@ export async function checkGeneratedRequests(ports: string[]) {
     });
     const formatting = await androidFixtureStep("message-formatting", () =>
       checkChannelFormatting(
-        (kind, width) => observed("format-right", `${kind}-${width}`),
+        (kind, width, phase) =>
+          observed(
+            phase === "up" ? "format-right-up" : "format-right",
+            `${kind}-${width}`,
+          ),
         isAndroid
           ? {
               swipe: (axis, coordinates) =>
