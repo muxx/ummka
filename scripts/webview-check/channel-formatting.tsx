@@ -1,6 +1,7 @@
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { applyPalette, resolvePalette } from "../../src/appearance/palette.ts";
+import { isAndroid } from "../../src/build-platform.ts";
 import { ChannelTimeline } from "../../src/channels/ChannelTimeline.tsx";
 import type { LocalChannelWindow } from "../../src/mattermost/local-history.ts";
 
@@ -17,6 +18,62 @@ const bodies = [
   "A short inline `const  value` with an ampersand &amp; text.",
   "A paragraph with ordinary readable text.\n\n~~~\nlet value;\n~~~",
 ];
+
+function checkDisclosure(host: HTMLElement, width: number) {
+  const row = host.querySelector('[data-post-id="disclosure"]');
+  const viewport = row?.querySelector<HTMLElement>(
+    ".post-body-disclosure-viewport",
+  );
+  const action = row?.querySelector<HTMLButtonElement>(
+    ".post-body-disclosure-action",
+  );
+  const content = viewport?.firstElementChild;
+  if (!viewport || !action || !content)
+    throw Error(`Long post disclosure is missing at ${width}px`);
+  const measure = (node: Element) => node.getBoundingClientRect().height;
+  const near = (a: number, b: number) => Math.abs(a - b) <= 1;
+  const limit = isAndroid ? Math.round(innerHeight / 2 + 54) : 600;
+  const full = measure(content);
+  if (
+    full <= limit ||
+    !near(measure(viewport), limit) ||
+    action.getAttribute("aria-controls") !== viewport.id ||
+    action.getAttribute("aria-expanded") !== "false" ||
+    action.textContent !== "Show full message"
+  )
+    throw Error(`Wrong initial folded body at ${width}px`);
+
+  action.scrollIntoView({ block: "nearest" });
+  action.focus({ preventScroll: true });
+  const top = viewport.getBoundingClientRect().top;
+  flushSync(() => action.click());
+  if (
+    !near(measure(viewport), full) ||
+    !near(viewport.getBoundingClientRect().top, top) ||
+    action.getAttribute("aria-expanded") !== "true" ||
+    String(action.textContent) !== "Collapse message" ||
+    document.activeElement !== action
+  )
+    throw Error(
+      `Opening the long post changed its reading position at ${width}px`,
+    );
+
+  action.scrollIntoView({ block: "end" });
+  const end = action.getBoundingClientRect().top;
+  flushSync(() => action.click());
+  const bounds = action.getBoundingClientRect();
+  const timeline = action.closest(".timeline-scroll")?.getBoundingClientRect();
+  if (
+    !timeline ||
+    !near(measure(viewport), limit) ||
+    !near(bounds.top, end) ||
+    bounds.top < timeline.top - 1 ||
+    bounds.bottom > timeline.bottom + 1 ||
+    action.getAttribute("aria-expanded") !== "false" ||
+    document.activeElement !== action
+  )
+    throw Error(`Closing the long post lost its visible action at ${width}px`);
+}
 
 export async function checkChannelFormatting(
   pressRight: (width: number) => Promise<void>,
@@ -185,6 +242,24 @@ export async function checkChannelFormatting(
       if (selection?.toString() !== "emphasis")
         throw Error("formatted text selection");
       selection.removeAllRanges();
+      const latest = posts.at(-1);
+      if (!latest) throw Error("Missing formatting fixture post");
+      posts.push({
+        ...latest,
+        id: "disclosure",
+        createAt: latest.createAt + 1,
+        updateAt: latest.updateAt + 1,
+        message: Array.from(
+          { length: 80 },
+          (_, line) => `- Synthetic reading line ${line + 1}`,
+        ).join("\n"),
+      });
+      try {
+        draw();
+        checkDisclosure(host, width);
+      } finally {
+        posts.pop();
+      }
       results.push({ width, first, unchanged });
     } finally {
       root.unmount();

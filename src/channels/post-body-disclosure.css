@@ -1,0 +1,37 @@
+.post-body-disclosure-content {
+  display: flow-root;
+}
+.thread-feed .post-body-disclosure-content > .published-post {
+  font-size: 0.89rem;
+}
+.post-body-disclosure-viewport[data-collapsed] {
+  overflow: clip;
+}
+.post-body-disclosure-viewport[data-folded] {
+  mask-image: linear-gradient(#000 calc(100% - 2.5rem), transparent);
+}
+.post-body-disclosure-action {
+  appearance: none;
+  border: 0;
+  border-radius: 3px;
+  padding: 3px 0;
+  background: transparent;
+  color: var(--link);
+  font: inherit;
+  font-size: 0.77rem;
+  font-weight: 650;
+  text-align: start;
+  cursor: pointer;
+}
+.post-body-disclosure-action:is(:hover, :focus-visible) {
+  text-decoration: underline;
+}
+.post-body-disclosure-action:focus-visible {
+  outline: 2px solid var(--keyboard-focus);
+  outline-offset: 2px;
+}
+@media (pointer: coarse) {
+  .post-body-disclosure-action {
+    min-height: 44px;
+  }
+}
