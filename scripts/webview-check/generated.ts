@@ -13,6 +13,7 @@ import {
 } from "../../src/mattermost/native-rest.ts";
 import { sidebarPreferences } from "../../src/mattermost/workspace-preferences.ts";
 import {
+  BookmarksApi,
   ChannelsApi,
   Configuration,
   FetchError,
@@ -26,7 +27,10 @@ import {
 } from "../../vendor/mattermost/index.js";
 import { checkAccountResponses } from "./account.ts";
 import { checkAccountThreadReadState } from "./account-thread-read-state.ts";
-import { checkChannelFormatting } from "./channel-formatting.tsx";
+import {
+  checkChannelFormatting,
+  checkPublishedLinkKey,
+} from "./channel-formatting.tsx";
 import { checkChannelRefresh } from "./channel-refresh.ts";
 import { checkCollectionWindow } from "./collection-window.tsx";
 import { checkDraftWrites } from "./composer-drafts.ts";
@@ -213,6 +217,28 @@ export async function checkGeneratedRequests(ports: string[]) {
     );
   }
   try {
+    const signed = new Configuration(accountPrefix);
+    await fixtureStep("create-channel-bookmark", async () => {
+      const channelId = "c".repeat(26);
+      const bookmarks = new BookmarksApi(signed);
+      const created = await bookmarks.createChannelBookmarkRaw({
+        channelId,
+        connectionId: "fixture-bookmark-connection",
+        createChannelBookmarkRequest: {
+          type: "link",
+          displayName: "Guide",
+          linkUrl: "https://example.invalid/guide",
+        },
+      });
+      const bookmark = await created.value();
+      check(
+        created.raw.status === 201 &&
+          bookmark.id === "k".repeat(26) &&
+          bookmark.channelId === channelId &&
+          bookmark.displayName === "Guide",
+        "signed channel bookmark creation",
+      );
+    });
     if (isAndroid) {
       const times = await androidFixtureStep("message-formatting", () =>
         checkFormatting(observed),
@@ -221,6 +247,7 @@ export async function checkGeneratedRequests(ports: string[]) {
         observed("format-times", encodeURIComponent(JSON.stringify(times))),
       );
     }
+    await checkPublishedLinkKey(() => observed("format-link", ""));
     await fixtureStep("generated-root-ping", async () => {
       const atRoot = await new SystemApi(new Configuration(root)).getPing(
         query,
@@ -248,7 +275,6 @@ export async function checkGeneratedRequests(ports: string[]) {
       (await unauthenticated.response.json()).message === "session required",
       "generated-user-error-body",
     );
-    const signed = new Configuration(accountPrefix);
     const users = new UsersApi(signed);
     const lookup = { ids: [] as string[], usernames: ["unknown", "fixture"] };
     check(

@@ -2,8 +2,8 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { workspaceCopy } from "../channels/workspace-copy";
 import type { TeamWorkspace } from "./AccountTeamWindow";
 import type { EntryLanguage } from "./language";
-import { sessionText } from "./session-text";
 import { signOutText } from "./sign-out-text";
+import { teamChoiceText } from "./team-choice-text";
 import { teamText } from "./team-text";
 import "./account-exit.css";
 
@@ -23,11 +23,17 @@ export function AccountSessionWindow({
   workspace,
   language,
   accountName,
+  address,
+  focusTeamChoice,
+  onTeamChoice,
   onDismiss,
 }: {
   workspace: TeamWorkspace;
   language: EntryLanguage;
   accountName: string;
+  address: string;
+  focusTeamChoice?: boolean;
+  onTeamChoice: () => void;
   onDismiss: () => void;
 }) {
   const [page, setPage] = useState<Page>("account");
@@ -38,6 +44,7 @@ export function AccountSessionWindow({
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const heading = useRef<HTMLHeadingElement>(null);
+  const teamChoiceButton = useRef<HTMLButtonElement>(null);
   const neutral = useRef<HTMLButtonElement>(null);
   const primary = useRef<HTMLButtonElement>(null);
   const text = signOutText[language];
@@ -57,14 +64,17 @@ export function AccountSessionWindow({
     };
   }, []);
   useLayoutEffect(() => {
+    const menuFocus = focusTeamChoice
+      ? teamChoiceButton.current
+      : heading.current;
     const target =
       page === "account"
-        ? heading.current
+        ? menuFocus
         : page === "cleanup"
           ? primary.current
           : neutral.current;
     target?.focus({ preventScroll: true });
-  }, [page]);
+  }, [page, focusTeamChoice]);
 
   async function signOut() {
     if (working.current) return;
@@ -115,10 +125,13 @@ export function AccountSessionWindow({
       }}
     >
       <header>
-        <h1 id={titleId} tabIndex={-1} ref={heading}>
-          {isMenu
-            ? workspace.team.displayName || workspace.team.name
-            : text[page]}
+        <h1
+          id={titleId}
+          tabIndex={-1}
+          ref={heading}
+          dir={isMenu && !accountName ? "ltr" : undefined}
+        >
+          {isMenu ? accountName || address : text[page]}
         </h1>
         <button
           type="button"
@@ -134,9 +147,11 @@ export function AccountSessionWindow({
       <section className="modal-scroll" aria-labelledby={titleId} tabIndex={0}>
         {isMenu ? (
           <>
-            <p className="entry-address" dir="ltr">
-              {workspace.serverUrl}
-            </p>
+            {accountName && (
+              <p className="entry-address" dir="ltr">
+                {address}
+              </p>
+            )}
             {workspace.directoryNotice && (
               <p role="status">
                 {teamText[language][workspace.directoryNotice]}
@@ -186,10 +201,11 @@ export function AccountSessionWindow({
           <>
             <button
               className="entry-secondary"
+              ref={teamChoiceButton}
               type="button"
-              onClick={workspace.chooseAnotherTeam}
+              onClick={onTeamChoice}
             >
-              {sessionText[language].chooseTeam}
+              {teamChoiceText[language].title}
             </button>
             <button
               className="entry-secondary"

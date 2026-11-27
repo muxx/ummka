@@ -167,10 +167,11 @@ export async function checkBrowserApp(server: string, controlPort: string) {
       { name: "GitLab" },
       { timeout: 15_000 },
     );
+    ui.getByRole("button", { name: "Google" });
     flushSync(() => fireEvent.click(provider));
     if (
       !ui.getByRole("heading", { name: "Continue in your browser" }) ||
-      !ui.queryByText(server)
+      !ui.queryByTitle(server)
     )
       throw Error("browser wait lost the chosen installation");
     await ui.findByText("Town fixture message", {}, { timeout: 20_000 });
@@ -331,7 +332,9 @@ export async function checkBrowserApp(server: string, controlPort: string) {
         { timeout: 10_000 },
       ),
     );
-    await results.findByText("Search found this fixture post");
+    await results.findByRole("button", {
+      name: "Search found this fixture post",
+    });
     results = await verifySearchAttachment(host, controlPort, townDraft);
     flushSync(() =>
       fireEvent.click(results.getByRole("button", { name: /Messages/ })),
@@ -414,7 +417,9 @@ export async function checkBrowserApp(server: string, controlPort: string) {
         { timeout: 10_000 },
       ),
     );
-    await commandResults.findByText("Search found this fixture post");
+    await commandResults.findByRole("button", {
+      name: "Search found this fixture post",
+    });
     await waitFor(
       () => {
         if (townDraft.value !== "")
@@ -486,6 +491,28 @@ export async function checkBrowserApp(server: string, controlPort: string) {
     if (document.activeElement !== current)
       throw Error("first browser sign-in lost the current team focus");
     flushSync(() => fireEvent.click(current));
+    if (document.activeElement !== switchTeam)
+      throw Error("Closing the unchanged team lost the team button focus");
+    flushSync(() =>
+      fireEvent.click(
+        ui.getByRole("button", { name: "Design", current: "page" }),
+      ),
+    );
+    // Reload permissions through the regular reconnect path. Dismissing the
+    // team list no longer remounts or refreshes the focused workspace.
+    const previousOnline = Object.getOwnPropertyDescriptor(navigator, "onLine");
+    Object.defineProperty(navigator, "onLine", {
+      configurable: true,
+      value: false,
+    });
+    try {
+      flushSync(() => window.dispatchEvent(new Event("offline")));
+    } finally {
+      if (previousOnline)
+        Object.defineProperty(navigator, "onLine", previousOnline);
+      else Reflect.deleteProperty(navigator, "onLine");
+      flushSync(() => window.dispatchEvent(new Event("online")));
+    }
     await ui.findByText("Design fixture message", {}, { timeout: 10_000 });
     await ui.findByRole("heading", { name: "Design" });
     const designDraft = await ui.findByRole<HTMLTextAreaElement>(
@@ -563,7 +590,11 @@ export async function checkBrowserApp(server: string, controlPort: string) {
       { timeout: 10_000 },
     );
     local.click();
-    await ui.findByRole("button", { name: "GitLab" }, { timeout: 15_000 });
+    await ui.findByRole(
+      "heading",
+      { name: "Sign in again" },
+      { timeout: 15_000 },
+    );
   } finally {
     root.unmount();
     host.remove();

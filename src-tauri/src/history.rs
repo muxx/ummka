@@ -9,6 +9,8 @@ pub(crate) mod checks;
 mod attachments;
 mod attempts;
 pub use attempts::{PostRefusal, RefusalScope, RetryPost};
+mod departure;
+pub use departure::ChannelMembershipUpdate;
 mod directory;
 mod recent_searches;
 pub use directory::{DirectoryTeam, TeamDirectory, TeamDirectoryLoad};

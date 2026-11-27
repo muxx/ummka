@@ -11,6 +11,10 @@ import {
 import { isAndroid } from "../build-platform.ts";
 import { CodeCopy, CodePreview } from "./PublishedCodeReader.tsx";
 import {
+  PublishedLinkNavigation,
+  PublishedPostLink,
+} from "./PublishedPostLink.tsx";
+import {
   PublishedReaderWindow,
   type ReaderOrigin,
   tableCopy,
@@ -94,7 +98,11 @@ function inlineNode(node: Inline, locale: Locale): React.ReactNode {
     case "lineBreak":
       return <br />;
     case "imageDescription":
-      return node.text || labels[locale].image;
+      return (
+        <PublishedPostLink target={node.target}>
+          {node.text || labels[locale].image}
+        </PublishedPostLink>
+      );
     case "emphasis":
       return <em>{inlines(node.children, locale)}</em>;
     case "strong":
@@ -102,7 +110,11 @@ function inlineNode(node: Inline, locale: Locale): React.ReactNode {
     case "strike":
       return <del>{inlines(node.children, locale)}</del>;
     case "linkLabel":
-      return inlines(node.children, locale);
+      return (
+        <PublishedPostLink target={node.target}>
+          {inlines(node.children, locale)}
+        </PublishedPostLink>
+      );
   }
 }
 
@@ -204,7 +216,9 @@ function TablePreview({ table, locale }: TableProps) {
   return (
     <div className="post-table post-table-preview" ref={preview}>
       <div className="post-table-preview-grid">
-        <TableGrid table={table} locale={locale} limit={limit} />
+        <PublishedLinkNavigation.Provider value={null}>
+          <TableGrid table={table} locale={locale} limit={limit} />
+        </PublishedLinkNavigation.Provider>
       </div>
       <button
         className="post-table-open"

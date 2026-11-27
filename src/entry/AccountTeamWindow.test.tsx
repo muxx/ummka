@@ -78,26 +78,36 @@ function view(onSessionEnded = vi.fn(), account = user) {
     >
       {({
         team,
-        chooseAnotherTeam,
+        teamChoice,
         userId,
         directoryNotice,
         directoryCode,
       }: TeamWorkspace) => (
-        <button
-          type="button"
-          data-user={userId}
-          data-notice={directoryNotice ?? ""}
-          data-code={directoryCode ?? ""}
-          onClick={chooseAnotherTeam}
-        >
-          Открыта {team.displayName}
-        </button>
+        <>
+          <button
+            type="button"
+            data-user={userId}
+            data-notice={directoryNotice ?? ""}
+            data-code={directoryCode ?? ""}
+          >
+            Открыта {team.displayName}
+          </button>
+          {teamChoice.teams.map((candidate) => (
+            <button
+              key={candidate.id}
+              type="button"
+              onClick={() => void teamChoice.select(candidate)}
+            >
+              {candidate.displayName}
+            </button>
+          ))}
+        </>
       )}
     </AccountTeamWindow>
   );
 }
 
-test("opens the saved team before the network replies and restores focus when returning to the picker", async () => {
+test("opens the saved team with ordered choices before the network replies", async () => {
   const connection = fixture({
     teams: [first, second],
     selectedTeam: first.id,
@@ -108,17 +118,13 @@ test("opens the saved team before the network replies and restores focus when re
     name: "Открыта Альфа",
   });
   expect(workspace.getAttribute("data-user")).toBe(user);
-  fireEvent.click(workspace);
-  expect(screen.getByRole("button", { name: "Альфа", current: true })).toBe(
-    document.activeElement,
-  );
-  const buttons = screen.getAllByRole("button");
-  expect(buttons[0]).toBe(screen.getByRole("button", { name: "Бета" }));
+  const [, firstChoice] = screen.getAllByRole("button");
+  expect(firstChoice).toBe(screen.getByRole("button", { name: "Бета" }));
   connection.readJoinedTeams.mockResolvedValue({
     teams: [first, second],
     selectedTeam: second.id,
   });
-  fireEvent.click(buttons[0]);
+  fireEvent.click(firstChoice);
   await screen.findByRole("button", { name: "Открыта Бета" });
   expect(connection.selectJoinedTeam).toHaveBeenCalledExactlyOnceWith(
     second.id,
@@ -161,16 +167,15 @@ test("withdraws the old workspace on a server-confirmed 401 and retires only tha
   expect(ended).toHaveBeenCalledOnce();
 });
 
-test("a transport failure retains the saved selection and a failed choice leaves its picker open", async () => {
+test("a failed mandatory first choice leaves its picker open", async () => {
   const connection = fixture({
     teams: [first, second],
-    selectedTeam: first.id,
+    selectedTeam: null,
   });
   connection.refreshJoinedTeams.mockRejectedValue("network");
   render(view());
-  fireEvent.click(await screen.findByRole("button", { name: "Открыта Альфа" }));
   connection.selectJoinedTeam.mockRejectedValue("history_storage_unavailable");
-  fireEvent.click(screen.getByRole("button", { name: "Бета" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Бета" }));
   expect(
     await screen.findByText("Не удалось сохранить выбор команды."),
   ).toBeTruthy();
@@ -208,9 +213,7 @@ test.each(["old value", "late rejection", "early rejection"] as const)(
     const background = deferred<JoinedTeams | null>();
     connection.refreshJoinedTeams.mockReturnValue(refresh.promise);
     render(view());
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Открыта Альфа" }),
-    );
+    await screen.findByRole("button", { name: "Открыта Альфа" });
     connection.readJoinedTeams
       .mockReturnValueOnce(selection.promise)
       .mockReturnValueOnce(background.promise);

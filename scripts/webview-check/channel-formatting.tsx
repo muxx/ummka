@@ -6,6 +6,8 @@ import { applyPalette, resolvePalette } from "../../src/appearance/palette.ts";
 import { isAndroid } from "../../src/build-platform.ts";
 import { ChannelTimeline } from "../../src/channels/ChannelTimeline.tsx";
 import { PublishedCodeReader } from "../../src/channels/PublishedCodeReader.tsx";
+import { PublishedPostBody } from "../../src/channels/PublishedPostBody.tsx";
+import { PublishedLinkNavigation } from "../../src/channels/PublishedPostLink.tsx";
 import {
   PublishedReaderWindow,
   PublishedTableScreen,
@@ -1259,4 +1261,51 @@ export async function checkChannelFormatting(
     }
   }
   return results;
+}
+
+export async function checkPublishedLinkKey(pressEnter: () => Promise<void>) {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const href = "https://example.test/handbook";
+  const activations: { href: string; origin: HTMLAnchorElement }[] = [];
+  try {
+    flushSync(() =>
+      root.render(
+        <PublishedLinkNavigation.Provider
+          value={{
+            serverUrl: "https://example.test",
+            open: (href, origin) => activations.push({ href, origin }),
+          }}
+        >
+          <PublishedPostBody
+            message="[**Handbook**](/handbook)"
+            locale="en"
+            authorName="Ada"
+          />
+        </PublishedLinkNavigation.Provider>,
+      ),
+    );
+    const link = within(host).getByRole("link", { name: "Handbook" });
+    let trusted = false;
+    link.addEventListener("click", (event) => {
+      trusted = event.isTrusted;
+    });
+    link.focus();
+    await pressEnter();
+    await waitFor(() => {
+      if (
+        !trusted ||
+        activations.length !== 1 ||
+        activations[0].href !== href ||
+        activations[0].origin !== link
+      )
+        throw Error(
+          `Trusted Enter did not activate the styled link exactly once: ${trusted}, ${activations.length}`,
+        );
+    });
+  } finally {
+    root.unmount();
+    host.remove();
+  }
 }

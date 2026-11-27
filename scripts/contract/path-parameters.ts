@@ -44,6 +44,7 @@ export function checkPathParameters(
       segment === "{team_name}" ||
       segment === "{channel_name}" ||
       segment === "{channel_id}" ||
+      segment === "{bookmark_id}" ||
       segment === "{category_id}" ||
       segment === "{post_id}" ||
       segment === "{thread_id}" ||

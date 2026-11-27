@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChannelsWorkspace } from "./channels/ChannelsWorkspace";
+import { PublishedLinkNavigation } from "./channels/PublishedPostLink";
 import { AccountTeamWindow } from "./entry/AccountTeamWindow";
 import { EntryWindow } from "./entry/EntryWindow";
 import type { EntryLanguage } from "./entry/language";
@@ -63,6 +64,10 @@ function EntryRoute({
     typeof launch === "object" && "serverUrl" in launch
       ? launch.serverUrl
       : null;
+  const links = useMemo(
+    () => (address ? { serverUrl: address, open: inbox.openPost } : null),
+    [address, inbox.openPost],
+  );
   const request =
     inbox.request?.target.serverUrl === address ? inbox.request : undefined;
   const needsSignIn =
@@ -104,14 +109,16 @@ function EntryRoute({
           systemPost={request}
         >
           {(workspace) => (
-            <ChannelsWorkspace
-              key={JSON.stringify([
-                workspace.connection.rid,
-                workspace.team.id,
-              ])}
-              workspace={workspace}
-              language={language}
-            />
+            <PublishedLinkNavigation.Provider value={links}>
+              <ChannelsWorkspace
+                key={JSON.stringify([
+                  workspace.connection.rid,
+                  workspace.team.id,
+                ])}
+                workspace={workspace}
+                language={language}
+              />
+            </PublishedLinkNavigation.Provider>
           )}
         </AccountTeamWindow>
       );
@@ -124,7 +131,13 @@ function EntryRoute({
         }
         link={signInLink}
         linkResult={inbox.entryResult}
-        installations={signInLink ? inbox.installations : undefined}
+        installations={
+          signInLink
+            ? inbox.installations
+            : launch.status === "sign_in_required"
+              ? launch.installations
+              : undefined
+        }
         selectSaved={inbox.selectSaved}
         onAccountChanged={reopen}
       />

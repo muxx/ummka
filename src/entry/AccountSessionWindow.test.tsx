@@ -42,6 +42,8 @@ function Avatar({ workspace }: { workspace: TeamWorkspace }) {
           workspace={workspace}
           language="en"
           accountName="Anna North"
+          address="work.example.test/mattermost"
+          onTeamChoice={() => {}}
           onDismiss={() => setOpen(false)}
         />
       )}

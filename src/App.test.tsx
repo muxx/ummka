@@ -9,6 +9,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ResponseError } from "../vendor/mattermost/index.js";
+import { isMobile } from "./build-platform";
 import { entryLanguage } from "./entry/language";
 import { ServerSignIn } from "./entry/ServerSignIn";
 import { getDeviceLaunchContext } from "./mattermost/device-launch";
@@ -42,10 +43,13 @@ const profile: Awaited<ReturnType<typeof inspectInstallation>> = {
 beforeEach(() => {
   inspect.mockReset();
   vi.mocked(connectInstallation).mockReset().mockResolvedValue();
-  vi.mocked(getDeviceLaunchContext).mockReset().mockResolvedValue({
-    status: "sign_in_required",
-    serverUrl: profile.serverUrl,
-  });
+  vi.mocked(getDeviceLaunchContext)
+    .mockReset()
+    .mockResolvedValue({
+      status: "sign_in_required",
+      serverUrl: profile.serverUrl,
+      installations: [profile.serverUrl],
+    });
   changed.mockReset();
 });
 afterEach(cleanup);
@@ -103,12 +107,18 @@ test("submits once, shows only the verified methods and restores the typed addre
   expect(inspect).toHaveBeenCalledTimes(1);
   expect(inspect.mock.calls[0][0]).toBe("Chat.example.org/Team/");
   await act(async () => finish(profile));
-  const site = screen.getByRole("heading", { name: profile.siteName });
-  expect(document.activeElement).toBe(site);
-  expect(screen.getByText(profile.serverUrl)).toBeTruthy();
-  expect(
-    screen.getAllByRole("listitem").map((item) => item.textContent),
-  ).toEqual(["GitLab"]);
+  const heading = screen.getByRole("heading", {
+    name: "How would you like to sign in?",
+  });
+  const provider = screen.getByRole("button", { name: "Sign in with GitLab" });
+  expect(document.activeElement).toBe(isMobile ? heading : provider);
+  expect(screen.getByText(profile.siteName)).toBeTruthy();
+  expect(screen.getByTitle(profile.serverUrl).textContent).toBe(
+    "chat.example.org/Team",
+  );
+  expect(provider.getAttribute("aria-describedby")).toBe(
+    screen.getByText(/opens in your browser/).id,
+  );
   fireEvent.click(
     screen.getByRole("button", { name: "Change server address" }),
   );
@@ -173,17 +183,25 @@ test.each([
     expect(field.value).toBe("chat.example.org/Team");
     expect(inspect).toHaveBeenCalledTimes(1);
     fireEvent.submit(form);
-    await screen.findByRole("heading", { name: "chat.example.org" });
+    await screen.findByRole("heading", {
+      name: "How would you like to sign in?",
+    });
     expect(
-      screen.getAllByRole("listitem").map((item) => item.textContent),
+      screen.getByTitle(profile.serverUrl).previousElementSibling?.textContent,
+    ).toBe("chat.example.org");
+    expect(
+      screen
+        .getAllByRole("button")
+        .map((item) => item.getAttribute("aria-label") ?? item.textContent),
     ).toEqual([
-      "Password",
+      "Change server address",
       "Office 365",
       "OpenID Connect",
       "SAML",
       "Google",
-      "Guest email link",
+      "Cancel",
     ]);
+    expect(screen.getAllByText("Unavailable in ummka")).toHaveLength(2);
   },
 );
 

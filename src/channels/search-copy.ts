@@ -49,6 +49,8 @@ export const searchCopy = {
     edit: "Edit search",
     unnamed: "File",
     attachment: "Message with an attachment",
+    member: "Member",
+    threadReply: "reply in a thread",
   },
   ru: {
     back: "К результатам",
@@ -100,5 +102,7 @@ export const searchCopy = {
     edit: "Изменить запрос",
     unnamed: "Файл",
     attachment: "Сообщение с вложением",
+    member: "Участник",
+    threadReply: "ответ в обсуждении",
   },
 } as const;

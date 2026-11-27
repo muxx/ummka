@@ -141,8 +141,53 @@ async function submitSearch(terms: string) {
   const { form, input } = await open();
   fireEvent.change(input, { target: { value: terms } });
   fireEvent.click(within(form).getByRole("button", { name: "Найти" }));
-  await screen.findByText("Готово к выпуску");
+  await screen.findByRole("button", { name: "Готово к выпуску" });
 }
+
+test("marks only the displayed result's words and exposes thread context without rendering server markup", async () => {
+  const account = fixture();
+  const noMatch = "m".repeat(26);
+  const missing = "n".repeat(26);
+  const at = Date.UTC(2026, 10, 18, 12);
+  account.readPostSearchPage.mockResolvedValue({
+    items: [
+      {
+        id: post,
+        channelId: channel,
+        userId: "u".repeat(26),
+        rootId: "r".repeat(26),
+        createAt: at,
+        message: 'Первый **экрана** <img src="https://example.test/test.png">',
+      },
+      { id: noMatch, channelId: channel, message: "Второй экран" },
+      { id: missing, channelId: channel, message: "Третий экран" },
+    ],
+    matches: { [post]: ["экрана"], [noMatch]: [] },
+    isEnd: true,
+    firstInaccessiblePostTime: 0,
+  });
+  render(<Window account={account} />);
+  const { form, input } = await open();
+  fireEvent.change(input, { target: { value: "экран in:releases -черновик" } });
+  fireEvent.click(within(form).getByRole("button", { name: "Найти" }));
+  const first = await screen.findByRole("button", {
+    name: /^Первый экрана/,
+    description: /Анна.*Релизы.*ответ в обсуждении/,
+  });
+  expect(first.querySelector("mark")?.textContent).toBe("экрана");
+  expect(first.querySelector("img")).toBeNull();
+  expect(first.querySelector("time")?.dateTime).toBe(
+    new Date(at).toISOString(),
+  );
+  expect(
+    screen.getByRole("button", { name: "Второй экран" }).querySelector("mark"),
+  ).toBeNull();
+  expect(
+    screen.getByRole("button", { name: "Третий экран" }).querySelector("mark")
+      ?.textContent,
+  ).toBe("экран");
+});
+
 test("searches from the header, switches tabs without losing results and returns to the draft", async () => {
   const account = fixture();
   render(<Window account={account} />);
@@ -151,7 +196,9 @@ test("searches from the header, switches tabs without losing results and returns
     await within(form).findByRole("button", { name: "from:anya выпуск" }),
   );
   expect(input.value).toBe("from:anya выпуск");
-  expect(await screen.findByText("Готово к выпуску")).toBeTruthy();
+  expect(
+    await screen.findByRole("button", { name: "Готово к выпуску" }),
+  ).toBeTruthy();
   expect(account.rememberTeamSearch).toHaveBeenCalledWith(
     team.id,
     "from:anya выпуск",
@@ -168,9 +215,9 @@ test("searches from the header, switches tabs without losing results and returns
     expect.any(AbortSignal),
   );
   fireEvent.click(screen.getByRole("button", { name: "Файлы" }));
-  expect(await screen.findByText("release.pdf")).toBeTruthy();
+  expect(await screen.findByTitle("release.pdf")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: /Сообщения/ }));
-  expect(screen.getByText("Готово к выпуску")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Готово к выпуску" })).toBeTruthy();
   expect(account.readPostSearchPage).toHaveBeenCalledOnce();
   fireEvent.click(screen.getByRole("button", { name: "Закрыть поиск" }));
   expect(screen.queryByRole("complementary")).toBeNull();
@@ -198,7 +245,7 @@ test.each(["field", "recent row"])(
       await user.type(input, term);
     }
     await user.keyboard("{Enter}");
-    await screen.findByText("Готово к выпуску");
+    await screen.findByRole("button", { name: "Готово к выпуску" });
     expect(account.rememberTeamSearch.mock.calls).toEqual([[team.id, term]]);
     expect(account.readPostSearchPage).toHaveBeenCalledOnce();
     expect(account.readPostSearchPage.mock.calls[0][0]).toMatchObject({
@@ -361,7 +408,7 @@ test("all-team search removes scoped filters, retains the date and skips recent 
   expect(input.value).toBe("план after:2026-01-01");
   expect(within(form).getByText(/Сняли from:anya и in:dev/)).toBeTruthy();
   fireEvent.click(within(form).getByRole("button", { name: "Найти" }));
-  await screen.findByText("Готово к выпуску");
+  await screen.findByRole("button", { name: "Готово к выпуску" });
   expect(
     within(screen.getByRole("complementary")).getByText(
       /Сняли from:anya и in:dev/,
@@ -380,14 +427,14 @@ test("removes one condition with the keyboard, preserves literal phrases and res
     '"снимки  from:literal" in:#release from:anya after:2026-11-17';
   fireEvent.change(input, { target: { value: initial } });
   fireEvent.click(within(form).getByRole("button", { name: "Найти" }));
-  await screen.findByText("Готово к выпуску");
+  await screen.findByRole("button", { name: "Готово к выпуску" });
   const author = screen.getByRole("button", { name: "Убрать фильтр от Анна" });
   const second =
     deferred<Awaited<ReturnType<typeof account.readPostSearchPage>>>();
   account.readPostSearchPage.mockReturnValueOnce(second.promise);
   author.focus();
   await user.keyboard("{Enter}");
-  expect(screen.queryByText("Готово к выпуску")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Готово к выпуску" })).toBeNull();
   expect(
     screen.queryByRole("button", { name: "Убрать фильтр от Анна" }),
   ).toBeNull();
@@ -422,7 +469,7 @@ test("the latest scope owns the results, and a late reply cannot close a newly o
     target: { value: "экран channel:#release -from:anya before:2026-11-17" },
   });
   fireEvent.click(within(form).getByRole("button", { name: "Найти" }));
-  await screen.findByText("Готово к выпуску");
+  await screen.findByRole("button", { name: "Готово к выпуску" });
   const pendingSouth =
     deferred<Awaited<ReturnType<typeof account.readPostSearchPage>>>();
   account.readPostSearchPage.mockReturnValueOnce(pendingSouth.promise);
@@ -432,7 +479,7 @@ test("the latest scope owns the results, and a late reply cannot close a newly o
   });
   expect(panel().getByText(/Сняли channel:#release и -from:anya/)).toBeTruthy();
   expect(document.activeElement).toBe(panel().getByRole("combobox"));
-  expect(screen.queryByText("Готово к выпуску")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Готово к выпуску" })).toBeNull();
   await waitFor(() =>
     expect(account.readPostSearchPage).toHaveBeenCalledTimes(2),
   );
@@ -477,7 +524,7 @@ test("removing the final condition leaves an empty editable panel and sends no r
   const { form, input } = await open();
   fireEvent.change(input, { target: { value: "in:релизы" } });
   fireEvent.click(within(form).getByRole("button", { name: "Найти" }));
-  await screen.findByText("Готово к выпуску");
+  await screen.findByRole("button", { name: "Готово к выпуску" });
   fireEvent.click(
     screen.getByRole("button", { name: "Убрать фильтр в # релизы" }),
   );
@@ -524,7 +571,7 @@ test("cancelling a dialog submission leaves its interrupted results query recove
   expect(account.readPostSearchPage).toHaveBeenCalledOnce();
   expect(panel().getByRole("alert").textContent).toBe("Поиск прерван.");
   fireEvent.click(panel().getByRole("button", { name: "Повторить" }));
-  await screen.findByText("Готово к выпуску");
+  await screen.findByRole("button", { name: "Готово к выпуску" });
   expect(account.readPostSearchPage.mock.calls[1]?.[0]).toMatchObject({
     teamId: other.id,
     terms: "выпуск",
@@ -581,7 +628,7 @@ test("keyboard retry keeps focus through failure and returns it to the query aft
   await act(async () => repeated.reject(new Error("server still failed")));
   expect(document.activeElement).toBe(retry);
   await user.keyboard("{Enter}");
-  await screen.findByText("Готово к выпуску");
+  await screen.findByRole("button", { name: "Готово к выпуску" });
   expect(document.activeElement).toBe(
     screen.getByRole("button", { name: "Изменить запрос, выпуск" }),
   );
@@ -594,7 +641,7 @@ test("a slow directory response supplies the scope selector after command result
   account.readJoinedTeams.mockReturnValueOnce(directory.promise);
   render(<Window account={account} command />);
   fireEvent.click(screen.getByRole("button", { name: "Поиск командой" }));
-  await screen.findByText("Готово к выпуску");
+  await screen.findByRole("button", { name: "Готово к выпуску" });
   expect(screen.queryByRole("combobox")).toBeNull();
   expect(account.readJoinedTeams).toHaveBeenCalledOnce();
   await act(async () =>
@@ -674,15 +721,15 @@ test("a changed server policy discards results and keeps the next search within 
   fireEvent.change(input, { target: { value: "выпуск" } });
   fireEvent.click(within(form).getByRole("button", { name: "Файлы" }));
   fireEvent.click(within(form).getByRole("button", { name: "Найти" }));
-  await screen.findByText("release.pdf");
+  await screen.findByTitle("release.pdf");
   window.rerender(<Window account={account} restricted />);
-  expect(screen.queryByText("release.pdf")).toBeNull();
+  expect(screen.queryByTitle("release.pdf")).toBeNull();
   const next = await open();
   expect(within(next.form).queryByRole("combobox")).toBeNull();
   expect(within(next.form).queryByRole("button", { name: "Файлы" })).toBeNull();
   fireEvent.change(next.input, { target: { value: "повтор" } });
   fireEvent.click(within(next.form).getByRole("button", { name: "Найти" }));
-  await screen.findByText("Готово к выпуску");
+  await screen.findByRole("button", { name: "Готово к выпуску" });
   expect(account.readPostSearchPage.mock.calls[0]?.[0].teamId).toBe(team.id);
 });
 
@@ -696,11 +743,11 @@ test("retains existing results through a page error and retries the same page", 
   );
   expect(account.rememberTeamSearch).not.toHaveBeenCalled();
   fireEvent.click(within(form).getByRole("button", { name: "Найти" }));
-  await screen.findByText("Готово к выпуску");
+  await screen.findByRole("button", { name: "Готово к выпуску" });
   account.readPostSearchPage.mockRejectedValueOnce(new TypeError("network"));
   fireEvent.click(screen.getByRole("button", { name: "Показать ещё" }));
   await screen.findByText("Не удалось загрузить результаты.");
-  expect(screen.getByText("Готово к выпуску")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Готово к выпуску" })).toBeTruthy();
   account.readPostSearchPage.mockResolvedValueOnce({
     items: [],
     isEnd: true,
@@ -709,7 +756,7 @@ test("retains existing results through a page error and retries the same page", 
   });
   fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
   await screen.findByText("Часть старых результатов недоступна.");
-  expect(screen.getByText("Готово к выпуску")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Готово к выпуску" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Показать ещё" })).toBeNull();
   expect(account.readPostSearchPage.mock.calls.map(([q]) => q.page)).toEqual([
     0, 1, 1,
@@ -737,7 +784,7 @@ test("editing a file search keeps the displayed team and submitted scope while t
   fireEvent.change(input, { target: { value: "release" } });
   fireEvent.click(within(form).getByRole("button", { name: "Файлы" }));
   fireEvent.click(within(form).getByRole("button", { name: "Найти" }));
-  await screen.findByText("release.pdf");
+  await screen.findByTitle("release.pdf");
   const directory =
     deferred<Awaited<ReturnType<typeof account.readJoinedTeams>>>();
   account.readJoinedTeams.mockReturnValueOnce(directory.promise);
@@ -778,9 +825,9 @@ test("each edited query reads the current profile timezone; both tabs and pagina
   const { form, input } = await open();
   fireEvent.change(input, { target: { value: "on:2026-01-01" } });
   fireEvent.click(within(form).getByRole("button", { name: "Найти" }));
-  await screen.findByText("Готово к выпуску");
+  await screen.findByRole("button", { name: "Готово к выпуску" });
   fireEvent.click(screen.getByRole("button", { name: "Файлы" }));
-  await screen.findByText("release.pdf");
+  await screen.findByTitle("release.pdf");
   expect(
     account.readFileSearchPage.mock.calls[0]?.[0].timeZoneOffsetSeconds,
   ).toBe(20700);
@@ -795,7 +842,7 @@ test("each edited query reads the current profile timezone; both tabs and pagina
   await screen.findByRole("button", {
     name: "Изменить запрос, after:2026-01-02",
   });
-  await screen.findByText("release.pdf");
+  await screen.findByTitle("release.pdf");
   expect(
     account.readFileSearchPage.mock.calls.map(([q]) => [
       q.terms,
@@ -806,7 +853,7 @@ test("each edited query reads the current profile timezone; both tabs and pagina
     ["after:2026-01-02", 0],
   ]);
   fireEvent.click(screen.getByRole("button", { name: /Сообщения/ }));
-  await screen.findByText("Готово к выпуску");
+  await screen.findByRole("button", { name: "Готово к выпуску" });
   fireEvent.click(screen.getByRole("button", { name: "Показать ещё" }));
   await waitFor(() =>
     expect(account.readPostSearchPage).toHaveBeenCalledTimes(3),
@@ -867,7 +914,7 @@ test("a team removed from the refreshed directory cannot submit an edited query 
   });
   fireEvent.change(input, { target: { value: "выпуск" } });
   fireEvent.click(within(form).getByRole("button", { name: "Найти" }));
-  await screen.findByText("Готово к выпуску");
+  await screen.findByRole("button", { name: "Готово к выпуску" });
   account.readJoinedTeams.mockResolvedValueOnce({
     teams: [team],
     selectedTeam: team.id,

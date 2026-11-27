@@ -218,7 +218,10 @@ export async function checkSavedTeamWindow(
     flushSync(() =>
       fireEvent.click(ui.getByRole("button", { name: "Аккаунт" })),
     );
-    const menu = ui.getByRole("dialog", { name: "Fixture Team" });
+    const menu = ui.getByRole("dialog");
+    within(menu).getByText(serverUrl.replace(/^https?:\/\//u, ""), {
+      exact: true,
+    });
     flushSync(() =>
       fireEvent.click(
         within(menu).getByRole("button", { name: "Закрыть меню аккаунта" }),
@@ -243,6 +246,17 @@ export async function checkSavedTeamWindow(
     )
       throw Error("team selection does not fit its target window");
     flushSync(() => fireEvent.click(pick));
+    if (document.activeElement !== switcher || !field.isConnected)
+      throw Error(
+        "Closing the current team lost its button or detached the channel",
+      );
+    if (!field.getClientRects().length) {
+      flushSync(() =>
+        fireEvent.click(
+          ui.getByRole("button", { name: /^Town Square\b/u, current: "page" }),
+        ),
+      );
+    }
     await saved();
     const restored = await restoredDraft(edited);
     flushSync(() =>

@@ -69,7 +69,9 @@ test("cancels once after receiving the native request ID and restores keyboard f
     name: "Continue in your browser",
   });
   expect(document.activeElement).toBe(heading);
-  expect(screen.getByText(profile.serverUrl)).toBeTruthy();
+  expect(screen.getByTitle(profile.serverUrl).textContent).toBe(
+    "chat.example.test/work",
+  );
   const button = screen
     .getAllByRole("button", { name: "Cancel sign-in" })
     .at(-1);

@@ -195,7 +195,9 @@ export async function verifyWorkspaceBack(
       { timeout: 10000 },
     );
     const results = within(resultsNode);
-    await results.findByText("Search found this fixture post");
+    await results.findByRole("button", {
+      name: "Search found this fixture post",
+    });
     flushSync(() =>
       fireEvent.click(
         results.getByRole("button", { name: /Edit.*window fixture/i }),
@@ -329,6 +331,67 @@ export async function verifyWorkspaceBack(
     await waitFor(() => {
       if (!channel.getClientRects().length || channel.value !== channelText)
         throw Error("Reopening the channel from the directory lost its draft");
+    });
+    await fixtureStep("team-choice-native-back", async () => {
+      const nav = ui.queryByRole("button", { name: "Channels" });
+      if (nav) flushSync(() => fireEvent.click(nav));
+      const trigger = ui.getByRole("button", { name: /^Switch team,/ });
+      flushSync(() => fireEvent.click(trigger));
+      const direct = ui.getByRole("dialog", { name: "Teams and servers" });
+      await press("team-choice-direct");
+      await waitFor(() => {
+        if (
+          direct.isConnected ||
+          document.activeElement !== trigger ||
+          !channel.isConnected ||
+          channel.value !== channelText
+        )
+          throw Error(
+            "Team choice Back lost the team button or the channel draft",
+          );
+      });
+      const avatar = ui.getByRole("button", { name: "Account" });
+      flushSync(() => fireEvent.click(avatar));
+      const original = ui.getByRole("dialog");
+      const choice = within(original).getByRole("button", {
+        name: "Teams and servers",
+      });
+      flushSync(() => fireEvent.click(choice));
+      const nested = ui.getByRole("dialog", { name: "Teams and servers" });
+      await press("team-choice-nested");
+      const resumed = await waitFor(() => {
+        const menu = ui.queryByRole("dialog");
+        if (
+          nested.isConnected ||
+          original.isConnected ||
+          !menu ||
+          document.activeElement !==
+            within(menu).getByRole("button", { name: "Teams and servers" })
+        )
+          throw Error(
+            "Team choice Back did not return to its account menu action",
+          );
+        return menu;
+      });
+      await press("team-choice-account");
+      await waitFor(() => {
+        if (
+          resumed.isConnected ||
+          document.activeElement !== avatar ||
+          !channel.isConnected ||
+          channel.value !== channelText
+        )
+          throw Error(
+            "Returning from the account menu lost the avatar or the channel draft",
+          );
+      });
+      if (nav) {
+        flushSync(() =>
+          fireEvent.click(
+            ui.getByRole("button", { name: /Town Square/, current: "page" }),
+          ),
+        );
+      }
     });
   } finally {
     window.removeEventListener("keydown", observed, true);

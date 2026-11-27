@@ -14,6 +14,8 @@ import { isMobile } from "../build-platform.ts";
 import { AccountSessionWindow } from "../entry/AccountSessionWindow.tsx";
 import type { TeamWorkspace } from "../entry/AccountTeamWindow.tsx";
 import type { EntryLanguage } from "../entry/language.ts";
+import { TeamSwitchDialog } from "../entry/TeamSwitchDialog.tsx";
+import { teamChoiceText } from "../entry/team-choice-text.ts";
 import { savedChannelPermissions } from "../mattermost/channel-permissions.ts";
 import {
   conversationName,
@@ -71,6 +73,11 @@ import "./workspace.css";
 const AppearanceDialog = lazy(
   () => import("../appearance/AppearanceDialog.tsx"),
 );
+
+type AccountOverlay =
+  | { kind: "account"; focusTeamChoice?: boolean }
+  | { kind: "team-from-account" }
+  | { kind: "team"; opener: HTMLButtonElement };
 
 type Sections = ReturnType<typeof visibleSidebar>;
 function Sidebar({
@@ -204,7 +211,10 @@ export function ChannelsWorkspace({
   const accountButton = useRef<HTMLButtonElement>(null);
   const draftField = useRef<HTMLTextAreaElement>(null);
   const replyField = useRef<HTMLTextAreaElement>(null);
-  const [accountOpen, setAccountOpen] = useState(false);
+  const [accountOverlay, setAccountOverlay] = useState<AccountOverlay | null>(
+    null,
+  );
+  const accountOverlayReturn = useRef<HTMLButtonElement | null>(null);
   const appearanceButton = useRef<HTMLButtonElement>(null);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [appearanceNotice, setAppearanceNotice] = useState("");
@@ -260,13 +270,11 @@ export function ChannelsWorkspace({
         complete,
       });
   }, [hasSavedView, savedItems, complete]);
-  const returnToAccount = useRef(false);
   useLayoutEffect(() => {
-    if (!accountOpen && returnToAccount.current) {
-      returnToAccount.current = false;
-      accountButton.current?.focus();
-    }
-  }, [accountOpen]);
+    if (accountOverlay) return;
+    accountOverlayReturn.current?.focus({ preventScroll: true });
+    accountOverlayReturn.current = null;
+  }, [accountOverlay]);
   useLayoutEffect(() => {
     host.current?.querySelector<HTMLButtonElement>(".channels-team")?.focus();
   }, []);
@@ -401,7 +409,13 @@ export function ChannelsWorkspace({
     workspace,
     language,
     {
-      channel: (id) => resultRooms.get(id)?.title,
+      channel: (id) => {
+        const room = resultRooms.get(id);
+        if (room?.title)
+          return room.kind === "O" || room.kind === "P"
+            ? `# ${room.title}`
+            : room.title;
+      },
       author: (id) => author(id)?.name,
       condition: (kind, value) => {
         if (kind === "channel") {
@@ -606,7 +620,7 @@ export function ChannelsWorkspace({
     profiles: profiles.byId,
     sharedChannelDMs: policy.server.value?.sharedChannelDMs,
   });
-  function closeChannel() {
+  function closeChannel(opener: HTMLButtonElement) {
     if (!snapshot) return;
     const available = snapshot.data.channels.filter((room) => {
       if (room.id === chosen || room.deleteAt) return false;
@@ -630,7 +644,7 @@ export function ChannelsWorkspace({
             (room) => room.kind === "O" && room.name === "town-square",
           )?.id);
     if (target) choose(target);
-    else workspace.chooseAnotherTeam();
+    else setAccountOverlay({ kind: "team", opener });
   }
   function retryPostingAccess() {
     if (
@@ -663,6 +677,9 @@ export function ChannelsWorkspace({
   const accountName = own
     ? teammateName(own, settings?.nameFormat ?? "full_name")
     : "";
+  const serverAddress = workspace.serverUrl.slice(
+    workspace.serverUrl.indexOf("://") + 3,
+  );
   function author(id: string) {
     const profile = profiles.byId.get(id);
     return profile && settings
@@ -807,9 +824,14 @@ export function ChannelsWorkspace({
     </>
   );
   const closed = () => {
-    returnToAccount.current = true;
-    setAccountOpen(false);
+    accountOverlayReturn.current = accountButton.current;
+    setAccountOverlay(null);
   };
+  function closeTeamChoice() {
+    if (accountOverlay?.kind !== "team") return closed();
+    accountOverlayReturn.current = accountOverlay.opener;
+    setAccountOverlay(null);
+  }
   const historyIssue =
     error(timeline.status) ||
     (timeline.notice
@@ -981,7 +1003,7 @@ export function ChannelsWorkspace({
     language,
   );
   useWorkspaceBack(
-    accountOpen ||
+    accountOverlay !== null ||
       notificationRoom !== null ||
       workspace.messages.dialogOpen ||
       Boolean(attachments.selected) ||
@@ -1027,9 +1049,14 @@ export function ChannelsWorkspace({
         !document.hasFocus()
       )
         return;
-      const row = document.activeElement;
+      const focused = document.activeElement;
+      if (!(focused instanceof HTMLElement)) return;
+      // Clicking an anchor can move focus inside the destination before its first visible frame.
+      const row = focused.matches("a[href]")
+        ? focused.closest<HTMLElement>("[data-post-id]")
+        : focused;
       if (
-        !(row instanceof HTMLElement) ||
+        !row ||
         row.dataset.postId !== request.target.postId ||
         !scene.contains(row)
       )
@@ -1041,15 +1068,13 @@ export function ChannelsWorkspace({
         return;
       const pane = row.closest(paneClass)?.getBoundingClientRect();
       const box = row.getBoundingClientRect();
+      const control = focused === row ? box : focused.getBoundingClientRect();
       if (
-        pane?.height &&
-        pane.width &&
-        box.height &&
-        box.width &&
-        pane.right > box.left &&
-        box.right > pane.left &&
-        pane.bottom > box.top &&
-        box.bottom > pane.top
+        pane &&
+        Math.min(pane.right, box.right, control.right) >
+          Math.max(pane.left, box.left, control.left) &&
+        Math.min(pane.bottom, box.bottom, control.bottom) >
+          Math.max(pane.top, box.top, control.top)
       )
         request.shown(row.dataset.postId);
     };
@@ -1363,6 +1388,9 @@ export function ChannelsWorkspace({
         accountRef={accountButton}
         draftRef={directoryOpen ? undefined : draftField}
         accountName={accountName}
+        accountDescription={
+          accountName ? undefined : teamChoiceText[language].profilePending
+        }
         teamName={team.displayName || team.name}
         channel={
           directoryOpen
@@ -1398,9 +1426,9 @@ export function ChannelsWorkspace({
           workspace.systemPost?.stop("paused");
           search.abortPending();
           collections.abort();
-          setAccountOpen(true);
+          setAccountOverlay({ kind: "account" });
         }}
-        onTeam={workspace.chooseAnotherTeam}
+        onTeam={(opener) => setAccountOverlay({ kind: "team", opener })}
         navigation={nav}
         thread={
           activeThread && settings
@@ -1575,12 +1603,30 @@ export function ChannelsWorkspace({
           {appearanceNotice}
         </div>
       )}
-      {accountOpen && (
+      {accountOverlay?.kind === "account" && (
         <AccountSessionWindow
           workspace={workspace}
           language={language}
           accountName={accountName}
+          address={serverAddress}
+          focusTeamChoice={accountOverlay.focusTeamChoice}
+          onTeamChoice={() => setAccountOverlay({ kind: "team-from-account" })}
           onDismiss={closed}
+        />
+      )}
+      {accountOverlay && accountOverlay.kind !== "account" && (
+        <TeamSwitchDialog
+          workspace={workspace}
+          language={language}
+          address={serverAddress}
+          accountName={accountName}
+          onBack={
+            accountOverlay.kind === "team-from-account"
+              ? () =>
+                  setAccountOverlay({ kind: "account", focusTeamChoice: true })
+              : undefined
+          }
+          onClose={closeTeamChoice}
         />
       )}
       {actions.notice && (

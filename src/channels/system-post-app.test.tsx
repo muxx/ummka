@@ -7,6 +7,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ResponseError } from "../../vendor/mattermost/index.js";
 import { isMobile } from "../build-platform.ts";
@@ -102,7 +103,11 @@ function boot(options: Parameters<typeof fixture>[0] = {}) {
             serverUrl: selected,
             userId: sessions.get(selected) as string,
           }
-        : { status: "sign_in_required", serverUrl: selected },
+        : {
+            status: "sign_in_required",
+            serverUrl: selected,
+            installations: saved,
+          },
   });
 }
 beforeEach(() => {
@@ -140,7 +145,7 @@ beforeEach(() => {
       const el = document.activeElement as HTMLElement;
       acks.push({
         id,
-        row: el.dataset.postId,
+        row: el.closest<HTMLElement>("[data-post-id]")?.dataset.postId,
         thread: !!el.closest(".thread-feed"),
       });
       queue.shift();
@@ -292,7 +297,7 @@ test("a warm outcome preserves typing and an address error, then leaves after su
       vi
         .mocked(invoke)
         .mock.calls.some(([command]) => command === "connect_installation")
-        ? { status: "sign_in_required", serverUrl: base }
+        ? { status: "sign_in_required", serverUrl: base, installations: [base] }
         : { status: "first_launch" },
   });
   const profile = {
@@ -325,7 +330,9 @@ test("a warm outcome preserves typing and an address error, then leaves after su
   expect(screen.getByText("This link can’t be opened")).toBeTruthy();
   expect(acks).toEqual([]);
   submit();
-  await screen.findByRole("heading", { name: "Winter" });
+  await screen.findByRole("heading", {
+    name: "How would you like to sign in?",
+  });
   await waitFor(() => expect(acks.map(({ id }) => id)).toEqual(["A"]));
   expect(screen.queryByText("This link can’t be opened")).toBeNull();
   expect(
@@ -365,9 +372,9 @@ test("the known outcome remains through browser wait and cancellation and leaves
   });
 
   const { account } = boot();
-  const provider = { name: /^GitLab$/u };
+  const provider = { name: "Sign in with GitLab" };
   const action = await screen.findByRole("button", provider);
-  const server = screen.getByRole("heading", { name: "Winter" });
+  const server = screen.getByRole("heading", { name: "Sign in again" });
   expect(document.activeElement).toBe(isMobile ? server : action);
   const outcome = screen
     .getByText("ummka can’t open this type of link yet")
@@ -413,7 +420,11 @@ test("confirming a connection leaves a delivery that has not been shown for the 
         return { status: "first_launch" };
       return await new Promise((resolve) => {
         confirmConnection = () =>
-          resolve({ status: "sign_in_required", serverUrl: base });
+          resolve({
+            status: "sign_in_required",
+            serverUrl: base,
+            installations: [base],
+          });
       });
     },
   });
@@ -437,7 +448,9 @@ test("confirming a connection leaves a delivery that has not been shown for the 
     confirmConnection?.();
     await new Promise<void>((resolve) => setImmediate(resolve));
   });
-  await screen.findByRole("heading", { name: "Winter" });
+  await screen.findByRole("heading", {
+    name: "How would you like to sign in?",
+  });
   expect(screen.getByText("You’re still signing in to “Winter”.")).toBeTruthy();
   expect(acks).toEqual([]);
   fireEvent.click(screen.getByRole("button", { name: "Close" }));
@@ -693,13 +706,14 @@ test("a saved server with a pending link keeps sign-in and dismissal in the same
 
   fireEvent.click(form.getByRole("button", { name: "Don’t open this link" }));
   await waitFor(() => expect(acks.map((entry) => entry.id)).toEqual(["1"]));
-  const regularHeading = form.getByRole("heading", { name: "Winter" });
+  const regularHeading = form.getByRole("heading", { name: "Sign in again" });
   expect(document.activeElement).toBe(
-    isMobile ? regularHeading : form.getByRole("button", { name: "GitLab" }),
+    isMobile ? regularHeading : linkedProvider(),
   );
   expect(
-    screen.getByRole("button", { name: "Change server address" }),
-  ).toBeTruthy();
+    screen.queryByRole("button", { name: "Change server address" }),
+  ).toBeNull();
+  expect(form.getByRole("button", { name: "Another server" })).toBeTruthy();
   expect(
     form.queryByText("The message will still open when you sign in."),
   ).toBeNull();
@@ -898,7 +912,7 @@ test("Add server submits through the existing address form without consuming the
     target: { value: third },
   });
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-  await screen.findByRole("button", { name: "GitLab" });
+  await screen.findByRole("button", { name: "Sign in with GitLab" });
   expect(selected).toBe(third);
   expect(invoke).toHaveBeenCalledWith("connect_installation", {
     serverUrl: third,
@@ -1242,12 +1256,11 @@ test("a manual server choice wins an earlier native link selection and keeps the
     return result;
   });
   const { account } = boot();
-  await screen.findByRole("button", { name: "GitLab" });
+  await screen.findByRole("button", { name: "Sign in with GitLab" });
   act(() => enqueue("1", href(reply.id, nested)));
   await waitFor(() => expect(releaseSelection).toBeTypeOf("function"));
-  fireEvent.click(
-    screen.getByRole("button", { name: "Change server address" }),
-  );
+  fireEvent.click(screen.getByRole("button", { name: "Another server" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add server" }));
   fireEvent.change(screen.getByRole("textbox", { name: "Server address" }), {
     target: { value: manual },
   });
@@ -1295,4 +1308,116 @@ test("a fresh system delivery to the same saved post owns navigation", async () 
   expect(
     screen.queryByRole("button", { name: "Back to saved messages" }),
   ).toBeNull();
+});
+
+test("published links share signed post navigation without consuming any system delivery", async () => {
+  const { account } = boot();
+  const source = {
+    ...root,
+    id: "v".repeat(26),
+    channelId: home,
+    message: `[Open reply](${href(reply.id)})`,
+  };
+  const linkedReply = { ...reply, message: `[Open root](${href(root.id)})` };
+  account.readChannelWindow.mockImplementation(async (q) => ({
+    posts:
+      q.kind === "latest" && q.channelId === home
+        ? [source]
+        : q.kind === "around"
+          ? [q.postId === root.id ? root : linkedReply]
+          : [],
+    newer: { kind: "end" },
+    older: { kind: "end" },
+    firstInaccessiblePostTime: 0,
+  }));
+  account.readPostAnchor.mockImplementation(async (postId) => ({
+    postId,
+    rootId: postId === reply.id ? root.id : null,
+    channelId: design,
+    post: postId === reply.id ? linkedReply : root,
+  }));
+  account.readThreadPage.mockResolvedValue({
+    kind: "page",
+    root: { ...root, messageSource: undefined, rootId: "", deleteAt: 0 },
+    replies: [{ ...linkedReply, messageSource: undefined, deleteAt: 0 }],
+    next: null,
+  });
+  const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+  fireEvent.click(await screen.findByRole("link", { name: "Open reply" }));
+  const toRoot = await screen.findByRole("link", { name: "Open root" });
+  expect(toRoot.closest(".thread-feed")).toBeTruthy();
+  await waitFor(() =>
+    expect(document.activeElement).toBe(toRoot.closest("[data-post-id]")),
+  );
+  // The visible destination can be activated before the next focused-frame receipt.
+  hasFocus.mockReturnValue(true);
+  fireEvent.click(toRoot);
+  await waitFor(() => {
+    expect((document.activeElement as HTMLElement).dataset.postId).toBe(
+      root.id,
+    );
+    expect(document.activeElement?.closest(".thread-feed")).toBeNull();
+  });
+  expect(account.readPostAnchor.mock.calls.map(([id]) => id)).toEqual([
+    reply.id,
+    root.id,
+  ]);
+  expect(acks).toEqual([]);
+});
+
+test("a focused published link in the incoming destination allows its visible OS receipt and then opens the link", async () => {
+  const nativeFocus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+  queue.push({ id: "1", href: href(root.id) });
+  const { account } = boot();
+  const linkedRoot = { ...root, message: `[Open reply](${href(reply.id)})` };
+  account.readChannelWindow.mockImplementation(async (q) => ({
+    posts: q.kind === "around" ? [linkedRoot] : [],
+    newer: { kind: "end" },
+    older: { kind: "end" },
+    firstInaccessiblePostTime: 0,
+  }));
+  account.readPostAnchor.mockImplementation(async (postId) => ({
+    postId,
+    rootId: postId === reply.id ? root.id : null,
+    channelId: design,
+    post: postId === reply.id ? reply : linkedRoot,
+  }));
+
+  const link = await screen.findByRole("link", { name: "Open reply" });
+  await waitFor(() =>
+    expect(document.activeElement).toBe(link.closest("[data-post-id]")),
+  );
+  await userEvent.setup().click(link);
+  expect(document.activeElement).toBe(link);
+  expect(acks).toEqual([]);
+  expect(account.readPostAnchor.mock.calls.map(([id]) => id)).toEqual([
+    root.id,
+  ]);
+
+  Object.defineProperty(link, "getBoundingClientRect", {
+    configurable: true,
+    value: () => new DOMRect(0, 550, 50, 20),
+  });
+  nativeFocus.mockReturnValue(true);
+  fireEvent(window, new Event("focus"));
+  await act(async () => {
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+  });
+  expect(acks).toEqual([]);
+  Reflect.deleteProperty(link, "getBoundingClientRect");
+  fireEvent.scroll(link);
+  await waitFor(() => {
+    expect(acks).toEqual([{ id: "1", row: root.id, thread: false }]);
+    expect(document.activeElement?.closest(".thread-feed")).toBeTruthy();
+    expect((document.activeElement as HTMLElement).dataset.postId).toBe(
+      reply.id,
+    );
+  });
+  expect(account.readPostAnchor.mock.calls.map(([id]) => id)).toEqual([
+    root.id,
+    reply.id,
+  ]);
+  expect(queue).toEqual([]);
 });

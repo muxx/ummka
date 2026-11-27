@@ -130,6 +130,8 @@ export function webviewServers(
   let controlRequests = 0;
   let sendRight: (() => Promise<void>) | undefined;
   let releaseRight: (() => Promise<void>) | undefined;
+  let sendEnter: (() => Promise<void>) | undefined;
+  let linkActivated = false;
   let prepareKeyboard: (() => Promise<void>) | undefined;
   const collectionBackSteps = [
     "collection-back-saved-reply",
@@ -150,6 +152,9 @@ export function webviewServers(
     "channel-menu",
     "notifications",
     "directory",
+    "team-choice-direct",
+    "team-choice-nested",
+    "team-choice-account",
     "attachment-search",
     "directory-dialog",
   ];
@@ -654,6 +659,21 @@ export function webviewServers(
         res.writeHead(204).end();
         return;
       }
+      if (
+        url.pathname === "/system-post-check/api/v4/system/ping" &&
+        [
+          "published-link-notice-back",
+          "published-link-denied-back",
+          "published-link-table-back",
+        ].includes(url.searchParams.get("step") ?? "")
+      ) {
+        const step = url.searchParams.get("step");
+        assert(pressWorkspaceBack && step && !systemPostReads.has(step));
+        systemPostReads.add(step);
+        await pressWorkspaceBack();
+        res.writeHead(204).end();
+        return;
+      }
       url.pathname = url.pathname.replace(
         "/system-post-check/",
         "/browser-action-check/",
@@ -675,6 +695,27 @@ export function webviewServers(
       return;
     }
     if (await collectionWindow(req, res, url)) return;
+    if (url.pathname === `/team/chat/api/v4/channels/${channelId}/bookmarks`) {
+      assert.equal(req.method, "POST");
+      assert.equal(url.search, "");
+      assert(
+        req.headers.authorization === "Bearer fixture-prefixed-session",
+        "Bookmark creation needs the prefixed fixture account",
+      );
+      assert.equal(req.headers["connection-id"], "fixture-bookmark-connection");
+      assert.equal(req.headers["content-type"], "application/json");
+      const fields = {
+        type: "link",
+        display_name: "Guide",
+        link_url: "https://example.invalid/guide",
+      };
+      assert.deepEqual(await json(req), fields);
+      visits.push("create-channel-bookmark");
+      const bookmark = { ...fields, id: "k".repeat(26), channel_id: channelId };
+      res.writeHead(201, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(bookmark));
+      return;
+    }
     if (url.pathname === "/team/chat/api/v4/reactions") {
       assert.equal(req.method, "POST");
       assert.equal(
@@ -1691,6 +1732,7 @@ export function webviewServers(
         [
           "format-right",
           "format-right-up",
+          "format-link",
           "table-swipe",
           "table-rotation",
           "table-back",
@@ -1815,6 +1857,14 @@ export function webviewServers(
         heldFormatKey = undefined;
         formatKeys.push(name);
       }
+    } else if (step === "format-link") {
+      assert(
+        sendEnter &&
+          !linkActivated &&
+          formattingTimes.length === formattingWidths.length,
+      );
+      if (!(await press(sendEnter))) return;
+      linkActivated = true;
     } else if (step === "code-tap") {
       const tap = tapAndroid;
       assert(tap);
@@ -1964,6 +2014,7 @@ export function webviewServers(
       pressWorkspaceBack = () => send("escape");
       sendRight = () => send("right-down");
       releaseRight = () => send("right-up");
+      sendEnter = () => send("enter");
     },
     onAndroidInputReady(
       send: SendAndroidKey,
@@ -1983,11 +2034,18 @@ export function webviewServers(
       prepareKeyboard = () => send("KEYCODE_TAB");
       pressWorkspaceBack = () => send("KEYCODE_BACK");
       sendRight = () => send("KEYCODE_DPAD_RIGHT");
+      sendEnter = () => send("KEYCODE_ENTER");
     },
     verify(platform: "macos" | "android") {
       if (platform === "android") {
         assert(systemPostReads.has("dismissed"), "Missing system-link Back");
         assert(searchImeClosed, "Missing Android search keyboard Back");
+        assert(
+          systemPostReads.has("published-link-notice-back") &&
+            systemPostReads.has("published-link-denied-back") &&
+            systemPostReads.has("published-link-table-back"),
+          "Missing table link refusal Back",
+        );
         assert(
           codeTap === codeTaps.length && codeBack && !codeRotated,
           "Missing Android code tap, rotation or Back",
@@ -1998,6 +2056,7 @@ export function webviewServers(
         );
       }
 
+      assert(linkActivated, "Missing native link activation");
       refresh.verify();
       for (const read of [
         "live-search-destination",
@@ -2031,6 +2090,7 @@ export function webviewServers(
       const expected = [
         "signed-link-identifier",
         ...collectionBackSteps,
+        "create-channel-bookmark",
         "signed-single-channel",
         "signed-named-channel",
         "signed-named-team",
@@ -2264,7 +2324,16 @@ export function webviewServers(
           "live-window-thread",
         );
       if (platform === "android")
-        expected.push("account-logout-local-failure", "allow-design-posts");
+        expected.push(
+          "account-logout-local-failure",
+          "allow-design-posts",
+          // The explicit reconnect reloads account teams and workspace policy.
+          "browser-entry-users/me/preferences",
+          "browser-entry-users/me/teams",
+          "browser-entry-users/me/teams/members",
+          "live-config/client",
+          "live-license/client",
+        );
       expected.push(
         "directory-page",
         "directory-query",
@@ -2360,6 +2429,9 @@ export function webviewServers(
         `${platform} verified native return through the search dialog, results and thread with both composer drafts intact.`,
       );
       assert.deepEqual(visits.sort(), expected.sort());
+      console.log(
+        `Signed bookmark creation verified in the ${platform} WebView.`,
+      );
     },
   };
 }

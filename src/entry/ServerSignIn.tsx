@@ -32,7 +32,13 @@ type Picker = {
 type Step =
   | { name: "address"; issue?: Issue; picker?: Picker }
   | { name: "checking"; restoring: boolean; picker?: Picker }
-  | { name: "profile"; profile: Profile; returnFromPicker?: boolean }
+  | {
+      name: "profile";
+      profile: Profile;
+      restored: boolean;
+      picker?: Picker;
+      returnFromPicker?: boolean;
+    }
   | Picker;
 
 export function ServerSignIn({
@@ -96,8 +102,15 @@ export function ServerSignIn({
             onAccountChanged();
             return;
           }
+          if (picker) {
+            picker = {
+              ...picker,
+              profile,
+              installations: context.installations,
+            };
+          }
         }
-        setStep({ name: "profile", profile });
+        setStep({ name: "profile", profile, restored: !explicit, picker });
       } catch (error) {
         if (request.signal.aborted) return;
         const issue = readingDevice
@@ -174,13 +187,15 @@ export function ServerSignIn({
         currentUrl={step.profile.serverUrl}
         currentName={step.profile.siteName}
         installations={step.installations}
-        linkedUrl={savedServer}
+        linkedUrl={link ? savedServer : undefined}
         focusAdd={step.focusAdd === true}
         onChoose={step.choose}
         onClose={() =>
           setStep({
             name: "profile",
             profile: step.profile,
+            restored: true,
+            picker: step,
             returnFromPicker: true,
           })
         }
@@ -195,23 +210,24 @@ export function ServerSignIn({
   if (step.name === "profile") {
     const profileLink =
       step.profile.serverUrl === savedServer ? link : undefined;
+    const savedInstallations = step.picker?.installations ?? installations;
     return (
       <SignInMethods
         profile={step.profile}
         language={language}
         link={profileLink}
         linkResult={linkResult}
+        restored={step.restored}
         returnFromPicker={step.returnFromPicker}
         onOtherServer={
-          profileLink &&
           selectSaved &&
-          installations &&
-          installations.length > 1
+          savedInstallations &&
+          (profileLink ? savedInstallations.length > 1 : step.restored)
             ? () =>
                 setStep({
                   name: "servers",
                   profile: step.profile,
-                  installations,
+                  installations: savedInstallations,
                   choose: selectSaved,
                 })
             : undefined
@@ -220,10 +236,14 @@ export function ServerSignIn({
           closeShownOutcome.current?.();
           onAccountChanged();
         }}
-        onBack={() => {
-          returnToField.current = true;
-          setStep({ name: "address" });
-        }}
+        onBack={
+          step.restored
+            ? undefined
+            : () => {
+                returnToField.current = true;
+                setStep({ name: "address", picker: step.picker });
+              }
+        }
       />
     );
   }

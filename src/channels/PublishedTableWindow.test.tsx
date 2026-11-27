@@ -9,6 +9,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { PublishedPostBody } from "./PublishedPostBody.tsx";
+import { PublishedLinkNavigation } from "./PublishedPostLink.tsx";
 import {
   PublishedReaderWindow,
   PublishedTableScreen,
@@ -273,4 +274,27 @@ test("observes policy while open and only cancels a selection that intersects th
       .hasAttribute("data-selection-allowed"),
   ).toBe(false);
   expect(policy.observe).toHaveBeenCalledTimes(2);
+});
+
+test("only the opened mobile table exposes links and their destination", () => {
+  const open = vi.fn();
+  const serverUrl = "https://chat.example.test/mm";
+  render(
+    <PublishedLinkNavigation.Provider value={{ serverUrl, open }}>
+      <Workspace
+        message={"| Status |\n| :- |\n| [**Read note**](/mm/note) |"}
+      />
+    </PublishedLinkNavigation.Provider>,
+  );
+  expect(screen.getByRole("cell", { name: "Read note" })).toBeTruthy();
+  expect(screen.queryByRole("link")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: /^Open table:/ }));
+  const link = within(screen.getByRole("dialog", { name: "Table" })).getByRole(
+    "link",
+    { name: "Read note" },
+  );
+  expect(link.getAttribute("href")).toBe(serverUrl + "/note");
+  expect(link.querySelector("strong")?.textContent).toBe("Read note");
+  fireEvent.click(link);
+  expect(open).toHaveBeenCalledExactlyOnceWith(serverUrl + "/note", link);
 });

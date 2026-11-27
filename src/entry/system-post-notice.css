@@ -13,6 +13,9 @@
   box-shadow: 0 3px 16px #08152c24;
   overflow-wrap: anywhere;
 }
+dialog.system-post-notice {
+  margin: 0;
+}
 .system-post-notice p {
   margin: 0;
 }

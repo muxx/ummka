@@ -1,10 +1,22 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type { ChannelsTarget } from "../mattermost/channels-link.ts";
+import { openExternalPostLink } from "../mattermost/external-post-link.ts";
 import {
   connectInstallation,
   readInstallationSelection,
   selectInstallation,
 } from "../mattermost/installation-registry.ts";
+import {
+  type AccountChannelsLink,
+  routeChannelsLink,
+} from "../mattermost/route-channels-link.ts";
 import {
   type SystemChannelsLink,
   watchSystemChannelsLinks,
@@ -30,13 +42,14 @@ export type SystemPostRequest = {
   target: Target;
   signal: AbortSignal;
   matchesUser: (userId: string) => boolean;
+  positioned: () => void;
   shown: (postId: string) => void;
   dismiss: () => void;
   stop: (reason: Stop, membership?: string) => void;
 };
 type State =
   | {
-      kind: "switching" | Stop;
+      kind: "switching" | "external" | Stop;
       serverUrl?: string;
       membership?: string;
     }
@@ -44,13 +57,81 @@ type State =
   | { kind: "target"; request: SystemPostRequest; installations: string[] }
   | { kind: "inbox"; id?: string };
 type Gate = {
-  link: SystemChannelsLink;
+  deliveryId: string;
+  route: AccountChannelsLink | null;
+  source?: { href: string; origin: HTMLAnchorElement };
+  positioned?: boolean;
+  settled: Promise<void>;
   finish: () => void;
+  finishing?: boolean;
   controller?: AbortController;
   selecting?: Promise<void>;
 };
+
+function makeGate(
+  deliveryId: string,
+  route: Gate["route"],
+  source?: Gate["source"],
+): Gate {
+  let finish!: () => void;
+  const settled = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  return { deliveryId, route, source, settled, finish };
+}
+
+function TableLinkNotice({
+  label,
+  dismiss,
+  children,
+}: {
+  label: string;
+  dismiss: () => void;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useLayoutEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
+    dialog.showModal();
+    return () => dialog.close();
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      className="system-post-notice"
+      aria-label={label}
+      onCancel={(event) => {
+        event.preventDefault();
+        dismiss();
+      }}
+    >
+      {children}
+    </dialog>
+  );
+}
+
+function restoreLinkFocus(origin: HTMLAnchorElement) {
+  if (!origin.isConnected || origin.closest("[inert], [hidden]")) return;
+  const viewport = origin
+    .closest(".timeline-scroll, .post-table-screen-content")
+    ?.getBoundingClientRect();
+  const link = origin.getBoundingClientRect();
+  if (
+    viewport &&
+    (link.bottom <= viewport.top ||
+      link.top >= viewport.bottom ||
+      link.right <= viewport.left ||
+      link.left >= viewport.right)
+  )
+    return;
+  origin.focus({ preventScroll: true });
+}
+
 const copy = {
   en: {
+    external: "Couldn’t open this link on your device.",
+    publishedUnsupported: "This type of link is not supported yet.",
     unknown: "This link does not match a supported address on a saved server.",
     unsupported: "This type of system link is not supported yet.",
     switching: "Opening the linked server…",
@@ -65,6 +146,8 @@ const copy = {
     close: "Don’t open this link",
   },
   ru: {
+    external: "Не удалось открыть ссылку на устройстве.",
+    publishedUnsupported: "Этот тип ссылки пока не поддерживается.",
     unknown: "Не удалось распознать адрес среди сохранённых серверов.",
     unsupported: "Этот тип системной ссылки пока не поддерживается.",
     switching: "Открываем сервер из ссылки…",
@@ -84,7 +167,21 @@ export function useSystemPermalink(
   reopen: () => void,
 ) {
   const [ready, setReady] = useState(false);
-  const [state, setState] = useState<State | null>(null);
+  const [routeState, setState] = useState<Exclude<
+    State,
+    { kind: "inbox" }
+  > | null>(null);
+  const [inboxError, setInboxError] = useState<Extract<
+    State,
+    { kind: "inbox" }
+  > | null>(null);
+  const state = routeState ?? inboxError;
+  const returnFocus = useRef<HTMLAnchorElement | null>(null);
+  useLayoutEffect(() => {
+    if (routeState || !returnFocus.current) return;
+    restoreLinkFocus(returnFocus.current);
+    returnFocus.current = null;
+  }, [routeState]);
   const [waiting, setWaiting] = useState<{ id: string; count?: number }>();
   const subscribeAgain = useRef<(() => void) | null>(null);
   const current = useRef<Gate | null>(null);
@@ -100,7 +197,7 @@ export function useSystemPermalink(
   }, []);
   const pauseForServer = useCallback((serverUrl: string) => {
     const gate = current.current;
-    const target = gate?.link.route?.target;
+    const target = gate?.route?.target;
     if (
       gate &&
       target?.kind === "permalink" &&
@@ -130,13 +227,22 @@ export function useSystemPermalink(
     [enqueueSelection, pauseForServer, reopen],
   );
   const finish = useCallback(
-    (gate: Gate, abort: boolean) => {
-      if (current.current !== gate) return;
-      current.current = null;
-      if (abort) gate.controller?.abort();
+    (gate: Gate, outcome: "shown" | "dismissed" | "superseded") => {
+      if (current.current !== gate || gate.finishing) return;
+      gate.finishing = true;
+      const abort = outcome !== "shown";
+      if (abort) {
+        gate.controller?.abort();
+        if (outcome === "dismissed" && gate.source?.origin.isConnected)
+          returnFocus.current = gate.source.origin;
+      }
       setState(null);
       setReady(true);
-      // The host owns this write. A dismissed delivery must not race the next installation selection.
+      // The host owns this write. A dismissed link must not race the next installation selection.
+      const complete = () => {
+        if (current.current === gate) current.current = null;
+        gate.finish();
+      };
       const selection = gate.selecting;
       if (abort && selection) {
         void selection
@@ -146,42 +252,62 @@ export function useSystemPermalink(
             },
             () => {},
           )
-          .then(gate.finish);
-      } else gate.finish();
+          .then(complete);
+      } else complete();
     },
     [reopen],
   );
   const start = useCallback(
     async (gate: Gate, reload = false) => {
-      let userId =
-        !gate.controller && gate.link.route?.status === "ready"
-          ? gate.link.route.userId
-          : undefined;
+      const first = !gate.controller;
       gate.controller?.abort();
       const controller = new AbortController();
       gate.controller = controller;
       const { signal } = controller;
-      const target = gate.link.route?.target;
-      if (target?.kind !== "permalink") {
-        const rejected = describeRejectedLink(target);
-        setState({
-          ...rejected,
-          id: gate.link.id,
-          close: () => finish(gate, true),
-        });
-        setReady(true);
-        return;
-      }
-      setState({ kind: "switching", serverUrl: target.serverUrl });
+      let launchingExternal = false;
       try {
         // A completed manual selection determines which account the next link sees.
-        await lastSelection.current.catch(() => {});
+        if (gate.source || gate.route?.target.kind === "permalink")
+          await lastSelection.current.catch(() => {});
         signal.throwIfAborted();
+        if (gate.source && !gate.route) {
+          const { href, origin } = gate.source;
+          gate.route = await routeChannelsLink(href);
+          signal.throwIfAborted();
+          if (!origin.isConnected) {
+            finish(gate, "superseded");
+            return;
+          }
+          if (!gate.route) {
+            launchingExternal = true;
+            await openExternalPostLink(href);
+            if (!signal.aborted) finish(gate, "shown");
+            return;
+          }
+        }
+        let userId =
+          (first || gate.source) && gate.route?.status === "ready"
+            ? gate.route.userId
+            : undefined;
+        const target = gate.route?.target;
+        if (target?.kind !== "permalink") {
+          setState({
+            ...describeRejectedLink(target),
+            id: gate.deliveryId,
+            close: () => finish(gate, "dismissed"),
+          });
+          return;
+        }
+        setState({ kind: "switching", serverUrl: target.serverUrl });
         const { installations, selected } = await readInstallationSelection();
         signal.throwIfAborted();
         if (!installations.includes(target.serverUrl)) {
           setState({ kind: "unavailable" });
           setReady(true);
+          return;
+        }
+        if (gate.source && first && !gate.source.origin.isConnected) {
+          finish(gate, "superseded");
           return;
         }
         if (selected !== target.serverUrl) {
@@ -199,63 +325,96 @@ export function useSystemPermalink(
         }
         if (selected !== target.serverUrl || reload) reopen();
         const request: SystemPostRequest = {
-          deliveryId: gate.link.id,
+          deliveryId: gate.deliveryId,
           target,
           signal,
           matchesUser: (id) => {
             userId ??= id;
             return userId === id;
           },
+          positioned: () => {
+            if (!signal.aborted) gate.positioned = true;
+          },
           shown: (id) => {
-            if (!signal.aborted && id === target.postId) finish(gate, false);
+            if (!signal.aborted && id === target.postId) finish(gate, "shown");
           },
           dismiss: () => {
-            if (!signal.aborted) finish(gate, true);
+            if (!signal.aborted) finish(gate, "dismissed");
           },
           stop: (kind, membership) => {
             if (signal.aborted || current.current !== gate) return;
+            if (kind === "paused" && gate.source) {
+              finish(gate, "dismissed");
+              return;
+            }
             controller.abort();
             setState({ kind, serverUrl: target.serverUrl, membership });
           },
         };
         setState({ kind: "target", request, installations });
       } catch {
-        if (!signal.aborted)
-          setState({ kind: "failed", serverUrl: target.serverUrl });
+        if (!signal.aborted) {
+          if (gate.source && !gate.source.origin.isConnected) {
+            finish(gate, "superseded");
+          } else {
+            setState({
+              kind: launchingExternal ? "external" : "failed",
+              serverUrl: gate.route?.target.serverUrl,
+            });
+          }
+        }
       } finally {
         if (!signal.aborted) setReady(true);
       }
     },
     [enqueueSelection, finish, reopen],
   );
+  const publishedSequence = useRef(0);
+  const pendingPost = useRef<Gate | null>(null);
+  const run = useCallback(
+    async (gate: Gate, signal?: AbortSignal) => {
+      while (current.current) {
+        await current.current.settled;
+        if (signal?.aborted || (gate.source && pendingPost.current !== gate))
+          return;
+      }
+      if (gate.source && !gate.source.origin.isConnected) return;
+      current.current = gate;
+      void start(gate);
+      await gate.settled;
+    },
+    [start],
+  );
+  const openPost = useCallback(
+    (href: string, origin: HTMLAnchorElement) => {
+      const previous = pendingPost.current;
+      if (previous?.source?.origin === origin && previous.source.href === href)
+        return;
+      if (previous && current.current === previous)
+        finish(previous, previous.positioned ? "shown" : "superseded");
+      const gate = makeGate(`published-${++publishedSequence.current}`, null, {
+        href,
+        origin,
+      });
+      pendingPost.current = gate;
+      void run(gate).finally(() => {
+        if (pendingPost.current === gate) pendingPost.current = null;
+      });
+    },
+    [finish, run],
+  );
   useEffect(() => {
     const life = new AbortController();
     const { signal } = life;
     const begin = (link: SystemChannelsLink) =>
-      new Promise<void>((resolve, reject) => {
-        const gone = () => {
-          current.current?.controller?.abort();
-          current.current = null;
-          reject(signal.reason);
-        };
-        signal.addEventListener("abort", gone, { once: true });
-        const gate: Gate = {
-          link,
-          finish: () => {
-            signal.removeEventListener("abort", gone);
-            resolve();
-          },
-        };
-        current.current = gate;
-        void start(gate);
-      });
+      run(makeGate(link.id, link.route), signal);
     function subscribe() {
       subscribeAgain.current = null;
       void watchSystemChannelsLinks(
         begin,
         (_error, id) => {
           if (!signal.aborted) {
-            setState({ kind: "inbox", id });
+            setInboxError({ kind: "inbox", id });
             setReady(true);
           }
         },
@@ -271,7 +430,7 @@ export function useSystemPermalink(
         .catch(() => {
           if (!signal.aborted) {
             subscribeAgain.current = subscribe;
-            setState({ kind: "inbox" });
+            setInboxError({ kind: "inbox" });
             setReady(true);
           }
         });
@@ -279,10 +438,15 @@ export function useSystemPermalink(
     subscribe();
     return () => {
       life.abort();
+      pendingPost.current = null;
+      const gate = current.current;
+      current.current = null;
+      gate?.controller?.abort();
+      gate?.finish();
       subscribeAgain.current = null;
       observer.current = null;
     };
-  }, [start]);
+  }, [run]);
   const request = state?.kind === "target" ? state.request : undefined;
   const installations =
     state?.kind === "target" ? state.installations : undefined;
@@ -294,27 +458,24 @@ export function useSystemPermalink(
         }
       : undefined;
   function dismiss() {
-    if (current.current) finish(current.current, true);
-    else if (state?.kind === "inbox" && state.id) {
-      observer.current?.dismiss(state.id);
-      setState(null);
-    }
+    if (state?.kind === "inbox") {
+      if (state.id) observer.current?.dismiss(state.id);
+      setInboxError(null);
+    } else if (current.current) finish(current.current, "dismissed");
   }
   function retry(reload: boolean) {
-    if (current.current) void start(current.current, reload);
-    else if (observer.current) {
-      setState(null);
-      observer.current.retry();
-    } else {
-      setState(null);
-      subscribeAgain.current?.();
-    }
+    if (state?.kind === "inbox") {
+      setInboxError(null);
+      if (observer.current) observer.current.retry();
+      else subscribeAgain.current?.();
+    } else if (current.current) void start(current.current, reload);
   }
   const text = copy[language];
   function notice(needsSignIn: boolean, otherServer: boolean) {
     if (!state) return null;
     const canRetry =
       state.kind === "failed" ||
+      state.kind === "external" ||
       state.kind === "paused" ||
       state.kind === "inbox" ||
       otherServer;
@@ -324,13 +485,16 @@ export function useSystemPermalink(
         : "serverUrl" in state && state.kind !== "unsupported"
           ? state.serverUrl
           : undefined;
+    const source = state.kind === "inbox" ? undefined : current.current?.source;
     const message =
-      state.kind === "target" && needsSignIn ? text.wait : text[state.kind];
-    return (
-      <aside
-        className="system-post-notice"
-        aria-label={language === "ru" ? "Ссылка на сообщение" : "Message link"}
-      >
+      state.kind === "target" && needsSignIn
+        ? text.wait
+        : state.kind === "unsupported" && source
+          ? text.publishedUnsupported
+          : text[state.kind];
+    const label = language === "ru" ? "Ссылка на сообщение" : "Message link";
+    const content = (
+      <>
         <p role="status">
           {"membership" in state && state.membership && state.membership + " "}
           {message} {address && <bdi>{address}</bdi>}
@@ -345,6 +509,18 @@ export function useSystemPermalink(
             {text.close}
           </button>
         )}
+      </>
+    );
+    const table = source?.origin.closest("dialog[open]");
+    if (table && state.kind !== "switching" && state.kind !== "target")
+      return (
+        <TableLinkNotice label={label} dismiss={dismiss}>
+          {content}
+        </TableLinkNotice>
+      );
+    return (
+      <aside className="system-post-notice" aria-label={label}>
+        {content}
       </aside>
     );
   }
@@ -352,6 +528,7 @@ export function useSystemPermalink(
     ready,
     request,
     installations,
+    openPost,
     entryResult,
     notice,
     connect,

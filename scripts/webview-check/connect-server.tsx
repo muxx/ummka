@@ -6,6 +6,7 @@ import {
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { App } from "../../src/App.tsx";
+import { isMobile } from "../../src/build-platform.ts";
 import { sessionText } from "../../src/entry/session-text.ts";
 
 import {
@@ -31,16 +32,16 @@ export async function checkConnectServer(origin: string) {
     ui.getByRole("button", { name: "Продолжить" }).click();
     const site = await ui.findByRole(
       "heading",
-      { name: "Entry fixture" },
+      { name: "Как войти?" },
       { timeout: 20_000 },
     );
+    const provider = ui.getByRole("button", { name: "GitLab" });
     if (
-      site !== document.activeElement ||
-      ui
-        .getAllByRole("listitem")
-        .map((el) => el.textContent)
-        .join(",") !== "Пароль,GitLab" ||
-      !ui.queryByText(`${origin}/entry/team`)
+      document.activeElement !== (isMobile ? site : provider) ||
+      !ui.queryByText("Entry fixture") ||
+      !ui.queryByTitle(`${origin}/entry/team`) ||
+      !ui.queryByText("Пароль") ||
+      ui.queryByRole("button", { name: "Пароль" })
     )
       throw Error("entry-profile-result");
     if ((await readInstallationSelection()).selected !== `${origin}/entry/team`)
