@@ -1483,6 +1483,12 @@ export function ChannelsWorkspace({
                     connection={connection}
                     userId={userId}
                     post={activeThread}
+                    arrivalRequest={
+                      timeline.focus?.focusedReply === activeThread &&
+                      closedRequest !== timeline.focus.requestId
+                        ? timeline.focus.requestId
+                        : undefined
+                    }
                     collapsedThreads={settings.collapsedThreads}
                     locale={language}
                     nameFormat={settings.nameFormat}

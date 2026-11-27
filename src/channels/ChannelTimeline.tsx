@@ -12,6 +12,7 @@ import type {
   LocalPost,
 } from "../mattermost/local-history.ts";
 import type { TimelineMessage } from "./conversation-rows.ts";
+import { showPostArrival } from "./post-arrival.ts";
 import { TimelineDays } from "./TimelineDays.tsx";
 import { type TimelineAuthor, TimelinePost } from "./TimelinePost.tsx";
 import {
@@ -87,7 +88,13 @@ class TimelineScroller extends Component<ScrollProps> {
   private readonly pane = createRef<HTMLElement>();
   private readonly frame = createRef<HTMLDivElement>();
   private resize?: ResizeObserver;
+  private clearArrival?: () => void;
+  cancelArrival() {
+    this.clearArrival?.();
+    this.clearArrival = undefined;
+  }
   focusPost(id: string) {
+    this.cancelArrival();
     const pane = this.pane.current,
       row = pane?.querySelector<HTMLElement>(
         `[data-post-id="${CSS.escape(id)}"]`,
@@ -100,6 +107,7 @@ class TimelineScroller extends Component<ScrollProps> {
       bounds.top -
       pane.getBoundingClientRect().top -
       (pane.clientHeight - bounds.height) / 2;
+    this.clearArrival = showPostArrival(row);
     return true;
   }
   private restoredRequest?: number;
@@ -135,6 +143,7 @@ class TimelineScroller extends Component<ScrollProps> {
   }
 
   componentWillUnmount() {
+    this.cancelArrival();
     this.resize?.disconnect();
     if (this.props.viewport) this.props.viewport.current = null;
   }
@@ -261,6 +270,7 @@ export function ChannelTimeline({
   useEffect(() => {
     if (!address) {
       positioned.current = null;
+      scroller.current?.cancelArrival();
       return;
     }
     if (
@@ -335,7 +345,7 @@ export function ChannelTimeline({
             <TimelinePost
               key={post.localId ?? post.id}
               post={post}
-              highlighted={address?.anchorId === post.id}
+              addressed={address?.anchorId === post.id}
               focusable={address?.anchorId === post.id}
               locale={locale}
               author={author}

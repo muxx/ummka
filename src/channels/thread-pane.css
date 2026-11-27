@@ -8,9 +8,6 @@
   margin-block-end: 6px;
   border-block-end: 1px solid var(--divider);
 }
-.thread-reply[data-selected] article {
-  background: var(--row-selected);
-}
 .thread-feed article:focus {
   --focus-offset: -2px;
 }

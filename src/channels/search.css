@@ -411,8 +411,3 @@
   padding-inline: 1rem;
   border-bottom: 1px solid var(--divider);
 }
-.timeline-post[data-navigation-target] {
-  background-color: color-mix(in srgb, var(--focus) 9%, transparent);
-  outline: 2px solid var(--focus);
-  outline-offset: -2px;
-}

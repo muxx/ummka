@@ -48,6 +48,59 @@ function page(...posts: LocalChannelWindow["posts"]): LocalChannelWindow {
   return { posts, older: end, newer: end, firstInaccessiblePostTime: 0 };
 }
 
+test.each([
+  [false, 1900],
+  [true, 4000],
+] as const)(
+  "plays one arrival per request with reduced motion %s and duration %i ms",
+  (reduce, duration) => {
+    vi.useFakeTimers();
+    vi.stubGlobal("matchMedia", () => ({ matches: reduce }));
+    const first = post("first", Date.UTC(2026, 10, 25));
+    const second = post("second", first.createAt + 1000);
+    const arrival = (requestId: number, anchorId = first.id) => ({
+      requestId,
+      anchorId,
+    });
+    const renderPage = (
+      address: NonNullable<Parameters<typeof ChannelTimeline>[0]["address"]>,
+      data = page(second, first),
+    ) => <ChannelTimeline {...base} page={data} address={address} />;
+    const row = (id: string) => screen.getByText(id).closest("article");
+    try {
+      const view = render(renderPage(arrival(1)));
+      const target = row(first.id);
+      expect(target?.hasAttribute("data-post-arrival")).toBe(true);
+      expect(document.activeElement).toBe(target);
+      vi.advanceTimersByTime(duration - 1);
+      view.rerender(renderPage(arrival(1)));
+      expect(target?.hasAttribute("data-post-arrival")).toBe(true);
+      vi.advanceTimersByTime(1);
+      expect(target?.hasAttribute("data-post-arrival")).toBe(false);
+      expect(target?.hasAttribute("data-navigation-target")).toBe(true);
+      expect(document.activeElement).toBe(target);
+
+      view.rerender(renderPage(arrival(2)));
+      expect(target?.hasAttribute("data-post-arrival")).toBe(true);
+      vi.advanceTimersByTime(duration - 1);
+      view.rerender(renderPage(arrival(3)));
+      vi.advanceTimersByTime(1);
+      expect(target?.hasAttribute("data-post-arrival")).toBe(true);
+
+      view.rerender(renderPage(arrival(4, second.id)));
+      expect(target?.hasAttribute("data-post-arrival")).toBe(false);
+      expect(row(second.id)?.hasAttribute("data-post-arrival")).toBe(true);
+      view.rerender(renderPage(arrival(4, second.id), page(first)));
+      view.rerender(renderPage(arrival(4, second.id)));
+      expect(row(second.id)?.hasAttribute("data-post-arrival")).toBe(false);
+      expect(row(second.id)?.hasAttribute("data-navigation-target")).toBe(true);
+    } finally {
+      cleanup();
+      vi.useRealTimers();
+    }
+  },
+);
+
 test("renders oldest first, preserves tie order, local calendar days and escaped message text", () => {
   const midnight = Date.UTC(2026, 10, 25);
   const first = post("oldest", midnight - 60_000, "missing");
