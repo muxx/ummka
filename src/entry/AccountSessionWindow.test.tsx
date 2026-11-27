@@ -4,98 +4,174 @@ import {
   fireEvent,
   render,
   screen,
+  within,
 } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
-import type { AccountSignOut } from "../mattermost/native-rest";
+import {
+  type AccountSignOut,
+  openAccountRestConnection,
+} from "../mattermost/native-rest";
 import { AccountSessionWindow } from "./AccountSessionWindow";
-import type { TeamWorkspace } from "./AccountTeamWindow";
+import { AccountTeamWindow, type TeamWorkspace } from "./AccountTeamWindow";
 
 import "../channels/workspace-dom.test-utils.ts";
 
+vi.mock("../mattermost/native-rest", () => ({
+  openAccountRestConnection: vi.fn(),
+}));
+
 afterEach(cleanup);
-function fixture() {
+const serverUrl = "https://work.example.test/mattermost";
+const userId = "a".repeat(26);
+const team = {
+  id: "b".repeat(26),
+  name: "core",
+  displayName: "Core",
+  preferenceRank: null,
+};
+function Avatar({ workspace }: { workspace: TeamWorkspace }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)}>
+        Account
+      </button>
+      {open && (
+        <AccountSessionWindow
+          workspace={workspace}
+          language="en"
+          accountName="Anna North"
+          onDismiss={() => setOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+async function fixture() {
   const signOut = vi.fn<() => Promise<AccountSignOut>>();
   const signOutOnDevice = vi.fn<() => Promise<"removed" | "superseded">>();
-  const chooseAnotherTeam = vi.fn();
+  const refreshJoinedTeams = vi.fn().mockResolvedValue(true);
   const onEnded = vi.fn();
-  const workspace: TeamWorkspace = {
-    messages: {
-      dialogOpen: false,
-      open: vi.fn(),
-      clear: vi.fn(),
-      position: null,
-      enqueue: (work) => work(),
-    },
-    serverUrl: "https://work.example.test/mattermost",
-    userId: "a".repeat(26),
-    directoryNotice: null,
-    team: {
-      id: "b".repeat(26),
-      name: "core",
-      displayName: "Core",
-      preferenceRank: null,
-    },
-    chooseAnotherTeam,
-    online: true,
-    policy: {
-      server: { status: "loading", value: null },
-      user: null,
-      userReadFailed: false,
-      retry: () => {},
-    },
-    sessionIssue: () => {},
-    connection: {
-      rid: 17,
-      signOut,
-      signOutOnDevice,
-    } as unknown as TeamWorkspace["connection"],
-  };
+  const connection = {
+    rid: 17,
+    signOut,
+    signOutOnDevice,
+    readJoinedTeams: async () => ({ teams: [team], selectedTeam: team.id }),
+    readWorkspaceSettings: async () => ({ server: null, preferences: null }),
+    refreshJoinedTeams,
+    refreshWorkspaceServerPolicy: async () => true,
+    close: async () => {},
+  } as unknown as TeamWorkspace["connection"];
+  vi.mocked(openAccountRestConnection).mockResolvedValue(connection);
+  let sessionIssue!: TeamWorkspace["sessionIssue"];
   const view = render(
-    <AccountSessionWindow
-      workspace={workspace}
+    <AccountTeamWindow
+      serverUrl={serverUrl}
+      userId={userId}
       language="en"
-      onEnded={onEnded}
-      onDismiss={() => {}}
-    />,
+      onSessionEnded={onEnded}
+    >
+      {(workspace) => {
+        sessionIssue = workspace.sessionIssue;
+        return <Avatar workspace={workspace} />;
+      }}
+    </AccountTeamWindow>,
   );
-  return { signOut, signOutOnDevice, chooseAnotherTeam, onEnded, view };
+  await screen.findByRole("button", { name: "Account" });
+  return {
+    signOut,
+    signOutOnDevice,
+    refreshJoinedTeams,
+    onEnded,
+    view,
+    sessionIssue: (issue: Parameters<TeamWorkspace["sessionIssue"]>[0]) =>
+      sessionIssue(issue),
+  };
 }
 function button(name: string) {
   return screen.getByRole("button", { name });
 }
+function openSignOut() {
+  fireEvent.click(button("Account"));
+  fireEvent.click(button("Sign out"));
+}
+function approve() {
+  openSignOut();
+  fireEvent.click(button("Sign out"));
+}
+function cancelDialog() {
+  fireEvent(
+    screen.getByRole("dialog"),
+    new Event("cancel", { cancelable: true }),
+  );
+}
+test("the first click only asks for permission and both dismissal actions make no calls", async () => {
+  const f = await fixture();
+  openSignOut();
+  const confirm = screen.getByRole("dialog", {
+    name: "Sign out of this account?",
+  });
+  expect(confirm.textContent).toContain("Anna North");
+  expect(confirm.textContent).toContain(serverUrl);
+  expect(confirm.textContent).toContain("messages and drafts will be removed");
+  expect(document.activeElement).toBe(button("Cancel"));
+  expect(f.signOut).not.toHaveBeenCalled();
+  fireEvent.click(button("Cancel"));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  openSignOut();
+  cancelDialog();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(f.signOut).not.toHaveBeenCalled();
+  expect(f.signOutOnDevice).not.toHaveBeenCalled();
+});
+
 test.each(["signed_out", "superseded"] as const)(
   "finishes a %s result without local removal",
   async (status) => {
-    const f = fixture();
+    const f = await fixture();
     let finish!: (result: AccountSignOut) => void;
     f.signOut.mockReturnValue(
       new Promise((resolve) => {
         finish = resolve;
       }),
     );
-    fireEvent.click(button("Sign out"));
-    fireEvent.click(button("Sign out"));
+    approve();
+    const working = button("Signing out…");
+    expect(working.getAttribute("aria-disabled")).toBe("true");
+    expect(button("Cancel")).toHaveProperty("disabled", true);
+    expect(button("Close")).toHaveProperty("disabled", true);
+    fireEvent.click(working);
+    cancelDialog();
+    expect(screen.getByRole("dialog")).toBeTruthy();
     expect(f.signOut).toHaveBeenCalledOnce();
-    expect(screen.getByRole("status").textContent).toContain("Signing out");
+    expect(screen.getByRole("status").textContent).toBe(
+      "Ending the session on the server",
+    );
     await act(async () => finish({ status }));
     expect(f.onEnded).toHaveBeenCalledOnce();
     expect(f.signOutOnDevice).not.toHaveBeenCalled();
   },
 );
-test("an unconfirmed server response leaves the saved account available until explicit local consent", async () => {
-  const f = fixture();
+
+test("an unconfirmed result permits dismissal or local consent and a failed cleanup can be retried", async () => {
+  const f = await fixture();
   f.signOut.mockResolvedValue({ status: "unconfirmed" });
-  fireEvent.click(button("Sign out"));
+  approve();
   const stay = await screen.findByRole("button", { name: "Stay signed in" });
   const explanation = screen.getByRole("region");
   expect(explanation.tabIndex).toBe(0);
   expect(explanation.contains(stay)).toBe(false);
-  expect(f.signOutOnDevice).not.toHaveBeenCalled();
+  expect(document.activeElement).toBe(stay);
   fireEvent.click(stay);
-  expect(document.activeElement).toBe(button("Sign out"));
-  fireEvent.click(button("Switch team"));
-  expect(f.chooseAnotherTeam).toHaveBeenCalledOnce();
-  fireEvent.click(button("Sign out"));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  approve();
+  await screen.findByRole("button", { name: "Stay signed in" });
+  cancelDialog();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(f.signOutOnDevice).not.toHaveBeenCalled();
+
+  approve();
   const local = await screen.findByRole("button", {
     name: "Sign out only on this device",
   });
@@ -103,22 +179,81 @@ test("an unconfirmed server response leaves the saved account available until ex
     .mockRejectedValueOnce("credential_storage_unavailable")
     .mockResolvedValueOnce("removed");
   fireEvent.click(local);
-  await screen.findByRole("alert");
+  const retry = await screen.findByRole("button", { name: "Retry cleanup" });
+  expect(
+    screen.getByText("Error code: credential_storage_unavailable"),
+  ).toBeTruthy();
+  expect(screen.queryByText(/server confirmed sign-out/)).toBeNull();
+  expect(document.activeElement).toBe(retry);
   expect(f.onEnded).not.toHaveBeenCalled();
-  await act(async () => fireEvent.click(local));
+  await act(async () => fireEvent.click(retry));
   expect(f.onEnded).toHaveBeenCalledOnce();
-  expect(f.signOut).toHaveBeenCalledTimes(2);
+  expect(f.signOut).toHaveBeenCalledTimes(3);
+  expect(f.signOutOnDevice).toHaveBeenCalledTimes(2);
 });
-test("confirmed remote logout retries only local cleanup and ignores a completion after switching accounts", async () => {
-  const f = fixture();
+
+test("confirmed cleanup remains available after Later despite other session errors", async () => {
+  const f = await fixture();
+  let finish!: (result: AccountSignOut) => void;
+  f.signOut.mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  approve();
+  act(() => f.sessionIssue("unauthorized"));
+  expect(f.signOutOnDevice).not.toHaveBeenCalled();
+  await act(async () =>
+    finish({
+      status: "server_confirmed_local_removal_failed",
+      cause: "history_storage_unavailable",
+    }),
+  );
+  const initialRetry = button("Retry cleanup");
+  expect(document.activeElement).toBe(initialRetry);
+  expect(
+    screen.getByText("Error code: history_storage_unavailable"),
+  ).toBeTruthy();
+  expect(screen.getByText(/server confirmed sign-out/)).toBeTruthy();
+  fireEvent.click(button("Later"));
+  const refreshes = f.refreshJoinedTeams.mock.calls.length;
+  await act(async () => {
+    window.dispatchEvent(new Event("online"));
+    f.sessionIssue("session");
+  });
+  expect(f.refreshJoinedTeams).toHaveBeenCalledTimes(refreshes);
+  expect(f.onEnded).not.toHaveBeenCalled();
+  expect(screen.queryByRole("dialog")).toBeNull();
+
+  openSignOut();
+  expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
+  const cleanupWindow = screen.getByRole("dialog", {
+    name: "Account data is still on this device",
+  });
+  const retry = within(cleanupWindow).getByRole("button", {
+    name: "Retry cleanup",
+  });
+  f.signOutOnDevice
+    .mockRejectedValueOnce("private-storage-diagnostic")
+    .mockResolvedValueOnce("removed");
+  await act(async () => fireEvent.click(retry));
+  expect(cleanupWindow.textContent).not.toContain("private-storage-diagnostic");
+  fireEvent.click(button("Later"));
+  openSignOut();
+  await act(async () => fireEvent.click(button("Retry cleanup")));
+  expect(f.signOut).toHaveBeenCalledOnce();
+  expect(f.signOutOnDevice).toHaveBeenCalledTimes(2);
+  expect(f.onEnded).toHaveBeenCalledOnce();
+});
+
+test("a cleanup completion after the account is gone cannot end a replacement", async () => {
+  const f = await fixture();
   f.signOut.mockResolvedValue({
     status: "server_confirmed_local_removal_failed",
-    cause: "private-storage-diagnostic",
+    cause: "credential_storage_unavailable",
   });
-  fireEvent.click(button("Sign out"));
-  const retry = await screen.findByRole("button", { name: "Retry removal" });
-  expect(screen.queryByRole("button", { name: "Stay signed in" })).toBeNull();
-  expect(document.body.textContent).not.toContain("private-storage-diagnostic");
+  approve();
+  const retry = await screen.findByRole("button", { name: "Retry cleanup" });
   let finish!: (status: "superseded") => void;
   f.signOutOnDevice.mockReturnValue(
     new Promise((resolve) => {
@@ -126,7 +261,7 @@ test("confirmed remote logout retries only local cleanup and ignores a completio
     }),
   );
   fireEvent.click(retry);
-  fireEvent.click(retry);
+  fireEvent.click(button("Cleaning up…"));
   expect(f.signOutOnDevice).toHaveBeenCalledOnce();
   f.view.unmount();
   await act(async () => finish("superseded"));

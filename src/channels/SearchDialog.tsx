@@ -9,6 +9,8 @@ import {
 import type { EntryLanguage } from "../entry/language.ts";
 import type { JoinedTeam } from "../mattermost/joined-teams.ts";
 import type { SearchKind } from "./SearchResultsPanel.tsx";
+import { SearchScopeNote, SearchScopeSelect } from "./SearchScopeSelect.tsx";
+import { changeSearchScope } from "./search-conditions.ts";
 import { searchCopy } from "./search-copy.ts";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
 
@@ -169,6 +171,8 @@ export function SearchDialog({
   account,
   team,
   allTeams,
+  teams,
+  directoryError,
   files,
   initial,
   language,
@@ -180,11 +184,13 @@ export function SearchDialog({
   account: SearchAccount;
   team: JoinedTeam;
   allTeams: boolean;
+  teams: readonly JoinedTeam[];
+  directoryError: boolean;
   files: boolean;
   initial: SearchInput;
   language: EntryLanguage;
   close: () => void;
-  submit: (query: SearchInput) => void;
+  submit: (query: SearchInput, removed: readonly string[]) => void;
   pending: boolean;
   issue: string | null;
 }) {
@@ -196,13 +202,10 @@ export function SearchDialog({
   const [chosenScope, setScope] = useState(initial.scope);
   const scope = allTeams ? chosenScope : team;
   const [kind, setKind] = useState<SearchKind>(files ? initial.kind : "posts");
-  const [teams, setTeams] = useState<JoinedTeam[]>(() =>
-    scope && scope.id !== team.id ? [team, scope] : [team],
-  );
   const selected = !allTeams
     ? team
     : scope && teams.find((option) => option.id === scope.id);
-  const [directoryError, setDirectoryError] = useState(false);
+  const [removed, setRemoved] = useState<string[]>([]);
   const text = searchCopy[language];
   useLayoutEffect(() => {
     const modal = dialog.current;
@@ -210,28 +213,16 @@ export function SearchDialog({
     input.current?.focus();
     return () => modal?.close();
   }, []);
-  useEffect(() => {
-    if (!allTeams) return;
-    let live = true;
-    account.readJoinedTeams().then(
-      (result) => {
-        if (live && result) setTeams(result.teams);
-      },
-      () => {
-        if (live) setDirectoryError(true);
-      },
-    );
-    return () => {
-      live = false;
-    };
-  }, [account, allTeams]);
-  function run(value: string) {
+  function run(value: string, note = removed) {
     if (!value.trim() || pending || selected === undefined) return;
-    submit({
-      terms: value.trim(),
-      scope: selected,
-      kind: files ? kind : "posts",
-    });
+    submit(
+      {
+        terms: value.trim(),
+        scope: selected,
+        kind: files ? kind : "posts",
+      },
+      note,
+    );
   }
   return (
     <dialog
@@ -280,38 +271,22 @@ export function SearchDialog({
               </fieldset>
             )}
             {allTeams && (
-              <label className="search-scope">
-                {text.scope}
-                <select
-                  value={scope?.id ?? ""}
-                  disabled={pending}
-                  onChange={(e) => {
-                    const id = e.currentTarget.value;
-                    setScope(teams.find((option) => option.id === id) ?? null);
-                    setTerms(
-                      terms
-                        .replace(/\b(?:in|from):[^\s]*/gi, "")
-                        .replace(/\s{2,}/g, " ")
-                        .trim(),
-                    );
-                    input.current?.focus();
-                  }}
-                >
-                  {selected === undefined && scope && (
-                    <option value={scope.id} disabled>
-                      {scope.displayName || scope.name} · {text.teamUnavailable}
-                    </option>
-                  )}
-                  {teams.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.displayName || t.name}
-                    </option>
-                  ))}
-                  <option value="">{text.all}</option>
-                </select>
-              </label>
+              <SearchScopeSelect
+                teams={teams}
+                team={team}
+                scope={scope}
+                language={language}
+                disabled={pending}
+                change={(next) => {
+                  const change = changeSearchScope(terms);
+                  setScope(next);
+                  setTerms(change.terms);
+                  setRemoved(change.removed);
+                  input.current?.focus();
+                }}
+              />
             )}
-            {allTeams && directoryError && <p role="alert">{text.readError}</p>}
+            {directoryError && <p role="alert">{text.readError}</p>}
             <div className="search-input-row">
               <input
                 ref={input}
@@ -321,7 +296,10 @@ export function SearchDialog({
                 aria-label={text.terms}
                 value={terms}
                 readOnly={pending}
-                onChange={(e) => setTerms(e.target.value)}
+                onChange={(e) => {
+                  setTerms(e.target.value);
+                  setRemoved([]);
+                }}
                 onKeyDown={(e) => {
                   if (
                     e.key === "Enter" &&
@@ -353,6 +331,9 @@ export function SearchDialog({
                 {text.run}
               </button>
             </div>
+            {removed.length > 0 && (
+              <SearchScopeNote removed={removed} language={language} />
+            )}
             {issue && <p role="alert">{issue}</p>}
           </form>
         </search>
@@ -367,8 +348,9 @@ export function SearchDialog({
             focusInput={() => input.current?.focus()}
             choose={(term) => {
               setTerms(term);
+              setRemoved([]);
               input.current?.focus();
-              run(term);
+              run(term, []);
             }}
           />
         )}

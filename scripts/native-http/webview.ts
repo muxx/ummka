@@ -10,12 +10,14 @@ import { deniedPost } from "../webview-check/link-examples.ts";
 import type { SendMacKey } from "../webview-check/macos.ts";
 import { respondToAccount } from "./account.ts";
 import {
+  type AndroidImeBack,
   type ClipboardPolicyStep,
   clipboardPolicySteps,
   type PreviewSwipeAndroid,
   type RotateAndroid,
   type SendAndroidKey,
   type SwipeAndroid,
+  type TapAndroid,
 } from "./android-webview.ts";
 import { respondToChannelMembers } from "./channel-members.ts";
 import { respondToChannelView } from "./channel-view.ts";
@@ -35,6 +37,7 @@ import { respondToWorkspace } from "./workspace.ts";
 export function webviewServers(
   trusted: https.ServerOptions,
   untrusted: https.ServerOptions,
+  externalReceipt?: Promise<boolean>,
 ) {
   const pendingProfileImages = new Map([
     ["97", "profile-image-cancel"],
@@ -93,9 +96,9 @@ export function webviewServers(
   let offlineHistoryRequests = 0;
   let connections = 0;
   let before = false;
-  let formattingTimes:
-    | { width: number; first: number; unchanged: number }[]
-    | undefined;
+  const formattingTimes: { width: number; first: number; unchanged: number }[] =
+    [];
+  const formattingWidths = [320, 820];
   const formatKeyCases = ["code-320", "table-320", "code-820", "table-820"];
   const formatKeys: string[] = [];
   let heldFormatKey: string | undefined;
@@ -115,7 +118,14 @@ export function webviewServers(
   let tableBack = false;
   const selectionSteps = ["press", "deny", "press", "allow", "press"];
   let selectionStep = 0;
+  let tapAndroid: TapAndroid | undefined;
+  const codeTaps = ["preview", "copy"];
+  let codeTap = 0;
+  let codeBack = false;
+  let codeRotated = false;
   let controlProgress = "not started";
+  let windowReceivedSocket: Socket | undefined;
+  let windowDataProgress = "not started";
   let onMacStep: ((stage: string) => void) | undefined;
   let controlRequests = 0;
   let sendRight: (() => Promise<void>) | undefined;
@@ -137,6 +147,7 @@ export function webviewServers(
     "results",
     "thread",
     "reopened",
+    "channel-menu",
     "notifications",
     "directory",
     "attachment-search",
@@ -144,6 +155,8 @@ export function webviewServers(
   ];
   let stepIndex = 0;
   let pressWorkspaceBack: (() => Promise<void>) | undefined;
+  let pressSearchImeBack: AndroidImeBack | undefined;
+  let searchImeClosed = false;
   let clipboard: ClipboardPolicyStep | undefined;
   let disconnect: Socket | undefined;
   let profileImageSocket: Socket | undefined;
@@ -222,6 +235,18 @@ export function webviewServers(
           name: "old_room",
           type: "O",
           delete_at: 41,
+        },
+      },
+    ],
+    [
+      `/team/chat/api/v4/channels/${"z".repeat(26)}`,
+      {
+        name: "signed-link-identifier",
+        body: {
+          id: "z".repeat(26),
+          name: "release",
+          team_id: teamId,
+          type: "O",
         },
       },
     ],
@@ -543,7 +568,11 @@ export function webviewServers(
     ],
   ]);
   function hold(name: string, req: IncomingMessage, res: ServerResponse) {
-    req.socket.once("close", () => events.emit(`${name}-closed`));
+    if (name === "window") windowDataProgress = "held";
+    req.socket.once("close", () => {
+      if (name === "window") windowDataProgress = "closed";
+      events.emit(`${name}-closed`);
+    });
     events.emit(`${name}-received`);
     if (name === "body" || name.endsWith("-body"))
       res.writeHead(200, { "Content-Length": "100" }).write("A");
@@ -1675,6 +1704,9 @@ export function webviewServers(
           "table-rotation",
           "table-back",
           "table-selection",
+          "code-tap",
+          "code-back",
+          "code-rotation",
           "format-times",
           "received",
           "closed",
@@ -1682,6 +1714,8 @@ export function webviewServers(
           "release-history",
           "release-submission",
           "disconnect",
+          "external-handoff",
+          "search-ime-back",
         ].includes(step));
     const name = url.searchParams.get("case") ?? "";
     const marker =
@@ -1704,7 +1738,16 @@ export function webviewServers(
         return false;
       }
     }
-    if (step === "before") {
+    if (step === "external-handoff") {
+      if (!externalReceipt) {
+        res.writeHead(404).end();
+        return;
+      }
+      if (!(await externalReceipt)) {
+        res.writeHead(503).end();
+        return;
+      }
+    } else if (step === "before") {
       assert.equal(
         connections,
         0,
@@ -1742,12 +1785,30 @@ export function webviewServers(
       assert(swipeAndroid && pressWorkspaceBack && !tableBack);
       if (!(await press(pressWorkspaceBack))) return;
       tableBack = true;
+    } else if (step === "search-ime-back") {
+      const dismiss = pressSearchImeBack;
+      const point = /^([1-9]\d{0,3}),([1-9]\d{0,3})$/u.exec(name);
+      assert(
+        dismiss &&
+          point &&
+          backSteps[stepIndex] === "dialog" &&
+          !searchImeClosed,
+        "Unexpected Android search keyboard Back",
+      );
+      if (!(await press(() => dismiss(Number(point[1]), Number(point[2])))))
+        return;
+      searchImeClosed = true;
     } else if (step?.startsWith("back-")) {
       assert.equal(step, "back-" + backSteps[stepIndex]);
       assert(
         pressWorkspaceBack,
         "expected the active platform's key input driver",
       );
+      if (step === "back-dialog" && pressSearchImeBack)
+        assert(
+          searchImeClosed,
+          "Close the Android IME before the search dialog",
+        );
       if (!(await press(pressWorkspaceBack))) return;
       stepIndex++;
     } else if (step === "format-right" || step === "format-right-up") {
@@ -1763,6 +1824,28 @@ export function webviewServers(
         heldFormatKey = undefined;
         formatKeys.push(name);
       }
+    } else if (step === "code-tap") {
+      const tap = tapAndroid;
+      assert(tap);
+      const match = /^(preview|copy),([1-9]\d{0,3}),([1-9]\d{0,3})$/u.exec(
+        name,
+      );
+      assert(match);
+      assert.equal(match[1], codeTaps[codeTap]);
+      if (!(await press(() => tap(Number(match[2]), Number(match[3]))))) return;
+      codeTap++;
+    } else if (step === "code-back") {
+      assert(codeRotated && !codeBack && pressWorkspaceBack);
+      if (!(await press(pressWorkspaceBack))) return;
+      codeBack = true;
+    } else if (step === "code-rotation") {
+      const rotate = rotateAndroid;
+      assert(rotate && codeTap === codeTaps.length);
+      assert(name === "landscape" || name === "portrait");
+      assert.equal(name, codeRotated ? "portrait" : "landscape");
+      assert.equal(codeBack, codeRotated);
+      if (!(await press(() => rotate(name)))) return;
+      codeRotated = name === "landscape";
     } else if (step === "table-swipe") {
       const swipe = swipeAndroid;
       const swipePreview = swipePreviewAndroid;
@@ -1812,23 +1895,32 @@ export function webviewServers(
       assert.equal(name, tableGestures[tableGesture++]);
       if (!(await press(() => rotate(name)))) return;
     } else if (step === "format-times") {
-      assert.deepEqual(formatKeys, formatKeyCases);
+      const widths = swipeAndroid
+        ? formattingWidths
+        : [formattingWidths[formattingTimes.length]];
+      const completed = formattingTimes.length + widths.length;
+      assert(
+        completed <= formattingWidths.length,
+        "Duplicate formatting report",
+      );
+      assert.deepEqual(formatKeys, formatKeyCases.slice(0, completed * 2));
       assert.equal(tableGesture, swipeAndroid ? tableGestures.length : 0);
       assert.equal(selectionStep, swipeAndroid ? selectionSteps.length : 0);
       const data = JSON.parse(url.searchParams.get("case") ?? "null");
       assert.ok(Array.isArray(data));
       assert.deepEqual(
         data.map((row) => row.width),
-        [320, 820],
+        widths,
       );
       for (const row of data) {
         assert.ok(Number.isFinite(row.first) && row.first >= 0);
         assert.ok(Number.isFinite(row.unchanged) && row.unchanged >= 0);
       }
-      formattingTimes = data;
-      console.log(
-        "Verified native code-block and table scrolling at both widths.",
-      );
+      formattingTimes.push(...data);
+      if (completed === formattingWidths.length)
+        console.log(
+          "Verified native code-block and table scrolling at both widths.",
+        );
     } else if (step === "release-history") {
       refresh.release();
     } else if (step === "release-submission") {
@@ -1842,6 +1934,17 @@ export function webviewServers(
       const wait = held.get(name);
       assert(wait);
       assert(step === "received" || step === "closed");
+      if (name === "window") {
+        if (step === "received") {
+          assert(!windowReceivedSocket, "duplicate window received receipt");
+          windowReceivedSocket = req.socket;
+        } else {
+          assert(
+            windowReceivedSocket && req.socket !== windowReceivedSocket,
+            "window closed receipt must follow received on a fresh control socket",
+          );
+        }
+      }
       await wait[step];
       if (name === "reload" && step === "closed" && prepareKeyboard) {
         const sendTab = prepareKeyboard;
@@ -1864,7 +1967,7 @@ export function webviewServers(
   return {
     servers: [data, control, foreign],
     progress: () =>
-      `control=${controlProgress}, data visits=${visits.length} [${visits.slice(-6).join(", ")}], completed Back steps=${stepIndex}`,
+      `control=${controlProgress}, window data=${windowDataProgress}, data visits=${visits.length} [${visits.slice(-6).join(", ")}], completed Back steps=${stepIndex}`,
     onMacInputReady(send: SendMacKey, completed: (stage: string) => void) {
       onMacStep = completed;
       pressWorkspaceBack = () => send("escape");
@@ -1877,11 +1980,15 @@ export function webviewServers(
       rotate: RotateAndroid,
       runClipboardStep: ClipboardPolicyStep,
       swipePreview: PreviewSwipeAndroid,
+      tap: TapAndroid,
+      imeBack: AndroidImeBack,
     ) {
       clipboard = runClipboardStep;
       swipeAndroid = swipe;
       swipePreviewAndroid = swipePreview;
       rotateAndroid = rotate;
+      tapAndroid = tap;
+      pressSearchImeBack = imeBack;
       prepareKeyboard = () => send("KEYCODE_TAB");
       pressWorkspaceBack = () => send("KEYCODE_BACK");
       sendRight = () => send("KEYCODE_DPAD_RIGHT");
@@ -1889,6 +1996,11 @@ export function webviewServers(
     verify(platform: "macos" | "android") {
       if (platform === "android") {
         assert(systemPostReads.has("dismissed"), "Missing system-link Back");
+        assert(searchImeClosed, "Missing Android search keyboard Back");
+        assert(
+          codeTap === codeTaps.length && codeBack && !codeRotated,
+          "Missing Android code tap, rotation or Back",
+        );
         assert(
           tableBack,
           "Missing Android Back from the table into the thread",
@@ -1915,7 +2027,10 @@ export function webviewServers(
         "only the online control may reach the offline fixture",
       );
       assert(before);
-      assert.ok(formattingTimes);
+      assert.deepEqual(
+        formattingTimes.map(({ width }) => width),
+        formattingWidths,
+      );
       console.log(
         `Rendered 60 formatted posts in the ${platform} WebView (milliseconds): ${JSON.stringify(formattingTimes)}`,
       );
@@ -1923,6 +2038,7 @@ export function webviewServers(
       assert.equal(entrySettings.size, 2);
       assert.equal(untrustedRequests, 0);
       const expected = [
+        "signed-link-identifier",
         ...collectionBackSteps,
         "create-channel-bookmark",
         "signed-single-channel",

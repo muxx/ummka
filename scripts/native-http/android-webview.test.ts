@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import { waitForAndroidBoot } from "./android.ts";
 import { checkNativeInstrumentation } from "./android-instrumentation.ts";
 import {
+  type AndroidImeBack,
   launchWebview,
   type PreviewSwipeAndroid,
   type RotateAndroid,
@@ -61,7 +62,7 @@ test("waits through an ordinary Chromium error and accepts the actual marker", a
   assert.equal(check.reads(), 2);
 });
 
-test("the fixed launch deadline reports the active browser step and fixture request", async (t) => {
+test("a stalled launch reports the active browser step and fixture request", async (t) => {
   let now = 1_000;
   t.mock.method(Date, "now", () => now);
   let checks = 0;
@@ -88,6 +89,61 @@ test("the fixed launch deadline reports the active browser step and fixture requ
     /timed out after 65000 ms; started channel-refresh; control=31 release-history received/u,
   );
   assert.equal(checks, 1);
+});
+
+test("a progressing full Android run can finish past the startup budget", async (t) => {
+  let elapsed = 0;
+  t.mock.method(Date, "now", () => elapsed);
+  const stages = [
+    "UMMKA_WEBVIEW_STEP completed channel-timeline",
+    "UMMKA_WEBVIEW_STEP completed seed-offline-registry",
+    "UMMKA_WEBVIEW_CHECK browser-checked",
+  ];
+  const adb = async (...args: string[]) => {
+    if (args[1] === "am") return "Status: ok";
+    if (args[1] === "pidof") return "125";
+    elapsed += 40_000;
+    return stages.shift() ?? assert.fail("terminal marker was missed");
+  };
+  assert.equal(
+    await launchWebview(adb, "fixture", "fixture/Main", "browser-checked"),
+    "125",
+  );
+});
+
+test("replaying the same Android phases cannot renew the deadline", async (t) => {
+  let elapsed = 0;
+  t.mock.method(Date, "now", () => elapsed);
+  const stages = ["started directory", "completed directory"];
+  let reads = 0;
+  const adb = async (...args: string[]) => {
+    if (args[1] === "am") return "Status: ok";
+    if (args[1] === "pidof") return "125";
+    elapsed += 25_000;
+    assert.ok(reads < 5);
+    return "UMMKA_WEBVIEW_STEP " + stages[reads++ % stages.length];
+  };
+  await assert.rejects(
+    launchWebview(adb, "fixture", "fixture/Main", "browser-checked"),
+    /timed out after 125000 ms/u,
+  );
+});
+
+test("even continuous Android progress has a total time limit", async (t) => {
+  let elapsed = 0;
+  t.mock.method(Date, "now", () => elapsed);
+  const stages = ["directory", "messages", "thread", "history"];
+  const adb = async (...args: string[]) => {
+    if (args[1] === "am") return "Status: ok";
+    if (args[1] === "pidof") return "125";
+    elapsed += 45_000;
+    const stage = stages.shift() ?? assert.fail("full run exceeded its cap");
+    return `UMMKA_WEBVIEW_STEP completed ${stage}`;
+  };
+  await assert.rejects(
+    launchWebview(adb, "fixture", "fixture/Main", "browser-checked"),
+    /timed out after 180000 ms/u,
+  );
 });
 
 test("Android injects the exact hardware key requested by the running document", async () => {
@@ -142,6 +198,79 @@ test("Android injects the exact hardware key requested by the running document",
     "log",
   ]);
 });
+
+for (const scenario of [
+  {
+    name: "requires the keyboard to appear before sending its Back",
+    events: ["IME false"],
+    error: /shown after tapping the search field \(mInputShown=false\)/u,
+  },
+  {
+    name: "requires that keyboard Back to hide the keyboard",
+    events: ["IME true", "keyevent KEYCODE_BACK", "IME true"],
+    error: /hidden after the keyboard's Back \(mInputShown=true\)/u,
+  },
+  {
+    name: "permits app Back only after keyboard Back hid a visible keyboard",
+    events: [
+      "IME true",
+      "keyevent KEYCODE_BACK",
+      "IME false",
+      "IME false",
+      "keyevent KEYCODE_BACK",
+    ],
+    error: null,
+  },
+]) {
+  test(scenario.name, async (t) => {
+    let now = 0;
+    t.mock.method(Date, "now", () => now);
+    const states = scenario.events
+      .filter((event) => event.startsWith("IME "))
+      .map((event) => event.slice(4));
+    const events: string[] = [];
+    let appBack!: SendAndroidKey;
+    let keyboardBack!: AndroidImeBack;
+    const adb = async (...args: string[]) => {
+      if (args[1] === "am") return "Status: ok";
+      if (args[1] === "pidof") return "125";
+      if (args[1] === "dumpsys") {
+        assert.deepEqual(args, ["shell", "dumpsys", "input_method"]);
+        const state = states.shift();
+        assert.notEqual(state, undefined);
+        events.push(`IME ${state}`);
+        now += 5000;
+        return `mInputShown=${state}`;
+      }
+      if (args[1] === "input") {
+        const event = args.slice(2).join(" ");
+        assert.ok(event === "tap 200 330" || event === "keyevent KEYCODE_BACK");
+        events.push(event);
+        return "";
+      }
+      assert.equal(args[0], "logcat");
+      if (scenario.error)
+        await assert.rejects(keyboardBack(200, 330), scenario.error);
+      else {
+        await keyboardBack(200, 330);
+        await appBack("KEYCODE_BACK");
+      }
+      return "UMMKA_WEBVIEW_CHECK browser-checked";
+    };
+    await launchWebview(
+      adb,
+      "app",
+      "app/.MainActivity",
+      "browser-checked",
+      (send, _swipe, _rotate, _clipboard, _swipePreview, _tap, dismiss) => {
+        appBack = send;
+        keyboardBack = dismiss;
+      },
+    );
+    assert.equal(states.length, 0);
+    assert.deepEqual(events, ["tap 200 330", ...scenario.events]);
+  });
+}
 
 test("rotation waits for WindowManager to finish the requested transition", async () => {
   let rotate!: RotateAndroid;
@@ -285,6 +414,12 @@ test("the new document receives its control response only after the keyboard eve
       },
       async () => {
         assert.fail("The reload check does not swipe a preview");
+      },
+      async () => {
+        assert.fail("The reload check does not tap");
+      },
+      async () => {
+        assert.fail("The reload check does not use keyboard Back");
       },
     );
     let first: Promise<number | undefined> | undefined;

@@ -7,6 +7,7 @@ import {
 } from "react";
 import { openMentionList } from "./mention-list.ts";
 import { openPostCollection } from "./post-collection.ts";
+import type { measureTimeline } from "./timeline-viewport.ts";
 
 type CollectionsAccount = Parameters<typeof openPostCollection>[0] &
   Parameters<typeof openMentionList>[0];
@@ -20,17 +21,31 @@ type View = { key: number; opener: HTMLButtonElement } & (
   | (Source & { model: ReturnType<typeof openPostCollection> })
   | (Mentions & { model: ReturnType<typeof openMentionList> })
 );
-type RowOrigin = { id: string; channelId: string | null; scroll: number };
+type RowOrigin = {
+  id: string;
+  channelId: string | null;
+  scroll: number;
+  ids: readonly string[];
+  partial: boolean;
+  reading: ReturnType<typeof measureTimeline> | null;
+};
 const subscribeToNothing = () => () => {};
 const empty = () => null;
 
 export function useWorkspaceCollections(
   account: CollectionsAccount,
   online: boolean,
+  archivedChannels: boolean | undefined,
+  sessionIssue: (issue: "session" | "unauthorized") => void,
 ) {
   const generation = useRef(0);
   const [view, setView] = useState<View | null>(null);
   const owned = useRef(view);
+  const saved = useRef<ReturnType<typeof openPostCollection> | null>(null);
+  const previousMentions = useRef<{
+    archivedChannels: boolean;
+    model: ReturnType<typeof openMentionList>;
+  } | null>(null);
   const returnFocus = useRef<HTMLButtonElement | null>(null);
   useLayoutEffect(() => {
     if (view || !returnFocus.current) return;
@@ -38,7 +53,9 @@ export function useWorkspaceCollections(
     returnFocus.current = null;
     if (button.isConnected) button.focus();
   }, [view]);
-  const activation = useRef<AbortController | null>(null);
+  const activation = useRef<{ id: string; controller: AbortController } | null>(
+    null,
+  );
   const origin = useRef<RowOrigin | null>(null);
   const [restore, setRestore] = useState<RowOrigin | null>(null);
   const collection = view?.kind === "mentions" ? null : view;
@@ -51,18 +68,44 @@ export function useWorkspaceCollections(
     mentions?.model.subscribe ?? subscribeToNothing,
     mentions?.model.getSnapshot ?? empty,
   );
+  const failure = state?.status ?? mentionState?.status;
+  const reported = useRef<View | null>(null);
+  useEffect(() => {
+    if (
+      view &&
+      view === owned.current &&
+      view !== reported.current &&
+      (failure === "session" || failure === "unauthorized") &&
+      view.model.getSnapshot().status === failure
+    ) {
+      reported.current = view;
+      sessionIssue(failure);
+    }
+  }, [view, failure, sessionIssue]);
+  useLayoutEffect(() => {
+    if (!online) {
+      activation.current?.controller.abort();
+      activation.current = null;
+    }
+  }, [online]);
   useEffect(() => {
     if (view && online) void view.model.refresh();
   }, [view, online]);
-  useEffect(
+  useLayoutEffect(
     () => () => {
-      activation.current?.abort();
-      owned.current?.model.close();
+      activation.current?.controller.abort();
+      const previous = owned.current;
+      owned.current = null;
+      if (previous?.kind === "pins") previous.model.close();
+      saved.current?.close();
+      previousMentions.current?.model.close();
+      saved.current = null;
+      previousMentions.current = null;
     },
     [],
   );
   function abort() {
-    activation.current?.abort();
+    activation.current?.controller.abort();
     activation.current = null;
   }
   function close(focus = true) {
@@ -70,44 +113,61 @@ export function useWorkspaceCollections(
     abort();
     const previous = owned.current;
     owned.current = null;
-    previous.model.close();
+    if (previous.kind === "pins") previous.model.close();
+    else previous.model.suspend();
     origin.current = null;
     setRestore(null);
     returnFocus.current = focus ? previous.opener : null;
     setView(null);
   }
+  useLayoutEffect(() => {
+    const remembered = previousMentions.current;
+    if (!remembered || remembered.archivedChannels === archivedChannels) return;
+    if (owned.current?.kind === "mentions") close();
+    remembered.model.close();
+    previousMentions.current = null;
+  });
   function show(source: Source | Mentions, opener: HTMLButtonElement) {
     close(false);
     returnFocus.current = null;
     const owner = { key: ++generation.current, opener };
-    const next =
-      source.kind === "mentions"
-        ? {
-            ...owner,
-            ...source,
-            model: openMentionList(account, source.archivedChannels),
-          }
-        : { ...owner, ...source, model: openPostCollection(account, source) };
+    let next: View;
+    if (source.kind === "mentions") {
+      previousMentions.current ??= {
+        archivedChannels: source.archivedChannels,
+        model: openMentionList(account, source.archivedChannels),
+      };
+      next = { ...owner, ...source, model: previousMentions.current.model };
+    } else if (source.kind === "all") {
+      saved.current ??= openPostCollection(account, source);
+      next = { ...owner, ...source, model: saved.current };
+    } else {
+      next = {
+        ...owner,
+        ...source,
+        model: openPostCollection(account, source),
+      };
+    }
     owned.current = next;
     setView(next);
   }
   async function activate(
-    from: RowOrigin,
+    id: string,
     open: (signal: AbortSignal) => Promise<void>,
   ) {
-    if (activation.current && origin.current?.id === from.id) return;
+    if (activation.current?.id === id) return;
     abort();
     const request = new AbortController();
-    activation.current = request;
-    origin.current = from;
+    activation.current = { id, controller: request };
     try {
       await open(request.signal);
     } finally {
-      if (activation.current === request) activation.current = null;
+      if (activation.current?.controller === request) activation.current = null;
     }
   }
-  function restoreRow() {
-    const row = origin.current;
+  function restoreRow(id: string) {
+    if (!origin.current) return null;
+    const row = { ...origin.current, id };
     setRestore(row);
     origin.current = null;
     return row;
