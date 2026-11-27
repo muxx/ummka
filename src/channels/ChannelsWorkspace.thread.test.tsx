@@ -269,7 +269,7 @@ function mount(
     team,
     online,
     directoryNotice: null,
-    chooseAnotherTeam: vi.fn(),
+    teamChoice: { teams: [], select: vi.fn() },
     sessionIssue: vi.fn(),
     exit: { cleanup: null, run: vi.fn() },
     policy: {

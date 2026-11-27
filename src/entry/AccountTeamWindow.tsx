@@ -44,7 +44,10 @@ export type TeamWorkspace = {
   connection: Connection;
   directoryNotice: Issue | null;
   directoryCode?: string;
-  chooseAnotherTeam: () => void;
+  teamChoice: {
+    teams: readonly JoinedTeam[];
+    select: (team: JoinedTeam) => Promise<boolean>;
+  };
   messages: MessageNavigation;
   systemPost?: SystemPostRequest;
   policy: ReturnType<typeof useAccountPolicy>;
@@ -81,6 +84,14 @@ export function AccountTeamWindow(props: Props) {
 type Problem = Exclude<ReturnType<typeof directoryProblem>, string>;
 type Issue = Problem["issue"] | "offline" | "noCache" | "chooseFailed";
 type Notice = Issue | Problem | null;
+type TeamChoiceRequest =
+  | { kind: "workspace"; onAccepted: () => void }
+  | {
+      kind: "message";
+      directory: JoinedTeams;
+      signal: AbortSignal;
+      onAccepted: () => void;
+    };
 function issueOf(notice: Notice) {
   return typeof notice === "object" ? (notice?.issue ?? null) : notice;
 }
@@ -315,10 +326,11 @@ function AccountWindow({
 
   async function choose(
     team: JoinedTeam,
-    targetDirectory?: JoinedTeams,
-    signal?: AbortSignal,
-    commit?: () => void,
+    request?: TeamChoiceRequest,
   ): Promise<boolean> {
+    const message = request?.kind === "message" ? request : undefined;
+    const signal = message?.signal;
+    const reportFailure = request?.kind !== "workspace";
     const current = connection.current;
     if (!current || (!signal && selection.current) || signal?.aborted)
       return false;
@@ -330,16 +342,17 @@ function AccountWindow({
       return await enqueue(async () => {
         if (connection.current !== current || signal?.aborted) return false;
         readVersion.current++;
-        const selected = commit ? await current.readJoinedTeams() : null;
+        const selected = message ? await current.readJoinedTeams() : null;
         if (connection.current !== current || signal?.aborted) return false;
         const accepted =
           selected?.selectedTeam === team.id ||
           (await current.selectJoinedTeam(team.id));
         if (connection.current !== current || signal?.aborted) return false;
         if (accepted) {
-          commit?.();
+          // Resolve the previous navigation before the next queued write can run.
+          request?.onAccepted();
           setDirectory((previous) => {
-            const source = selected ?? targetDirectory ?? previous;
+            const source = selected ?? message?.directory ?? previous;
             return source && { ...source, selectedTeam: team.id };
           });
           setPicker(false);
@@ -348,9 +361,10 @@ function AccountWindow({
           setNotice((previous) =>
             previous === "chooseFailed" ? null : previous,
           );
-        } else {
+        } else if (reportFailure) {
           setNotice("chooseFailed");
         }
+        if (!accepted && !reportFailure) return false;
         try {
           await read(current);
         } catch {
@@ -360,7 +374,7 @@ function AccountWindow({
         return accepted;
       });
     } catch {
-      if (connection.current === current && !signal?.aborted)
+      if (reportFailure && connection.current === current && !signal?.aborted)
         setNotice("chooseFailed");
       return false;
     } finally {
@@ -371,14 +385,19 @@ function AccountWindow({
     }
   }
 
-  const { navigation: messages, dialog: messageDialog } = useMessageNavigation(
+  const {
+    navigation: messages,
+    dialog: messageDialog,
+    captureTeamChange,
+  } = useMessageNavigation(
     connection.current,
     directory,
     online,
     language,
     sessionIssue,
     enqueue,
-    choose,
+    (team, directory, signal, onAccepted) =>
+      choose(team, { kind: "message", directory, signal, onAccepted }),
   );
   const inspectSystem = useEffectEvent(
     async (request: SystemPostRequest, signal: AbortSignal) => {
@@ -448,9 +467,13 @@ function AccountWindow({
           exit: { cleanup, run: runExit },
           directoryNotice: notice,
           directoryCode,
-          chooseAnotherTeam: () => {
-            messages.clear();
-            setPicker(true);
+          teamChoice: {
+            teams: orderJoinedTeams(teams, language),
+            select: (team) =>
+              choose(team, {
+                kind: "workspace",
+                onAccepted: captureTeamChange(),
+              }),
           },
           messages,
           systemPost,

@@ -14,7 +14,6 @@ export const sessionText = {
       "Couldn’t save your sign-in on this device. The new server session was closed.",
     unconfirmed:
       "Couldn’t save your sign-in. Mattermost hasn’t confirmed that the new server session was closed.",
-    chooseTeam: "Switch team",
   },
   ru: {
     opening: "Открываем ummka…",
@@ -33,6 +32,5 @@ export const sessionText = {
       "Не удалось сохранить вход на устройстве. Новая сессия на сервере завершена.",
     unconfirmed:
       "Не удалось сохранить вход. Сервер не подтвердил завершение новой сессии.",
-    chooseTeam: "Сменить команду",
   },
 } as const;

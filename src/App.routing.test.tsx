@@ -315,14 +315,12 @@ test("restores the selected team, channel, messages and account actions without 
   expect(
     screen.getByRole("button", {
       name: "Winter HQ",
-      description: "/winter",
       current: true,
     }),
   ).toBe(document.activeElement);
-  fireEvent.click(
-    screen.getByRole("button", { name: "Winter HQ", description: "/winter" }),
-  );
+  fireEvent.click(screen.getByRole("button", { name: "Winter HQ" }));
   await screen.findByText("Saved in Design");
+  expect(connection.selectJoinedTeam).not.toHaveBeenCalled();
   expect(connection.refreshTeamSidebar).not.toHaveBeenCalled();
   expect(connection.readSavedTeamRoles).toHaveBeenCalledWith(team.id);
   expect(connection.refreshTeamRoles).not.toHaveBeenCalled();
@@ -333,9 +331,7 @@ test("restores the selected team, channel, messages and account actions without 
   fireEvent.click(
     screen.getByRole("button", { name: "Switch team, Winter HQ" }),
   );
-  fireEvent.click(
-    screen.getByRole("button", { name: "Winter HQ", description: "/winter" }),
-  );
+  fireEvent.click(screen.getByRole("button", { name: "Winter HQ" }));
   fireEvent.click(await screen.findByRole("button", { name: "Close channel" }));
   await screen.findByText("Saved in General");
   expect(screen.queryByRole("button", { name: "Design" })).toBeNull();
@@ -346,22 +342,16 @@ test("restores the selected team, channel, messages and account actions without 
   // A joined direct conversation is not this team's default destination.
   rooms[0].kind = "D";
   selected = otherId;
-  fireEvent.click(
-    screen.getByRole("button", { name: "Switch team, Winter HQ" }),
-  );
-  fireEvent.click(
-    screen.getByRole("button", { name: "Winter HQ", description: "/winter" }),
-  );
+  view.rerender(<App language="en" key="reopened" />);
   fireEvent.click(await screen.findByRole("button", { name: "Close channel" }));
   expect(
     await screen.findByRole("button", {
       name: "Winter HQ",
-      description: "/winter",
     }),
   ).toBeTruthy();
   expect(selected).toBe(otherId);
   view.unmount();
-  expect(connection.close).toHaveBeenCalledOnce();
+  expect(connection.close).toHaveBeenCalledTimes(2);
   expect(connection.refreshJoinedTeams).not.toHaveBeenCalled();
   expect(inspect).not.toHaveBeenCalled();
 });
