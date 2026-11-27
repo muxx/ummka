@@ -129,7 +129,7 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
                 let native = unsafe { &*main.ns_window()?.cast::<objc2_app_kit::NSWindow>() };
                 if std::env::var_os("UMMKA_CHECK_KEY_INPUT").is_some() {
                     main.set_focus()?;
-                    check_keyboard::listen(&main);
+                    main.with_webview(check_keyboard::listen)?;
                 }
                 if native.minSize().width != 400.0 {
                     return Err("unexpected native minimum window width".into());
