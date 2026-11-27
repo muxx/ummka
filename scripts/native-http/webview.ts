@@ -97,6 +97,7 @@ export function webviewServers(
     | undefined;
   const formatKeyCases = ["code-320", "table-320", "code-820", "table-820"];
   const formatKeys: string[] = [];
+  let heldFormatKey: string | undefined;
   let swipeAndroid: SwipeAndroid | undefined;
   let swipePreviewAndroid: PreviewSwipeAndroid | undefined;
   let rotateAndroid: RotateAndroid | undefined;
@@ -117,6 +118,7 @@ export function webviewServers(
   let onMacStep: ((stage: string) => void) | undefined;
   let controlRequests = 0;
   let sendRight: (() => Promise<void>) | undefined;
+  let releaseRight: (() => Promise<void>) | undefined;
   let prepareKeyboard: (() => Promise<void>) | undefined;
   const collectionBackSteps = [
     "collection-back-saved-reply",
@@ -1620,6 +1622,7 @@ export function webviewServers(
         backSteps.some((label) => step === `back-${label}`) ||
         [
           "format-right",
+          "format-right-up",
           "table-swipe",
           "table-rotation",
           "table-back",
@@ -1636,6 +1639,7 @@ export function webviewServers(
     const marker =
       ((step === "received" || step === "closed") && held.has(name)) ||
       step === "format-right" ||
+      step === "format-right-up" ||
       step === "table-selection"
         ? `${step}(${name})`
         : knownStep
@@ -1698,13 +1702,19 @@ export function webviewServers(
       );
       if (!(await press(pressWorkspaceBack))) return;
       stepIndex++;
-    } else if (step === "format-right") {
-      assert(sendRight, "Missing native keyboard driver");
-      const target = url.searchParams.get("case");
-      assert.equal(target, formatKeyCases[formatKeys.length]);
-      formatKeys.push(target);
-      console.log(`Sending native ArrowRight to ${target}.`);
-      if (!(await press(sendRight))) return;
+    } else if (step === "format-right" || step === "format-right-up") {
+      const releasing = step === "format-right-up";
+      const send = releasing ? releaseRight : sendRight;
+      assert(send, "Missing native keyboard driver");
+      assert.equal(name, formatKeyCases[formatKeys.length]);
+      assert.equal(heldFormatKey, releasing ? name : undefined);
+      if (!releasing) console.log(`Sending native ArrowRight to ${name}.`);
+      if (!(await press(send))) return;
+      if (!releasing && releaseRight) heldFormatKey = name;
+      else {
+        heldFormatKey = undefined;
+        formatKeys.push(name);
+      }
     } else if (step === "table-swipe") {
       const swipe = swipeAndroid;
       const swipePreview = swipePreviewAndroid;
@@ -1810,7 +1820,8 @@ export function webviewServers(
     onMacInputReady(send: SendMacKey, completed: (stage: string) => void) {
       onMacStep = completed;
       pressWorkspaceBack = () => send("escape");
-      sendRight = () => send("right");
+      sendRight = () => send("right-down");
+      releaseRight = () => send("right-up");
     },
     onAndroidInputReady(
       send: SendAndroidKey,
