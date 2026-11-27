@@ -215,6 +215,23 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
     click(info);
     let about = await findPane("About this channel");
     await about.findByText("7", { selector: "[role=status]" });
+    click(about.getByRole("button", { name: /^Members/ }));
+    const roster = await findPane("Members");
+    await roster.findByText("@channel.guest");
+    roster.getByText("Guest");
+    fireEvent.change(roster.getByRole("searchbox"), {
+      target: { value: "absent" },
+    });
+    await roster.findByText("No matching members");
+    await back("info-members");
+    about = await findPane("About this channel");
+    await waitFor(() => {
+      if (
+        document.activeElement !==
+        about.getByRole("button", { name: /^Members/ })
+      )
+        throw Error("Member directory did not return to the opening row");
+    });
     click(about.getByRole("button", { name: "Pinned messages" }));
     let infoPins = await findPane("Pinned messages");
     click(

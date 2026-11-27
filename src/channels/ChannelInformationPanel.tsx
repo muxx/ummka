@@ -68,7 +68,8 @@ type Props = {
   language: EntryLanguage;
   online: boolean;
   openPins: () => void;
-  focusPins: boolean;
+  focusRow: "pins" | "members" | undefined;
+  openMembers: () => void;
   notifications: ((opener: HTMLButtonElement) => void) | undefined;
   notificationRevision: number;
   denied: () => void;
@@ -151,6 +152,24 @@ function summary(
     fields.some((key) => p[key] !== undefined && p[key] !== "default");
   return custom ? (group ? t.customGroup : t.custom) : t.defaults;
 }
+export function MembersIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    >
+      <circle cx="9" cy="8" r="3.25" />
+      <path d="M2 20v-1.5a7 7 0 0 1 14 0V20M16 5a3.25 3.25 0 0 1 0 6M18 14a6 6 0 0 1 4 5.5" />
+    </svg>
+  );
+}
+
 function InformationIcon() {
   return (
     <svg
@@ -199,7 +218,8 @@ export function ChannelInformationPanel({
   language,
   online,
   openPins,
-  focusPins,
+  focusRow,
+  openMembers,
   notifications,
   notificationRevision,
   close,
@@ -209,7 +229,8 @@ export function ChannelInformationPanel({
   const t = labels[language],
     id = useId(),
     heading = useRef<HTMLHeadingElement>(null),
-    pins = useRef<HTMLButtonElement>(null);
+    pins = useRef<HTMLButtonElement>(null),
+    members = useRef<HTMLButtonElement>(null);
   const count = useInfoRead(
     true,
     online,
@@ -226,8 +247,13 @@ export function ChannelInformationPanel({
     notificationRevision,
   );
   useLayoutEffect(() => {
-    (focusPins ? pins : heading).current?.focus({ preventScroll: true });
-  }, [focusPins]);
+    (focusRow === "members"
+      ? members
+      : focusRow === "pins"
+        ? pins
+        : heading
+    ).current?.focus({ preventScroll: true });
+  }, [focusRow]);
   function status(v: SectionValue<unknown>) {
     return v.status === "failed"
       ? t.failed
@@ -294,6 +320,27 @@ export function ChannelInformationPanel({
             ),
         )}
         <button
+          type="button"
+          className="channel-info-notify"
+          ref={members}
+          onClick={openMembers}
+        >
+          <MembersIcon />
+          <span>
+            <strong>{t.members}</strong>
+            <small role="status">
+              {count.value.status === "ready"
+                ? count.value.value
+                : status(count.value)}
+            </small>
+          </span>
+        </button>
+        {count.value.status === "failed" && (
+          <button type="button" onClick={count.retry}>
+            {t.retry}
+          </button>
+        )}
+        <button
           ref={pins}
           type="button"
           className="channel-info-notify"
@@ -342,19 +389,6 @@ export function ChannelInformationPanel({
             )}
           </>
         )}
-        <section>
-          <h3>{t.members}</h3>
-          <p role="status">
-            {count.value.status === "ready"
-              ? count.value.value
-              : status(count.value)}
-          </p>
-          {count.value.status === "failed" && (
-            <button type="button" onClick={count.retry}>
-              {t.retry}
-            </button>
-          )}
-        </section>
       </div>
     </aside>
   );

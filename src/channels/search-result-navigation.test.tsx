@@ -2330,3 +2330,35 @@ test("finishing the collection from a thread focuses its visible addressed reply
   expect(thread.isConnected).toBe(true);
   hidden.remove();
 });
+
+test("members open from details, restore the opening row and cancel a pending read when changing channels", async () => {
+  const { account } = fixture();
+  const info = await screen.findByRole("button", { name: "Channel info" });
+  fireEvent.click(info);
+  const members = await screen.findByRole("button", { name: /^Members/ });
+  expect(account.readChannelMemberDirectory).not.toHaveBeenCalled();
+  fireEvent.click(members);
+  const panel = within(
+    await screen.findByRole("complementary", { name: "Members" }),
+  );
+  await panel.findByText("No members to show");
+  expect(account.readChannelMemberDirectory).toHaveBeenCalledWith(
+    home,
+    { kind: "page", page: 0 },
+    expect.any(AbortSignal),
+  );
+  fireEvent.keyDown(window, { key: "Escape" });
+  const returned = await screen.findByRole("button", { name: /^Members/ });
+  expect(document.activeElement).toBe(returned);
+  account.readChannelMemberDirectory.mockImplementationOnce(
+    () => new Promise(() => {}),
+  );
+  fireEvent.click(returned);
+  await screen.findByRole("searchbox", { name: "Find a member" });
+  const signal = account.readChannelMemberDirectory.mock.calls.at(-1)?.[2];
+  expect(signal?.aborted).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Design" }));
+  await screen.findByRole("heading", { level: 1, name: "Design" });
+  expect(signal?.aborted).toBe(true);
+  expect(screen.queryByRole("complementary", { name: "Members" })).toBeNull();
+});

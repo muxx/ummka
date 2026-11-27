@@ -224,6 +224,9 @@ export function fixture({
     readChannelMemberCount: vi
       .fn<Account["readChannelMemberCount"]>()
       .mockResolvedValue(7),
+    readChannelMemberDirectory: vi
+      .fn<Account["readChannelMemberDirectory"]>()
+      .mockResolvedValue({ members: [], nextPage: null }),
     readChannelNotifications: vi
       .fn<Account["readChannelNotifications"]>()
       .mockResolvedValue({ account: {}, channel: {} }),

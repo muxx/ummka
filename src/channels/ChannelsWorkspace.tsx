@@ -34,6 +34,7 @@ import {
   ChannelInformationButton,
   ChannelInformationPanel,
 } from "./ChannelInformationPanel.tsx";
+import { ChannelMembersPanel } from "./ChannelMembersPanel.tsx";
 import { ChannelNotificationsDialog } from "./ChannelNotificationsDialog.tsx";
 import { ChannelsFrame, ThreadMark } from "./ChannelsFrame.tsx";
 import { CollectionChannelMenu } from "./CollectionChannelMenu.tsx";
@@ -326,7 +327,8 @@ export function ChannelsWorkspace({
   const [infoChannel, setInfoChannel] = useState<{
     id: string;
     requestId?: number;
-    stage: "overview" | "pins" | "afterPins";
+    stage: "overview" | "pins" | "members";
+    focusRow?: "members" | "pins";
   } | null>(null);
   const infoButton = useRef<HTMLButtonElement>(null);
   const [notification, setNotification] = useState<{
@@ -1277,10 +1279,18 @@ export function ChannelsWorkspace({
     sameInfoPosition &&
     (Boolean(position) || (!search.panel && !collections.view));
   if (infoChannel !== null && !infoOpen && !pinsFromInfo) setInfoChannel(null);
+  function backFromMembers() {
+    if (infoChannel)
+      setInfoChannel({
+        ...infoChannel,
+        stage: "overview",
+        focusRow: "members",
+      });
+  }
   function closeCollection() {
     if (pinsFromInfo && collections.state?.status !== "forbidden") {
       collections.close(false);
-      setInfoChannel({ ...infoChannel, stage: "afterPins" });
+      setInfoChannel({ ...infoChannel, stage: "overview", focusRow: "pins" });
     } else {
       setInfoChannel(null);
       collections.close();
@@ -1391,7 +1401,8 @@ export function ChannelsWorkspace({
       ((directoryOpen || inbox.visible) && visibleSearchPanel)
     )
       return search.back;
-    if (infoOpen) return closeInfo;
+    if (infoOpen)
+      return infoChannel.stage === "members" ? backFromMembers : closeInfo;
     if (directoryOpen)
       return () => {
         restoreDirectoryFocus.current = true;
@@ -2131,7 +2142,24 @@ export function ChannelsWorkspace({
         }
         navigationIcon={directoryOpen ? <DirectoryNavigationIcon /> : undefined}
         sidePanel={
-          infoOpen && channel ? (
+          infoOpen && channel && infoChannel.stage === "members" ? (
+            <ChannelMembersPanel
+              key={channel.id}
+              account={connection}
+              channelId={channel.id}
+              name={
+                channel.kind === "O" || channel.kind === "P"
+                  ? "# " + channelTitle
+                  : channelTitle
+              }
+              language={language}
+              online={online}
+              nameFormat={settings?.nameFormat ?? "username"}
+              back={backFromMembers}
+              close={closeInfo}
+              sessionIssue={sessionIssue}
+            />
+          ) : infoOpen && channel ? (
             <ChannelInformationPanel
               key={channel.id}
               account={connection}
@@ -2145,7 +2173,10 @@ export function ChannelsWorkspace({
                 directory.retry();
               }}
               close={closeInfo}
-              focusPins={infoChannel.stage === "afterPins"}
+              focusRow={infoChannel.focusRow}
+              openMembers={() =>
+                setInfoChannel({ ...infoChannel, stage: "members" })
+              }
               openPins={() => {
                 if (!infoButton.current) return;
                 setInfoChannel({ ...infoChannel, stage: "pins" });

@@ -153,6 +153,7 @@ export function webviewServers(
   const collectionBackSteps = [
     "collection-back-saved-reply",
     "collection-back-saved-list",
+    "collection-back-info-members",
     "collection-back-info-row",
     "collection-back-info-pins",
     "collection-back-info-overview",

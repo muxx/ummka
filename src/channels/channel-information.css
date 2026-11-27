@@ -71,6 +71,9 @@
   align-items: center;
   gap: 6px;
 }
+.channel-member-results > p {
+  color: var(--muted);
+}
 .channel-information .channels-pane-titles p {
   margin: 2px 0 0;
   font-size: 0.8rem;
@@ -89,6 +92,7 @@
   .channel-information .channels-pane-head > button {
     order: -1;
   }
+  .channel-members-panel .channel-members-close,
   .channel-info-close {
     display: none;
   }
@@ -98,4 +102,90 @@
   .channels-panes[data-page="details"] > .channel-information.channels-thread {
     display: flex;
   }
+}
+
+.channel-member-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+}
+.channel-members-panel .channels-pane-titles {
+  flex: 1;
+  min-width: 0;
+}
+.channel-member-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border: 1px solid var(--field-border);
+  border-radius: 8px;
+  color: var(--muted);
+  background: var(--canvas);
+}
+.channel-member-search:focus-within {
+  border-color: var(--keyboard-focus);
+}
+.channel-member-search input {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  box-sizing: border-box;
+  padding: 0;
+  border: 0;
+  font: inherit;
+  color: var(--text);
+  background: transparent;
+}
+.channel-member-search input:focus-visible {
+  outline-offset: 0;
+}
+.channel-member-results {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.channel-member-results > button {
+  min-height: 38px;
+  padding: 4px 12px;
+  color: var(--link);
+  background: var(--surface);
+  border: 1px solid var(--divider);
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+}
+.channel-member-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.channel-member-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  overflow-wrap: anywhere;
+}
+.channel-member-list .timeline-avatar {
+  flex: none;
+}
+.channel-member-list strong {
+  font-size: 0.87rem;
+  font-weight: 620;
+}
+.channel-member-handle {
+  margin-block-start: 2px;
+  display: block;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+.channel-member-guest {
+  margin-inline-start: 6px;
+  color: var(--muted);
+  font-weight: 500;
 }

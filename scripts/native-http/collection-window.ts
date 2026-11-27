@@ -79,6 +79,41 @@ export function collectionWindowFixture() {
       res.writeHead(204).end();
       return true;
     }
+    const member = {
+      id: "q".repeat(26),
+      username: "channel.guest",
+      roles: "system_guest",
+    };
+    if (path === "users" && url.searchParams.has("in_channel")) {
+      assert.equal(url.searchParams.get("in_channel"), channel);
+      assert.equal(url.searchParams.get("page"), "0");
+      assert.equal(url.searchParams.get("sort"), "admin");
+      send([member]);
+      return true;
+    }
+    if (path === "users/search") {
+      assert.deepEqual(await requestJson(req), {
+        in_channel_id: channel,
+        term: "absent",
+      });
+      send([], "POST");
+      return true;
+    }
+    if (path === `channels/${channel}/members/ids`) {
+      assert.deepEqual(await requestJson(req), [member.id]);
+      send(
+        [
+          {
+            user_id: member.id,
+            channel_id: channel,
+            roles: "channel_guest",
+            scheme_guest: true,
+          },
+        ],
+        "POST",
+      );
+      return true;
+    }
     if (path === "users/me") {
       send({
         id: user,
