@@ -37,30 +37,30 @@ export function watchWebviewSteps(expire: () => void, timeoutMs: number) {
   };
 }
 
-async function reportMainThread(pid: number) {
+async function reportWebKitThreads(pid: number) {
   try {
     const { stdout } = await exec(
       "/usr/bin/sample",
       [String(pid), "1", "10", "-file", "/dev/stdout"],
       { timeout: 4000 },
     );
-    const lines = stdout.split("\n");
-    const start = lines.findIndex((line) =>
-      /^ {4}\d+ Thread_.*com\.apple\.main-thread/u.test(line),
+    const threads = stdout.split(/(?=^ {4}\d+ Thread_)/mu);
+    const sampled = threads.filter(
+      (thread) =>
+        /^ {4}\d+ Thread_.*(?:com\.apple\.main-thread|scrolling)/iu.test(
+          thread,
+        ) ||
+        (/^ {4}\d+ Thread_/u.test(thread) &&
+          /displayDidRefreshOnScrollingThread|waitForRenderingUpdateCompletionOrTimeout/u.test(
+            thread,
+          )),
     );
-    assert(start >= 0, "sample contains no main thread");
-    const end = lines.findIndex(
-      (line, index) =>
-        index > start && (!line.trim() || /^ {4}\d+ Thread_/u.test(line)),
-    );
-    console.error(
-      lines
-        .slice(start, Math.min(end < 0 ? lines.length : end, start + 64))
-        .join("\n"),
-    );
+    assert(sampled.length > 0, "sample contains no UI or scrolling thread");
+    for (const thread of sampled)
+      console.error(thread.split("\n").slice(0, 64).join("\n").trimEnd());
   } catch (error) {
     console.error(
-      "Could not sample the fixture main thread",
+      "Could not sample the fixture's WebKit threads",
       error instanceof Error ? error.message : error,
     );
   }
@@ -70,33 +70,32 @@ async function launch(
   expected: string,
   env = process.env,
   fixture?: InteractiveFixture,
+  stepBudget = 120_000,
 ) {
   const processRun = exec("src-tauri/target/release/ummka", [], {
     // The interactive suite also has a deadline for each distinct fixture step.
     timeout: fixture ? 300_000 : 45_000,
     env,
   });
+  if (fixture)
+    console.log(
+      `WKWebView process ${processRun.child.pid} started ${expected}.`,
+    );
   let lastWebviewStep = "no browser stage reported";
   let lastWindowStep: string | undefined;
   let stalled = false;
   const watchdog = fixture
-    ? watchWebviewSteps(
-        () => {
-          stalled = true;
-          console.error(
-            `WKWebView made no further progress after ${lastWindowStep ?? lastWebviewStep}`,
-          );
-          console.error(
-            "macOS WebView before termination:",
-            fixture.progress(),
-          );
-          const pid = processRun.child.pid;
-          if (pid)
-            void reportMainThread(pid).finally(() => processRun.child.kill());
-          else processRun.child.kill();
-        },
-        expected === "workspace-back" ? 30_000 : 120_000,
-      )
+    ? watchWebviewSteps(() => {
+        stalled = true;
+        console.error(
+          `WKWebView made no further progress after ${lastWindowStep ?? lastWebviewStep}`,
+        );
+        console.error("macOS WebView before termination:", fixture.progress());
+        const pid = processRun.child.pid;
+        if (pid)
+          void reportWebKitThreads(pid).finally(() => processRun.child.kill());
+        else processRun.child.kill();
+      }, stepBudget)
     : undefined;
   try {
     if (fixture && watchdog) {
@@ -178,6 +177,17 @@ export async function checkMacWebview(
     UMMKA_CHECK_KEYCHAIN: keychain,
     UMMKA_HTTP_TEST_CA: join(dir, "trusted.pem"),
   };
+  const os = execFileSync("/usr/bin/sw_vers", [], { encoding: "utf8" }).trim();
+  const webkit = execFileSync(
+    "/usr/libexec/PlistBuddy",
+    [
+      "-c",
+      "Print CFBundleVersion",
+      "/System/Library/Frameworks/WebKit.framework/Versions/A/Resources/Info.plist",
+    ],
+    { encoding: "utf8" },
+  ).trim();
+  console.log(`WKWebView fixture host:\n${os}\nWebKit: ${webkit}`);
   execFileSync(
     "npm",
     [
@@ -206,10 +216,31 @@ export async function checkMacWebview(
       ...env,
       UMMKA_CHECK_SEED_ACCOUNTS: "1",
     });
+    // A width has its own scrolling tree and dies before the next window opens.
+    if (!workspaceBackOnly) {
+      for (const width of [320, 820])
+        await launch(
+          `formatting-${width}`,
+          {
+            ...env,
+            UMMKA_CHECK_KEY_INPUT: "1",
+            UMMKA_CHECK_SCENARIO: `formatting-${width}`,
+          },
+          fixture,
+        );
+      await launch("PASS", { ...env, UMMKA_CHECK_KEY_INPUT: "1" }, fixture);
+    }
+    // Back needs an active window and an independent event loop, even after
+    // the preceding REST and formatting checks have completed successfully.
     await launch(
-      workspaceBackOnly ? "workspace-back" : "PASS",
-      { ...env, UMMKA_CHECK_KEY_INPUT: "1" },
+      "workspace-back",
+      {
+        ...env,
+        UMMKA_CHECK_KEY_INPUT: "1",
+        UMMKA_CHECK_SCENARIO: "workspace-back",
+      },
       fixture,
+      workspaceBackOnly ? 30_000 : undefined,
     );
     if (workspaceBackOnly) return;
     await checkMacSystemLinks(dir, env, postLinks(ports[0]));

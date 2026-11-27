@@ -203,6 +203,13 @@ pub fn run() {
                 .find(|window| window.label == "main")
                 .expect("missing main test window");
             main.visible = true;
+            if let Ok(scenario) = std::env::var("UMMKA_CHECK_SCENARIO") {
+                assert!(matches!(
+                    scenario.as_str(),
+                    "formatting-320" | "formatting-820" | "workspace-back"
+                ));
+                main.url = tauri::WebviewUrl::App(format!("index.html?fixture={scenario}").into());
+            }
         }
         config
     };

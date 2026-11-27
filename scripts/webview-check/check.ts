@@ -12,7 +12,7 @@ import { checkClipboardPolicy } from "./clipboard-policy.ts";
 import { checkEntryWindow } from "./entry-window.tsx";
 import { beginExchanges, finishExchangesAfterReload } from "./exchanges.ts";
 import { androidFixtureStep, fixtureStep } from "./fixture-step.ts";
-import { checkGeneratedRequests } from "./generated.ts";
+import { checkDesktopFormatting, checkGeneratedRequests } from "./generated.ts";
 import { checkNotificationSoundAssets } from "./notification-sounds.ts";
 import { checkPaletteSurfaces } from "./palette.ts";
 
@@ -83,14 +83,31 @@ async function checkResources() {
       window.addEventListener("load", () => resolve(), { once: true }),
     );
   }
-  if (import.meta.env.VITE_UMMKA_CHECK_WORKSPACE_BACK === true) {
-    const [data, control] = String(
-      import.meta.env.VITE_UMMKA_CHECK_PORTS,
-    ).split(",");
-    await checkBrowserAction(data, control);
+  const ports = String(import.meta.env.VITE_UMMKA_CHECK_PORTS).split(",");
+  const scenario = new URLSearchParams(location.search).get("fixture");
+  if (scenario === "formatting-320" || scenario === "formatting-820") {
+    await checkDesktopFormatting(
+      scenario === "formatting-320" ? 320 : 820,
+      ports[1],
+    );
+    location.replace(`/ipc-result.html?${scenario}`);
+    return;
+  }
+  if (scenario === "workspace-back") {
+    await checkBrowserAction(ports[0], ports[1]);
+    if (import.meta.env.VITE_UMMKA_CHECK_WORKSPACE_BACK !== true) {
+      await fixtureStep("seed-offline-registry", seedRegistry);
+      // LaunchServices activates the default browser after the last Back test.
+      const browserHref = import.meta.env.VITE_UMMKA_CHECK_EXTERNAL_HREF;
+      if (browserHref)
+        await fixtureStep("open-external-link", () =>
+          openExternalPostLink(browserHref),
+        );
+    }
     location.replace("/ipc-result.html?workspace-back");
     return;
   }
+  if (scenario !== null) throw Error("Unknown native fixture scenario");
   await checkNotificationSoundAssets();
   // A fresh offline process resumes the saved registry before the first-run UI probes.
   if (await resumeRegistryCheck()) return;
@@ -103,7 +120,6 @@ async function checkResources() {
     await androidFixtureStep("channels-frame", checkChannelsFrame);
     await androidFixtureStep("channel-timeline", checkChannelTimeline);
     await androidFixtureStep("attachment-width", checkAttachmentWidth);
-    const ports = String(import.meta.env.VITE_UMMKA_CHECK_PORTS).split(",");
     await androidFixtureStep("clipboard-policy", () =>
       checkClipboardPolicy(ports[1]),
     );
@@ -114,29 +130,21 @@ async function checkResources() {
     if (invalid !== "invalid_url")
       throw Error("External URL validation failed");
     const android = navigator.userAgent.includes("Android");
-    if (android)
+    if (android) {
       await openExternalPostLink(
         "https://external.ummka.invalid/post/@bear?value=a%2Fb#anchor",
       );
-    await androidFixtureStep("browser-action", () =>
-      checkBrowserAction(ports[0], ports[1]),
-    );
-    if (android) {
+      await androidFixtureStep("browser-action", () =>
+        checkBrowserAction(ports[0], ports[1]),
+      );
       await openExternalPostLink("mailto:probe@ummka.invalid");
       const missing = await openExternalPostLink(
         "mailto:unhandled@ummka.invalid",
       ).catch((reason: unknown) => reason);
       if (missing !== "handler_unavailable")
         throw Error("Missing Android mail handler was not reported");
+      await fixtureStep("seed-offline-registry", seedRegistry);
     }
-    await fixtureStep("seed-offline-registry", seedRegistry);
-    // LaunchServices activates the default browser. Finish work that needs the
-    // fixture window and keyboard focus before handing it the foreground.
-    const browserHref = import.meta.env.VITE_UMMKA_CHECK_EXTERNAL_HREF;
-    if (!android && browserHref)
-      await fixtureStep("open-external-link", () =>
-        openExternalPostLink(browserHref),
-      );
     location.replace("/ipc-result.html?pass");
     return;
   }
