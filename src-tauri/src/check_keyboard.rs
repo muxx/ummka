@@ -11,9 +11,12 @@ pub(crate) fn listen<R: Runtime>(window: &WebviewWindow<R>) {
                 "escape" => 53,
                 _ => break,
             };
+            println!("UMMKA_KEY_PHASE {line} received");
             // WebKit scrolls while the key is down. Deliver both physical phases on
             // separate UI turns, holding the key for an ordinary keyboard press.
             for down in [true, false] {
+                let phase = if down { "keydown" } else { "keyup" };
+                println!("UMMKA_KEY_PHASE {line} {phase}-queued");
                 let (sent, dispatched) = std::sync::mpsc::channel();
                 window
                     .with_webview(move |view| {
@@ -22,6 +25,7 @@ pub(crate) fn listen<R: Runtime>(window: &WebviewWindow<R>) {
                         // Tauri owns the window. with_webview runs on the UI thread.
                         let window = unsafe { &*view.ns_window().cast::<NSWindow>() };
                         let webview = unsafe { &*view.inner().cast::<NSResponder>() };
+                        println!("UMMKA_KEY_PHASE {phase}-started");
                         if down {
                             // DOM focus can survive a reload without the WKWebView owning native input.
                             // Wry's WebView::focus uses this same AppKit first-responder operation.
@@ -40,6 +44,7 @@ pub(crate) fn listen<R: Runtime>(window: &WebviewWindow<R>) {
                         } else {
                             webview.keyUp(&event);
                         }
+                        println!("UMMKA_KEY_PHASE {phase}-returned");
                         let _ = sent.send(());
                     })
                     .expect("deliver fixture keyboard input to its window");

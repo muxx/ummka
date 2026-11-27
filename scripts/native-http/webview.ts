@@ -1486,6 +1486,16 @@ export function webviewServers(
           ? step
           : "other";
     controlProgress = `${controlId} ${marker} received`;
+    async function press(send: () => Promise<void>) {
+      try {
+        await send();
+        return true;
+      } catch (error) {
+        console.error(`Native input failed at ${marker}:`, error);
+        res.writeHead(500).end();
+        return false;
+      }
+    }
     if (step === "before") {
       assert.equal(
         connections,
@@ -1501,7 +1511,7 @@ export function webviewServers(
         "Unexpected collection Back: " + step,
       );
       visits.push(step);
-      await pressWorkspaceBack();
+      if (!(await press(pressWorkspaceBack))) return;
     } else if (step === "allow-design-posts") {
       assert(visits.includes("live-roles") && !visits.includes(step));
       visits.push(step);
@@ -1512,14 +1522,14 @@ export function webviewServers(
         "expected one Android Back at " + step,
       );
       visits.push(marker);
-      await pressWorkspaceBack();
+      if (!(await press(pressWorkspaceBack))) return;
     } else if (step?.startsWith("back-")) {
       assert.equal(step, "back-" + backSteps[stepIndex]);
       assert(
         pressWorkspaceBack,
         "expected the active platform's key input driver",
       );
-      await pressWorkspaceBack();
+      if (!(await press(pressWorkspaceBack))) return;
       stepIndex++;
     } else if (step === "format-right") {
       assert(sendRight, "Missing native keyboard driver");
@@ -1529,7 +1539,7 @@ export function webviewServers(
       console.log(
         `Sending native ArrowRight to the ${width}px formatting fixture.`,
       );
-      await sendRight();
+      if (!(await press(sendRight))) return;
     } else if (step === "format-times") {
       assert.deepEqual(formatKeyWidths, [320, 820]);
       const data = JSON.parse(url.searchParams.get("case") ?? "null");
