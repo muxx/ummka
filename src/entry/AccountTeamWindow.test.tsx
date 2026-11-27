@@ -8,7 +8,9 @@ import {
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { ResponseError } from "../../vendor/mattermost/index.js";
+import { isMobile } from "../build-platform";
 import { atDirectoryStep } from "../mattermost/account-directory-error";
+import { channelProfile } from "../mattermost/channel-profiles";
 import type { JoinedTeams } from "../mattermost/joined-teams";
 import { openAccountRestConnection } from "../mattermost/native-rest";
 import { AccountTeamWindow, type TeamWorkspace } from "./AccountTeamWindow";
@@ -47,6 +49,9 @@ function deferred<T>() {
 }
 function fixture(snapshot: JoinedTeams | null) {
   const fake = {
+    readSavedProfiles: vi
+      .fn()
+      .mockResolvedValue({ profiles: {}, usernames: {} }),
     readWorkspaceSettings: vi
       .fn()
       .mockResolvedValue({ server: null, preferences: null }),
@@ -68,12 +73,13 @@ function fixture(snapshot: JoinedTeams | null) {
   );
   return fake;
 }
-function view(onSessionEnded = vi.fn(), account = user) {
+function view(onSessionEnded = vi.fn(), account = user, siteName?: string) {
   return (
     <AccountTeamWindow
       language="ru"
       serverUrl={server}
       userId={account}
+      siteName={siteName}
       onSessionEnded={onSessionEnded}
     >
       {({
@@ -145,9 +151,9 @@ test("explains an offline cold cache and retries the same account", async () => 
     teams: [],
     selectedTeam: null,
   });
-  fireEvent.click(screen.getByRole("button", { name: "Попробовать снова" }));
+  fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
   expect(
-    await screen.findByText("У вас пока нет команд на этом сервере."),
+    await screen.findByRole("heading", { name: "Команд пока нет" }),
   ).toBeTruthy();
   expect(open).toHaveBeenCalledTimes(2);
 });
@@ -167,19 +173,200 @@ test("withdraws the old workspace on a server-confirmed 401 and retires only tha
   expect(ended).toHaveBeenCalledOnce();
 });
 
-test("a failed mandatory first choice leaves its picker open", async () => {
+test("first choice stays on the same team through a refused write and retry", async () => {
+  const teams = [first, second];
   const connection = fixture({
+    teams,
+    selectedTeam: null,
+  });
+  const write = deferred<boolean>();
+  connection.selectJoinedTeam.mockReturnValueOnce(write.promise);
+  const ended = vi.fn();
+  render(view(ended));
+  const beta = await screen.findByRole("button", { name: "Бета" });
+  const alpha = screen.getByRole("button", { name: "Альфа" });
+  expect(document.activeElement).toBe(
+    isMobile ? screen.getByRole("heading") : beta,
+  );
+  fireEvent.click(beta);
+  fireEvent.click(alpha);
+  fireEvent.click(beta);
+  expect(beta.getAttribute("aria-busy")).toBe("true");
+  expect((alpha as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByRole("status").textContent).toBe(
+    "Сохраняем выбор команды «Бета»…",
+  );
+  expect(screen.getByText("Открываем…")).toBeTruthy();
+  await waitFor(() =>
+    expect(connection.selectJoinedTeam).toHaveBeenCalledExactlyOnceWith(
+      second.id,
+    ),
+  );
+  await act(async () => write.reject("history_storage_unavailable"));
+  const banner = await screen.findByRole("alert");
+  expect(banner.textContent).toContain("Не открыли «Бета»");
+  expect(banner.textContent).toContain("select.history_storage_unavailable");
+  expect(alpha.getAttribute("aria-disabled")).toBeNull();
+  const retry = screen.getByRole("button", {
+    name: "Повторить: открыть «Бета»",
+  });
+  expect(document.activeElement).toBe(retry);
+  connection.readJoinedTeams.mockResolvedValue({
+    teams,
+    selectedTeam: second.id,
+  });
+  fireEvent.click(retry);
+  await screen.findByRole("button", { name: "Открыта Бета" });
+  expect(connection.selectJoinedTeam.mock.calls).toEqual([
+    [second.id],
+    [second.id],
+  ]);
+  expect(connection.refreshJoinedTeams).toHaveBeenCalledOnce();
+  expect(connection.signOutOnDevice).not.toHaveBeenCalled();
+  expect(ended).not.toHaveBeenCalled();
+});
+
+test.each(["write", "snapshot"] as const)(
+  "retires the current account when the first choice loses its session during %s",
+  async (step) => {
+    const db = fixture({ teams: [first, second], selectedTeam: null });
+    db.refreshJoinedTeams.mockReturnValue(new Promise(() => {}));
+    const ended = vi.fn();
+    render(view(ended));
+    const beta = await screen.findByRole("button", { name: "Бета" });
+    const rejected = deferred<never>();
+    if (step === "write")
+      db.selectJoinedTeam.mockReturnValueOnce(rejected.promise);
+    else db.readJoinedTeams.mockReturnValueOnce(rejected.promise);
+    fireEvent.click(beta);
+    await waitFor(() => {
+      expect(db.selectJoinedTeam).toHaveBeenCalledExactlyOnceWith(second.id);
+      expect(db.readJoinedTeams).toHaveBeenCalledTimes(
+        step === "write" ? 1 : 2,
+      );
+    });
+    await act(async () => rejected.reject("session_unavailable"));
+    expect(ended).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("button", { name: "Бета" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Открыта Бета" })).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(db.signOutOnDevice).not.toHaveBeenCalled();
+  },
+);
+
+test("a late first selection failure cannot withdraw the replacement account", async () => {
+  const snapshot = { teams: [first, second], selectedTeam: null };
+  const previous = fixture(snapshot);
+  previous.refreshJoinedTeams.mockReturnValue(new Promise(() => {}));
+  const paused = deferred<boolean>();
+  previous.selectJoinedTeam.mockReturnValueOnce(paused.promise);
+  const ended = vi.fn();
+  const mounted = render(view(ended));
+  fireEvent.click(await screen.findByRole("button", { name: "Бета" }));
+  await waitFor(() => expect(previous.selectJoinedTeam).toHaveBeenCalledOnce());
+  const replacement = fixture(snapshot);
+  mounted.rerender(view(ended, "d".repeat(26)));
+  await screen.findByRole("button", { name: "Бета" });
+  await act(async () => paused.reject("session_unavailable"));
+  expect(ended).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "Бета" })).toBeTruthy();
+  expect(replacement.signOutOnDevice).not.toHaveBeenCalled();
+});
+
+test.each(["session_unavailable", "history_storage_unavailable"] as const)(
+  "checks the account scope when the optional profile read returns %s",
+  async (cause) => {
+    const db = fixture({ teams: [first, second], selectedTeam: null });
+    db.refreshJoinedTeams.mockReturnValue(new Promise(() => {}));
+    const profile = deferred<never>();
+    db.readSavedProfiles.mockReturnValueOnce(profile.promise);
+    const ended = vi.fn();
+    render(view(ended));
+    await screen.findByRole("button", { name: "Бета" });
+    await act(async () => profile.reject(cause));
+    const retired = cause === "session_unavailable";
+    expect(ended).toHaveBeenCalledTimes(retired ? 1 : 0);
+    expect(Boolean(screen.queryByRole("button", { name: "Бета" }))).toBe(
+      !retired,
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+  },
+);
+
+test("an unavailable team cannot be retried from the failure banner", async () => {
+  const connection = fixture({ teams: [first, second], selectedTeam: null });
+  connection.refreshJoinedTeams.mockReturnValue(new Promise(() => {}));
+  connection.selectJoinedTeam.mockResolvedValueOnce(false);
+  render(view());
+  await screen.findByRole("button", { name: "Бета" });
+  connection.readJoinedTeams.mockResolvedValue({
+    teams: [first],
+    selectedTeam: null,
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Бета" }));
+  expect((await screen.findByRole("alert")).textContent).toContain(
+    "Команда больше недоступна.",
+  );
+  expect(screen.queryByRole("button", { name: /Повторить/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Бета" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Альфа" })).toBeTruthy();
+});
+
+test("shows only the current account’s cached name without waiting or moving focus", async () => {
+  const snapshot = { teams: [first, second], selectedTeam: null };
+  const connection = fixture(snapshot);
+  const identity = deferred<{
+    profiles: Record<string, ReturnType<typeof channelProfile>>;
+    usernames: Record<string, never>;
+  }>();
+  connection.readSavedProfiles.mockReturnValueOnce(identity.promise);
+  const mounted = render(view(vi.fn(), user, "Наша установка"));
+  const alpha = await screen.findByRole("button", { name: "Альфа" });
+  expect(screen.getByText("Вход выполнен.")).toBeTruthy();
+  expect(screen.getByTitle(server).textContent).toBe("work.example.test/Work");
+  expect(screen.getAllByText("Наша установка")).toHaveLength(3);
+  alpha.focus();
+  const profile = channelProfile({
+    id: user,
+    username: "anna",
+    firstName: "Анна",
+    lastName: "Северова",
+  });
+  await act(async () =>
+    identity.resolve({ profiles: { [user]: profile }, usernames: {} }),
+  );
+  expect(screen.getByText("Анна Северова")).toBeTruthy();
+  expect(document.activeElement).toBe(alpha);
+  expect(connection.readSavedProfiles).toHaveBeenCalledExactlyOnceWith({
+    ids: [user],
+    usernames: [],
+  });
+  const replacement = fixture(snapshot);
+  const other = "d".repeat(26);
+  replacement.readSavedProfiles.mockResolvedValue({
+    profiles: { [other]: profile },
+    usernames: {},
+  });
+  mounted.rerender(view(vi.fn(), other));
+  await screen.findByRole("button", { name: "Альфа" });
+  expect(screen.getByText("Вход выполнен.")).toBeTruthy();
+  expect(screen.queryByText("Анна Северова")).toBeNull();
+  expect(screen.queryByText("Наша установка")).toBeNull();
+});
+
+test("an empty directory can be checked again after an invitation", async () => {
+  const connection = fixture({ teams: [], selectedTeam: null });
+  render(view());
+  await screen.findByRole("heading", { name: "Команд пока нет" });
+  expect(screen.queryByRole("button", { name: "Другой сервер" })).toBeNull();
+  connection.readJoinedTeams.mockResolvedValue({
     teams: [first, second],
     selectedTeam: null,
   });
-  connection.refreshJoinedTeams.mockRejectedValue("network");
-  render(view());
-  connection.selectJoinedTeam.mockRejectedValue("history_storage_unavailable");
-  fireEvent.click(await screen.findByRole("button", { name: "Бета" }));
-  expect(
-    await screen.findByText("Не удалось сохранить выбор команды."),
-  ).toBeTruthy();
-  expect(connection.signOutOnDevice).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Проверить снова" }));
+  await screen.findByRole("button", { name: "Бета" });
+  expect(connection.refreshJoinedTeams).toHaveBeenCalledTimes(2);
+  expect(connection.selectJoinedTeam).not.toHaveBeenCalled();
 });
 
 test("replacing the account before open completes releases the old handle without rendering it", async () => {
@@ -282,9 +469,7 @@ test("a delayed choice cannot redisplay the old team during 401 removal or a ret
   expect(screen.queryByRole("button", { name: /Открыта/ })).toBeNull();
   expect(connection.readJoinedTeams).toHaveBeenCalledTimes(1);
   await act(async () => remove.reject("credential_storage_unavailable"));
-  fireEvent.click(
-    await screen.findByRole("button", { name: "Попробовать снова" }),
-  );
+  fireEvent.click(await screen.findByRole("button", { name: "Повторить" }));
   await waitFor(() => expect(ended).toHaveBeenCalledOnce());
   expect(connection.signOutOnDevice).toHaveBeenCalledTimes(2);
   expect(open).toHaveBeenCalledTimes(1);
@@ -344,7 +529,7 @@ test("shows a safe server error code and clears it when a retry opens the team",
     teams: [first],
     selectedTeam: first.id,
   });
-  fireEvent.click(screen.getByRole("button", { name: "Попробовать снова" }));
+  fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
   await screen.findByRole("button", { name: "Открыта Альфа" });
   expect(document.body.textContent).not.toContain("preferences.http-503");
   expect(db.signOutOnDevice).not.toHaveBeenCalled();

@@ -345,6 +345,7 @@ export function fixture({
       status: "ready",
       serverUrl,
       userId: user,
+      installations: [serverUrl],
     });
   vi.mocked(openAccountRestConnection).mockResolvedValue(
     account as unknown as Account,

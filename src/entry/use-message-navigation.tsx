@@ -101,6 +101,15 @@ const copy = {
       `Участники «${name}» увидят, что вы вступили.`,
   },
 };
+export function membershipConfirmationText(
+  joined: readonly MembershipTarget["kind"][],
+  language: EntryLanguage,
+) {
+  const text = copy[language];
+  return joined
+    .map((kind) => (kind === "team" ? text.joinedTeam : text.joinedChannel))
+    .join(" ");
+}
 function failureMessage(target: Outcome, language: EntryLanguage) {
   const text = copy[language];
   switch (target.kind) {
@@ -284,8 +293,8 @@ export function useMessageNavigation(
       returnFocus.current.focus({ preventScroll: true });
     returnFocus.current = null;
   }, [modal]);
-  const clear = useCallback(() => {
-    external.current?.stop("paused");
+  const clear = useCallback((connection?: "offline") => {
+    external.current?.stop("paused", connection);
     external.current = null;
     current.current?.controller.abort();
     current.current = null;
@@ -363,7 +372,7 @@ export function useMessageNavigation(
     if (current.current.kind === "return") {
       current.current.controller.abort();
       current.current = null;
-    } else clear();
+    } else clear("offline");
   }, [online, clear]);
   function endSaved() {
     if (current.current?.kind === "return") {
@@ -385,7 +394,7 @@ export function useMessageNavigation(
     const system = origin instanceof HTMLElement ? undefined : origin;
     if (!connection || !directory || originSignal.aborted) return;
     if (!online) {
-      system?.request.stop("paused");
+      system?.request.stop("paused", "offline");
       return;
     }
     if (current.current) {
@@ -414,11 +423,10 @@ export function useMessageNavigation(
     const text = copy[language];
     let joined: MembershipTarget[] = [];
     function membershipDetail() {
-      return joined
-        .map((row) =>
-          row.kind === "team" ? text.joinedTeam : text.joinedChannel,
-        )
-        .join(" ");
+      return membershipConfirmationText(
+        system?.request.confirmedMembership ?? joined.map((row) => row.kind),
+        language,
+      );
     }
     function error(message: string) {
       setModal({
@@ -461,6 +469,7 @@ export function useMessageNavigation(
         sourceDirectory.selectedTeam,
         confirm,
         signal,
+        system?.request.rememberMembership,
       ).open();
       signal.throwIfAborted();
       joined = result.joined;
@@ -476,7 +485,7 @@ export function useMessageNavigation(
           system
         ) {
           setModal(null);
-          system.request.stop("failed", membershipDetail());
+          system.request.stop("failed");
           return;
         }
         if (target.kind === "cancelled") {
@@ -560,7 +569,7 @@ export function useMessageNavigation(
         sessionIssue(issue);
       } else if (system && issue !== "forbidden") {
         setModal(null);
-        system.request.stop("failed", membershipDetail());
+        system.request.stop("failed");
       } else error(issue === "forbidden" ? text.missing : text.failed);
     } finally {
       originSignal.removeEventListener("abort", abort);

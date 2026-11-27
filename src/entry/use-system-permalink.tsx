@@ -13,6 +13,7 @@ import {
   readInstallationSelection,
   selectInstallation,
 } from "../mattermost/installation-registry.ts";
+import type { MembershipTarget } from "../mattermost/own-membership.ts";
 import {
   type AccountChannelsLink,
   routeChannelsLink,
@@ -22,6 +23,7 @@ import {
   watchSystemChannelsLinks,
 } from "../mattermost/system-channels-links.ts";
 import type { EntryLanguage } from "./language.ts";
+import { membershipConfirmationText } from "./use-message-navigation";
 
 type Target = Extract<ChannelsTarget, { kind: "permalink" }>;
 type RejectedTarget = Exclude<ChannelsTarget, Target>;
@@ -42,16 +44,26 @@ export type SystemPostRequest = {
   target: Target;
   signal: AbortSignal;
   matchesUser: (userId: string) => boolean;
+  readonly confirmedMembership: readonly MembershipTarget["kind"][];
+  rememberMembership: (membership: MembershipTarget) => void;
   positioned: () => void;
   shown: (postId: string) => void;
   dismiss: () => void;
-  stop: (reason: Stop, membership?: string) => void;
+  stop: (reason: Stop, connection?: "offline") => void;
+};
+export type SignedLinkOpening = {
+  serverUrl: string;
+  status: "waiting" | "offline" | "failed";
+  membership?: string;
+  retry: () => void;
+  dismiss: () => void;
 };
 type State =
   | {
       kind: "switching" | "external" | Stop;
       serverUrl?: string;
-      membership?: string;
+      memberships?: readonly MembershipTarget["kind"][];
+      offline?: boolean;
     }
   | (RejectedLink & { id: string; close: () => void })
   | { kind: "target"; request: SystemPostRequest; installations: string[] }
@@ -59,6 +71,8 @@ type State =
 type Gate = {
   deliveryId: string;
   route: AccountChannelsLink | null;
+  memberships: Set<MembershipTarget["kind"]>;
+  membershipUserId?: string;
   source?: { href: string; origin: HTMLAnchorElement };
   positioned?: boolean;
   settled: Promise<void>;
@@ -77,7 +91,7 @@ function makeGate(
   const settled = new Promise<void>((resolve) => {
     finish = resolve;
   });
-  return { deliveryId, route, source, settled, finish };
+  return { deliveryId, route, source, settled, finish, memberships: new Set() };
 }
 
 function TableLinkNotice({
@@ -189,8 +203,8 @@ export function useSystemPermalink(
     ReturnType<typeof watchSystemChannelsLinks>
   > | null>(null);
   // The sign-in form and the link inbox both write the device's selected server.
-  const lastSelection = useRef(Promise.resolve());
-  const enqueueSelection = useCallback((operation: () => Promise<void>) => {
+  const lastSelection = useRef<Promise<unknown>>(Promise.resolve());
+  const enqueueSelection = useCallback(<T,>(operation: () => Promise<T>) => {
     const next = lastSelection.current.then(operation, operation);
     lastSelection.current = next;
     return next;
@@ -204,7 +218,11 @@ export function useSystemPermalink(
       target.serverUrl !== serverUrl
     ) {
       gate.controller?.abort();
-      setState({ kind: "paused", serverUrl: target.serverUrl });
+      setState({
+        kind: "paused",
+        serverUrl: target.serverUrl,
+        memberships: [...gate.memberships],
+      });
     }
   }, []);
   const connect = useCallback(
@@ -225,6 +243,20 @@ export function useSystemPermalink(
         reopen();
       }),
     [enqueueSelection, pauseForServer, reopen],
+  );
+  const restoreSaved = useCallback(
+    (serverUrl: string, signal: AbortSignal) =>
+      enqueueSelection(async () => {
+        signal.throwIfAborted();
+        const selection = await readInstallationSelection();
+        signal.throwIfAborted();
+        if (selection.selected !== serverUrl) {
+          await selectInstallation(serverUrl);
+          pauseForServer(serverUrl);
+        }
+        return selection.installations;
+      }),
+    [enqueueSelection, pauseForServer],
   );
   const finish = useCallback(
     (gate: Gate, outcome: "shown" | "dismissed" | "superseded") => {
@@ -330,7 +362,19 @@ export function useSystemPermalink(
           signal,
           matchesUser: (id) => {
             userId ??= id;
-            return userId === id;
+            if (userId !== id) return false;
+            if (gate.membershipUserId !== id) {
+              gate.membershipUserId = id;
+              gate.memberships.clear();
+            }
+            return true;
+          },
+          get confirmedMembership() {
+            return [...gate.memberships];
+          },
+          rememberMembership: (membership) => {
+            if (!signal.aborted && current.current === gate)
+              gate.memberships.add(membership.kind);
           },
           positioned: () => {
             if (!signal.aborted) gate.positioned = true;
@@ -341,14 +385,19 @@ export function useSystemPermalink(
           dismiss: () => {
             if (!signal.aborted) finish(gate, "dismissed");
           },
-          stop: (kind, membership) => {
+          stop: (kind, connection) => {
             if (signal.aborted || current.current !== gate) return;
             if (kind === "paused" && gate.source) {
               finish(gate, "dismissed");
               return;
             }
             controller.abort();
-            setState({ kind, serverUrl: target.serverUrl, membership });
+            setState({
+              kind,
+              serverUrl: target.serverUrl,
+              memberships: [...gate.memberships],
+              offline: connection === "offline",
+            });
           },
         };
         setState({ kind: "target", request, installations });
@@ -360,6 +409,7 @@ export function useSystemPermalink(
             setState({
               kind: launchingExternal ? "external" : "failed",
               serverUrl: gate.route?.target.serverUrl,
+              memberships: [...gate.memberships],
             });
           }
         }
@@ -470,6 +520,34 @@ export function useSystemPermalink(
       else subscribeAgain.current?.();
     } else if (current.current) void start(current.current, reload);
   }
+  const gate = current.current;
+  const route = gate?.route;
+  const signedOpening =
+    !gate?.source &&
+    route?.status === "sign_in_required" &&
+    route.target.kind === "permalink";
+  const openingStatus =
+    state?.kind === "target" || state?.kind === "switching"
+      ? "waiting"
+      : state?.kind === "paused" && state.offline
+        ? "offline"
+        : state?.kind === "failed"
+          ? "failed"
+          : undefined;
+  const membership =
+    state && "memberships" in state && state.memberships
+      ? membershipConfirmationText(state.memberships, language)
+      : "";
+  const opening: SignedLinkOpening | undefined =
+    signedOpening && openingStatus
+      ? {
+          serverUrl: route.target.serverUrl,
+          status: openingStatus,
+          membership,
+          retry: () => retry(false),
+          dismiss,
+        }
+      : undefined;
   const text = copy[language];
   function notice(needsSignIn: boolean, otherServer: boolean) {
     if (!state) return null;
@@ -496,7 +574,7 @@ export function useSystemPermalink(
     const content = (
       <>
         <p role="status">
-          {"membership" in state && state.membership && state.membership + " "}
+          {membership && `${membership} `}
           {message} {address && <bdi>{address}</bdi>}
         </p>
         {canRetry && (
@@ -533,6 +611,8 @@ export function useSystemPermalink(
     notice,
     connect,
     selectSaved,
+    restoreSaved,
+    opening,
   };
 }
 

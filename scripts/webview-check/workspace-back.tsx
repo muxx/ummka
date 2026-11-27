@@ -3,6 +3,7 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { App } from "../../src/App.tsx";
 import { openNativeRestConnection } from "../../src/mattermost/native-rest.ts";
+import { checkFirstTeamChoice } from "./account-team-window.tsx";
 import { checkAvailableDirectoryWindow } from "./available-directory-window.ts";
 import { checkChannelNotificationsWindow } from "./channel-notifications-window.ts";
 import { fixtureStep } from "./fixture-step.ts";
@@ -407,6 +408,7 @@ export async function checkDesktopBack(port: string, server: string) {
     flushSync(() => root.render(<App language="en" />)),
   );
   const ui = within(host);
+  await checkFirstTeamChoice(host, server);
   const town = (
     await fixtureStep("wait-for-town-message", () =>
       ui.findByText("Town fixture message", {}, { timeout: 10000 }),
