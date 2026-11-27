@@ -71,9 +71,14 @@ test.each([
       ),
     ).toBe(false);
     if (collapsed && target === reply) {
+      const thread = screen.getByRole("complementary", { name: "Thread" });
+      expect(thread.contains(row)).toBe(true);
       expect(
-        screen.getByRole("complementary", { name: "Thread" }).contains(row),
-      ).toBe(true);
+        within(thread).getByRole("heading", {
+          name: "Thread",
+          description: "# Design",
+        }),
+      ).toBeTruthy();
       await waitFor(() =>
         expect(
           screen.getByRole<HTMLTextAreaElement>("textbox", {

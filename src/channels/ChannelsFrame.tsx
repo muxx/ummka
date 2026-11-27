@@ -55,6 +55,7 @@ type FrameProps = {
   thread?: {
     id: string;
     title: string;
+    subtitle?: string;
     content: ReactNode;
     replyRef?: RefObject<HTMLElement | null>;
     close: () => void;
@@ -115,6 +116,7 @@ export function ChannelsFrame({
   const lastFocus = useRef<HTMLElement>(null);
   const headingId = useId();
   const threadId = useId();
+  const threadContextId = thread?.subtitle ? `${threadId}-context` : undefined;
   const overlay = usesMacOSOverlay;
   const channelId = channel?.id;
   const openThread = thread?.id;
@@ -356,13 +358,40 @@ export function ChannelsFrame({
           {sidePanel}
           {!sidePanel && thread && (
             <aside className="channels-thread" aria-labelledby={threadId}>
-              <header className="channels-pane-head">
-                <h2 id={threadId} ref={threadHeading} tabIndex={-1}>
-                  {thread.title}
-                </h2>
+              <header className="channels-pane-head channels-thread-head">
+                <div className="thread-heading">
+                  <div className="thread-heading-title">
+                    <svg
+                      width="21"
+                      height="21"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.75"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M21 14l-3 -3h-7a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1h9a1 1 0 0 1 1 1v10 M14 15v2a1 1 0 0 1 -1 1h-7l-3 3v-10a1 1 0 0 1 1 -1h2" />
+                    </svg>
+                    <h2
+                      id={threadId}
+                      ref={threadHeading}
+                      tabIndex={-1}
+                      aria-describedby={threadContextId}
+                    >
+                      {thread.title}
+                    </h2>
+                  </div>
+                  {threadContextId && (
+                    <p id={threadContextId} className="thread-heading-context">
+                      <bdi>{thread.subtitle}</bdi>
+                    </p>
+                  )}
+                </div>
                 <PaneSizeToggle />
                 <button
-                  className="channels-icon-action"
+                  className="channels-icon-action thread-close"
                   type="button"
                   aria-label={labels.closeThread}
                   onClick={thread.close}

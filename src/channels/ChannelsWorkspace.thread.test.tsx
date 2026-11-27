@@ -316,6 +316,12 @@ test("opens a root by its reply count and returns focus to the same message with
   open.focus();
   fireEvent.click(open);
   const pane = await screen.findByRole("complementary", { name: "Thread" });
+  expect(
+    within(pane).getByRole("heading", {
+      name: "Thread",
+      description: "# General",
+    }),
+  ).toBeTruthy();
   expect(await within(pane).findByText(reply.message)).toBeTruthy();
   expect(within(pane).getByText(root.message)).toBeTruthy();
   expect(connection.readThreadPage.mock.calls.map(([query]) => query)).toEqual([

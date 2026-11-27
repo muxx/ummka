@@ -1465,6 +1465,10 @@ export function ChannelsWorkspace({
             ? {
                 id: activeThread.id,
                 title: text.thread,
+                subtitle:
+                  channel?.id === activeThread.channelId
+                    ? roomTitle
+                    : undefined,
                 close: closeThread,
                 replyRef:
                   activeThread.rootId || isMobile ? undefined : replyField,

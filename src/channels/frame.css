@@ -371,20 +371,54 @@
     gap: 0;
     padding: 4px 5px;
   }
-  .channels-thread .channels-pane-head {
-    padding-inline: 16px 6px;
-  }
 }
 
+.channels-thread-head {
+  min-height: 70px;
+  gap: 2px;
+  padding: 4px 17px;
+}
+.thread-heading {
+  flex: 1;
+  min-width: 0;
+}
+.thread-heading-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.thread-heading-title svg {
+  flex: none;
+  color: var(--muted);
+}
+.thread-heading-context {
+  margin: 2px 0 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.5;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.thread-close {
+  width: 32px;
+  height: 32px;
+}
 .thread-back-icon {
   display: none;
 }
 @container (width <= 740px) {
-  .channels-thread > .channels-pane-head .channels-icon-action {
-    order: -1;
-  }
-  .channels-thread .channels-pane-head {
+  .channels-thread-head {
+    min-height: 53px;
     padding-inline: 6px 12px;
+  }
+  .thread-heading-context {
+    font-size: 0.7rem;
+  }
+  .thread-close {
+    order: -1;
+    width: 44px;
+    height: 44px;
   }
   .thread-close-icon {
     display: none;
