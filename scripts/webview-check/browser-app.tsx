@@ -62,9 +62,13 @@ async function checkTableReturn(
   const modal = within(dialog);
   modal.getByText(origin);
   const button = modal.getByRole("button", { name: "Back" });
-  if (document.activeElement !== modal.getByRole("region", { name: "Table" }))
+  const region = modal.getByRole("region", { name: "Table" });
+  const grid = modal.getByRole("table");
+  if (document.activeElement !== region)
     throw Error("The full table did not focus its scrolling area");
-  inspect(within(within(dialog).getByRole("table")));
+  if (region.clientWidth > grid.getBoundingClientRect().width + 1)
+    throw Error("The full table is narrower than its scrolling area");
+  inspect(within(grid));
   if (nativeBack) await nativeBack();
   else flushSync(() => fireEvent.click(button));
   await waitFor(() => {

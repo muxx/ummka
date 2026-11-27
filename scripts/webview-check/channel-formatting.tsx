@@ -37,6 +37,7 @@ const bodies = [
   "A short inline `const  value` with an ampersand &amp; text.",
   "A paragraph with ordinary readable text.\n\n~~~\nlet value;\n~~~",
   `| Long |\n| --- |\n| ${"wrap generously ".repeat(140)} |`,
+  "| Header only |\n| --- |",
 ];
 
 function checkDisclosure(host: HTMLElement, width: number) {
@@ -238,6 +239,39 @@ function FormattingWorkspace({ children }: { children: ReactNode }) {
   );
 }
 
+function checkPreviewCorner(preview: HTMLElement, readable?: HTMLElement) {
+  const area = preview.querySelector(".post-table-preview-grid");
+  const button = within(preview).getByRole("button", { name: /^Open table:/ });
+  const icon = button.querySelector("svg");
+  if (!area || !icon) throw Error("The table preview has no expansion control");
+  const frame = preview.getBoundingClientRect();
+  const grid = area.getBoundingClientRect();
+  const hit = button.getBoundingClientRect();
+  const mark = icon.getBoundingClientRect();
+  const rtl = getComputedStyle(preview).direction === "rtl";
+  const inset = rtl ? mark.left - grid.left : grid.right - mark.right;
+  if (
+    Math.abs(grid.width - frame.width) > 1 ||
+    Math.abs(hit.width - frame.width) > 1 ||
+    Math.abs(hit.height - frame.height) > 1 ||
+    Math.abs(inset - 2) > 1 ||
+    Math.abs(grid.bottom - mark.bottom - 2) > 1 ||
+    mark.top < grid.top ||
+    Math.abs(mark.width - 31) > 1 ||
+    Math.abs(mark.height - 31) > 1
+  )
+    throw Error(
+      `The expansion icon left its table corner: frame=${frame.width}x${frame.height}, grid=${grid.width}x${grid.height}, icon=${mark.width}x${mark.height}, inset=${inset}`,
+    );
+  if (readable) {
+    const range = document.createRange();
+    range.selectNodeContents(readable);
+    const text = range.getBoundingClientRect();
+    if (rtl ? text.left < mark.right : text.right > mark.left)
+      throw Error("The expansion icon covers the corner cell text");
+  }
+}
+
 async function checkMobileTable(
   table: HTMLElement | null,
   fittingTable: HTMLElement | null,
@@ -279,13 +313,15 @@ async function checkMobileTable(
     name: "Open table: 2 rows, 1 column",
   });
   const shortCell = within(fittingTable).getByRole("cell", { name: "Fits" });
-  const expand = short.querySelector("svg");
-  if (
-    !expand ||
-    expand.getBoundingClientRect().left + 1 <
-      shortCell.getBoundingClientRect().right
-  )
-    throw Error("The expand button covers the fitting table's cells");
+  checkPreviewCorner(table);
+  checkPreviewCorner(tallTable);
+  checkPreviewCorner(fittingTable, shortCell);
+  fittingTable.dir = "rtl";
+  try {
+    checkPreviewCorner(fittingTable, shortCell);
+  } finally {
+    fittingTable.removeAttribute("dir");
+  }
   if (physical) {
     const feed = table.closest<HTMLElement>(".timeline-scroll");
     if (
@@ -343,6 +379,7 @@ async function checkMobileTable(
   if (
     full.scrollWidth <= full.clientWidth ||
     full.scrollHeight <= full.clientHeight ||
+    full.getBoundingClientRect().right > innerWidth ||
     ui.getAllByRole("table").length !== 1 ||
     ui.getAllByRole("row").length !== lastRow + 3 ||
     document.activeElement !== full ||
@@ -407,9 +444,15 @@ async function checkMobileTable(
   const small = within(
     within(document.body).getByRole("dialog", { name: "Table" }),
   );
+  const smallRegion = small.getByRole("region", { name: "Table" });
+  const smallGrid = small.getByRole("table");
   if (
     !small.getByRole("cell", { name: "Fits" }) ||
-    small.queryByText("Last cell")
+    small.queryByText("Last cell") ||
+    Math.abs(
+      smallGrid.getBoundingClientRect().width - smallRegion.clientWidth,
+    ) > 1 ||
+    smallRegion.clientWidth >= innerWidth - 24
   )
     throw Error("Opening a second table showed a previous selection");
   flushSync(() => fireEvent.click(small.getByRole("button", { name: "Back" })));
@@ -560,6 +603,14 @@ export async function checkChannelFormatting(
       const fittingTable = tableIn(8);
       if (isAndroid) {
         checkEmphasisSelection(label);
+        const headingTable = tableIn(12);
+        if (!headingTable) throw Error("Missing heading-only table preview");
+        checkPreviewCorner(
+          headingTable,
+          within(headingTable).getByRole("columnheader", {
+            name: "Header only",
+          }),
+        );
         await checkMobileTable(
           table,
           fittingTable,

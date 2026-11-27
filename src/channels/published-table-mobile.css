@@ -3,15 +3,25 @@
   isolation: isolate;
   display: grid;
   --expand-size: 31px;
-  grid-template-columns: minmax(0, 1fr) var(--expand-size);
+  --expand-inset: 2px;
+  grid-template-columns: minmax(0, 1fr);
   inline-size: fit-content;
-  min-inline-size: min(100%, 44px);
-  min-block-size: 44px;
   overflow: clip;
 }
 .post-table-preview-grid {
   max-block-size: 300px;
   overflow: clip;
+}
+
+/* Keep the expansion icon clear of the text inside the corner cell. */
+.post-table-preview-grid tbody tr:last-child > :last-child,
+.post-table-preview-grid table:not(:has(tbody > tr)) thead th:last-child {
+  box-sizing: border-box;
+  block-size: calc(var(--expand-size) + 2 * var(--expand-inset));
+  padding-inline-end: calc(7px + var(--expand-size) + var(--expand-inset));
+}
+.post-table-preview-grid table:not(:has(tbody > tr)) thead th:last-child {
+  block-size: 44px;
 }
 
 .post-table-preview::before,
@@ -21,13 +31,18 @@
 }
 .post-table-preview[data-more-columns]::before {
   content: "";
-  inset: 0 var(--expand-size) 0 auto;
+  inset-block: 0;
+  inset-inline-end: 0;
   inline-size: 28px;
   background: linear-gradient(to right, transparent, var(--canvas));
 }
+.post-table-preview[data-more-columns]:dir(rtl)::before {
+  background: linear-gradient(to left, transparent, var(--canvas));
+}
 .post-table-preview[data-more-rows]::after {
   content: "";
-  inset: auto var(--expand-size) 0 0;
+  inset-block-end: 0;
+  inset-inline: 0;
   block-size: 32px;
   background: linear-gradient(to bottom, transparent, var(--canvas));
 }
@@ -38,8 +53,9 @@
   display: flex;
   align-items: end;
   justify-content: end;
+  box-sizing: border-box;
   inline-size: 100%;
-  padding: 0;
+  padding: var(--expand-inset);
   border: 0;
   color: var(--text);
   background: transparent;
@@ -52,11 +68,10 @@
   outline-offset: -2px;
 }
 .post-table-open svg {
-  box-sizing: content-box;
-  padding: 6px;
-  border: 1px solid var(--divider);
-  border-radius: 6px;
-  background: var(--canvas);
+  box-sizing: border-box;
+  inline-size: var(--expand-size);
+  block-size: var(--expand-size);
+  padding: 7px;
 }
 
 .post-table-screen {
@@ -92,11 +107,11 @@
 }
 .post-table-screen .post-table-screen-content {
   flex: 0 1 auto;
-  max-inline-size: none;
+  align-self: start;
+  inline-size: fit-content;
+  max-inline-size: calc(100% - 24px);
   min-block-size: 0;
   margin: 0 12px 12px;
-  border: 1px solid var(--divider);
-  border-radius: 7px;
   overflow: auto;
   overscroll-behavior: contain;
 }
