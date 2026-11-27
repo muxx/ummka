@@ -53,10 +53,13 @@ impl ChannelProfile {
     fn valid(&self) -> bool {
         is_mattermost_id(&self.id)
             && !self.username.trim().is_empty()
-            && [self.update_at, self.delete_at, self.last_picture_update]
+            && [self.update_at, self.delete_at]
                 .into_iter()
                 .flatten()
                 .all(|n| (0..(1_i64 << 53)).contains(&n))
+            && self
+                .last_picture_update
+                .is_none_or(|n| n.unsigned_abs() < (1_u64 << 53))
     }
 
     fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {

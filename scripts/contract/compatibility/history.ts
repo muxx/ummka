@@ -85,6 +85,7 @@ import {
 } from "./post-mutations.ts";
 import { checkPostSearch } from "./post-search.ts";
 import { checkPresencePolicy } from "./presence-policy.ts";
+import { checkProfileImage } from "./profile-image.ts";
 import { checkProfileReads } from "./profile-reads.ts";
 import { checkPublishedPostDocument } from "./published-post-document.ts";
 import { checkReactionActions } from "./reaction-actions.ts";
@@ -940,6 +941,13 @@ await checkUserPresence(
   base,
   { id: reader.id, token: readerToken },
   { id: otherSaver.id, token: otherSaverToken },
+);
+await checkProfileImage(
+  new Configuration({ basePath: base, accessToken: otherSaverToken }),
+  reader.id,
+  readerToken,
+  token,
+  version,
 );
 await checkPostCollections(
   { session, id: user.id },

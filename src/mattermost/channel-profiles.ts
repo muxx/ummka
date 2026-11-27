@@ -7,9 +7,10 @@ function textField(value: string | undefined) {
   return value;
 }
 
-function timeField(value: number | undefined) {
+function timeField(value: number | undefined, minimum = 0) {
   if (value === undefined) return null;
-  if (!isMattermostTime(value, 0)) throw new TypeError("Invalid profile time.");
+  if (!isMattermostTime(value, minimum))
+    throw new TypeError("Invalid profile time.");
   return value;
 }
 
@@ -41,7 +42,11 @@ export function channelProfile(user: User) {
     position: textField(user.position),
     updateAt: timeField(user.updateAt),
     deleteAt: timeField(user.deleteAt),
-    lastPictureUpdate: timeField(user.lastPictureUpdate),
+    // Resetting an avatar stores the negative Unix millisecond timestamp in Mattermost.
+    lastPictureUpdate: timeField(
+      user.lastPictureUpdate,
+      Number.MIN_SAFE_INTEGER,
+    ),
     isBot: user.isBot === true,
     isGuest: textField(user.roles).split(" ").includes("system_guest"),
     remoteUsername: typeof alias === "string" ? alias : "",
