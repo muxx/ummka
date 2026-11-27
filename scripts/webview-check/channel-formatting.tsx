@@ -161,10 +161,15 @@ async function checkTableSwipe(
   const bottom = Math.min(window.innerHeight, bounds.bottom);
   const x = (left + right) / 2;
   const y = (top + bottom) / 2;
+  const dx = (right - left) / 4;
+  const dy = (bottom - top) / 4;
+  // Android system bars can receive touch over the edges of an edge-to-edge WebView.
   const coordinates =
     axis === "horizontal"
-      ? [right - 16, y, left + 16, y]
-      : [x, axis === "preview" ? y : bottom - 16, x, top + 16];
+      ? [x + dx, y, x - dx, y]
+      : axis === "vertical"
+        ? [x, y + dy, x, y - dy]
+        : [x, y, x, top + 16];
   if (
     Math.hypot(
       coordinates[0] - coordinates[2],
@@ -173,30 +178,54 @@ async function checkTableSwipe(
   )
     throw Error(`No visible touch path across the ${axis} table`);
   const scale = window.devicePixelRatio;
-  let touched = false;
+  const requested = coordinates.map((value) => Math.round(value * scale)) as [
+    number,
+    number,
+    number,
+    number,
+  ];
+  const phases = [
+    "touchstart",
+    "touchmove",
+    "touchend",
+    "touchcancel",
+  ] as const;
+  const path: string[] = [];
+  let started = false;
+  let ended = false;
   const observe = (event: TouchEvent) => {
-    if (event.isTrusted) touched = true;
+    if (!event.isTrusted) return;
+    const touch = event.changedTouches[0];
+    path.push(`${event.type}(${touch?.clientX},${touch?.clientY})`);
+    if (event.type === "touchstart") started = true;
+    if (event.type === "touchend") ended = started;
   };
-  target.addEventListener("touchstart", observe, { passive: true });
+  for (const phase of phases)
+    target.addEventListener(phase, observe, { passive: true });
   try {
-    await swipe(
-      axis,
-      coordinates.map((value) => Math.round(value * scale)) as [
-        number,
-        number,
-        number,
-        number,
-      ],
-    );
+    await swipe(axis, requested);
     await waitFor(() => {
-      if (!touched || !moves())
+      if (!ended || !moves())
         throw Error(
-          `Table ${axis} touch: trusted=${touched}, offsets=${target.scrollLeft},${target.scrollTop}`,
+          `Table ${axis} touch: offsets=${target.scrollLeft},${target.scrollTop}, area=${target.clientWidth}×${target.clientHeight}/${target.scrollWidth}×${target.scrollHeight}, requested=${requested} at ${scale}x, path=${path.join(" ")}`,
         );
     });
   } finally {
-    target.removeEventListener("touchstart", observe);
+    for (const phase of phases) target.removeEventListener(phase, observe);
   }
+}
+
+async function checkTableAxes(table: HTMLElement, swipe: Swipe) {
+  if (table.scrollLeft !== 0 || table.scrollTop !== 0)
+    throw Error("A newly opened table did not start at its origin");
+  const movedRight = () => table.scrollLeft >= 15;
+  await checkTableSwipe(table, "horizontal", swipe, movedRight);
+  await checkTableSwipe(
+    table,
+    "vertical",
+    swipe,
+    () => movedRight() && table.scrollTop >= 15,
+  );
 }
 
 function FormattingWorkspace({ children }: { children: ReactNode }) {
@@ -279,10 +308,34 @@ async function checkMobileTable(
   }
   table.scrollIntoView({ block: "center" });
   button.focus({ preventScroll: true });
-  flushSync(() => fireEvent.click(button));
-  const dialog = within(document.body).getByRole("dialog", { name: "Table" });
+  const openTable = () => {
+    flushSync(() => fireEvent.click(button));
+    return within(document.body).getByRole("dialog", { name: "Table" });
+  };
+  async function closeTable(dialog: HTMLElement) {
+    const back = within(dialog).getByRole("button", { name: "Back" });
+    flushSync(() => fireEvent.click(back));
+    await waitFor(() => {
+      if (dialog.isConnected || document.activeElement !== button)
+        throw Error("The full screen did not restore its exact opener");
+    });
+  }
+  const scrollRegion = (dialog: HTMLElement) =>
+    within(dialog).getByRole("region", { name: "Table" });
+  if (physical) {
+    // ArrowRight can keep scrolling on the compositor after keyup and a
+    // scrollLeft reset. Give touch a newly mounted scroll area.
+    const keyboardDialog = openTable();
+    await checkArrowRight(
+      scrollRegion(keyboardDialog),
+      "full table",
+      pressRight,
+    );
+    await closeTable(keyboardDialog);
+  }
+  const dialog = openTable();
   const ui = within(dialog);
-  const full = ui.getByRole("region", { name: "Table" });
+  const full = scrollRegion(dialog);
   ui.getByText("Ada · # Formatting");
   const header = ui.getByRole("columnheader", { name: "Score" });
   const last = ui.getByRole("cell", { name: "Last cell" });
@@ -301,22 +354,8 @@ async function checkMobileTable(
     throw Error(
       `Full table: ${dimensions}, focus=${document.activeElement?.tagName}, rows=${ui.getAllByRole("row").length}, align=${getComputedStyle(header).textAlign}`,
     );
-  await checkArrowRight(full, "full table", pressRight);
-  if (physical) {
-    full.scrollLeft = 0;
-    await checkTableSwipe(
-      full,
-      "horizontal",
-      physical.swipe,
-      () => full.scrollLeft >= 15,
-    );
-    await checkTableSwipe(
-      full,
-      "vertical",
-      physical.swipe,
-      () => full.scrollTop >= 15,
-    );
-  }
+  if (physical) await checkTableAxes(full, physical.swipe);
+  else await checkArrowRight(full, "full table", pressRight);
   const range = document.createRange();
   range.selectNodeContents(last);
   const bounds = full.getBoundingClientRect();
@@ -339,26 +378,22 @@ async function checkMobileTable(
   )
     throw Error("Could not reach and select the last cell");
   selection.removeAllRanges();
-  flushSync(() => fireEvent.click(ui.getByRole("button", { name: "Back" })));
-  await waitFor(() => {
-    if (dialog.isConnected || document.activeElement !== button)
-      throw Error("The full screen did not restore its exact opener");
-  });
+  await closeTable(dialog);
   if (physical) {
     const origin = innerWidth;
     await physical.rotate("landscape");
-    try {
-      await waitFor(
-        () => {
-          if (innerWidth <= origin)
-            throw Error("Android did not rotate into landscape");
-          verifyPreview();
-        },
-        { timeout: 4000 },
-      );
-    } finally {
-      await physical.rotate("portrait");
-    }
+    await waitFor(
+      () => {
+        if (innerWidth < 820 || innerWidth <= origin)
+          throw Error("Android did not rotate to a tablet-width viewport");
+        verifyPreview();
+      },
+      { timeout: 4000 },
+    );
+    const landscape = openTable();
+    await checkTableAxes(scrollRegion(landscape), physical.swipe);
+    await closeTable(landscape);
+    await physical.rotate("portrait");
     await waitFor(
       () => {
         if (innerWidth !== origin)

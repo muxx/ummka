@@ -76,14 +76,44 @@ export async function launchWebview(
       );
     },
     async (orientation) => {
-      await adb(
-        "shell",
-        "cmd",
-        "window",
-        "user-rotation",
-        "lock",
-        orientation === "landscape" ? "1" : "0",
+      const target = orientation === "landscape" ? "1" : "0";
+      const log = () =>
+        adb(
+          "logcat",
+          "-d",
+          "-v",
+          "brief",
+          "-s",
+          "WindowManagerShell:V",
+          "WindowManager:V",
+        );
+      const requested = new RegExp(
+        `Transition requested \\(#(\\d+)\\):.*displayId = 0,.*endRotation = ${target},`,
+        "gu",
       );
+      const transition = (state: string) =>
+        [...state.matchAll(requested)].at(-1)?.[1];
+      const previous = transition(await log());
+      await adb("shell", "cmd", "window", "user-rotation", "lock", target);
+
+      // WebView resizes while Android is still transforming touch coordinates.
+      // Wait for WindowManager to finish the specific physical rotation.
+      const deadline = Date.now() + 5000;
+      for (;;) {
+        const state = await log();
+        const id = transition(state);
+        if (
+          id &&
+          id !== previous &&
+          state.includes(`Finish Transition (#${id}):`)
+        )
+          break;
+        assert(
+          Date.now() < deadline,
+          `Android did not finish rotating to ${orientation}`,
+        );
+        await delay(50);
+      }
     },
     async (step) => {
       if (step === "resume") {

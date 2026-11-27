@@ -86,6 +86,8 @@ export function webviewServers(
     "horizontal",
     "vertical",
     "landscape",
+    "horizontal",
+    "vertical",
     "portrait",
   ];
   let tableGesture = 0;
