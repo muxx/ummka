@@ -13,7 +13,7 @@ pub(crate) fn retention_marker(status: StatusCode, name: &str, value: &[u8]) -> 
         && value == b"1"
 }
 
-#[derive(Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PublicError {
     pub status_code: u16,
     #[serde(skip_serializing_if = "Option::is_none")]
