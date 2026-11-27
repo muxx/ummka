@@ -29,7 +29,7 @@ export async function checkNativeInstrumentation(
   }
 
   const stages = output.matchAll(
-    /^INSTRUMENTATION_STATUS: ummka_stage=(activity-idle|install-ca|native-setup|sqlite|transport)\r?$/gm,
+    /^INSTRUMENTATION_STATUS: ummka_stage=(activity-idle|install-ca|native-setup|sqlite|documents|transport)\r?$/gm,
   );
   const stage = Array.from(stages).at(-1)?.[1] ?? "not reported";
   let process = "unavailable";

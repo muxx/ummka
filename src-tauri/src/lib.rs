@@ -5,6 +5,8 @@ mod channels_links;
 #[cfg(all(feature = "webview-check", target_os = "macos"))]
 mod check_keyboard;
 pub mod credentials;
+#[cfg(any(target_os = "macos", target_os = "android"))]
+pub mod device_document;
 mod external_post_link;
 pub mod history;
 mod installation_url;
