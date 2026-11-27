@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -687,34 +688,42 @@ export function webviewServers(
         "Bearer fixture-prefixed-session",
       );
       assert.equal(req.headers.cookie, undefined);
+      let account: boolean;
       if (url.pathname.endsWith("/search")) {
         assert.equal(req.method, "POST");
         assert.equal(url.search, "");
-        assert.deepEqual(await json(req), {
-          term: "ан",
+        const body = await json(req);
+        assert.ok(body && typeof body === "object" && "term" in body);
+        account = body.term === "Анна";
+        assert.deepEqual(body, {
+          term: account ? "Анна" : "ан",
           team_id: teamId,
           allow_inactive: false,
-          limit: 12,
+          limit: account ? 100 : 12,
         });
-        visits.push("recipient-search");
+        visits.push(account ? "account-recipient-search" : "recipient-search");
       } else {
         assert.equal(req.method, "GET");
+        account = url.searchParams.get("page") === "2";
         assert.deepEqual(Object.fromEntries(url.searchParams), {
           in_team: teamId,
           active: "true",
-          page: "1",
-          per_page: "20",
+          page: account ? "2" : "1",
+          per_page: account ? "100" : "20",
         });
         assert.equal(await text(req), "");
-        visits.push("recipient-page");
+        visits.push(account ? "account-recipient-page" : "recipient-page");
       }
-      res
-        .writeHead(200, { "Content-Type": "application/json" })
-        .end(
-          JSON.stringify([
-            { id: userId, username: "anna", first_name: "Анна" },
-          ]),
-        );
+      res.writeHead(200, { "Content-Type": "application/json" }).end(
+        JSON.stringify([
+          {
+            id: account ? "a".repeat(26) : userId,
+            username: "anna",
+            first_name: "Анна",
+            delete_at: 0,
+          },
+        ]),
+      );
       return;
     }
     const collection = await collections(req, res, url);
@@ -990,16 +999,34 @@ export function webviewServers(
         "Bearer fixture-prefixed-session",
       );
       assert.equal(req.headers.cookie, undefined);
-      assert.deepEqual(
-        await json(req),
-        direct ? [userId] : ["x".repeat(26), "y".repeat(26)],
-      );
+      const ids = await json(req);
+      assert.ok(Array.isArray(ids));
+      const byAccount = ids[0] === userId && ids.length > 1;
+      const peers = ["x".repeat(26), "y".repeat(26)];
+      const members = direct
+        ? [userId, byAccount ? peers[0] : userId]
+        : [userId, ...peers];
+      assert.deepEqual(ids, byAccount ? members : direct ? [userId] : peers);
+      const event = direct
+        ? "open-self-conversation"
+        : "open-group-conversation";
       visits.push(
-        direct ? "open-self-conversation" : "open-group-conversation",
+        byAccount
+          ? direct
+            ? "account-direct-conversation"
+            : "account-group-conversation"
+          : event,
       );
+      const name = direct
+        ? [...members].sort().join("__")
+        : createHash("sha1")
+            .update([...members].sort().join(""))
+            .digest("hex");
       res.writeHead(201, { "Content-Type": "application/json" }).end(
         JSON.stringify({
           id: (direct ? "d" : "g").repeat(26),
+          delete_at: 0,
+          name,
           team_id: "",
           type: direct ? "D" : "G",
         }),
@@ -1903,6 +1930,8 @@ export function webviewServers(
         "known-remote-recipient",
         "unseen-remote-recipient",
         "recipient-hold",
+        "account-recipient-page",
+        "account-recipient-search",
         "recipient-page",
         "recipient-search",
         "profile-image",
@@ -1974,6 +2003,8 @@ export function webviewServers(
         "read-team-threads",
         "read-thread",
         "read-team-threads",
+        "account-direct-conversation",
+        "account-group-conversation",
         "open-self-conversation",
         "open-group-conversation",
         "follow-thread",
