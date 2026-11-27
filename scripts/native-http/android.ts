@@ -70,6 +70,7 @@ export async function checkAndroid(
   config: string,
   onAndroidInputReady: OnAndroidInputReady,
   lastNativeProbe: () => string,
+  webviewProgress: () => string,
 ) {
   const sdk = process.env.ANDROID_HOME;
   assert(sdk, "ANDROID_HOME is required");
@@ -314,6 +315,7 @@ export async function checkAndroid(
       component,
       onAndroidInputReady,
       webviewPorts[0],
+      webviewProgress,
     );
   } catch (error) {
     if (!(error instanceof NativeInstrumentationError))

@@ -45,6 +45,7 @@ try {
         config,
         fixture.onAndroidInputReady,
         fixture.lastNativeProbe,
+        fixture.webviewProgress,
       );
     else {
       if (!workspaceBackOnly) {
