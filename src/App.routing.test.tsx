@@ -549,6 +549,8 @@ test("restores the selected team, channel, messages and account actions without 
     ),
     subscribeToPostActivity: vi.fn(() => () => {}),
     subscribeToChannelHistory: vi.fn(() => () => {}),
+    subscribeToSavedPostState: vi.fn(() => () => {}),
+    getSavedPostPresentation: () => "loading",
     retireDeliveredPosts: vi.fn().mockResolvedValue(0),
     getOutgoingPostState: (post: PendingPost) =>
       outgoingRowState(post, false, false),

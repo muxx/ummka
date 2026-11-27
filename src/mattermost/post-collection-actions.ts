@@ -14,7 +14,7 @@ import {
   type SavedPostState,
 } from "./saved-post-state.ts";
 
-function refused(error: unknown) {
+export function isSavedPostWriteRefused(error: unknown) {
   if (error instanceof ResponseError) {
     const status = error.response.status;
     return status >= 400 && status < 500 && status !== 408;
@@ -73,7 +73,8 @@ export function accountCollectionActions(
               "Mattermost did not confirm the post collection change.",
             );
         } catch (error) {
-          if (sent && !refused(error)) state?.record(postId, undefined);
+          if (sent && !isSavedPostWriteRefused(error))
+            state?.record(postId, undefined);
           throw error;
         }
         state?.record(postId, desired);

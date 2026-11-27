@@ -191,6 +191,7 @@ export function fixture({
     getSavedPostPresentation: savedPosts.getPresentation,
     getSavedPostState: savedPosts.get,
     getSavedPostUpperBound: savedPosts.getUpperBound,
+    isSavedPostPending: savedPosts.isPending,
     subscribeToSavedPostState: savedPosts.subscribe,
     subscribeToChannelHistory: changes.subscribe,
     notifyChannelHistoryChanged: changes.notify,

@@ -37,14 +37,20 @@ function CollectionExcerpt({
   return <span className="collection-excerpt">{body || emptyLabel}</span>;
 }
 
-export function CollectionMark({ kind }: { kind: "all" | "pins" }) {
+export function CollectionMark({
+  kind,
+  filled = false,
+}: {
+  kind: "all" | "pins";
+  filled?: boolean;
+}) {
   return (
     <svg
       aria-hidden="true"
       width="18"
       height="18"
       viewBox="0 0 24 24"
-      fill="none"
+      fill={filled ? "currentColor" : "none"}
       stroke="currentColor"
       strokeWidth="1.7"
       strokeLinecap="round"

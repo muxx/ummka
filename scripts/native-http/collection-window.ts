@@ -114,14 +114,28 @@ export function collectionWindowFixture() {
         delete_at: 0,
       });
     } else if (path === "users/me/preferences") {
-      send(
-        raw.map((name) => ({
-          user_id: user,
-          category: "flagged_post",
-          name,
-          value: "true",
-        })),
-      );
+      if (req.method === "PUT") {
+        assert.deepEqual(await requestJson(req), [
+          {
+            user_id: user,
+            category: "flagged_post",
+            name: root,
+            value: "true",
+          },
+        ]);
+        assert(!raw.includes(root));
+        raw.unshift(root);
+        send({ status: "OK" }, "PUT");
+      } else {
+        send(
+          raw.map((name) => ({
+            user_id: user,
+            category: "flagged_post",
+            name,
+            value: "true",
+          })),
+        );
+      }
     } else if (path === "users/me/posts/flagged") {
       const offset = Number(url.searchParams.get("page"));
       assert.deepEqual(Object.fromEntries(url.searchParams), {

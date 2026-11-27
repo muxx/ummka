@@ -21,6 +21,7 @@ import type {
   DraftLocation,
 } from "../mattermost/native-rest.ts";
 import { outgoingRowState } from "../mattermost/outgoing-row-state.ts";
+import { createSavedPostState } from "../mattermost/saved-post-state.ts";
 import { projectTeamSidebar } from "../mattermost/team-sidebar.ts";
 import {
   sidebarPreferences,
@@ -110,6 +111,7 @@ function mount(
     type?: string;
     second?: boolean;
     draftRead?: Promise<void>;
+    savedReading?: boolean;
   } = {},
 ) {
   const data = projectTeamSidebar({
@@ -173,9 +175,24 @@ function mount(
     JSON.stringify([channelId, rootId]);
   let revision = 0;
   const changes = createChannelHistoryChanges();
+  const saved = createSavedPostState();
+  if (!options.savedReading)
+    saved.publish(saved.beginRead(), { ids: new Set(), upperBound: 0 });
+  const writeSavedPost = vi
+    .fn<Connection["setPostSaved"]>()
+    .mockResolvedValue(undefined);
   const connection = {
     subscribeToChannelHistory: changes.subscribe,
     notifyChannelHistoryChanged: changes.notify,
+    getSavedPostPresentation: saved.getPresentation,
+    getSavedPostState: saved.get,
+    isSavedPostPending: saved.isPending,
+    subscribeToSavedPostState: saved.subscribe,
+    setPostSaved: (id: string, on: boolean) =>
+      saved.runWrite(id, on, async () => {
+        await writeSavedPost(id, on);
+        saved.record(id, on);
+      }),
     readRecentTeamSearches: vi.fn(async () => []),
     rememberTeamSearch: vi.fn(async () => true),
     readSearchTimezone: vi.fn(async () => "UTC"),
@@ -297,6 +314,8 @@ function mount(
   );
   return {
     ...connection,
+    saved,
+    writeSavedPost,
     unmount: view.unmount,
     setOnline(next: boolean) {
       view.rerender(
@@ -1200,6 +1219,165 @@ async function rowActions(
   return within(row).getByRole("button", { name: "Message actions" });
 }
 
+async function savingMenu() {
+  return within(await screen.findByRole("dialog", { name: "Message actions" }));
+}
+
+function holdSave(account: ReturnType<typeof mount>) {
+  let finish!: () => void;
+  account.writeSavedPost.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  return finish;
+}
+
+test("the saved item keeps keyboard focus while the first account answer arrives", async () => {
+  const account = mount(true, true, { savedReading: true });
+  const opener = await rowActions(root.message);
+  fireEvent.click(opener);
+  const menu = await savingMenu();
+  const button = menu.getByRole("button", { name: "Save" });
+  button.focus();
+  expect(button.getAttribute("aria-disabled")).toBe("true");
+  expect(menu.getByText("Loading saved messages…")).toBeTruthy();
+  expect(fireEvent.keyDown(button, { key: "Enter" })).toBe(false);
+  act(() => {
+    account.saved.finishRead(
+      account.saved.beginRead(),
+      new ResponseError(new Response(null, { status: 403 })),
+    );
+  });
+  expect(
+    menu.getByText("The server refused to load saved messages."),
+  ).toBeTruthy();
+  act(() => {
+    account.saved.publish(account.saved.beginRead(), {
+      ids: new Set([root.id]),
+      upperBound: 1,
+    });
+  });
+  expect(menu.getByRole("button", { name: "Remove from Saved" })).toBe(button);
+  expect(button.hasAttribute("aria-disabled")).toBe(false);
+  expect(document.activeElement).toBe(button);
+  expect(menu.getByRole("status").textContent).toBe("Remove from Saved");
+  expect(fireEvent.keyDown(button, { key: "Enter", repeat: true })).toBe(false);
+  expect(account.writeSavedPost).not.toHaveBeenCalled();
+});
+
+test("saves a published reply with clipboard denied in a read-only thread, with one confirmed write", async () => {
+  vi.mocked(clipboardPolicy.observeClipboardAllowed).mockImplementation(
+    (report) => {
+      report(false);
+      return () => {};
+    },
+  );
+  const account = mount(true, true, { writable: false });
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Open thread, 1 reply/ }),
+  );
+  const thread = await screen.findByRole("complementary", { name: "Thread" });
+  const opener = await rowActions(reply.message, thread);
+  const wrote = holdSave(account);
+  fireEvent.click(opener);
+  let menu = await savingMenu();
+  expect(menu.queryByRole("button", { name: "Copy link" })).toBeNull();
+  fireEvent.click(menu.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(document.activeElement).toBe(opener));
+  fireEvent.click(opener);
+  menu = await savingMenu();
+  const pending = menu.getByRole("button", { name: "Saving…" });
+  expect(pending.getAttribute("aria-disabled")).toBe("true");
+  expect(pending.getAttribute("aria-busy")).toBe("true");
+  fireEvent.click(pending);
+  await act(async () => wrote());
+  expect(account.writeSavedPost).toHaveBeenCalledExactlyOnceWith(
+    reply.id,
+    true,
+  );
+  expect(account.getSavedPostState(root.id)).toBe(false);
+  expect(menu.getByRole("button", { name: "Remove from Saved" })).toBe(pending);
+  await screen.findByText("Saved. Only you can see your saved messages.");
+});
+
+test("a refusal keeps the saved state, an uncertain write waits for a read, and known offline does not send", async () => {
+  const account = mount(true);
+  const opener = await rowActions(root.message);
+  account.writeSavedPost.mockRejectedValueOnce(
+    new ResponseError(new Response(null, { status: 403 })),
+  );
+  fireEvent.click(opener);
+  fireEvent.click((await savingMenu()).getByRole("button", { name: "Save" }));
+  await screen.findByText(
+    "Couldn’t save the message. The server refused the request.",
+  );
+  expect(account.getSavedPostState(root.id)).toBe(false);
+  account.writeSavedPost.mockImplementationOnce(async () => {
+    account.saved.record(root.id, undefined);
+    throw Error("The response was lost.");
+  });
+  fireEvent.click(opener);
+  fireEvent.click((await savingMenu()).getByRole("button", { name: "Save" }));
+  await screen.findByText("Couldn’t confirm whether the message was saved.");
+  fireEvent.click(opener);
+  const menu = await savingMenu();
+  expect(
+    menu.getByText("Couldn’t confirm whether the message was saved."),
+  ).toBeTruthy();
+  expect(
+    menu.getByRole("button", { name: "Save" }).getAttribute("aria-disabled"),
+  ).toBe("true");
+  account.setOnline(false);
+  expect(
+    menu.getByText("Couldn’t confirm whether the message was saved."),
+  ).toBeTruthy();
+  act(() =>
+    account.saved.publish(account.saved.beginRead(), {
+      ids: new Set([root.id]),
+      upperBound: 1,
+    }),
+  );
+  fireEvent.click(menu.getByRole("button", { name: "Remove from Saved" }));
+  await screen.findByText("Couldn’t remove it from Saved. You’re offline.");
+  expect(account.writeSavedPost).toHaveBeenCalledTimes(2);
+  expect(account.getSavedPostState(root.id)).toBe(true);
+});
+
+test("a pending bookmark result belongs to its workspace after navigation and disappears with the old account", async () => {
+  const original = mount(true);
+  const draft = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Message #General…",
+  });
+  fireEvent.change(draft, { target: { value: "Keep my draft" } });
+  const first = holdSave(original);
+  fireEvent.click(await rowActions(root.message));
+  fireEvent.click((await savingMenu()).getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(original.writeSavedPost).toHaveBeenCalledOnce());
+  fireEvent.click(screen.getByRole("button", { name: "Design" }));
+  await screen.findByRole("textbox", { name: "Message #Design…" });
+  await act(async () => first());
+  await screen.findByText("Saved. Only you can see your saved messages.");
+  fireEvent.click(screen.getByRole("button", { name: "General" }));
+  expect(
+    (
+      await screen.findByRole<HTMLTextAreaElement>("textbox", {
+        name: "Message #General…",
+      })
+    ).value,
+  ).toBe("Keep my draft");
+  const second = holdSave(original);
+  fireEvent.click(await rowActions(root.message));
+  fireEvent.click(
+    (await savingMenu()).getByRole("button", { name: "Remove from Saved" }),
+  );
+  await waitFor(() => expect(original.writeSavedPost).toHaveBeenCalledTimes(2));
+  original.unmount();
+  mount(true);
+  await act(async () => second());
+  expect(screen.queryByText("Removed from Saved.")).toBeNull();
+});
+
 test.each([
   [true, root.message, root.id],
   [false, reply.message, root.id],
@@ -1243,7 +1421,7 @@ test.each([
     const actions = within(
       screen.getByRole("dialog", { name: "Message actions" }),
     );
-    expect(actions.getByRole("button", { name: "Copy link" })).toBe(
+    expect(actions.getByRole("button", { name: "Save" })).toBe(
       document.activeElement,
     );
     expect(actions.queryByRole("button", { name: /thread/i })).toBeNull();
@@ -1555,17 +1733,20 @@ test("a device policy change hides both copy actions while the channel thread ac
     fireEvent.click(open);
     const pane = await screen.findByRole("complementary", { name: "Thread" });
     expect(await within(pane).findByText(reply.message)).toBeTruthy();
+    fireEvent.click(await rowActions(reply.message, pane));
     expect(
-      within(pane).queryByRole("button", { name: "Message actions" }),
-    ).toBeNull();
+      (await savingMenu()).getByRole("button", { name: "Save" }),
+    ).toBeTruthy();
     expect(clipboardPolicy.readClipboardAllowed).not.toHaveBeenCalled();
     act(() => change(true));
-    fireEvent.click(await rowActions(reply.message, pane));
     expect(
       screen.getByRole("dialog", { name: "Message actions" }),
     ).toBeTruthy();
     act(() => change(false));
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(
+      screen.getByRole("dialog", { name: "Message actions" }),
+    ).toBeTruthy();
+    handleEscape();
     handleEscape();
     act(() => change(true));
     expect(await rowActions(root.message)).toBeTruthy();

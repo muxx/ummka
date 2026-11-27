@@ -315,7 +315,7 @@
 ) {
   background: var(--message-hover);
 }
-.timeline-post-actions {
+:is(.timeline-post-actions, .timeline-post-save) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -328,16 +328,35 @@
   background: transparent;
   cursor: pointer;
 }
-.timeline-open-thread + .timeline-post-actions {
+.timeline-open-thread + :is(.timeline-post-actions, .timeline-post-save),
+.timeline-post-save + .timeline-post-actions {
   margin-inline-start: 0;
 }
-.timeline-post-actions:is(
+:is(.timeline-post-actions, .timeline-post-save):is(
   :hover,
   :where([data-keyboard-navigation] :focus-visible),
   [aria-expanded="true"]
 ) {
   border-color: var(--divider);
   background: var(--row-hover);
+}
+.timeline-post-save {
+  inline-size: 27px;
+  block-size: 25px;
+}
+.timeline-post-save svg {
+  inline-size: 15px;
+  block-size: 15px;
+}
+.timeline-post:not(:hover, :focus-within) .timeline-post-save {
+  opacity: 0;
+}
+.timeline-post-save[aria-disabled="true"] {
+  cursor: default;
+}
+.timeline-post:is(:hover, :focus-within)
+  .timeline-post-save[aria-disabled="true"] {
+  opacity: 0.65;
 }
 @media (hover: hover) and (pointer: fine) {
   .timeline-post:not(:hover, :focus-within)
@@ -427,11 +446,42 @@
 .post-actions-options svg {
   color: var(--muted);
 }
+.post-actions-options button.post-actions-save {
+  min-block-size: 54px;
+}
+.post-actions-save svg {
+  flex: none;
+}
+.post-actions-save[aria-disabled="true"] {
+  color: var(--muted);
+  cursor: default;
+}
+.post-actions-save strong {
+  font-weight: 510;
+}
+.post-actions-save small {
+  display: block;
+  margin-block-start: 2px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  overflow-wrap: anywhere;
+}
+.post-action-announcement {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .post-actions-dialog {
   --focus-offset: -2px;
 }
 .post-actions-dialog
-  button:is(:hover, :where([data-keyboard-navigation] :focus-visible)) {
+  button:is(
+    :hover:not([aria-disabled="true"]),
+    :where([data-keyboard-navigation] :focus-visible)
+  ) {
   background: var(--row-hover);
 }
 .post-action-notice {
