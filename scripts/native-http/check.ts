@@ -35,6 +35,7 @@ try {
         config,
         fixture.onAndroidInputReady,
         fixture.lastNativeProbe,
+        fixture.webviewProgress,
       );
     else {
       const result = await promisify(execFile)(

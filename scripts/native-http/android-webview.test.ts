@@ -61,6 +61,35 @@ test("waits through an ordinary Chromium error and accepts the actual marker", a
   assert.equal(check.reads(), 2);
 });
 
+test("the fixed launch deadline reports the active browser step and fixture request", async (t) => {
+  let now = 1_000;
+  t.mock.method(Date, "now", () => now);
+  let checks = 0;
+  async function adb(...args: string[]) {
+    if (args[1] === "am") return "Status: ok";
+    if (args[1] === "pidof") return "125";
+    assert.equal(args[0], "logcat");
+    checks++;
+    now += 65_000;
+    return [
+      "RustStdoutStderr: UMMKA_WEBVIEW_STEP completed message-formatting",
+      "RustStdoutStderr: UMMKA_WEBVIEW_STEP started channel-refresh",
+    ].join("\n");
+  }
+  await assert.rejects(
+    launchWebview(
+      adb,
+      "fixture",
+      "fixture/Main",
+      "browser-checked",
+      undefined,
+      () => "control=31 release-history received",
+    ),
+    /timed out after 65000 ms; started channel-refresh; control=31 release-history received/u,
+  );
+  assert.equal(checks, 1);
+});
+
 test("Android injects the exact hardware key requested by the running document", async () => {
   const events: string[] = [];
   let logReads = 0;

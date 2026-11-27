@@ -297,7 +297,10 @@ pub(crate) fn seed_check_sessions(
     })
 }
 
-#[cfg(all(feature = "webview-check", target_os = "macos"))]
+#[cfg(all(
+    feature = "webview-check",
+    any(target_os = "android", target_os = "macos")
+))]
 #[tauri::command]
 pub(crate) fn trace_webview_check(step: &str, finished: bool) -> Result<(), &'static str> {
     if step.is_empty()

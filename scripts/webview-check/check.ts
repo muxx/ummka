@@ -11,7 +11,7 @@ import { checkChannelsFrame } from "./channels-frame.tsx";
 import { checkClipboardPolicy } from "./clipboard-policy.ts";
 import { checkEntryWindow } from "./entry-window.tsx";
 import { beginExchanges, finishExchangesAfterReload } from "./exchanges.ts";
-import { fixtureStep } from "./fixture-step.ts";
+import { androidFixtureStep, fixtureStep } from "./fixture-step.ts";
 import { checkGeneratedRequests } from "./generated.ts";
 import { checkNotificationSoundAssets } from "./notification-sounds.ts";
 import { checkPaletteSurfaces } from "./palette.ts";
@@ -86,17 +86,19 @@ async function checkResources() {
   await checkNotificationSoundAssets();
   // A fresh offline process resumes the saved registry before the first-run UI probes.
   if (await resumeRegistryCheck()) return;
-  await checkEntryWindow();
+  await androidFixtureStep("entry-window", checkEntryWindow);
   checkPaletteSurfaces();
   if (checkAppearance()) return;
   if (await finishExchangesAfterReload()) {
     if (findStandardEmoji("thumbsup")?.glyph !== "👍")
       throw Error("standard-emoji-directory");
-    await checkChannelsFrame();
-    await checkChannelTimeline();
-    await checkAttachmentWidth();
+    await androidFixtureStep("channels-frame", checkChannelsFrame);
+    await androidFixtureStep("channel-timeline", checkChannelTimeline);
+    await androidFixtureStep("attachment-width", checkAttachmentWidth);
     const ports = String(import.meta.env.VITE_UMMKA_CHECK_PORTS).split(",");
-    await checkClipboardPolicy(ports[1]);
+    await androidFixtureStep("clipboard-policy", () =>
+      checkClipboardPolicy(ports[1]),
+    );
     await checkGeneratedRequests(ports);
     const invalid = await fixtureStep("reject-relative-external-link", () =>
       openExternalPostLink("/relative").catch((reason: unknown) => reason),
@@ -108,7 +110,9 @@ async function checkResources() {
       await openExternalPostLink(
         "https://external.ummka.invalid/post/@bear?value=a%2Fb#anchor",
       );
-    await checkBrowserAction(ports[0], ports[1]);
+    await androidFixtureStep("browser-action", () =>
+      checkBrowserAction(ports[0], ports[1]),
+    );
     if (android) {
       await openExternalPostLink("mailto:probe@ummka.invalid");
       const missing = await openExternalPostLink(
