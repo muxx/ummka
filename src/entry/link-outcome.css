@@ -1,0 +1,62 @@
+.entry-link-outcome {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 8px 10px;
+  margin-block-end: 14px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--canvas));
+  border-radius: 12px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 12%, var(--canvas));
+  box-shadow: 0 1px 2px #06183924;
+}
+.entry-link-outcome > svg {
+  margin-block-start: 2px;
+  color: var(--accent);
+}
+.entry-link-outcome-copy {
+  display: grid;
+  gap: 3px;
+  overflow-wrap: anywhere;
+  font-size: 0.87rem;
+  line-height: 1.45;
+}
+.entry-link-outcome-copy strong {
+  font-weight: 680;
+}
+.entry-link-outcome-copy small {
+  font-size: 0.8rem;
+}
+.entry-link-outcome-close {
+  grid-column: 2;
+  justify-self: start;
+  min-height: 44px;
+  padding-inline: 12px;
+  border: 1px solid var(--field-border);
+  border-radius: 9px;
+  background: var(--canvas);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+.entry-link-outcome-close:hover {
+  background: var(--row-hover);
+}
+.entry-window[data-mobile] .entry-link-outcome {
+  margin: 0 12px 12px;
+}
+@media (max-height: 36rem) {
+  .entry-window[data-mobile] .entry-body:has(.entry-link-outcome) {
+    scroll-padding-block-end: 56px;
+  }
+  .entry-window[data-mobile]
+    .entry-pane:has(.entry-link-outcome)
+    .entry-form
+    .entry-primary {
+    position: sticky;
+    bottom: 0;
+  }
+}

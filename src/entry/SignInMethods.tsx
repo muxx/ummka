@@ -1,13 +1,16 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { isMobile } from "../build-platform";
+import { useWorkspaceBack } from "../channels/use-workspace-back";
 import {
   cancelBrowserSignIn,
   signInWithBrowser,
 } from "../mattermost/browser-sign-in";
 import type { inspectInstallation } from "../mattermost/inspect-installation";
+import { EntryLinkOutcome } from "./EntryLinkOutcome";
 import { EntryWindow } from "./EntryWindow";
 import { type EntryLanguage, entryText } from "./language";
 import { sessionText } from "./session-text";
+import type { EntryLinkResult } from "./use-system-permalink";
 
 type Profile = Awaited<ReturnType<typeof inspectInstallation>>;
 type Provider = Profile["ssoProviders"][number];
@@ -53,6 +56,7 @@ export function SignInMethods({
   profile,
   language,
   link,
+  linkResult,
   onOtherServer,
   returnFromPicker,
   onBack,
@@ -61,6 +65,7 @@ export function SignInMethods({
   profile: Profile;
   language: EntryLanguage;
   link?: SignInLink;
+  linkResult?: EntryLinkResult;
   onOtherServer?: () => void;
   returnFromPicker?: boolean;
   onBack: () => void;
@@ -79,6 +84,7 @@ export function SignInMethods({
   const operation = useRef<Attempt | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const buttons = useRef<HTMLUListElement>(null);
+  const cancelButton = useRef<HTMLButtonElement>(null);
   const otherServer = useRef<HTMLButtonElement>(null);
   const restoreOtherServer = useRef(returnFromPicker);
   const returnTo = useRef<Provider | null>(null);
@@ -88,10 +94,13 @@ export function SignInMethods({
   const [cancelledDelivery, setCancelledDelivery] = useState<string>();
   const delivery = link?.deliveryId;
   const previousDelivery = useRef(delivery);
+  const coldOutcome = useRef(linkResult !== undefined);
   const providerDescription = useId();
   useLayoutEffect(() => {
     const linked =
       delivery !== undefined || previousDelivery.current !== undefined;
+    const initial = coldOutcome.current;
+    coldOutcome.current = false;
     previousDelivery.current = delivery;
     if (restoreOtherServer.current) {
       restoreOtherServer.current = false;
@@ -102,12 +111,14 @@ export function SignInMethods({
     }
     const provider = returnTo.current;
     const button =
-      !waiting && (provider || linked) && (!linked || !isMobile)
+      !waiting &&
+      (linked || provider || initial) &&
+      (!isMobile || (!linked && !initial))
         ? buttons.current?.querySelector<HTMLButtonElement>(
             provider ? `button[data-provider="${provider}"]` : "button",
           )
         : null;
-    (button ?? heading.current)?.focus({ preventScroll: linked && isMobile });
+    (button ?? heading.current)?.focus({ preventScroll: isMobile && !button });
   }, [delivery, waiting]);
   useEffect(
     () => () => {
@@ -177,8 +188,28 @@ export function SignInMethods({
     if (operation.current && !operation.current.cancelling)
       void cancel(operation.current);
   }
+  useWorkspaceBack(false, waiting ? cancelCurrent : link ? null : onBack);
   return (
     <EntryWindow
+      notice={
+        linkResult && (
+          <EntryLinkOutcome
+            language={language}
+            result={linkResult}
+            server={{ url: profile.serverUrl, name: profile.siteName.trim() }}
+            onClose={() => {
+              const button = isMobile
+                ? null
+                : waiting
+                  ? cancelling
+                    ? null
+                    : cancelButton.current
+                  : buttons.current?.querySelector<HTMLButtonElement>("button");
+              (button ?? heading.current)?.focus({ preventScroll: isMobile });
+            }}
+          />
+        )
+      }
       back={
         waiting
           ? { label: labels.cancel, activate: cancelCurrent }
@@ -242,6 +273,7 @@ export function SignInMethods({
           <button
             type="button"
             className="entry-secondary"
+            ref={cancelButton}
             aria-disabled={cancelling}
             onClick={cancelCurrent}
           >
