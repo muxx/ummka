@@ -418,13 +418,22 @@ mod tests {
     }
 
     #[test]
-    fn attachment_content_routes_are_reserved_for_native_delivery() {
+    fn file_reads_and_uploads_are_reserved_for_native_transfer() {
         let base = "https://fixture.test/team/chat";
         let connection = RestConnection::new(base).unwrap();
-        let routes: Vec<Operation<'_>> =
+        #[derive(Deserialize)]
+        struct NativeRoute<'a> {
+            method: &'a str,
+            path: &'a str,
+        }
+        let routes: Vec<NativeRoute<'_>> =
             serde_json::from_str(include_str!("../../contracts/mattermost/native-files.json"))
                 .unwrap();
-        for route in routes {
+        let uploads: Vec<NativeRoute<'_>> = serde_json::from_str(include_str!(
+            "../../contracts/mattermost/native-uploads.json"
+        ))
+        .unwrap();
+        for route in routes.into_iter().chain(uploads) {
             let path = route.path.replace("{file_id}", &"f".repeat(26));
             let url = Url::parse(&format!("{base}{path}")).unwrap();
             let request = Request::new(route.method.parse().unwrap(), url);

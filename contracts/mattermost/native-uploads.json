@@ -1,0 +1,9 @@
+[
+  {
+    "file": "files.yaml",
+    "method": "POST",
+    "path": "/api/v4/files",
+    "id": "UploadFile",
+    "body": "multipart"
+  }
+]

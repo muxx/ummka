@@ -8,6 +8,9 @@ import nativeAuth from "../../contracts/mattermost/native-auth.json" with {
 import nativeFiles from "../../contracts/mattermost/native-files.json" with {
   type: "json",
 };
+import nativeUploads from "../../contracts/mattermost/native-uploads.json" with {
+  type: "json",
+};
 import catalog from "../../contracts/mattermost/operations.json" with {
   type: "json",
 };
@@ -33,6 +36,7 @@ import {
   correctFileModel,
   correctFileSearch,
 } from "./file-search-corrections.ts";
+import { correctFileUpload } from "./file-upload-contract.ts";
 import {
   checkChannelGroupMap,
   correctAssociatedGroup,
@@ -120,19 +124,19 @@ function checkRequestBody(
       throw new Error(`Unexpected request body on ${id}`);
     return;
   }
-  if (kind !== "json") throw new Error(`Unsupported catalog body on ${id}`);
+  if (kind !== "json" && kind !== "multipart")
+    throw new Error(`Unsupported catalog body on ${id}`);
+  const mediaType =
+    kind === "json" ? "application/json" : "multipart/form-data";
   const body = object(operation.requestBody, `${id} requestBody`);
   const content = object(body.content, `${id} requestBody.content`);
   if (
     body.required !== true ||
     Object.keys(content).length !== 1 ||
-    !Object.hasOwn(content, "application/json")
+    !Object.hasOwn(content, mediaType)
   )
-    throw new Error(`Expected a required application/json body on ${id}`);
-  object(
-    object(content["application/json"], id).schema,
-    `${id} request body schema`,
-  );
+    throw new Error(`Expected a required ${mediaType} body on ${id}`);
+  object(object(content[mediaType], id).schema, `${id} request body schema`);
 }
 
 export function buildSpecification(
@@ -143,7 +147,7 @@ export function buildSpecification(
     method: string;
     id: string;
     body?: string;
-  }> = [...catalog, ...nativeFiles],
+  }> = [...catalog, ...nativeFiles, ...nativeUploads],
 ) {
   const introduction = read("introduction.yaml");
   const definitions = read("definitions.yaml");
@@ -363,7 +367,12 @@ export function buildSpecification(
       };
       if (!success || !isDeepStrictEqual(operation, newer))
         throw new Error("Unrecognized channel bookmark list contract");
-    } else if (nativeFiles.some((file) => file.id === id))
+    } else if (id === "UploadFile")
+      operation = correctFileUpload(
+        originalOperation,
+        read("files-12.1.0.yaml"),
+      );
+    else if (nativeFiles.some((file) => file.id === id))
       operation = correctFileContent(
         originalOperation,
         read("files-12.1.0.yaml"),

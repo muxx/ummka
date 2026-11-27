@@ -52,6 +52,7 @@ export * from './SystemStatusResponse.js';
 export * from './Team.js';
 export * from './TeamMember.js';
 export * from './Timezone.js';
+export * from './UploadFile201Response.js';
 export * from './User.js';
 export * from './UserNotifyProps.js';
 export * from './UserThread.js';
