@@ -63,9 +63,8 @@
   user-select: none;
   -webkit-tap-highlight-color: transparent;
 }
-.post-table-open:focus-visible {
-  outline: 2px solid var(--keyboard-focus);
-  outline-offset: -2px;
+.post-table-open:focus {
+  --focus-offset: -2px;
 }
 .post-table-open svg {
   box-sizing: border-box;
