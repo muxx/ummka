@@ -8,6 +8,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ResponseError } from "../../vendor/mattermost/index.js";
 import { isAndroid } from "../build-platform.ts";
@@ -1264,6 +1265,31 @@ test("the saved item keeps keyboard focus while the first account answer arrives
   expect(menu.getByRole("status").textContent).toBe("Remove from Saved");
   expect(fireEvent.keyDown(button, { key: "Enter", repeat: true })).toBe(false);
   expect(account.writeSavedPost).not.toHaveBeenCalled();
+});
+
+test("holding Enter on Save leaves the restored menu opener idle until release", async () => {
+  const account = mount(true);
+  const settle = holdSave(account);
+  const opener = await rowActions(root.message);
+  fireEvent.click(opener);
+  (await savingMenu()).getByRole("button", { name: "Save" }).focus();
+
+  const keyboardState = await userEvent.keyboard("{Enter>3}");
+  expect(document.activeElement).toBe(opener);
+  expect(screen.queryByRole("dialog", { name: "Message actions" })).toBeNull();
+  expect(screen.queryByRole("complementary", { name: "Thread" })).toBeNull();
+  expect(account.writeSavedPost).toHaveBeenCalledExactlyOnceWith(root.id, true);
+
+  await userEvent.keyboard("{/Enter}{Enter>2/}", { keyboardState });
+  const menu = await savingMenu();
+  expect(menu.getByRole("button", { name: "Saving…" })).toBeTruthy();
+  expect(screen.queryByRole("complementary", { name: "Thread" })).toBeNull();
+  await act(async () => settle());
+  menu.getByRole("button", { name: "Remove from Saved" }).focus();
+  await userEvent.keyboard("[Space]", { keyboardState });
+  await screen.findByText("Removed from Saved.");
+  expect(account.writeSavedPost).toHaveBeenCalledTimes(2);
+  expect(account.writeSavedPost).toHaveBeenLastCalledWith(root.id, false);
 });
 
 test("saves a published reply with clipboard denied in a read-only thread, with one confirmed write", async () => {

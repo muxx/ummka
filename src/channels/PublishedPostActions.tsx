@@ -1,5 +1,6 @@
 import {
   type ContextType,
+  type KeyboardEvent,
   type ReactNode,
   type Ref,
   useContext,
@@ -24,6 +25,18 @@ type PublishedActions = {
   avatar: ReactNode;
   openThread?: () => void;
 };
+
+function guardButtonActivation(
+  event: KeyboardEvent<HTMLElement>,
+  disabled = false,
+) {
+  // Held Enter can follow focus between the dialog and its opener.
+  if (
+    (event.repeat || disabled) &&
+    (event.key === "Enter" || event.key === " ")
+  )
+    event.preventDefault();
+}
 
 export function PublishedPostActions(props: PublishedActions) {
   const scope = useContext(PostActionScope);
@@ -73,6 +86,7 @@ function AvailableActions({
         aria-expanded={Boolean(anchor)}
         aria-label={scope.text.actions}
         title={scope.text.actions}
+        onKeyDown={guardButtonActivation}
         onClick={(e) => {
           e.currentTarget.focus({ preventScroll: true });
           scope.open(e.currentTarget);
@@ -160,13 +174,7 @@ function SaveButton({
       aria-describedby={menu && detail ? hint : undefined}
       aria-description={menu ? undefined : detail}
       title={menu ? undefined : (detail ?? label)}
-      onKeyDown={(event) => {
-        if (
-          (event.key === "Enter" || event.key === " ") &&
-          (disabled || event.repeat)
-        )
-          event.preventDefault();
-      }}
+      onKeyDown={(event) => guardButtonActivation(event, disabled)}
       onClick={(event) => {
         if (!disabled) onChange(event.currentTarget);
       }}
@@ -316,6 +324,7 @@ function ActionDialog({
       id={`${anchor.id}-menu`}
       className="post-actions-dialog"
       aria-labelledby={title}
+      onKeyDown={guardButtonActivation}
       onCancel={(event) => {
         event.preventDefault();
         dismiss();
