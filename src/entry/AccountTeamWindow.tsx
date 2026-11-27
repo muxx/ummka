@@ -36,6 +36,7 @@ import { resumeChannelsLink } from "../mattermost/route-channels-link";
 import type { SystemPostRequest } from "./use-system-permalink";
 
 type Connection = Awaited<ReturnType<typeof openAccountRestConnection>>;
+type SessionCleanup = { confirmed: boolean; cause: unknown };
 export type TeamWorkspace = {
   serverUrl: string;
   userId: string;
@@ -49,6 +50,12 @@ export type TeamWorkspace = {
   policy: ReturnType<typeof useAccountPolicy>;
   online: boolean;
   sessionIssue: (issue: "session" | "unauthorized") => void;
+  exit: {
+    cleanup: SessionCleanup | null;
+    run: (
+      mode: "server" | "device",
+    ) => Promise<"unconfirmed" | "cleanup" | undefined>;
+  };
 };
 type Props = {
   serverUrl: string;
@@ -96,6 +103,8 @@ function AccountWindow({
   const [choosing, setChoosing] = useState(false);
   const [needsTeam, setNeedsTeam] = useState<SystemPostRequest | null>(null);
   const connection = useRef<Connection | null>(null);
+  const exiting = useRef<"working" | "cleanup" | null>(null);
+  const [cleanup, setCleanup] = useState<SessionCleanup | null>(null);
   const online = useDeviceOnline();
   const policy = useAccountPolicy(
     directory ? connection.current : null,
@@ -180,7 +189,7 @@ function AccountWindow({
     let invalidated = false;
     let refreshVersion = 0;
     invalidation.current = (issue) => {
-      if (signal.aborted || invalidated || !acquired) return;
+      if (signal.aborted || invalidated || !acquired || exiting.current) return;
       invalidated = true;
       withdraw();
       if (issue === "unauthorized") void removeRejectedSession(acquired);
@@ -208,10 +217,13 @@ function AccountWindow({
       await refresh();
     }
     async function refresh() {
-      if (!acquired || signal.aborted || invalidated) return;
+      if (!acquired || signal.aborted || invalidated || exiting.current) return;
       const version = ++refreshVersion;
       const active = () =>
-        !signal.aborted && !invalidated && version === refreshVersion;
+        !signal.aborted &&
+        !invalidated &&
+        !exiting.current &&
+        version === refreshVersion;
       if (!navigator.onLine) {
         setNotice(initial ? "offline" : "noCache");
         return;
@@ -220,7 +232,7 @@ function AccountWindow({
         await acquired.refreshJoinedTeams(signal);
       } catch (error) {
         const problem = directoryProblem(error);
-        if (signal.aborted || invalidated) return;
+        if (signal.aborted || invalidated || exiting.current) return;
         if (problem === "session") {
           withdraw();
           ended();
@@ -266,6 +278,40 @@ function AccountWindow({
       if (acquired) void acquired.close().catch(() => {});
     };
   }, [serverUrl, userId, read]);
+
+  async function runExit(
+    mode: "server" | "device",
+  ): Promise<"unconfirmed" | "cleanup" | undefined> {
+    const current = connection.current;
+    if (!current || exiting.current === "working") return;
+    if (mode === "server" && exiting.current === "cleanup") return "cleanup";
+    // Logout may revoke the credential before cleanup completes. Keep this
+    // connection as the owner of cleanup even if a concurrent read sees a 401.
+    exiting.current = "working";
+    try {
+      if (mode === "device") {
+        await current.signOutOnDevice();
+      } else {
+        const result = await current.signOut();
+        if (connection.current !== current) return;
+        if (result.status === "unconfirmed") return "unconfirmed";
+        if (result.status === "server_confirmed_local_removal_failed") {
+          exiting.current = "cleanup";
+          setCleanup({ confirmed: true, cause: result.cause });
+          return "cleanup";
+        }
+      }
+      if (connection.current === current) onSessionEnded();
+    } catch (cause) {
+      if (connection.current !== current) return;
+      if (mode === "server") throw cause;
+      exiting.current = "cleanup";
+      setCleanup({ confirmed: cleanup?.confirmed ?? false, cause });
+      return "cleanup";
+    } finally {
+      if (exiting.current === "working") exiting.current = null;
+    }
+  }
 
   async function choose(
     team: JoinedTeam,
@@ -399,6 +445,7 @@ function AccountWindow({
           online,
           policy,
           sessionIssue,
+          exit: { cleanup, run: runExit },
           directoryNotice: notice,
           directoryCode,
           chooseAnotherTeam: () => {
