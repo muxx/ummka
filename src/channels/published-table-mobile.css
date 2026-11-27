@@ -1,0 +1,137 @@
+.post-table.post-table-preview {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  --expand-size: 31px;
+  --expand-inset: 2px;
+  grid-template-columns: minmax(0, 1fr);
+  inline-size: fit-content;
+  overflow: clip;
+}
+.post-table-preview-grid {
+  max-block-size: 300px;
+  overflow: clip;
+}
+
+/* Keep the expansion icon clear of the text inside the corner cell. */
+.post-table-preview-grid tbody tr:last-child > :last-child,
+.post-table-preview-grid table:not(:has(tbody > tr)) thead th:last-child {
+  box-sizing: border-box;
+  block-size: calc(var(--expand-size) + 2 * var(--expand-inset));
+  padding-inline-end: calc(7px + var(--expand-size) + var(--expand-inset));
+}
+.post-table-preview-grid table:not(:has(tbody > tr)) thead th:last-child {
+  block-size: 44px;
+}
+
+.post-table-preview::before,
+.post-table-preview::after {
+  position: absolute;
+  pointer-events: none;
+}
+.post-table-preview[data-more-columns]::before {
+  content: "";
+  inset-block: 0;
+  inset-inline-end: 0;
+  inline-size: 28px;
+  background: linear-gradient(to right, transparent, var(--canvas));
+}
+.post-table-preview[data-more-columns]:dir(rtl)::before {
+  background: linear-gradient(to left, transparent, var(--canvas));
+}
+.post-table-preview[data-more-rows]::after {
+  content: "";
+  inset-block-end: 0;
+  inset-inline: 0;
+  block-size: 32px;
+  background: linear-gradient(to bottom, transparent, var(--canvas));
+}
+.post-table-open {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  display: flex;
+  align-items: end;
+  justify-content: end;
+  box-sizing: border-box;
+  inline-size: 100%;
+  padding: var(--expand-inset);
+  border: 0;
+  color: var(--text);
+  background: transparent;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.post-table-open:focus-visible {
+  outline: 2px solid var(--keyboard-focus);
+  outline-offset: -2px;
+}
+.post-table-open svg {
+  box-sizing: border-box;
+  inline-size: var(--expand-size);
+  block-size: var(--expand-size);
+  padding: 7px;
+}
+
+.post-table-screen {
+  position: fixed;
+  inset: 0;
+  box-sizing: border-box;
+  inline-size: 100%;
+  block-size: 100%;
+  max-inline-size: none;
+  max-block-size: none;
+  margin: 0;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+  border: 0;
+  overflow: hidden;
+  background: var(--canvas);
+  color: var(--text);
+}
+.post-table-screen[open] {
+  display: flex;
+  flex-direction: column;
+}
+.post-table-screen-bar {
+  padding-inline: 6px 12px;
+  user-select: none;
+}
+.post-table-screen-origin {
+  flex: none;
+  margin: 8px 16px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+.post-table-screen .post-table-screen-content {
+  flex: 0 1 auto;
+  align-self: start;
+  inline-size: fit-content;
+  max-inline-size: calc(100% - 24px);
+  min-block-size: 0;
+  margin: 0 12px 12px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+/* The Android full-table screen starts restricted until the device responds. */
+.post-table-screen .post-table-screen-content:not([data-selection-allowed]) {
+  user-select: none;
+}
+.post-table-screen .post-table-screen-content table {
+  font-size: 0.85rem;
+  line-height: normal;
+}
+.post-table-screen .post-table-screen-content :is(th, td) {
+  box-sizing: border-box;
+  min-inline-size: 96px;
+  max-inline-size: 16rem;
+  padding: 6px 10px;
+  overflow-wrap: break-word;
+}
+.post-table-screen .post-table-screen-content th {
+  position: sticky;
+  inset-block-start: 0;
+  box-shadow: inset 0 -1px var(--divider);
+}

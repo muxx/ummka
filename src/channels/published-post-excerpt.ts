@@ -39,6 +39,14 @@ export function publishedPostExcerpt(document: readonly Block[]): string {
       case "literal":
         parts.push(block.text);
         break;
+      case "table":
+        for (const row of [block.header, ...block.rows]) {
+          for (const cell of row) {
+            cell.forEach(readInline);
+            parts.push(" ");
+          }
+        }
+        break;
       case "list":
         for (const item of block.items) item.blocks.forEach(readBlock);
         break;

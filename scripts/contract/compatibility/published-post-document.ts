@@ -11,7 +11,9 @@ export async function checkPublishedPostDocument(
   version: string,
 ) {
   const imageUrl = "https://example.test/image";
-  const message = `# Release notes\n\n> **Ready** &amp; tested\n\n- [x] Read the [notes](https://example.test/notes)\n\nCost &#128; ![**price** \\&copy;](${imageUrl})`;
+  const table =
+    "| Name | Score |\n| :--- | ---: |\n| [**Aurora**](https://example.test/aurora) | 17 | surplus |";
+  const message = `# Release notes\n\n> **Ready** &amp; tested\n\n- [x] Read the [notes](https://example.test/notes)\n\nCost &#128; ![**price** \\&copy;](${imageUrl})\n\n${table}`;
   const created = await account.createPost({
     createPostRequest: { channelId, message },
   });
@@ -81,10 +83,36 @@ export async function checkPublishedPostDocument(
         },
       ],
     },
+    {
+      kind: "table",
+      align: ["left", "right"],
+      header: [
+        [{ kind: "text", text: "Name" }],
+        [{ kind: "text", text: "Score" }],
+      ],
+      rows: [
+        [
+          [
+            {
+              kind: "linkLabel",
+              target: { kind: "web", href: "https://example.test/aurora" },
+              children: [
+                {
+                  kind: "strong",
+                  children: [{ kind: "text", text: "Aurora" }],
+                },
+              ],
+            },
+          ],
+          [{ kind: "text", text: "17" }],
+          [{ kind: "text", text: "surplus" }],
+        ],
+      ],
+    },
   ]);
   assert.equal(
     publishedPostExcerpt(document),
-    "Release notes Ready & tested Read the notes Cost € price &copy;",
+    "Release notes Ready & tested Read the notes Cost € price &copy; Name Score Aurora 17 surplus",
   );
   console.log(
     `Mattermost ${version} returned the published Markdown post in channel history and preserved its document structure.`,

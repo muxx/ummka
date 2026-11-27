@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { isAndroid } from "../../src/build-platform.ts";
 import { composerPostMentions } from "../../src/channels/composer-mentions.ts";
 import { resolveComposerSubmission } from "../../src/channels/composer-submission.ts";
 import { readGroupMentionAudience } from "../../src/channels/group-mention-audience.ts";
@@ -163,8 +164,20 @@ export async function checkGeneratedRequests(ports: string[]) {
       "format-times",
       encodeURIComponent(
         JSON.stringify(
-          await checkChannelFormatting((width) =>
-            observed("format-right", String(width)),
+          await checkChannelFormatting(
+            (kind, width) => observed("format-right", `${kind}-${width}`),
+            isAndroid
+              ? {
+                  swipe: (axis, coordinates) =>
+                    observed("table-swipe", [axis, ...coordinates].join(",")),
+                  rotate: (orientation) =>
+                    observed("table-rotation", orientation),
+                  longPress: (x, y) =>
+                    observed("table-selection", `press,${x},${y}`),
+                  allowSelection: (allowed) =>
+                    observed("table-selection", allowed ? "allow" : "deny"),
+                }
+              : undefined,
           ),
         ),
       ),

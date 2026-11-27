@@ -148,7 +148,7 @@ test("preserves reference destinations, image descriptions and the author’s au
   ]);
 });
 
-test("renders HTML and the version-sensitive table as literal source, preserving neighboring prose", () => {
+test("keeps HTML literal and preserves an escaped pipe and neighboring prose", () => {
   const table = "|a|b|\n|-|-|\n|x|y\\| |\n\n";
   const source =
     'Inline <small title="a &amp; b">name</small>\n\n<div class="note">&amp;</div>\n\n' +
@@ -157,7 +157,12 @@ test("renders HTML and the version-sensitive table as literal source, preserving
   expect(doc(source)).toEqual([
     paragraph(text('Inline <small title="a &amp; b">name</small>')),
     { kind: "literal", text: '<div class="note">&amp;</div>' },
-    { kind: "literal", text: table.trimEnd() },
+    {
+      kind: "table",
+      align: [null, null],
+      header: [[text("a")], [text("b")]],
+      rows: [[[text("x")], [text("y|")]]],
+    },
     paragraph(text("After")),
   ]);
 });
@@ -274,5 +279,92 @@ test("a linked image, even inside emphasis, has only the outer destination", () 
         },
       ],
     }),
+  ]);
+});
+
+test("preserves extra and short rows, empty cells, inline content and optional alignment", () => {
+  const source = [
+    "| Name | Result | Score |",
+    "| :--- | :---: | ---: |",
+    "| [*Aurora*](https://example.test) | | `17` | extra **value** |",
+    "| short |",
+    "| literal <small>text</small> | escaped \\| here | ![polar](https://example.test/p) |",
+  ].join("\n");
+  expect(doc(source)).toEqual([
+    {
+      kind: "table",
+      align: ["left", "center", "right"],
+      header: [[text("Name")], [text("Result")], [text("Score")]],
+      rows: [
+        [
+          [
+            {
+              kind: "linkLabel",
+              target: { kind: "web", href: "https://example.test/" },
+              children: [{ kind: "emphasis", children: [text("Aurora")] }],
+            },
+          ],
+          [],
+          [{ kind: "code", text: "17" }],
+          [text("extra "), { kind: "strong", children: [text("value")] }],
+        ],
+        [[text("short")]],
+        [
+          [text("literal <small>text</small>")],
+          [text("escaped | here")],
+          [
+            {
+              kind: "imageDescription",
+              text: "polar",
+              target: { kind: "web", href: "https://example.test/p" },
+            },
+          ],
+        ],
+      ],
+    },
+  ]);
+});
+
+test("keeps authored headings when the delimiter row is shorter, and accepts an empty body", () => {
+  expect(doc("| a | b |\n| :- |\n| x | y |")).toEqual([
+    {
+      kind: "table",
+      align: ["left"],
+      header: [[text("a")], [text("b")]],
+      rows: [[[text("x")], [text("y")]]],
+    },
+  ]);
+  expect(doc("| a |\n| - |")).toEqual([
+    { kind: "table", align: [null], header: [[text("a")]], rows: [] },
+  ]);
+  expect(doc("Title\n---")[0]).toMatchObject({ kind: "heading", level: 2 });
+  expect(doc("~~~\n| a | b |\n| - | - |\n~~~")[0]).toMatchObject({
+    kind: "codeBlock",
+  });
+});
+
+test("distinguishes escaped and structural pipes in a long row without changing following prose", () => {
+  const long = "x".repeat(15_000);
+  const source = [
+    "| Name | Version |",
+    "| :- | -: |",
+    "| Service\\\\| `1\\|2` | " + long + " \\||",
+    "",
+    "After",
+  ].join("\n");
+  expect(doc(source)).toEqual([
+    {
+      kind: "table",
+      align: ["left", "right"],
+      header: [[text("Name")], [text("Version")]],
+      rows: [
+        [
+          [text("Service\\")],
+          [{ kind: "code", text: "1|2" }],
+          [text(`${long} |`)],
+        ],
+      ],
+    },
+    paragraph(text("After")),
   ]);
 });

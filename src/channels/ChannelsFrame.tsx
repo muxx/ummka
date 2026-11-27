@@ -48,7 +48,7 @@ type FrameProps = {
   };
 };
 
-function Chevron({ direction }: { direction: "back" | "down" }) {
+export function Chevron({ direction }: { direction: "back" | "down" }) {
   return (
     <svg
       width="18"

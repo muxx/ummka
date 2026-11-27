@@ -8,7 +8,11 @@ import { test } from "node:test";
 import { promisify } from "node:util";
 import { waitForAndroidBoot } from "./android.ts";
 import { checkNativeInstrumentation } from "./android-instrumentation.ts";
-import { launchWebview, type SendAndroidKey } from "./android-webview.ts";
+import {
+  launchWebview,
+  type RotateAndroid,
+  type SendAndroidKey,
+} from "./android-webview.ts";
 import { startFixture } from "./fixture.ts";
 
 function fixture(logs: string[]) {
@@ -109,6 +113,52 @@ test("Android injects the exact hardware key requested by the running document",
   ]);
 });
 
+test("rotation waits for WindowManager to finish the requested transition", async () => {
+  let rotate!: RotateAndroid;
+  let reads = 0;
+  const requested = (id: number) =>
+    `Transition requested (#${id}): DisplayChange { displayId = 0, startRotation = 0, endRotation = 1, physicalDisplayChanged = false }`;
+  const old = `${requested(4)}\nFinish Transition (#4):`;
+  const states = [
+    old,
+    `${old}\n${requested(5)}\nFinish Transition (#6):`,
+    `${requested(5)}\nFinish Transition (#5):`,
+  ];
+  async function adb(...args: string[]) {
+    if (args[1] === "am") return "Status: ok";
+    if (args[1] === "pidof") return "125";
+    if (args[0] === "shell") {
+      assert.deepEqual(args, [
+        "shell",
+        "cmd",
+        "window",
+        "user-rotation",
+        "lock",
+        "1",
+      ]);
+      assert.equal(reads, 1);
+      return "";
+    }
+    if (args.includes("--pid=125")) {
+      await rotate("landscape");
+      assert.equal(reads, states.length);
+      return "UMMKA_WEBVIEW_CHECK browser-checked";
+    }
+    assert.equal(args[0], "logcat");
+    assert.ok(reads < states.length);
+    return states[reads++];
+  }
+  await launchWebview(
+    adb,
+    "app",
+    "app/.MainActivity",
+    "browser-checked",
+    (_, __, rotateDisplay) => {
+      rotate = rotateDisplay;
+    },
+  );
+});
+
 test("the new document receives its control response only after the keyboard event is delivered", async () => {
   const dir = await mkdtemp(join(tmpdir(), "ummka-keyboard-"));
   try {
@@ -159,6 +209,12 @@ test("the new document receives its control response only after the keyboard eve
         keys++;
         entered();
         await delivery;
+      },
+      async () => {
+        assert.fail("The reload check does not swipe");
+      },
+      async () => {
+        assert.fail("The reload check does not rotate");
       },
       async () => {
         throw Error("unexpected clipboard policy request");

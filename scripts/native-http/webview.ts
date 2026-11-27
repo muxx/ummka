@@ -11,7 +11,9 @@ import { respondToAccount } from "./account.ts";
 import {
   type ClipboardPolicyStep,
   clipboardPolicySteps,
+  type RotateAndroid,
   type SendAndroidKey,
+  type SwipeAndroid,
 } from "./android-webview.ts";
 import { respondToChannelMembers } from "./channel-members.ts";
 import { respondToChannelView } from "./channel-view.ts";
@@ -75,7 +77,23 @@ export function webviewServers(
   let formattingTimes:
     | { width: number; first: number; unchanged: number }[]
     | undefined;
-  const formatKeyWidths: number[] = [];
+  const formatKeyCases = ["code-320", "table-320", "code-820", "table-820"];
+  const formatKeys: string[] = [];
+  let swipeAndroid: SwipeAndroid | undefined;
+  let rotateAndroid: RotateAndroid | undefined;
+  const tableGestures = [
+    "preview",
+    "horizontal",
+    "vertical",
+    "landscape",
+    "horizontal",
+    "vertical",
+    "portrait",
+  ];
+  let tableGesture = 0;
+  let tableBack = false;
+  const selectionSteps = ["press", "deny", "press", "allow", "press"];
+  let selectionStep = 0;
   let controlProgress = "not started";
   let onMacStep: ((stage: string) => void) | undefined;
   let controlRequests = 0;
@@ -1498,6 +1516,10 @@ export function webviewServers(
         backSteps.some((label) => step === `back-${label}`) ||
         [
           "format-right",
+          "table-swipe",
+          "table-rotation",
+          "table-back",
+          "table-selection",
           "format-times",
           "received",
           "closed",
@@ -1508,7 +1530,9 @@ export function webviewServers(
         ].includes(step));
     const name = url.searchParams.get("case") ?? "";
     const marker =
-      (step === "received" || step === "closed") && held.has(name)
+      ((step === "received" || step === "closed") && held.has(name)) ||
+      step === "format-right" ||
+      step === "table-selection"
         ? `${step}(${name})`
         : knownStep
           ? step
@@ -1558,6 +1582,10 @@ export function webviewServers(
       );
       visits.push(marker);
       if (!(await press(pressWorkspaceBack))) return;
+    } else if (step === "table-back") {
+      assert(swipeAndroid && pressWorkspaceBack && !tableBack);
+      if (!(await press(pressWorkspaceBack))) return;
+      tableBack = true;
     } else if (step?.startsWith("back-")) {
       assert.equal(step, "back-" + backSteps[stepIndex]);
       assert(
@@ -1568,15 +1596,55 @@ export function webviewServers(
       stepIndex++;
     } else if (step === "format-right") {
       assert(sendRight, "Missing native keyboard driver");
-      const width = Number(url.searchParams.get("case"));
-      assert.equal(width, [320, 820][formatKeyWidths.length]);
-      formatKeyWidths.push(width);
-      console.log(
-        `Sending native ArrowRight to the ${width}px formatting fixture.`,
-      );
+      const target = url.searchParams.get("case");
+      assert.equal(target, formatKeyCases[formatKeys.length]);
+      formatKeys.push(target);
+      console.log(`Sending native ArrowRight to ${target}.`);
       if (!(await press(sendRight))) return;
+    } else if (step === "table-swipe") {
+      const swipe = swipeAndroid;
+      assert(swipe);
+      const match =
+        /^(preview|horizontal|vertical),([1-9]\d{0,3}),([1-9]\d{0,3}),([1-9]\d{0,3}),([1-9]\d{0,3})$/u.exec(
+          name,
+        );
+      assert(match);
+      const [, axis, x1, y1, x2, y2] = match;
+      assert.equal(axis, tableGestures[tableGesture++]);
+      if (
+        !(await press(() =>
+          swipe(Number(x1), Number(y1), Number(x2), Number(y2)),
+        ))
+      )
+        return;
+    } else if (step === "table-selection") {
+      const swipe = swipeAndroid;
+      const setPolicy = clipboard;
+      assert(swipe && setPolicy);
+      const [action] = name.split(",");
+      assert.equal(action, selectionSteps[selectionStep]);
+      if (action === "press") {
+        const point = /^press,([1-9]\d{0,3}),([1-9]\d{0,3})$/u.exec(name);
+        assert(point);
+        const x = Number(point[1]);
+        const y = Number(point[2]);
+        if (!(await press(() => swipe(x, y, x, y, 700)))) return;
+      } else {
+        assert(name === "deny" || name === "allow");
+        if (!(await press(() => setPolicy(name === "deny" ? "true" : "false"))))
+          return;
+      }
+      selectionStep++;
+    } else if (step === "table-rotation") {
+      const rotate = rotateAndroid;
+      assert(rotate);
+      assert(name === "landscape" || name === "portrait");
+      assert.equal(name, tableGestures[tableGesture++]);
+      if (!(await press(() => rotate(name)))) return;
     } else if (step === "format-times") {
-      assert.deepEqual(formatKeyWidths, [320, 820]);
+      assert.deepEqual(formatKeys, formatKeyCases);
+      assert.equal(tableGesture, swipeAndroid ? tableGestures.length : 0);
+      assert.equal(selectionStep, swipeAndroid ? selectionSteps.length : 0);
       const data = JSON.parse(url.searchParams.get("case") ?? "null");
       assert.ok(Array.isArray(data));
       assert.deepEqual(
@@ -1588,7 +1656,9 @@ export function webviewServers(
         assert.ok(Number.isFinite(row.unchanged) && row.unchanged >= 0);
       }
       formattingTimes = data;
-      console.log("Verified native code-block scrolling at both widths.");
+      console.log(
+        "Verified native code-block and table scrolling at both widths.",
+      );
     } else if (step === "release-history") {
       refresh.release();
     } else if (step === "release-submission") {
@@ -1632,16 +1702,25 @@ export function webviewServers(
     },
     onAndroidInputReady(
       send: SendAndroidKey,
+      swipe: SwipeAndroid,
+      rotate: RotateAndroid,
       runClipboardStep: ClipboardPolicyStep,
     ) {
       clipboard = runClipboardStep;
+      swipeAndroid = swipe;
+      rotateAndroid = rotate;
       prepareKeyboard = () => send("KEYCODE_TAB");
       pressWorkspaceBack = () => send("KEYCODE_BACK");
       sendRight = () => send("KEYCODE_DPAD_RIGHT");
     },
     verify(platform: "macos" | "android") {
-      if (platform === "android")
+      if (platform === "android") {
         assert(systemPostReads.has("dismissed"), "Missing system-link Back");
+        assert(
+          tableBack,
+          "Missing Android Back from the table into the thread",
+        );
+      }
 
       refresh.verify();
       for (const read of [

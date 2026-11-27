@@ -22,8 +22,20 @@ export const clipboardPolicySteps = [
 export type ClipboardPolicyStep = (
   step: (typeof clipboardPolicySteps)[number],
 ) => Promise<void>;
+export type SwipeAndroid = (
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  duration?: number,
+) => Promise<void>;
+export type RotateAndroid = (
+  orientation: "landscape" | "portrait",
+) => Promise<void>;
 export type OnAndroidInputReady = (
   send: SendAndroidKey,
+  swipe: SwipeAndroid,
+  rotate: RotateAndroid,
   clipboard: ClipboardPolicyStep,
 ) => void;
 
@@ -34,22 +46,75 @@ export async function launchWebview(
   expected: string,
   onAndroidInputReady?: OnAndroidInputReady,
 ) {
-  onAndroidInputReady?.(
-    async (key) => {
-      if (key === "KEYCODE_BACK") {
-        // This case exercises app navigation. Android gives a visible IME the first Back.
-        const deadline = Date.now() + 5_000;
-        while (true) {
-          const input = await adb("shell", "dumpsys", "input_method");
-          if (/\bmInputShown=false\b/u.test(input)) break;
-          assert(
-            Date.now() < deadline,
-            "Thread navigation requires a hidden IME",
-          );
-          await delay(50);
-        }
+  const send: SendAndroidKey = async (key) => {
+    if (key === "KEYCODE_BACK") {
+      // This case exercises app navigation. Android gives a visible IME the first Back.
+      const deadline = Date.now() + 5_000;
+      while (true) {
+        const input = await adb("shell", "dumpsys", "input_method");
+        if (/\bmInputShown=false\b/u.test(input)) break;
+        assert(
+          Date.now() < deadline,
+          "Thread navigation requires a hidden IME",
+        );
+        await delay(50);
       }
-      await adb("shell", "input", "keyevent", key);
+    }
+    await adb("shell", "input", "keyevent", key);
+  };
+  onAndroidInputReady?.(
+    send,
+    async (x1, y1, x2, y2, duration = 320) => {
+      await adb(
+        "shell",
+        "input",
+        "swipe",
+        String(x1),
+        String(y1),
+        String(x2),
+        String(y2),
+        String(duration),
+      );
+    },
+    async (orientation) => {
+      const target = orientation === "landscape" ? "1" : "0";
+      const log = () =>
+        adb(
+          "logcat",
+          "-d",
+          "-v",
+          "brief",
+          "-s",
+          "WindowManagerShell:V",
+          "WindowManager:V",
+        );
+      const requested = new RegExp(
+        `Transition requested \\(#(\\d+)\\):.*displayId = 0,.*endRotation = ${target},`,
+        "gu",
+      );
+      const transition = (state: string) =>
+        [...state.matchAll(requested)].at(-1)?.[1];
+      const previous = transition(await log());
+      await adb("shell", "cmd", "window", "user-rotation", "lock", target);
+
+      // WebView resizes while Android is still transforming touch coordinates.
+      // Wait for WindowManager to finish the specific physical rotation.
+      const deadline = Date.now() + 5000;
+      for (;;) {
+        const state = await log();
+        const id = transition(state);
+        if (
+          id &&
+          id !== previous &&
+          state.includes(`Finish Transition (#${id}):`)
+        )
+          break;
+        assert(
+          Date.now() < deadline,
+          `Android did not finish rotating to ${orientation}`,
+        );
+        await delay(50);
+      }
     },
     async (step) => {
       if (step === "resume") {
