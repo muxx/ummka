@@ -39,6 +39,22 @@ export function webviewServers(
     ["98", "profile-image-retire"],
     ["99", "profile-image-network"],
   ]);
+  const exactProfiles = new Map([
+    ["/team/chat/api/v4/users/username/fixture", "exact-username"],
+    ["/team/chat/api/v4/users/username/fixture%3Aremote", "remote-username"],
+    [
+      "/team/chat/api/v4/users/email/fixture%2Bdm%40example.test",
+      "exact-email",
+    ],
+    [
+      "/team/chat/api/v4/users/email/fixture%2Bdm%3F%23%40example.test",
+      "exact-email-with-punctuation",
+    ],
+    [
+      "/team/chat/api/v4/users/email/fixture%2542%40example.test",
+      "exact-email-with-percent",
+    ],
+  ]);
   const cases = [
     "headers",
     "body",
@@ -667,6 +683,24 @@ export function webviewServers(
     const collection = await collections(req, res, url);
     if (collection) {
       visits.push(collection);
+      return;
+    }
+    const exactProfile = exactProfiles.get(url.pathname);
+    if (exactProfile) {
+      assert.equal(req.method, "GET");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      visits.push(exactProfile);
+      const absent = exactProfile === "remote-username";
+      res
+        .writeHead(absent ? 404 : 200, { "Content-Type": "application/json" })
+        .end(
+          JSON.stringify(
+            absent ? { status_code: 404 } : { id: userId, username: "fixture" },
+          ),
+        );
       return;
     }
     if (url.pathname === "/team/chat/api/v4/users/usernames") {
@@ -1777,6 +1811,11 @@ export function webviewServers(
         "user-me",
         "user-profile",
         "profiles-by-name",
+        "exact-username",
+        "remote-username",
+        "exact-email",
+        "exact-email-with-punctuation",
+        "exact-email-with-percent",
         "recipient-page",
         "recipient-search",
         "profile-image",

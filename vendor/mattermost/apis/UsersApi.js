@@ -67,6 +67,68 @@ export class UsersApi extends runtime.BaseAPI {
         const response = await this.getUserRaw(requestParameters, initOverrides);
         return await response.value();
     }
+    async getUserByEmailRequestOpts(requestParameters) {
+        if (requestParameters['email'] == null) {
+            throw new runtime.RequiredError('email', 'Required parameter "email" was null or undefined when calling getUserByEmail().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/users/email/{email}`;
+        urlPath = urlPath.replace('{email}', encodeURIComponent(String(requestParameters['email'])));
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async getUserByEmailRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.getUserByEmailRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => UserFromJSON(jsonValue));
+    }
+    async getUserByEmail(requestParameters, initOverrides) {
+        const response = await this.getUserByEmailRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+    async getUserByUsernameRequestOpts(requestParameters) {
+        if (requestParameters['username'] == null) {
+            throw new runtime.RequiredError('username', 'Required parameter "username" was null or undefined when calling getUserByUsername().');
+        }
+        const queryParameters = {};
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/users/username/{username}`;
+        urlPath = urlPath.replace('{username}', encodeURIComponent(String(requestParameters['username'])));
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async getUserByUsernameRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.getUserByUsernameRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => UserFromJSON(jsonValue));
+    }
+    async getUserByUsername(requestParameters, initOverrides) {
+        const response = await this.getUserByUsernameRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
     async getUsersRequestOpts(requestParameters) {
         const queryParameters = {};
         if (requestParameters['page'] != null) {

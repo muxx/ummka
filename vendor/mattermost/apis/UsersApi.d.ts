@@ -8,6 +8,12 @@ export interface GetProfileImageRequest {
 export interface GetUserRequest {
     userId: string;
 }
+export interface GetUserByEmailRequest {
+    email: string;
+}
+export interface GetUserByUsernameRequest {
+    username: string;
+}
 export interface GetUsersRequest {
     page?: number;
     perPage?: number;
@@ -43,6 +49,12 @@ export declare class UsersApi extends runtime.BaseAPI {
     getUserRequestOpts(requestParameters: GetUserRequest): Promise<runtime.RequestOpts>;
     getUserRaw(requestParameters: GetUserRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<User>>;
     getUser(requestParameters: GetUserRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<User>;
+    getUserByEmailRequestOpts(requestParameters: GetUserByEmailRequest): Promise<runtime.RequestOpts>;
+    getUserByEmailRaw(requestParameters: GetUserByEmailRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<User>>;
+    getUserByEmail(requestParameters: GetUserByEmailRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<User>;
+    getUserByUsernameRequestOpts(requestParameters: GetUserByUsernameRequest): Promise<runtime.RequestOpts>;
+    getUserByUsernameRaw(requestParameters: GetUserByUsernameRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<User>>;
+    getUserByUsername(requestParameters: GetUserByUsernameRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<User>;
     getUsersRequestOpts(requestParameters: GetUsersRequest): Promise<runtime.RequestOpts>;
     getUsersRaw(requestParameters: GetUsersRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Array<User>>>;
     getUsers(requestParameters?: GetUsersRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Array<User>>;
