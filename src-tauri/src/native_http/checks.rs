@@ -293,6 +293,8 @@ async fn check_wire(
     .await?;
     crate::realtime::checks::wire(&client, &base).await?;
     crate::rest::file_upload::checks::wire(&client, &base).await?;
+    #[cfg(any(target_os = "macos", target_os = "android"))]
+    crate::rest_ipc::draft_files::checks::wire(&client, &base, fixture_dir).await?;
     crate::rest_ipc::attachment_check::wire(&client, &base).await?;
     crate::rest_ipc::mobile_file_policy_check::wire(&client, &base).await?;
     let prefix = "/Teams/Blue%20Sky//A%2FB";

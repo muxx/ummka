@@ -6,7 +6,33 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { startFixture } from "../native-http/fixture.ts";
 import { fixtureDeadline, fixtureStep } from "./fixture-step.ts";
-import { watchWebviewSteps } from "./macos.ts";
+import { fixtureThreadStacks, watchWebviewSteps } from "./macos.ts";
+
+test("reports the UI and scrolling thread stacks of a stalled fixture", () => {
+  const main = "    91 Thread_12   DispatchQueue_1: com.apple.main-thread";
+  const scrolling = "    91 Thread_21   WebCore: Scrolling";
+  const sample = [
+    "Call graph:",
+    main,
+    "    + 91 displayDidRefresh",
+    "    91 Thread_15   unrelated",
+    "    + 91 excluded",
+    scrolling,
+    "    + 91 waitForEvent",
+    "",
+    "Total number in stack (recursive counted multiple, when >=5):",
+    "Binary Images:",
+  ].join("\n");
+  assert.equal(
+    fixtureThreadStacks(sample),
+    [
+      main,
+      "    + 91 displayDidRefresh",
+      scrolling,
+      "    + 91 waitForEvent",
+    ].join("\n"),
+  );
+});
 
 test("new fixture steps renew the deadline, but a repeating or stalled step expires", (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
@@ -84,7 +110,7 @@ test("a driver failure closes the control request without recording a completed 
   const reported = t.mock.method(console, "error", () => {});
   fixture.onMacInputReady(
     async (key) => {
-      assert.equal(key, "right");
+      assert.equal(key, "right-down");
       throw failure;
     },
     () => assert.fail("a failed key counted as fixture progress"),
