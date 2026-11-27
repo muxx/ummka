@@ -1,7 +1,5 @@
-import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { writeFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
-import { parse } from "yaml";
 import nativeAuth from "../../contracts/mattermost/native-auth.json" with {
   type: "json",
 };
@@ -90,6 +88,7 @@ import {
   sidebarWriteCorrections,
 } from "./sidebar-corrections.ts";
 import { correctSinglePost } from "./single-post-correction.ts";
+import { snapshotSources } from "./sources.ts";
 import { correctTeamMemberRequest } from "./team-member-correction.ts";
 import {
   correctThreadListModel,
@@ -108,11 +107,6 @@ const methods = new Set([
   "patch",
   "trace",
 ]);
-
-export function readSource(directory: string, file: string): Fields {
-  const source: unknown = parse(readFileSync(join(directory, file), "utf8"));
-  return object(source, file);
-}
 
 function checkRequestBody(
   id: string,
@@ -553,15 +547,13 @@ if (import.meta.main) {
   const [directory, destination, nativeDestination] = process.argv.slice(2);
   if (!directory || !destination)
     throw new Error("Expected a source directory and output file");
-  const specification = buildSpecification((file) =>
-    readSource(directory, file),
-  );
-  writeFileSync(destination, `${JSON.stringify(specification, null, 2)}\n`);
-  if (nativeDestination) {
-    const auth = buildSpecification(
-      (file) => readSource(directory, file),
-      nativeAuth,
-    );
-    writeFileSync(nativeDestination, `${JSON.stringify(auth, null, 2)}\n`);
-  }
+  const read = snapshotSources(directory);
+  const specification = `${JSON.stringify(buildSpecification(read), null, 2)}\n`;
+  const auth = nativeDestination && {
+    path: nativeDestination,
+    contents: `${JSON.stringify(buildSpecification(read, nativeAuth), null, 2)}\n`,
+  };
+  // Validate both schemas before replacing either output.
+  writeFileSync(destination, specification);
+  if (auth) writeFileSync(auth.path, auth.contents);
 }

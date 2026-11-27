@@ -89,7 +89,7 @@ import {
   correctSetPostUnread,
   correctUnreadAt,
 } from "./read-state-corrections.ts";
-import { buildSpecification, readSource } from "./schema.ts";
+import { buildSpecification } from "./schema.ts";
 import {
   correctDirectoryFlags,
   correctSidebarCategory,
@@ -99,6 +99,7 @@ import {
   sidebarWriteCorrections,
 } from "./sidebar-corrections.ts";
 import { correctSinglePost } from "./single-post-correction.ts";
+import { readSource, snapshotSources } from "./sources.ts";
 import { correctTeamMemberRequest } from "./team-member-correction.ts";
 import {
   correctThreadListModel,
@@ -111,17 +112,7 @@ const sources = process.env.UMMKA_CONTRACT_SOURCES;
 const work = process.env.UMMKA_CONTRACT_WORK;
 if (!sources || !work)
   throw new Error("Run make check-contract to prepare the test inputs");
-const readPinned = readSource.bind(null, sources);
-const parsed = new Map<string, Fields>();
-function read(file: string): Fields {
-  let source = parsed.get(file);
-  if (!source) {
-    source = readPinned(file);
-    parsed.set(file, source);
-  }
-  // Correction tests may mutate a nested property of their own copy.
-  return structuredClone(source);
-}
+const read = snapshotSources(sources);
 const serialized = readFileSync(join(work, "openapi.json"), "utf8");
 const contract = object(JSON.parse(serialized), "contract");
 const nativeContract = JSON.parse(
@@ -1922,6 +1913,37 @@ function copySources() {
   }
   return fixture;
 }
+
+test("a fresh CLI invocation rejects changed native authentication and preserves both artifacts", () => {
+  const fixture = copySources();
+  const outputs = ["openapi.json", "native-auth.json"].map((name) =>
+    join(fixture, name),
+  );
+  const run = () =>
+    spawnSync(process.execPath, [builder, fixture, ...outputs], {
+      encoding: "utf8",
+    });
+  const readOutputs = () => outputs.map((file) => readFileSync(file));
+  const first = run();
+  assert.ifError(first.error);
+  assert.equal(first.status, 0, first.stderr);
+  const original = readOutputs();
+
+  // An accepted metadata change makes a premature primary write observable.
+  const introduction = readSource(fixture, "introduction.yaml");
+  object(introduction.info, "info").title = "Updated Mattermost contract";
+  writeFileSync(join(fixture, "introduction.yaml"), stringify(introduction));
+  const users = readSource(fixture, "users.yaml");
+  const login = object(at(users, ["/api/v4/users/login", "post"]), "Login");
+  login.operationId = "ChangedLogin";
+  writeFileSync(join(fixture, "users.yaml"), stringify(users));
+
+  const rejected = run();
+  assert.ifError(rejected.error);
+  assert.equal(rejected.status, 1, rejected.stderr);
+  assert.match(rejected.stderr, /Expected operation Login at post/);
+  assert.deepEqual(readOutputs(), original);
+});
 
 test("preserves the verified artifact if a corrected Post field drifts", () => {
   for (const change of [
