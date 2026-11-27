@@ -195,7 +195,9 @@ export async function verifyWorkspaceBack(
       { timeout: 10000 },
     );
     const results = within(resultsNode);
-    await results.findByText("Search found this fixture post");
+    await results.findByRole("button", {
+      name: "Search found this fixture post",
+    });
     flushSync(() =>
       fireEvent.click(
         results.getByRole("button", { name: /Edit.*window fixture/i }),

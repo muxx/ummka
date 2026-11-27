@@ -332,7 +332,9 @@ export async function checkBrowserApp(server: string, controlPort: string) {
         { timeout: 10_000 },
       ),
     );
-    await results.findByText("Search found this fixture post");
+    await results.findByRole("button", {
+      name: "Search found this fixture post",
+    });
     results = await verifySearchAttachment(host, controlPort, townDraft);
     flushSync(() =>
       fireEvent.click(results.getByRole("button", { name: /Messages/ })),
@@ -415,7 +417,9 @@ export async function checkBrowserApp(server: string, controlPort: string) {
         { timeout: 10_000 },
       ),
     );
-    await commandResults.findByText("Search found this fixture post");
+    await commandResults.findByRole("button", {
+      name: "Search found this fixture post",
+    });
     await waitFor(
       () => {
         if (townDraft.value !== "")
