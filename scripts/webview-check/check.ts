@@ -164,9 +164,8 @@ async function checkResources() {
       await openExternalPostLink(
         "https://external.ummka.invalid/post/@bear?value=a%2Fb#anchor",
       );
-      await androidFixtureStep("browser-action", () =>
-        checkBrowserAction(ports[0], ports[1]),
-      );
+      // Browser sign-in and the subsequent App scenarios have their own deadlines.
+      await checkBrowserAction(ports[0], ports[1]);
       await openExternalPostLink("mailto:probe@ummka.invalid");
       const missing = await openExternalPostLink(
         "mailto:unhandled@ummka.invalid",
