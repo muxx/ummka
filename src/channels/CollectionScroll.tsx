@@ -6,7 +6,8 @@ type Snapshot = { rows: RowPlace[]; focused: HTMLButtonElement | null };
 
 export function restoreCollectionRow(
   pane: HTMLDivElement | null,
-  previous: { id: string; scroll: number } | null,
+  previous: { id: string; scroll: number; offset?: number } | null,
+  notice?: HTMLElement | null,
 ) {
   if (!pane || !previous) return false;
   const row = pane.querySelector<HTMLButtonElement>(
@@ -15,9 +16,19 @@ export function restoreCollectionRow(
   if (!row) return false;
   pane.scrollTop = previous.scroll;
   const bounds = pane.getBoundingClientRect();
+  if (previous.offset !== undefined)
+    pane.scrollTop +=
+      row.getBoundingClientRect().top - bounds.top - previous.offset;
   const box = row.getBoundingClientRect();
   row.focus({ preventScroll: true });
-  if (box.top < bounds.top || box.bottom > bounds.bottom)
+  const top = Math.max(
+    bounds.top,
+    notice?.getBoundingClientRect().bottom ?? bounds.top,
+  );
+  if (notice)
+    pane.scrollTop +=
+      box.top < top ? box.top - top : Math.max(0, box.bottom - bounds.bottom);
+  else if (box.top < top || box.bottom > bounds.bottom)
     row.scrollIntoView({ block: "nearest" });
   return true;
 }

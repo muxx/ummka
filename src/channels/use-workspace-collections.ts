@@ -6,12 +6,20 @@ import {
   useSyncExternalStore,
 } from "react";
 import { openMentionList } from "./mention-list.ts";
-import { openPostCollection } from "./post-collection.ts";
+import { openPostCollection, returnedPostRemoved } from "./post-collection.ts";
 import type { measureTimeline } from "./timeline-viewport.ts";
 
 type CollectionsAccount = Parameters<typeof openPostCollection>[0] &
   Parameters<typeof openMentionList>[0];
-type Source = { kind: "all" } | { kind: "pins"; channelId: string };
+type RestoredRow = {
+  id: string;
+  scroll: number;
+  offset?: number;
+  index?: number;
+};
+type Source =
+  | { kind: "all"; returnRow?: RestoredRow }
+  | { kind: "pins"; channelId: string };
 type Mentions = {
   kind: "mentions";
   archivedChannels: boolean;
@@ -21,10 +29,8 @@ type View = { key: number; opener: HTMLButtonElement } & (
   | (Source & { model: ReturnType<typeof openPostCollection> })
   | (Mentions & { model: ReturnType<typeof openMentionList> })
 );
-type RowOrigin = {
-  id: string;
+type RowOrigin = RestoredRow & {
   channelId: string | null;
-  scroll: number;
   ids: readonly string[];
   partial: boolean;
   reading: ReturnType<typeof measureTimeline> | null;
@@ -37,6 +43,7 @@ export function useWorkspaceCollections(
   online: boolean,
   archivedChannels: boolean | undefined,
   sessionIssue: (issue: "session" | "unauthorized") => void,
+  closeSavedSurface: () => void,
 ) {
   const generation = useRef(0);
   const [view, setView] = useState<View | null>(null);
@@ -57,7 +64,7 @@ export function useWorkspaceCollections(
     null,
   );
   const origin = useRef<RowOrigin | null>(null);
-  const [restore, setRestore] = useState<RowOrigin | null>(null);
+  const [restore, setRestore] = useState<RestoredRow | null>(null);
   const collection = view?.kind === "mentions" ? null : view;
   const mentions = view?.kind === "mentions" ? view : null;
   const state = useSyncExternalStore(
@@ -89,7 +96,28 @@ export function useWorkspaceCollections(
     }
   }, [online]);
   useEffect(() => {
-    if (view && online) void view.model.refresh();
+    if (!view || !online) return;
+    if (view.kind !== "all" || !view.returnRow) {
+      void view.model.refresh();
+      return;
+    }
+    const { model, returnRow } = view;
+    const stop = model.subscribe(() => {
+      if (owned.current !== view) return;
+      const snapshot = model.getSnapshot();
+      if (snapshot.status !== "ready") return;
+      if (
+        snapshot.value?.items.some(({ id }) => id === returnRow.id) ||
+        returnedPostRemoved(snapshot, returnRow.id, returnRow.index) ||
+        snapshot.continuation === "none"
+      ) {
+        stop();
+      } else if (snapshot.continuation === "available") {
+        void model.loadMore();
+      }
+    });
+    void model.refresh(returnRow.id);
+    return stop;
   }, [view, online]);
   useLayoutEffect(
     () => () => {
@@ -115,6 +143,7 @@ export function useWorkspaceCollections(
     owned.current = null;
     if (previous.kind === "pins") previous.model.close();
     else previous.model.suspend();
+    if (previous.kind === "all") closeSavedSurface();
     origin.current = null;
     setRestore(null);
     returnFocus.current = focus ? previous.opener : null;
@@ -139,7 +168,7 @@ export function useWorkspaceCollections(
       };
       next = { ...owner, ...source, model: previousMentions.current.model };
     } else if (source.kind === "all") {
-      saved.current ??= openPostCollection(account, source);
+      saved.current ??= openPostCollection(account, { kind: "all" });
       next = { ...owner, ...source, model: saved.current };
     } else {
       next = {
@@ -149,6 +178,7 @@ export function useWorkspaceCollections(
       };
     }
     owned.current = next;
+    if (source.kind === "all" && source.returnRow) setRestore(source.returnRow);
     setView(next);
   }
   async function activate(

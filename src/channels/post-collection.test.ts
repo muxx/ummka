@@ -24,9 +24,9 @@ function mockAccount() {
   return {
     setPostSaved: vi.fn<Account["setPostSaved"]>(),
     setPostPinned: vi.fn<Account["setPostPinned"]>(),
-    readSavedPostUpperBound: vi
-      .fn<Account["readSavedPostUpperBound"]>()
-      .mockResolvedValue(2),
+    readSavedPostPreferences: vi
+      .fn<Account["readSavedPostPreferences"]>()
+      .mockResolvedValue({ upperBound: 2 }),
     readSavedPostsAtOffset: vi.fn<Account["readSavedPostsAtOffset"]>(),
     readPinnedChannelPosts: vi.fn<Account["readPinnedChannelPosts"]>(),
     readSavedPosts: vi.fn<Account["readSavedPosts"]>(),
@@ -401,7 +401,7 @@ test("closing in the removing notification prevents sending the write", async ()
 
 test("a saved scan crosses a fully hidden page, keeps actual rows and reads its bound once", async () => {
   const account = mockAccount();
-  account.readSavedPostUpperBound.mockResolvedValue(121);
+  account.readSavedPostPreferences.mockResolvedValue({ upperBound: 121 });
   account.readSavedPosts.mockResolvedValue({ ...page, items: [first] });
   account.readSavedPostsAtOffset
     .mockResolvedValueOnce(empty)
@@ -434,15 +434,15 @@ test("a saved scan crosses a fully hidden page, keeps actual rows and reads its 
     [source, 60],
     [source, 120],
   ]);
-  expect(account.readSavedPostUpperBound).toHaveBeenCalledTimes(1);
+  expect(account.readSavedPostPreferences).toHaveBeenCalledTimes(1);
   await view.refresh();
-  expect(account.readSavedPostUpperBound).toHaveBeenCalledTimes(2);
+  expect(account.readSavedPostPreferences).toHaveBeenCalledTimes(2);
 });
 
 test("confirmed removal cancels a stale page and corrects the next offset, rejection leaves it alone", async () => {
   const account = mockAccount(),
     late = deferredPage();
-  account.readSavedPostUpperBound.mockResolvedValue(61);
+  account.readSavedPostPreferences.mockResolvedValue({ upperBound: 61 });
   account.readSavedPosts.mockResolvedValue(page);
   account.readSavedPostsAtOffset
     .mockReturnValueOnce(late.promise)
@@ -476,7 +476,7 @@ test("confirmed removal cancels a stale page and corrects the next offset, rejec
 test("revoked access clears loaded saved rows; closing cancels continuation and ignores its late response", async () => {
   const account = mockAccount(),
     late = deferredPage();
-  account.readSavedPostUpperBound.mockResolvedValue(80);
+  account.readSavedPostPreferences.mockResolvedValue({ upperBound: 80 });
   account.readSavedPosts.mockResolvedValue(page);
   account.readSavedPostsAtOffset
     .mockRejectedValueOnce(
@@ -509,9 +509,9 @@ test("revoked access clears loaded saved rows; closing cancels continuation and 
 test("a confirmed removal during refresh cannot shrink an already updated preference bound twice", async () => {
   const account = mockAccount(),
     fresh = deferredPage();
-  account.readSavedPostUpperBound
-    .mockResolvedValueOnce(61)
-    .mockResolvedValueOnce(60);
+  account.readSavedPostPreferences
+    .mockResolvedValueOnce({ upperBound: 61 })
+    .mockResolvedValueOnce({ upperBound: 60 });
   account.readSavedPosts
     .mockResolvedValueOnce(page)
     .mockReturnValueOnce(fresh.promise);

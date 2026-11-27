@@ -107,9 +107,10 @@ type TeamChoiceRequest =
   | { kind: "first"; onAccepted: () => void }
   | {
       kind: "message";
-      directory: JoinedTeams;
       signal: AbortSignal;
       onAccepted: () => void;
+      channelId: string | null;
+      fromTeam?: string;
     };
 function issueOf(notice: Notice) {
   return typeof notice === "object" ? (notice?.issue ?? null) : notice;
@@ -436,7 +437,8 @@ function AccountWindow({
     const message = request?.kind === "message" ? request : undefined;
     const signal = message?.signal;
     const first = request?.kind === "first";
-    const reportFailure = !first && request?.kind !== "workspace";
+    const reportFailure =
+      !first && request?.kind !== "workspace" && request?.kind !== "message";
     const current = connection.current;
     if (!current || (!signal && selection.current) || signal?.aborted)
       return false;
@@ -453,17 +455,39 @@ function AccountWindow({
         readVersion.current++;
         const selected = message ? await current.readJoinedTeams() : null;
         if (connection.current !== current || signal?.aborted) return false;
+        if (message) {
+          if (
+            !selected?.teams.some(({ id }) => id === team.id) ||
+            (message.fromTeam && selected.selectedTeam !== message.fromTeam)
+          )
+            return false;
+          if (
+            message.channelId &&
+            !(await current.selectSidebarChannel(team.id, message.channelId))
+          )
+            return false;
+          if (connection.current !== current || signal?.aborted) return false;
+        }
         const accepted =
           selected?.selectedTeam === team.id ||
           (await (first
             ? atDirectoryStep("select", () => current.selectJoinedTeam(team.id))
             : current.selectJoinedTeam(team.id)));
-        if (connection.current !== current || signal?.aborted) return false;
+        if (connection.current !== current) return false;
+        if (signal?.aborted) {
+          // The SQLite write can finish after a saved transition has been left.
+          // Restore its prior selection before a newer queued action starts.
+          if (accepted && message?.fromTeam && message.fromTeam !== team.id) {
+            if (!(await current.selectJoinedTeam(message.fromTeam)))
+              await read(current);
+          }
+          return false;
+        }
         if (accepted) {
           // Resolve the previous navigation before the next queued write can run.
           request?.onAccepted();
           setDirectory((previous) => {
-            const source = selected ?? message?.directory ?? previous;
+            const source = selected ?? previous;
             return source && { ...source, selectedTeam: team.id };
           });
           if (systemPost && needsTeam === systemPost && !signal)
@@ -525,8 +549,13 @@ function AccountWindow({
     language,
     sessionIssue,
     enqueue,
-    (team, directory, signal, onAccepted) =>
-      choose(team, { kind: "message", directory, signal, onAccepted }),
+    (team, signal, onAccepted, selection) =>
+      choose(team, {
+        kind: "message",
+        signal,
+        onAccepted,
+        ...selection,
+      }),
   );
   const inspectSystem = useEffectEvent(
     async (request: SystemPostRequest, signal: AbortSignal) => {
@@ -659,7 +688,7 @@ function AccountWindow({
             select: (team) =>
               choose(team, {
                 kind: "workspace",
-                onAccepted: captureTeamChange(),
+                onAccepted: captureTeamChange(team.id),
               }),
           },
           messages,
@@ -695,7 +724,7 @@ function AccountWindow({
         select={(team) =>
           void choose(team, {
             kind: "first",
-            onAccepted: captureTeamChange(),
+            onAccepted: captureTeamChange(team.id),
           })
         }
       />

@@ -1,6 +1,7 @@
-import { type ReactNode, useEffect, useEffectEvent } from "react";
+import { type ReactNode, useEffect, useEffectEvent, useState } from "react";
 import { usesMacOSOverlay } from "../build-platform.ts";
 import type { EntryLanguage } from "../entry/language.ts";
+import { collectionCopy } from "./collection-copy.ts";
 import "./collection-result-steps.css";
 
 const copy = {
@@ -25,11 +26,9 @@ export function CollectionResultSteps({
   icon,
   backLabel,
   language,
-  index,
-  count,
-  partial,
+  steps,
+  sourceTeam,
   blocked,
-  step,
   back,
   end,
 }: {
@@ -37,15 +36,29 @@ export function CollectionResultSteps({
   icon: ReactNode;
   backLabel: string;
   language: EntryLanguage;
-  index: number;
-  count: number;
-  partial: boolean;
   blocked: boolean;
-  step: (delta: -1 | 1, control: HTMLElement) => void;
   back: () => void;
   end: (control: HTMLButtonElement) => void;
-}) {
+} & (
+  | {
+      steps: {
+        index: number;
+        count: number;
+        partial: boolean;
+        open: (delta: -1 | 1, control: HTMLElement) => void;
+      };
+      sourceTeam?: never;
+    }
+  | { steps?: never; sourceTeam: string }
+)) {
   const text = copy[language];
+  const saved = collectionCopy[language];
+  const [reminder, setReminder] = useState(0);
+  useEffect(() => {
+    if (!reminder) return;
+    const timer = window.setTimeout(() => setReminder(0), 2600);
+    return () => window.clearTimeout(timer);
+  }, [reminder]);
   const onStepKey = useEffectEvent((event: KeyboardEvent) => {
     if (
       blocked ||
@@ -60,9 +73,13 @@ export function CollectionResultSteps({
     )
       return;
     event.preventDefault();
+    if (!steps) {
+      setReminder((n) => n + 1);
+      return;
+    }
     const delta = event.shiftKey ? -1 : 1;
-    if (index + delta >= 0 && index + delta < count)
-      step(
+    if (steps.index + delta >= 0 && steps.index + delta < steps.count)
+      steps.open(
         delta,
         document.activeElement instanceof HTMLElement
           ? document.activeElement
@@ -76,42 +93,69 @@ export function CollectionResultSteps({
   }, []);
   const shortcut = usesMacOSOverlay ? "Meta+G" : "Control+G";
   return (
-    <fieldset className="collection-result-steps" aria-label={name}>
+    <fieldset
+      className="collection-result-steps"
+      aria-label={name}
+      data-cross-team={Boolean(sourceTeam) || undefined}
+    >
       <span className="collection-step-source" aria-hidden="true">
         {icon}
         <span>{name}</span>
       </span>
-      <span
-        className="collection-step-count"
-        role="status"
-        title={partial ? text.partial : undefined}
-      >
-        {text.position(index + 1, count)}
-        {partial ? "+" : ""}
-      </span>
+      {steps ? (
+        <>
+          <span
+            className="collection-step-count"
+            role="status"
+            title={steps.partial ? text.partial : undefined}
+          >
+            {text.position(steps.index + 1, steps.count)}
+            {steps.partial ? "+" : ""}
+          </span>
+          <button
+            type="button"
+            className="channels-icon-action"
+            aria-label={text.previous}
+            title={text.previous}
+            aria-keyshortcuts={`Shift+${shortcut}`}
+            disabled={blocked || steps.index === 0}
+            onClick={(event) => steps.open(-1, event.currentTarget)}
+          >
+            <StepIcon path="m14 5-7 7 7 7" />
+          </button>
+          <button
+            type="button"
+            className="channels-icon-action"
+            aria-label={text.next}
+            title={text.next}
+            aria-keyshortcuts={shortcut}
+            disabled={blocked || steps.index === steps.count - 1}
+            onClick={(event) => steps.open(1, event.currentTarget)}
+          >
+            <StepIcon path="m10 5 7 7-7 7" />
+          </button>
+        </>
+      ) : (
+        <>
+          <span className="collection-step-count">
+            {saved.sourceTeam(sourceTeam)}
+          </span>
+          <span role="status">
+            {reminder > 0 && (
+              <span key={reminder} className="post-action-notice">
+                {saved.savedIn(sourceTeam)}
+              </span>
+            )}
+          </span>
+        </>
+      )}
       <button
         type="button"
-        className="channels-icon-action"
-        aria-label={text.previous}
-        title={text.previous}
-        aria-keyshortcuts={`Shift+${shortcut}`}
-        disabled={blocked || index === 0}
-        onClick={(event) => step(-1, event.currentTarget)}
+        className="collection-step-back"
+        aria-label={sourceTeam && saved.savedBackIn(sourceTeam)}
+        disabled={Boolean(sourceTeam) && blocked}
+        onClick={back}
       >
-        <StepIcon path="m14 5-7 7 7 7" />
-      </button>
-      <button
-        type="button"
-        className="channels-icon-action"
-        aria-label={text.next}
-        title={text.next}
-        aria-keyshortcuts={shortcut}
-        disabled={blocked || index === count - 1}
-        onClick={(event) => step(1, event.currentTarget)}
-      >
-        <StepIcon path="m10 5 7 7-7 7" />
-      </button>
-      <button type="button" className="collection-step-back" onClick={back}>
         {backLabel}
       </button>
       <button

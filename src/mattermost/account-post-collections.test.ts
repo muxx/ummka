@@ -151,12 +151,18 @@ test("counts only the current owner's flagged preferences and detects an invalid
       Response.json([{ ...rows[0], user_id: "x".repeat(26) }]),
     )
     .mockResolvedValueOnce(Response.json(null));
-  expect(await account.readSavedPostUpperBound()).toBe(2);
+  expect(await account.readSavedPostPreferences(undefined, last)).toEqual({
+    upperBound: 2,
+    returnedPostSaved: true,
+  });
   expect(String(fetchApi.mock.calls[0][0])).toBe(
     "https://example.test/sub/api/v4/users/me/preferences",
   );
-  await expect(account.readSavedPostUpperBound()).rejects.toThrow();
-  expect(await account.readSavedPostUpperBound()).toBe(0);
+  await expect(account.readSavedPostPreferences()).rejects.toThrow();
+  expect(await account.readSavedPostPreferences(undefined, first)).toEqual({
+    upperBound: 0,
+    returnedPostSaved: false,
+  });
   for (const offset of [-1, 0.5, Number.MAX_SAFE_INTEGER + 1])
     await expect(
       account.readSavedPostsAtOffset({ kind: "all" }, offset),

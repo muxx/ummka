@@ -14,6 +14,7 @@ import { PaneSizeToggle } from "./PaneWidthControls.tsx";
 import {
   newestCollectionItems,
   type openPostCollection,
+  returnedPostRemoved,
 } from "./post-collection.ts";
 import { initials } from "./profile-initials.ts";
 import { publishedPostDocument } from "./published-post-document.ts";
@@ -83,11 +84,23 @@ export function PostCollectionPane({
   language: EntryLanguage;
   online: boolean;
   canRemove: boolean;
-  channelInfo: (id: string) => { title: string; kind: string } | undefined;
+  channelInfo: (
+    id: string,
+  ) => { title: string; kind: string; team?: string } | undefined;
   authorName: (id: string) => string | undefined;
   savedIds: ReadonlySet<string>;
-  restore: { id: string; scroll: number } | null;
-  openRow: (id: string, trigger: HTMLButtonElement, scroll: number) => void;
+  restore: {
+    id: string;
+    scroll: number;
+    offset?: number;
+    index?: number;
+  } | null;
+  openRow: (
+    id: string,
+    trigger: HTMLButtonElement,
+    scroll: number,
+    offset?: number,
+  ) => void;
   close: () => void;
 }) {
   const text = collectionCopy[language];
@@ -112,14 +125,69 @@ export function PostCollectionPane({
   const retry = useRef<HTMLButtonElement>(null);
   const retryRows = useRef<Set<string> | null>(null);
   const initial = useRef(restore);
+  const returnedStatus = useRef<HTMLParagraphElement>(null);
+  const returnedEmpty = useRef<HTMLHeadingElement>(null);
+  const [missingReturn, setMissingReturn] = useState<{
+    id: string | undefined;
+    scroll: number;
+    focus: boolean;
+  } | null>(null);
   useLayoutEffect(() => {
-    if (!restoreCollectionRow(list.current, initial.current))
-      heading.current?.focus();
+    if (restoreCollectionRow(list.current, initial.current))
+      initial.current = null;
+    else heading.current?.focus();
   }, []);
   const rows = useMemo(
     () => newestCollectionItems(state.value?.items ?? []),
     [state.value],
   );
+  useLayoutEffect(() => {
+    const place = initial.current;
+    if (!place) return;
+    const focused = document.activeElement;
+    const focus =
+      focused === heading.current ||
+      (retryRows.current !== null &&
+        (focused === document.body ||
+          Boolean(edge.current?.contains(focused))));
+    if (rows.some((row) => row.id === place.id)) {
+      if (focus) {
+        retryRows.current = null;
+        restoreCollectionRow(list.current, place);
+      }
+      initial.current = null;
+    } else if (
+      place.index !== undefined &&
+      returnedPostRemoved(state, place.id, place.index)
+    ) {
+      if (focus) retryRows.current = null;
+      initial.current = null;
+      setMissingReturn({
+        id: rows[Math.min(place.index, rows.length - 1)]?.id,
+        scroll: place.scroll,
+        focus,
+      });
+    }
+  }, [rows, state]);
+  useLayoutEffect(() => {
+    if (!missingReturn?.focus) return;
+    const { id, scroll } = missingReturn;
+    if (id)
+      restoreCollectionRow(
+        list.current,
+        { id, scroll },
+        returnedStatus.current,
+      );
+    else returnedEmpty.current?.focus({ preventScroll: true });
+  }, [missingReturn]);
+  useLayoutEffect(() => {
+    if (state.status !== "ready" || state.removing.length)
+      setMissingReturn(null);
+  }, [state.status, state.removing.length]);
+  function refresh() {
+    const place = initial.current;
+    void model.refresh(place?.index === undefined ? undefined : place.id);
+  }
   const dates = useMemo(
     () => ({
       short: new Intl.DateTimeFormat(language, {
@@ -252,7 +320,7 @@ export function PostCollectionPane({
             aria-label={text.refresh}
             title={text.refresh}
             disabled={busy}
-            onClick={() => void model.refresh()}
+            onClick={refresh}
           >
             <svg
               width="18"
@@ -309,11 +377,20 @@ export function PostCollectionPane({
             language={language}
             list={list}
             heading={heading}
-            refresh={() => void model.refresh()}
+            refresh={refresh}
           />
         )}
         {state.removing.length > 0 && (
           <p role="status">{kind === "all" ? text.removing : text.unpinning}</p>
+        )}
+        {restore?.index !== undefined && (
+          <p
+            className="collection-return-status"
+            ref={returnedStatus}
+            role="status"
+          >
+            {missingReturn?.id && text.removedOnReturn}
+          </p>
         )}
         {!online && (kind === "pins" || state.value) && (
           <p role="status">{state.value ? text.offline : text.offlineCold}</p>
@@ -353,7 +430,10 @@ export function PostCollectionPane({
                 else if (room.kind === "D" || room.kind === "G") {
                   const context = room.kind === "D" ? text.direct : text.group;
                   place = room.title ? room.title + " · " + context : context;
-                } else place = "# " + room.title;
+                } else {
+                  place = `# ${room.title}`;
+                  if (room.team) place += ` · ${text.otherTeam(room.team)}`;
+                }
               }
               if (row.rootId)
                 place = place
@@ -383,10 +463,15 @@ export function PostCollectionPane({
                     aria-disabled={!canRead}
                     onClick={(event) => {
                       if (!canRead) return;
+                      const pane = list.current;
                       openRow(
                         row.id,
                         event.currentTarget,
-                        list.current?.scrollTop ?? 0,
+                        pane?.scrollTop ?? 0,
+                        pane
+                          ? event.currentTarget.getBoundingClientRect().top -
+                              pane.getBoundingClientRect().top
+                          : undefined,
                       );
                     }}
                   >
@@ -490,9 +575,17 @@ export function PostCollectionPane({
         )}
         {state.status === "ready" &&
           !rows.length &&
-          state.continuation === "none" && (
+          state.continuation === "none" &&
+          (missingReturn && !missingReturn.id ? (
+            <div className="collection-return-empty">
+              <CollectionMark kind="all" />
+              <h3 ref={returnedEmpty} tabIndex={-1}>
+                {text.emptyReturnedSaved}
+              </h3>
+            </div>
+          ) : (
             <p>{kind === "all" ? text.emptySaved : text.emptyPins}</p>
-          )}
+          ))}
         {Boolean(state.value?.firstInaccessiblePostTime) && (
           <p role="status">{text.unavailableHistory}</p>
         )}

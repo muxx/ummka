@@ -138,6 +138,30 @@
 .collection-rows {
   padding: 0.35rem 0.8rem 0.8rem;
 }
+.collection-return-status {
+  position: sticky;
+  z-index: 1;
+  inset-block-start: 0;
+  margin: 0;
+  background: var(--canvas);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+.collection-return-status:not(:empty) {
+  padding: 10px 10px 8px;
+}
+.collection-return-empty {
+  padding: 36px 20px;
+}
+.collection-return-empty svg {
+  color: var(--accent);
+  width: 26px;
+  height: 26px;
+}
+.collection-return-empty h3 {
+  margin-block: 12px 0;
+  font-size: 1rem;
+}
 .collection-rows ul {
   list-style: none;
   padding: 0;

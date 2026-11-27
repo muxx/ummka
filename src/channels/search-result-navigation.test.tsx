@@ -171,6 +171,7 @@ test("the compact destination keeps a visible way back when its channel disappea
   if (!read) throw Error("Fixture needs a saved sidebar");
   account.readTeamSidebar.mockImplementation(async (team) => {
     const saved = await read(team);
+    if (!saved) return null;
     return {
       ...saved,
       data: {
@@ -431,7 +432,7 @@ test("the destination adopts newly published membership while the source sidebar
   let published = false;
   account.readTeamSidebar.mockImplementation(async (team) => {
     const snapshot = await original(team);
-    return published
+    return published || !snapshot
       ? snapshot
       : {
           ...snapshot,
@@ -971,7 +972,7 @@ test("labels empty published bodies and attachments in saved rows", async () => 
 test("a hidden saved page remains traversable, preserves the previous rows on retry, and discards a revoked response", async () => {
   const { account } = fixture();
   const trigger = await screen.findByRole("button", { name: "Saved messages" });
-  account.readSavedPostUpperBound.mockResolvedValue(121);
+  account.readSavedPostPreferences.mockResolvedValue({ upperBound: 121 });
   account.readSavedPostsAtOffset
     .mockResolvedValueOnce({ items: [], firstInaccessiblePostTime: 0 })
     .mockRejectedValueOnce(new TypeError("offline"))
@@ -1019,7 +1020,7 @@ test("a hidden saved page remains traversable, preserves the previous rows on re
   expect(
     account.readSavedPostsAtOffset.mock.calls.map(([, offset]) => offset),
   ).toEqual([60, 120, 120]);
-  expect(account.readSavedPostUpperBound).toHaveBeenCalledTimes(1);
+  expect(account.readSavedPostPreferences).toHaveBeenCalledTimes(1);
   account.readSavedPosts.mockRejectedValueOnce(
     new ResponseError(new Response(null, { status: 403 })),
   );
@@ -1191,6 +1192,7 @@ test("removing the selected channel from the joined sidebar closes its notificat
   const form = await screen.findByRole("dialog", { name: "Notifications" });
   await within(form).findByRole("checkbox", { name: /Mute channel/ });
   const before = await account.readTeamSidebar(winter);
+  if (!before) throw Error("Fixture sidebar required");
   account.readTeamSidebar.mockResolvedValue({
     selectedChannel: null,
     data: { ...before.data, channels: [] },
