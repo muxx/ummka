@@ -540,6 +540,7 @@ type CodeInput = {
     coordinates: [number, number],
   ) => Promise<void>;
   back: () => Promise<void>;
+  rotateCode: (orientation: "landscape" | "portrait") => Promise<void>;
 };
 
 async function checkCopyCode(scope: HTMLElement, source: string) {
@@ -607,7 +608,13 @@ async function checkMobileCode(
 ) {
   const trigger = Array.from(
     host.querySelectorAll<HTMLButtonElement>(".post-code-preview"),
-  ).find((button) => button.querySelector("code")?.textContent === longCode);
+  ).find(
+    (button) =>
+      button.querySelector("code")?.textContent === longCode &&
+      (!physical ||
+        button.closest("[data-post-id]")?.getAttribute("data-post-id") ===
+          "rotate-code"),
+  );
   if (
     !trigger ||
     !within(host).getAllByRole("button", { name: "Open code: 1 line" }).length
@@ -616,7 +623,7 @@ async function checkMobileCode(
   const pane = trigger.closest(".timeline-scroll");
   if (!pane) throw Error("Missing code timeline");
   trigger.scrollIntoView({ block: "center" });
-  const position = pane.scrollTop;
+  let position = pane.scrollTop;
   if (physical) {
     await tapCodeControl(trigger, "preview", physical.tap);
   } else {
@@ -642,16 +649,36 @@ async function checkMobileCode(
     });
   }
   await checkCopyCode(dialog, longCode);
+  let returnTarget: HTMLElement = trigger;
+  if (physical) {
+    const disclosure = trigger
+      .closest("[data-post-id]")
+      ?.querySelector<HTMLButtonElement>(".post-body-disclosure-action");
+    if (
+      disclosure?.getAttribute("aria-expanded") !== "false" ||
+      trigger.hasAttribute("inert")
+    )
+      throw Error("The code must initially be reachable in a folded post");
+    await physical.rotateCode("landscape");
+    await waitFor(() => {
+      if (!trigger.hasAttribute("data-post-disclosure-clipped"))
+        throw Error("Landscape did not clip the code opener");
+    });
+    returnTarget = disclosure;
+    position = pane.scrollTop;
+  }
   if (physical) await physical.back();
   else flushSync(() => panel.getByRole("button", { name: "Back" }).click());
   await waitFor(() => {
     if (
       dialog.isConnected ||
-      document.activeElement !== trigger ||
+      document.activeElement !== returnTarget ||
+      (physical && returnTarget.getAttribute("aria-expanded") !== "false") ||
       Math.abs(pane.scrollTop - position) > 1
     )
-      throw Error("Back lost the code trigger or reading position");
+      throw Error("Back lost the available post action or reading position");
   });
+  if (physical) await physical.rotateCode("portrait");
 }
 
 export async function checkChannelFormatting(
@@ -676,6 +703,21 @@ export async function checkChannelFormatting(
       messageSource: "Original for editing",
     }),
   );
+  if (isAndroid && mobile) {
+    const prior = Array.from(
+      { length: 14 },
+      (_, line) => `- Reading line ${line + 1}`,
+    ).join("\n");
+    const after = Array.from(
+      { length: 25 },
+      (_, line) => `- Continuing reading ${line + 1}`,
+    ).join("\n");
+    posts[3] = {
+      ...posts[3],
+      id: "rotate-code",
+      message: `${prior}\n\n${bodies[3]}\n\n${after}`,
+    };
+  }
   const results = [];
   for (const width of [320, 820]) {
     const host = document.createElement("div");
@@ -785,6 +827,19 @@ export async function checkChannelFormatting(
         );
         const code = pre.closest<HTMLElement>(".post-code-desktop");
         if (!code) throw Error("Missing desktop code copy");
+        const source = pre.querySelector("code")?.firstChild;
+        if (!source) throw Error("Missing desktop code source");
+        pre.scrollLeft = pre.scrollWidth;
+        const end = document.createRange();
+        end.setStart(source, longCode.length - 3);
+        end.setEnd(source, longCode.length);
+        const text = end.getBoundingClientRect();
+        const button = within(code).getByRole("button", { name: "Copy code" });
+        if (
+          text.left < pre.getBoundingClientRect().left ||
+          text.right > button.getBoundingClientRect().left
+        )
+          throw Error("Copy covers the end of the first code line");
         await checkCopyCode(code, longCode);
       }
 

@@ -2,9 +2,6 @@
   position: relative;
   min-inline-size: 0;
 }
-.post-code-desktop pre {
-  padding-inline-end: 7.5rem;
-}
 .post-code-desktop .post-code-copy {
   position: absolute;
   inset-block-start: 6px;
@@ -120,6 +117,9 @@
   font: inherit;
   white-space: pre;
   tab-size: 4;
+}
+.published-post .post-code-desktop pre {
+  padding-inline-end: 8rem;
 }
 .post-code-line-numbers {
   position: sticky;

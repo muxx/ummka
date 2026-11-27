@@ -99,6 +99,7 @@ export function webviewServers(
   const codeTaps = ["preview", "copy"];
   let codeTap = 0;
   let codeBack = false;
+  let codeRotated = false;
   let controlProgress = "not started";
   let onMacStep: ((stage: string) => void) | undefined;
   let controlRequests = 0;
@@ -1527,6 +1528,7 @@ export function webviewServers(
           "table-selection",
           "code-tap",
           "code-back",
+          "code-rotation",
           "format-times",
           "received",
           "closed",
@@ -1619,9 +1621,17 @@ export function webviewServers(
       if (!(await press(() => tap(Number(match[2]), Number(match[3]))))) return;
       codeTap++;
     } else if (step === "code-back") {
-      assert(codeTap === codeTaps.length && !codeBack && pressWorkspaceBack);
+      assert(codeRotated && !codeBack && pressWorkspaceBack);
       if (!(await press(pressWorkspaceBack))) return;
       codeBack = true;
+    } else if (step === "code-rotation") {
+      const rotate = rotateAndroid;
+      assert(rotate && codeTap === codeTaps.length);
+      assert(name === "landscape" || name === "portrait");
+      assert.equal(name, codeRotated ? "portrait" : "landscape");
+      assert.equal(codeBack, codeRotated);
+      if (!(await press(() => rotate(name)))) return;
+      codeRotated = name === "landscape";
     } else if (step === "table-swipe") {
       const swipe = swipeAndroid;
       assert(swipe);
@@ -1740,8 +1750,8 @@ export function webviewServers(
       if (platform === "android") {
         assert(systemPostReads.has("dismissed"), "Missing system-link Back");
         assert(
-          codeTap === codeTaps.length && codeBack,
-          "Missing Android code tap or Back",
+          codeTap === codeTaps.length && codeBack && !codeRotated,
+          "Missing Android code tap, rotation or Back",
         );
         assert(
           tableBack,

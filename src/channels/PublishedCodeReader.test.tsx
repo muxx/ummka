@@ -8,6 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { PostBodyDisclosure } from "./PostBodyDisclosure.tsx";
 import { PublishedCodeReader } from "./PublishedCodeReader.tsx";
 import { PublishedPostBody } from "./PublishedPostBody.tsx";
 import {
@@ -61,12 +62,14 @@ function Workspace({
   const reader = usePublishedReaderWindow(scope, "# Release");
   return (
     <PublishedReaderWindow value={reader.value}>
-      <PublishedPostBody
-        message={message}
-        locale="en"
-        authorName="Ada"
-        inThread
-      />
+      <PostBodyDisclosure locale="en">
+        <PublishedPostBody
+          message={message}
+          locale="en"
+          authorName="Ada"
+          inThread
+        />
+      </PostBodyDisclosure>
       <PublishedTableScreen reader={reader} />
       <PublishedCodeReader reader={reader} />
     </PublishedReaderWindow>
@@ -324,6 +327,63 @@ test("returns to the pressed code when the browser restores another previous foc
   await waitFor(() => expect(document.activeElement).toBe(trigger));
   vi.restoreAllMocks();
 });
+
+test.each([
+  { kind: "Code", message: first },
+  { kind: "Table", message: "| Key | Value |\n| --- | --- |\n| one | two |" },
+])(
+  "restores the folded post action after rotation while reading $kind",
+  async ({ kind, message }) => {
+    vi.stubGlobal("innerHeight", 844);
+    const bounds = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        if (this.classList.contains("post-body-disclosure-content"))
+          return new DOMRect(0, 0, 320, 600);
+        if (this.classList.contains("post-body-disclosure-viewport"))
+          return new DOMRect(
+            0,
+            0,
+            320,
+            Number.parseFloat(this.style.maxBlockSize),
+          );
+        return new DOMRect(0, 300, 160, 44);
+      });
+    try {
+      const { rerender } = render(<Workspace message={message} />);
+      const open = screen.getByRole("button", { name: /^Open (code|table)/ });
+      const reveal = screen.getByRole("button", { name: "Show full message" });
+      reveal.scrollIntoView = vi.fn();
+      expect(open.hasAttribute("inert")).toBe(false);
+      fireEvent.click(open);
+      const dialog = screen.getByRole("dialog", { name: kind });
+      const rotate = (height: number) => {
+        vi.stubGlobal("innerHeight", height);
+        act(() => window.dispatchEvent(new Event("resize")));
+      };
+      rotate(390);
+      expect(open.hasAttribute("inert")).toBe(true);
+      fireEvent(dialog, new Event("cancel", { cancelable: true }));
+      await waitFor(() => expect(document.activeElement).toBe(reveal));
+      expect(reveal.scrollIntoView).toHaveBeenCalledExactlyOnceWith({
+        block: "nearest",
+        inline: "nearest",
+      });
+      expect(reveal.getAttribute("aria-expanded")).toBe("false");
+
+      rotate(844);
+      fireEvent.click(open);
+      rotate(390);
+      rerender(<Workspace message={message} scope="another account" />);
+      await act(async () => {});
+      expect(screen.queryByRole("dialog", { name: kind })).toBeNull();
+      expect(document.activeElement).toBe(document.body);
+      expect(reveal.scrollIntoView).toHaveBeenCalledTimes(1);
+    } finally {
+      bounds.mockRestore();
+    }
+  },
+);
 
 test("desktop keeps the entire block and copies only that source at 320px", async () => {
   environment.android = false;

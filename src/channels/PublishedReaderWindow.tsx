@@ -11,6 +11,7 @@ import {
 import { isAndroid } from "../build-platform.ts";
 import { observeClipboardAllowed } from "../device/clipboard-policy.ts";
 import { Chevron } from "./ChannelsFrame.tsx";
+import { restorePostBodyFocus } from "./PostBodyDisclosure.tsx";
 import "./published-table-mobile.css";
 
 type Locale = "en" | "ru";
@@ -218,7 +219,7 @@ export function PublishedReaderDialog({
           (document.activeElement === document.body ||
             document.activeElement === previousFocus)
         )
-          button.focus({ preventScroll: true });
+          restorePostBodyFocus(button);
       });
     };
   }, [opening, activeScope, report]);
