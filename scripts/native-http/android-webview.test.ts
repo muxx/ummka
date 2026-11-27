@@ -10,6 +10,7 @@ import { waitForAndroidBoot } from "./android.ts";
 import { checkNativeInstrumentation } from "./android-instrumentation.ts";
 import {
   launchWebview,
+  type PreviewSwipeAndroid,
   type RotateAndroid,
   type SendAndroidKey,
 } from "./android-webview.ts";
@@ -159,6 +160,40 @@ test("rotation waits for WindowManager to finish the requested transition", asyn
   );
 });
 
+test("a preview swipe sends actual motion points between DOWN and UP", async () => {
+  let swipe!: PreviewSwipeAndroid;
+  const points: string[][] = [];
+  async function adb(...args: string[]) {
+    if (args[1] === "am") return "Status: ok";
+    if (args[1] === "pidof") return "125";
+    if (args[0] === "shell") {
+      assert.deepEqual(args.slice(0, 3), ["shell", "input", "motionevent"]);
+      points.push(args.slice(3));
+      return "";
+    }
+    assert.equal(args[0], "logcat");
+    await swipe(475, 552, 200);
+    return "UMMKA_WEBVIEW_CHECK browser-checked";
+  }
+  await launchWebview(
+    adb,
+    "app",
+    "app/.MainActivity",
+    "browser-checked",
+    (_, __, ___, ____, previewSwipe) => {
+      swipe = previewSwipe;
+    },
+  );
+  assert.deepEqual(points, [
+    ["DOWN", "475", "552"],
+    ["MOVE", "475", "464"],
+    ["MOVE", "475", "376"],
+    ["MOVE", "475", "288"],
+    ["MOVE", "475", "200"],
+    ["UP", "475", "200"],
+  ]);
+});
+
 test("the new document receives its control response only after the keyboard event is delivered", async () => {
   const dir = await mkdtemp(join(tmpdir(), "ummka-keyboard-"));
   try {
@@ -218,6 +253,9 @@ test("the new document receives its control response only after the keyboard eve
       },
       async () => {
         throw Error("unexpected clipboard policy request");
+      },
+      async () => {
+        assert.fail("The reload check does not swipe a preview");
       },
     );
     let first: Promise<number | undefined> | undefined;
