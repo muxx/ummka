@@ -1,4 +1,6 @@
 mod attachments;
+pub(crate) mod departure;
+mod departure_schema;
 pub(crate) mod migrations;
 pub(crate) mod posts;
 pub(crate) mod reclamation;
@@ -33,6 +35,11 @@ fn concurrent_restore(
             })
             .map(|task| task.join().expect("history worker"))
     })
+}
+
+pub(crate) fn check_channel_departure(root: &Path) -> Result<(), HistoryError> {
+    departure::round_trip(&root.join("membership-scope"))?;
+    departure_schema::check(&root.join("membership-schema"))
 }
 
 /// Exercise the same files, transactions and competing connections on macOS and Android.
@@ -123,6 +130,12 @@ mod tests {
     use rusqlite::Connection;
     use std::fs;
     use tempfile::tempdir;
+
+    #[test]
+    fn forgets_only_the_departed_channel_across_open_copies() {
+        let root = tempdir().unwrap();
+        check_channel_departure(root.path()).unwrap();
+    }
 
     #[test]
     fn isolates_installations_and_rotates_only_new_logins() {
