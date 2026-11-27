@@ -172,6 +172,10 @@ export async function checkGeneratedRequests(ports: string[]) {
                     observed("table-swipe", [axis, ...coordinates].join(",")),
                   rotate: (orientation) =>
                     observed("table-rotation", orientation),
+                  longPress: (x, y) =>
+                    observed("table-selection", `press,${x},${y}`),
+                  allowSelection: (allowed) =>
+                    observed("table-selection", allowed ? "allow" : "deny"),
                 }
               : undefined,
           ),

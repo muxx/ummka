@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -19,6 +20,15 @@ vi.mock("../build-platform.ts", () => ({
   isAndroid: true,
   isMobile: true,
   usesMacOSOverlay: false,
+}));
+
+const policy = vi.hoisted(() => ({
+  observe: vi.fn<(report: (allowed: boolean) => void) => () => void>(
+    () => () => {},
+  ),
+}));
+vi.mock("../device/clipboard-policy.ts", () => ({
+  observeClipboardAllowed: policy.observe,
 }));
 
 const large = [
@@ -70,7 +80,10 @@ function preview() {
   return screen.getByRole("table").closest(".post-table-preview");
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  policy.observe.mockClear();
+});
 
 test.each([320, 383, 384, 390])(
   "caps the rows including headings and columns at %d logical pixels",
@@ -185,4 +198,79 @@ test("announces the authored dimensions and displays Russian thread context", ()
   expect(document.activeElement).toBe(
     dialog.getByRole("region", { name: "Таблица" }),
   );
+});
+
+test("observes policy while open and only cancels a selection that intersects the table", async () => {
+  const stop = vi.fn();
+  let changed!: (allowed: boolean) => void;
+  policy.observe.mockImplementationOnce((report) => {
+    changed = report;
+    report(false);
+    return stop;
+  });
+  render(
+    <>
+      <p>Outside selection</p>
+      <Workspace message={small} />
+    </>,
+  );
+  const opener = screen.getByRole("button", { name: /^Open table:/ });
+  expect(policy.observe).not.toHaveBeenCalled();
+  fireEvent.click(opener);
+  const dialog = within(screen.getByRole("dialog", { name: "Table" }));
+  const region = dialog.getByRole("region", { name: "Table" });
+  expect(region.hasAttribute("data-selection-allowed")).toBe(false);
+
+  const selection = document.getSelection();
+  if (!selection) throw Error("The document has no selection");
+  const range = document.createRange();
+  const select = () => {
+    selection.removeAllRanges();
+    selection.addRange(range);
+  };
+  const cell = dialog.getByRole("cell", { name: "short" });
+  act(() => changed(true));
+  expect(region.hasAttribute("data-selection-allowed")).toBe(true);
+  range.selectNodeContents(cell);
+  select();
+  expect(selection.toString()).toBe("short");
+  act(() => changed(false));
+  expect(region.hasAttribute("data-selection-allowed")).toBe(false);
+  expect(selection.isCollapsed).toBe(true);
+
+  act(() => changed(true));
+  range.setStart(dialog.getByText("Ada · # Release"), 0);
+  range.setEnd(cell, cell.childNodes.length);
+  select();
+  expect(selection.toString()).toContain("Ada · # Release");
+  expect(selection.toString()).toContain("short");
+  act(() => changed(false));
+  expect(selection.isCollapsed).toBe(true);
+
+  act(() => changed(true));
+  range.selectNodeContents(screen.getByRole("dialog", { name: "Table" }));
+  select();
+  expect(selection.toString()).toContain("short");
+  act(() => changed(false));
+  expect(selection.isCollapsed).toBe(true);
+
+  act(() => changed(true));
+  range.selectNodeContents(screen.getByText("Outside selection"));
+  select();
+  act(() => changed(false));
+  expect(selection.toString()).toBe("Outside selection");
+  selection.removeAllRanges();
+  expect(dialog.getByRole("cell", { name: "short" })).toBeTruthy();
+  fireEvent.click(dialog.getByRole("button", { name: "Back" }));
+  await waitFor(() => expect(document.activeElement).toBe(opener));
+  expect(stop).toHaveBeenCalledTimes(1);
+  expect(policy.observe).toHaveBeenCalledTimes(1);
+
+  fireEvent.click(opener);
+  expect(
+    screen
+      .getByRole("region", { name: "Table" })
+      .hasAttribute("data-selection-allowed"),
+  ).toBe(false);
+  expect(policy.observe).toHaveBeenCalledTimes(2);
 });

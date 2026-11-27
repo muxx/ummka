@@ -115,6 +115,10 @@
   overflow: auto;
   overscroll-behavior: contain;
 }
+/* The Android full-table screen starts restricted until the device responds. */
+.post-table-screen .post-table-screen-content:not([data-selection-allowed]) {
+  user-select: none;
+}
 .post-table-screen .post-table-screen-content table {
   font-size: 0.85rem;
   line-height: normal;

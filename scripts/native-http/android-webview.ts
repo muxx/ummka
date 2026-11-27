@@ -27,6 +27,7 @@ export type SwipeAndroid = (
   y1: number,
   x2: number,
   y2: number,
+  duration?: number,
 ) => Promise<void>;
 export type RotateAndroid = (
   orientation: "landscape" | "portrait",
@@ -63,7 +64,7 @@ export async function launchWebview(
   };
   onAndroidInputReady?.(
     send,
-    async (x1, y1, x2, y2) => {
+    async (x1, y1, x2, y2, duration = 320) => {
       await adb(
         "shell",
         "input",
@@ -72,7 +73,7 @@ export async function launchWebview(
         String(y1),
         String(x2),
         String(y2),
-        "320",
+        String(duration),
       );
     },
     async (orientation) => {

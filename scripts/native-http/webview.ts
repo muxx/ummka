@@ -92,6 +92,8 @@ export function webviewServers(
   ];
   let tableGesture = 0;
   let tableBack = false;
+  const selectionSteps = ["press", "deny", "press", "allow", "press"];
+  let selectionStep = 0;
   let controlProgress = "not started";
   let onMacStep: ((stage: string) => void) | undefined;
   let controlRequests = 0;
@@ -1517,6 +1519,7 @@ export function webviewServers(
           "table-swipe",
           "table-rotation",
           "table-back",
+          "table-selection",
           "format-times",
           "received",
           "closed",
@@ -1528,7 +1531,8 @@ export function webviewServers(
     const name = url.searchParams.get("case") ?? "";
     const marker =
       ((step === "received" || step === "closed") && held.has(name)) ||
-      step === "format-right"
+      step === "format-right" ||
+      step === "table-selection"
         ? `${step}(${name})`
         : knownStep
           ? step
@@ -1613,6 +1617,24 @@ export function webviewServers(
         ))
       )
         return;
+    } else if (step === "table-selection") {
+      const swipe = swipeAndroid;
+      const setPolicy = clipboard;
+      assert(swipe && setPolicy);
+      const [action] = name.split(",");
+      assert.equal(action, selectionSteps[selectionStep]);
+      if (action === "press") {
+        const point = /^press,([1-9]\d{0,3}),([1-9]\d{0,3})$/u.exec(name);
+        assert(point);
+        const x = Number(point[1]);
+        const y = Number(point[2]);
+        if (!(await press(() => swipe(x, y, x, y, 700)))) return;
+      } else {
+        assert(name === "deny" || name === "allow");
+        if (!(await press(() => setPolicy(name === "deny" ? "true" : "false"))))
+          return;
+      }
+      selectionStep++;
     } else if (step === "table-rotation") {
       const rotate = rotateAndroid;
       assert(rotate);
@@ -1622,6 +1644,7 @@ export function webviewServers(
     } else if (step === "format-times") {
       assert.deepEqual(formatKeys, formatKeyCases);
       assert.equal(tableGesture, swipeAndroid ? tableGestures.length : 0);
+      assert.equal(selectionStep, swipeAndroid ? selectionSteps.length : 0);
       const data = JSON.parse(url.searchParams.get("case") ?? "null");
       assert.ok(Array.isArray(data));
       assert.deepEqual(

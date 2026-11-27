@@ -218,7 +218,9 @@ async function checkTableSwipe(
 
 async function checkTableAxes(table: HTMLElement, swipe: Swipe) {
   if (table.scrollLeft !== 0 || table.scrollTop !== 0)
-    throw Error("A newly opened table did not start at its origin");
+    throw Error(
+      `Table gesture at ${innerWidth}px did not start at the origin: ${table.scrollLeft},${table.scrollTop}`,
+    );
   const movedRight = () => table.scrollLeft >= 15;
   await checkTableSwipe(table, "horizontal", swipe, movedRight);
   await checkTableSwipe(
@@ -227,6 +229,54 @@ async function checkTableAxes(table: HTMLElement, swipe: Swipe) {
     swipe,
     () => movedRight() && table.scrollTop >= 15,
   );
+}
+
+async function checkCellPress(
+  cell: HTMLElement,
+  press: (x: number, y: number) => Promise<void>,
+  expected: string,
+) {
+  const range = document.createRange();
+  range.selectNodeContents(cell);
+  const bounds = range.getBoundingClientRect();
+  const x = Math.round((bounds.left + bounds.width / 2) * devicePixelRatio);
+  const y = Math.round((bounds.top + bounds.height / 2) * devicePixelRatio);
+  const events = ["touchstart", "touchend", "touchcancel"] as const;
+  const phases = new Set<string>();
+  const observe = (event: TouchEvent) => {
+    if (event.isTrusted) phases.add(event.type);
+  };
+  for (const type of events)
+    cell.addEventListener(type, observe, { passive: true });
+  try {
+    await press(x, y);
+    await waitFor(() => {
+      const selected = document.getSelection()?.toString();
+      if (
+        !phases.has("touchstart") ||
+        !(phases.has("touchend") || phases.has("touchcancel")) ||
+        selected !== expected
+      )
+        throw Error(
+          `Long press at ${x},${y}: phases=${[...phases]}, selected=${selected}, expected=${expected}`,
+        );
+    });
+  } finally {
+    for (const type of events) cell.removeEventListener(type, observe);
+  }
+}
+
+async function waitForTableSelection(table: HTMLElement, allowed: boolean) {
+  await waitFor(() => {
+    const selectable = getComputedStyle(table).userSelect === "text";
+    if (
+      selectable !== allowed ||
+      (!allowed && document.getSelection()?.toString())
+    )
+      throw Error(
+        `Table text selection: allowed=${selectable}, expected=${allowed}, selected=${document.getSelection()?.toString()}`,
+      );
+  });
 }
 
 function FormattingWorkspace({ children }: { children: ReactNode }) {
@@ -280,6 +330,8 @@ async function checkMobileTable(
   physical?: {
     swipe: Swipe;
     rotate: (orientation: "landscape" | "portrait") => Promise<void>;
+    longPress: (x: number, y: number) => Promise<void>;
+    allowSelection: (allowed: boolean) => Promise<void>;
   },
 ) {
   if (!table || !fittingTable || !tallTable)
@@ -372,9 +424,10 @@ async function checkMobileTable(
   const dialog = openTable();
   const ui = within(dialog);
   const full = scrollRegion(dialog);
-  ui.getByText("Ada · # Formatting");
+  const caption = ui.getByText("Ada · # Formatting");
   const header = ui.getByRole("columnheader", { name: "Score" });
   const last = ui.getByRole("cell", { name: "Last cell" });
+  const first = ui.getByRole("cell", { name: "Aurora" });
   const dimensions = `${full.clientWidth}×${full.clientHeight}/${full.scrollWidth}×${full.scrollHeight}`;
   if (
     full.scrollWidth <= full.clientWidth ||
@@ -391,8 +444,24 @@ async function checkMobileTable(
     throw Error(
       `Full table: ${dimensions}, focus=${document.activeElement?.tagName}, rows=${ui.getAllByRole("row").length}, align=${getComputedStyle(header).textAlign}`,
     );
-  if (physical) await checkTableAxes(full, physical.swipe);
-  else await checkArrowRight(full, "full table", pressRight);
+  await waitForTableSelection(full, true);
+  if (physical) {
+    await checkCellPress(first, physical.longPress, "Aurora");
+    const selection = document.getSelection();
+    if (!selection?.rangeCount) throw Error("Missing selected table text");
+    const { endContainer, endOffset } = selection.getRangeAt(0);
+    selection.setBaseAndExtent(caption, 0, endContainer, endOffset);
+    const mixed = selection.toString();
+    if (!mixed.includes("Ada · # Formatting") || !mixed.includes("Aurora"))
+      throw Error("Could not extend the table selection to its caption");
+    await physical.allowSelection(false);
+    await waitForTableSelection(full, false);
+    await checkCellPress(first, physical.longPress, "");
+    full.scrollTo(0, 0);
+    await checkTableAxes(full, physical.swipe);
+  } else {
+    await checkArrowRight(full, "full table", pressRight);
+  }
   const range = document.createRange();
   range.selectNodeContents(last);
   const bounds = full.getBoundingClientRect();
@@ -402,21 +471,17 @@ async function checkMobileTable(
     full.scrollHeight,
   );
   const cellText = range.getBoundingClientRect();
-  const selection = window.getSelection();
-  selection?.removeAllRanges();
-  selection?.addRange(range);
   if (
     cellText.left < bounds.left ||
     cellText.right > bounds.right ||
     cellText.bottom > bounds.bottom ||
     cellText.top < bounds.top ||
     Math.abs(header.getBoundingClientRect().top - stickyTop) > 1 ||
-    selection?.toString() !== "Last cell"
+    range.toString() !== "Last cell"
   )
-    throw Error("Could not reach and select the last cell");
-  selection.removeAllRanges();
-  await closeTable(dialog);
+    throw Error("Could not reach the last cell");
   if (physical) {
+    full.scrollTo(0, 0);
     const origin = innerWidth;
     await physical.rotate("landscape");
     await waitFor(
@@ -427,9 +492,10 @@ async function checkMobileTable(
       },
       { timeout: 4000 },
     );
-    const landscape = openTable();
-    await checkTableAxes(scrollRegion(landscape), physical.swipe);
-    await closeTable(landscape);
+    await waitForTableSelection(full, false);
+    full.scrollTo(0, 0);
+    await checkTableAxes(full, physical.swipe);
+    full.scrollTo(0, 0);
     await physical.rotate("portrait");
     await waitFor(
       () => {
@@ -439,7 +505,13 @@ async function checkMobileTable(
       },
       { timeout: 4000 },
     );
+    full.scrollTo(0, 0);
+    await physical.allowSelection(true);
+    await waitForTableSelection(full, true);
+    await checkCellPress(first, physical.longPress, "Aurora");
+    document.getSelection()?.removeAllRanges();
   }
+  await closeTable(dialog);
   flushSync(() => fireEvent.click(short));
   const small = within(
     within(document.body).getByRole("dialog", { name: "Table" }),

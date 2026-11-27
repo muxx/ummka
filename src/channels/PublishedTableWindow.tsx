@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { isAndroid } from "../build-platform.ts";
+import { observeClipboardAllowed } from "../device/clipboard-policy.ts";
 import { Chevron } from "./ChannelsFrame.tsx";
 import "./published-table-mobile.css";
 
@@ -114,10 +115,27 @@ export function PublishedTableScreen({
   const origin = useId();
   useLayoutEffect(() => {
     const modal = dialog.current;
-    if (!modal || !opening) return;
+    const viewport = content.current;
+    if (!modal || !opening || !viewport) return;
     modal.showModal();
-    content.current?.focus({ preventScroll: true });
+    viewport.focus({ preventScroll: true });
+    const stop = isAndroid
+      ? observeClipboardAllowed((allowed) => {
+          viewport.toggleAttribute("data-selection-allowed", allowed);
+          if (allowed) return;
+          const selection = viewport.ownerDocument.getSelection();
+          if (!selection) return;
+          for (let index = 0; index < selection.rangeCount; index++) {
+            const range = selection.getRangeAt(index);
+            if (!range.collapsed && range.intersectsNode(viewport)) {
+              selection.removeAllRanges();
+              break;
+            }
+          }
+        })
+      : undefined;
     return () => {
+      stop?.();
       const ownedFocus =
         modal.contains(document.activeElement) ||
         document.activeElement === document.body;
