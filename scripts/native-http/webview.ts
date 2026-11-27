@@ -11,6 +11,7 @@ import { respondToAccount } from "./account.ts";
 import {
   type ClipboardPolicyStep,
   clipboardPolicySteps,
+  type PreviewSwipeAndroid,
   type RotateAndroid,
   type SendAndroidKey,
   type SwipeAndroid,
@@ -39,6 +40,22 @@ export function webviewServers(
     ["97", "profile-image-cancel"],
     ["98", "profile-image-retire"],
     ["99", "profile-image-network"],
+  ]);
+  const exactProfiles = new Map([
+    ["/team/chat/api/v4/users/username/fixture", "exact-username"],
+    ["/team/chat/api/v4/users/username/fixture%3Aremote", "remote-username"],
+    [
+      "/team/chat/api/v4/users/email/fixture%2Bdm%40example.test",
+      "exact-email",
+    ],
+    [
+      "/team/chat/api/v4/users/email/fixture%2Bdm%3F%23%40example.test",
+      "exact-email-with-punctuation",
+    ],
+    [
+      "/team/chat/api/v4/users/email/fixture%2542%40example.test",
+      "exact-email-with-percent",
+    ],
   ]);
   const cases = [
     "headers",
@@ -81,6 +98,7 @@ export function webviewServers(
   const formatKeyCases = ["code-320", "table-320", "code-820", "table-820"];
   const formatKeys: string[] = [];
   let swipeAndroid: SwipeAndroid | undefined;
+  let swipePreviewAndroid: PreviewSwipeAndroid | undefined;
   let rotateAndroid: RotateAndroid | undefined;
   const tableGestures = [
     "preview",
@@ -673,6 +691,24 @@ export function webviewServers(
     const collection = await collections(req, res, url);
     if (collection) {
       visits.push(collection);
+      return;
+    }
+    const exactProfile = exactProfiles.get(url.pathname);
+    if (exactProfile) {
+      assert.equal(req.method, "GET");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      visits.push(exactProfile);
+      const absent = exactProfile === "remote-username";
+      res
+        .writeHead(absent ? 404 : 200, { "Content-Type": "application/json" })
+        .end(
+          JSON.stringify(
+            absent ? { status_code: 404 } : { id: userId, username: "fixture" },
+          ),
+        );
       return;
     }
     if (url.pathname === "/team/chat/api/v4/users/usernames") {
@@ -1634,20 +1670,28 @@ export function webviewServers(
       codeRotated = name === "landscape";
     } else if (step === "table-swipe") {
       const swipe = swipeAndroid;
-      assert(swipe);
+      const swipePreview = swipePreviewAndroid;
+      assert(swipe && swipePreview);
       const match =
         /^(preview|horizontal|vertical),([1-9]\d{0,3}),([1-9]\d{0,3}),([1-9]\d{0,3}),([1-9]\d{0,3})$/u.exec(
           name,
         );
       assert(match);
       const [, axis, x1, y1, x2, y2] = match;
-      assert.equal(axis, tableGestures[tableGesture++]);
-      if (
+      assert.equal(axis, tableGestures[tableGesture]);
+      if (axis === "preview") {
+        assert.equal(x1, x2);
+        if (
+          !(await press(() => swipePreview(Number(x1), Number(y1), Number(y2))))
+        )
+          return;
+      } else if (
         !(await press(() =>
           swipe(Number(x1), Number(y1), Number(x2), Number(y2)),
         ))
       )
         return;
+      tableGesture++;
     } else if (step === "table-selection") {
       const swipe = swipeAndroid;
       const setPolicy = clipboard;
@@ -1736,10 +1780,12 @@ export function webviewServers(
       swipe: SwipeAndroid,
       rotate: RotateAndroid,
       runClipboardStep: ClipboardPolicyStep,
+      swipePreview: PreviewSwipeAndroid,
       tap: TapAndroid,
     ) {
       clipboard = runClipboardStep;
       swipeAndroid = swipe;
+      swipePreviewAndroid = swipePreview;
       rotateAndroid = rotate;
       tapAndroid = tap;
       prepareKeyboard = () => send("KEYCODE_TAB");
@@ -1814,6 +1860,11 @@ export function webviewServers(
         "user-me",
         "user-profile",
         "profiles-by-name",
+        "exact-username",
+        "remote-username",
+        "exact-email",
+        "exact-email-with-punctuation",
+        "exact-email-with-percent",
         "recipient-page",
         "recipient-search",
         "profile-image",

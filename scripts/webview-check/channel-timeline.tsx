@@ -4,9 +4,13 @@ import { ChannelTimeline } from "../../src/channels/ChannelTimeline.tsx";
 import type { LocalChannelWindow } from "../../src/mattermost/local-history.ts";
 
 export async function checkChannelTimeline() {
+  const fixture = document.createElement("div");
+  // A simulated wide channel must not widen the mobile WebView's viewport.
+  fixture.style.overflow = "clip";
   const host = document.createElement("div");
   host.style.height = "260px";
-  document.body.append(host);
+  fixture.append(host);
+  document.body.append(fixture);
   const root = createRoot(host);
   const stamp = Date.UTC(2026, 10, 25, 12);
   const author = () => ({ name: "Ada Example" });
@@ -137,15 +141,31 @@ export async function checkChannelTimeline() {
     await resize(320, 530);
     if (Math.abs(bottomGap()) > 1)
       throw Error("Resizing at the end displaced the latest post");
-    // Put a partially visible row at the top. Shrinking these paragraphs changes the rows above it.
+    // Widening the pane rewraps the older posts above the partially visible row.
+    pane.focus({ preventScroll: true });
     pane.scrollTop += offset(30) + 9;
-    const anchor = offset(30);
-    const narrowHeight = row(30).height;
+    const readingPosition = () => ({
+      offset: offset(30),
+      scrollTop: pane.scrollTop,
+      precedingHeight: row(30).top - row(1).top,
+      viewportWidth: window.innerWidth,
+    });
+    const before = readingPosition();
     await resize(820, 440);
-    if (Math.abs(offset(30) - anchor) > 1 || row(30).height >= narrowHeight)
-      throw Error("Rewrapping older messages displaced the post being read");
+    const after = readingPosition();
+    const measurements = JSON.stringify({ before, after });
+    if (before.viewportWidth !== after.viewportWidth)
+      throw Error(`Timeline resize changed the WebView width ${measurements}`);
+    if (after.precedingHeight >= before.precedingHeight)
+      throw Error(`Older messages did not rewrap ${measurements}`);
+    if (Math.abs(after.offset - before.offset) > 1)
+      throw Error(
+        `Rewrapping older messages displaced the post being read ${measurements}`,
+      );
+    if (document.activeElement !== pane)
+      throw Error("Rewrapping older messages moved focus out of the timeline");
     await resize(820, 280);
-    if (Math.abs(offset(30) - anchor) > 1)
+    if (Math.abs(offset(30) - before.offset) > 1)
       throw Error("Height change displaced the post being read");
     pane.scrollTop = 0;
     if (offset(1) < 0 || offset(1) >= pane.clientHeight)
@@ -199,6 +219,6 @@ export async function checkChannelTimeline() {
       throw Error("Empty channel explanation moved away from the start");
   } finally {
     root.unmount();
-    host.remove();
+    fixture.remove();
   }
 }

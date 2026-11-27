@@ -237,6 +237,43 @@ export async function checkGeneratedRequests(ports: string[]) {
       )) === "invalid_directory",
       "invalid-profile-shape",
     );
+    const exact = await users.getUserByEmail({
+      email: "fixture+dm@example.test",
+    });
+    check(
+      exact.id === userId && exact.username === "fixture",
+      "generated-exact-email",
+    );
+    const byName = await users.getUserByUsername({ username: "fixture" });
+    check(byName.id === exact.id, "generated-exact-username");
+    const withPunctuation = await users.getUserByEmail({
+      email: "fixture+dm?#@example.test",
+    });
+    check(withPunctuation.id === exact.id, "generated-exact-email-punctuation");
+    const withPercent = await users.getUserByEmail({
+      email: "fixture%42@example.test",
+    });
+    check(withPercent.id === exact.id, "generated-exact-email-percent");
+    const remote = await rejected(
+      users.getUserByUsername({ username: "fixture:remote" }),
+    );
+    check(
+      remote instanceof ResponseError && remote.response.status === 404,
+      "generated-remote-username",
+    );
+    for (const email of [
+      "fixture@example.test/extra",
+      "fixture%2F@example.test",
+      "fixture%2%46@example.test",
+    ]) {
+      const deniedProfile = await rejected(users.getUserByEmail({ email }));
+      check(
+        deniedProfile instanceof FetchError &&
+          deniedProfile.cause instanceof TypeError &&
+          deniedProfile.cause.cause === "operation_denied",
+        "generated-profile-encoded-separator",
+      );
+    }
     const image = await users.getProfileImage({ userId });
     const bytes = new DataView(await image.arrayBuffer());
     check(
