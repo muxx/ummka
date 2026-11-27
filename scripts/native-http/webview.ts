@@ -71,6 +71,7 @@ export function webviewServers(
     ...pendingProfileImages.values(),
     "refresh-late",
     "submit-post",
+    "recipient-hold",
   ];
   const events = new EventEmitter();
   // Each fixture signal fires once and has no error event.
@@ -146,6 +147,39 @@ export function webviewServers(
   const settings = new Map<string, ServerResponse>();
   const entrySettings = new Map<string, ServerResponse>();
   const userId = "Abc01234567890123456789012";
+  const remoteRecipient = "z".repeat(26);
+  const recipientRoutes = new Map<string, { visit: string; body: object }>([
+    [
+      `/team/chat/api/v4/users/${remoteRecipient}`,
+      {
+        visit: "known-remote-recipient",
+        body: {
+          id: remoteRecipient,
+          username: "fixture:remote",
+          remote_id: "r".repeat(26),
+          props: { RemoteUsername: "fixture" },
+        },
+      },
+    ],
+    [
+      "/team/chat/api/v4/users/username/recipient-new",
+      {
+        visit: "new-recipient-by-name",
+        body: { id: "v".repeat(26), username: "recipient-new" },
+      },
+    ],
+    [
+      "/team/chat/api/v4/users/email/recipient%2Bdm%3F%23%2542%40example.test",
+      {
+        visit: "recipient-by-email",
+        body: {
+          id: userId,
+          username: "fixture",
+          email: "recipient+dm?#%42@example.test",
+        },
+      },
+    ],
+  ]);
   const submissions = submissionFixture(userId, () =>
     events.emit("submit-post-received"),
   );
@@ -685,6 +719,39 @@ export function webviewServers(
     const collection = await collections(req, res, url);
     if (collection) {
       visits.push(collection);
+      return;
+    }
+    if (url.pathname === "/api/v4/users/username/fixture%3Aremote") {
+      assert.equal(req.method, "GET");
+      assert.equal(req.headers.authorization, "Bearer fixture-root-session");
+      visits.push("unseen-remote-recipient");
+      res
+        .writeHead(404, { "Content-Type": "application/json" })
+        .end('{"status_code":404}');
+      return;
+    }
+    if (url.pathname === "/team/chat/api/v4/users/username/recipient-hold") {
+      assert.equal(req.method, "GET");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      visits.push("recipient-hold");
+      hold("recipient-hold", req, res);
+      return;
+    }
+    const recipientRoute = recipientRoutes.get(url.pathname);
+    if (recipientRoute) {
+      assert.equal(req.method, "GET");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(url.search, "");
+      visits.push(recipientRoute.visit);
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end(JSON.stringify(recipientRoute.body));
       return;
     }
     const exactProfile = exactProfiles.get(url.pathname);
@@ -1828,6 +1895,13 @@ export function webviewServers(
         "exact-email",
         "exact-email-with-punctuation",
         "exact-email-with-percent",
+        "recipient-by-email",
+        "new-recipient-by-name",
+        "user-profile",
+        "user-profile",
+        "known-remote-recipient",
+        "unseen-remote-recipient",
+        "recipient-hold",
         "recipient-page",
         "recipient-search",
         "profile-image",

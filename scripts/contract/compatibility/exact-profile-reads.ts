@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { channelProfile } from "../../../src/mattermost/channel-profiles.ts";
+import { readConversationRecipient } from "../../../src/mattermost/link-recipient.ts";
 import {
   Configuration,
   ResponseError,
@@ -37,6 +39,35 @@ export async function checkExactProfileReads(
     error instanceof ResponseError && error.response.status === expected;
   try {
     await showEmail(true);
+    const confirmed = channelProfile(
+      await users.getUser({ userId: person.id }),
+    );
+    const empty = async () => ({ usernames: {}, profiles: {} });
+    const saved = async () => ({
+      usernames: { [person.username]: person.id },
+      profiles: { [person.id]: confirmed },
+    });
+    const byName = { kind: "username", name: person.username } as const;
+    const byEmail = { kind: "email", email: person.email } as const;
+    for (const [target, directory] of [
+      [{ kind: "user-id", id: person.id }, empty],
+      [byName, empty],
+      [byName, saved],
+      [byEmail, empty],
+    ] as const) {
+      assert.deepEqual(
+        await readConversationRecipient(users, target, directory),
+        confirmed,
+      );
+    }
+    assert.equal(
+      await readConversationRecipient(
+        users,
+        { kind: "username", name: "fixture:remote" },
+        empty,
+      ),
+      null,
+    );
     assert.equal(
       (await users.getUserByUsername({ username: person.username })).id,
       person.id,
@@ -66,6 +97,11 @@ export async function checkExactProfileReads(
       status(401),
     );
     await showEmail(false);
+    assert.equal(await readConversationRecipient(users, byEmail, empty), null);
+    assert.deepEqual(
+      await readConversationRecipient(users, byName, empty),
+      confirmed,
+    );
     await assert.rejects(
       users.getUserByEmail({ email: person.email }),
       status(403),
@@ -84,5 +120,8 @@ export async function checkExactProfileReads(
   }
   console.log(
     `Mattermost ${version} verified exact username and an email containing +?# and literal %42, hidden email, missing profiles and unsigned access.`,
+  );
+  console.log(
+    `Mattermost ${version} verified the signed recipient by ID, known and unknown names, and email.`,
   );
 }

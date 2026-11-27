@@ -556,6 +556,7 @@ test("passes the canonical installation and closes the exact native handle", asy
   expect("readChannelWindow" in connection).toBe(false);
   expect("stagePost" in connection).toBe(false);
   expect("readPostEditHistory" in connection).toBe(false);
+  expect("readConversationRecipient" in connection).toBe(false);
   expect("editOwnPostMessage" in connection).toBe(false);
   expect("deleteOwnPost" in connection).toBe(false);
   expect("setThreadFollowing" in connection).toBe(false);
@@ -628,6 +629,7 @@ test("opens a native account by installation and user ID", async () => {
     "readChannelNotifications",
     "readChannelTimezoneCount",
     "readChannelWindow",
+    "readConversationRecipient",
     "readCustomEmoji",
     "readDraft",
     "readFileAnchor",

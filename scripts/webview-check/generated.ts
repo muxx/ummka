@@ -269,6 +269,81 @@ export async function checkGeneratedRequests(ports: string[]) {
         "generated-profile-encoded-separator",
       );
     }
+    const exactRecipient = await accountPrefix.readConversationRecipient({
+      kind: "email",
+      email: "recipient+dm?#%42@example.test",
+    });
+    check(
+      exactRecipient?.id === userId && !("email" in exactRecipient),
+      "recipient email",
+    );
+    check(
+      (
+        await accountPrefix.readConversationRecipient({
+          kind: "username",
+          name: "recipient-new",
+        })
+      )?.id === "v".repeat(26),
+      "uncached recipient username",
+    );
+    check(
+      (
+        await accountPrefix.readConversationRecipient({
+          kind: "user-id",
+          id: userId,
+        })
+      )?.username === "fixture",
+      "own recipient ID",
+    );
+    const remoteId = "z".repeat(26);
+    await invoke("store_channel_profiles", {
+      rid: accountPrefix.rid,
+      profiles: [
+        {
+          ...picture,
+          id: remoteId,
+          username: "fixture:remote",
+          remoteUsername: "fixture",
+        },
+      ],
+    });
+    check(
+      (
+        await accountPrefix.readConversationRecipient({
+          kind: "username",
+          name: "fixture",
+        })
+      )?.id === userId,
+      "display alias cannot replace canonical local name",
+    );
+    const remoteTarget = { kind: "username", name: "fixture:remote" } as const;
+    const knownRemote =
+      await accountPrefix.readConversationRecipient(remoteTarget);
+    check(
+      knownRemote?.id === remoteId && knownRemote.remoteUsername === "fixture",
+      "known remote recipient",
+    );
+    check(
+      (await accountRoot.readConversationRecipient(remoteTarget)) === null,
+      "recipient owner isolation",
+    );
+    const stopRecipient = new AbortController();
+    const abortedRecipient = rejected(
+      accountPrefix.readConversationRecipient(
+        { kind: "username", name: "recipient-hold" },
+        stopRecipient.signal,
+      ),
+    );
+    await Promise.race([
+      observed("received", "recipient-hold"),
+      abortedRecipient.then(() => {
+        throw Error("recipient ended before reaching server");
+      }),
+    ]);
+    const recipientChanged = new Error("changed recipient");
+    stopRecipient.abort(recipientChanged);
+    check((await abortedRecipient) === recipientChanged, "abort recipient");
+    await observed("closed", "recipient-hold");
     const image = await users.getProfileImage({ userId });
     const bytes = new DataView(await image.arrayBuffer());
     check(
