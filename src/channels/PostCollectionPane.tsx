@@ -7,9 +7,13 @@ import {
   useState,
 } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
-import { CollectionScroll } from "./CollectionScroll.tsx";
+import { CollectionReadNotice } from "./CollectionReadNotice.tsx";
+import { CollectionScroll, restoreCollectionRow } from "./CollectionScroll.tsx";
 import { collectionCopy } from "./collection-copy.ts";
-import type { openPostCollection } from "./post-collection.ts";
+import {
+  newestCollectionItems,
+  type openPostCollection,
+} from "./post-collection.ts";
 import { initials } from "./profile-initials.ts";
 import { publishedPostDocument } from "./published-post-document.ts";
 import { publishedPostExcerpt } from "./published-post-excerpt.ts";
@@ -69,7 +73,6 @@ export function PostCollectionPane({
   restore,
   openRow,
   close,
-  sessionIssue,
 }: {
   model: Model;
   state: Snapshot;
@@ -83,7 +86,6 @@ export function PostCollectionPane({
   restore: { id: string; scroll: number } | null;
   openRow: (id: string, trigger: HTMLButtonElement, scroll: number) => void;
   close: () => void;
-  sessionIssue: (issue: "session" | "unauthorized") => void;
 }) {
   const text = collectionCopy[language];
   const headingId = useId();
@@ -101,26 +103,11 @@ export function PostCollectionPane({
   const retryRows = useRef<Set<string> | null>(null);
   const initial = useRef(restore);
   useLayoutEffect(() => {
-    const previous = initial.current;
-    const row =
-      previous &&
-      list.current?.querySelector<HTMLButtonElement>(
-        `[data-collection-post="${CSS.escape(previous.id)}"]`,
-      );
-    if (row && list.current && previous) {
-      list.current.scrollTop = previous.scroll;
-      row.focus({ preventScroll: true });
-    } else heading.current?.focus();
+    if (!restoreCollectionRow(list.current, initial.current))
+      heading.current?.focus();
   }, []);
-  useEffect(() => {
-    if (state.status === "unauthorized" || state.status === "session")
-      sessionIssue(state.status);
-  }, [sessionIssue, state.status]);
   const rows = useMemo(
-    () =>
-      [...(state.value?.items ?? [])].sort(
-        (a, b) => (b.createAt ?? 0) - (a.createAt ?? 0),
-      ),
+    () => newestCollectionItems(state.value?.items ?? []),
     [state.value],
   );
   const dates = useMemo(
@@ -295,24 +282,36 @@ export function PostCollectionPane({
         {announcement}
       </span>
       <CollectionScroll pane={list}>
+        {kind === "all" && (
+          <CollectionReadNotice
+            kind="all"
+            status={state.status}
+            hasResponse={state.value !== null}
+            online={online}
+            language={language}
+            list={list}
+            heading={heading}
+            refresh={() => void model.refresh()}
+          />
+        )}
         {state.removing.length > 0 && (
           <p role="status">{kind === "all" ? text.removing : text.unpinning}</p>
         )}
-        {!online && (
+        {!online && (kind === "pins" || state.value) && (
           <p role="status">{state.value ? text.offline : text.offlineCold}</p>
         )}
-        {busy && (
+        {kind === "pins" && busy && (
           <p role="status">
             {state.status === "refreshing" ? text.refreshing : text.loading}
           </p>
         )}
         {state.status === "forbidden" && <p role="alert">{text.unavailable}</p>}
-        {retryList && (
+        {kind === "pins" && retryList && (
           <p role="alert">
             {state.status === "storage" ? text.storage : text.network}
           </p>
         )}
-        {(retryList || coldOffline) && (
+        {kind === "pins" && (retryList || coldOffline) && (
           <button
             className="collection-page-action"
             type="button"

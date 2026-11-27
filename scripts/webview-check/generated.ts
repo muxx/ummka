@@ -60,6 +60,63 @@ async function rejected(action: Promise<unknown>) {
   throw Error("generated request unexpectedly succeeded");
 }
 
+function controlObservation(
+  control: Awaited<ReturnType<typeof openNativeRestConnection>>,
+) {
+  return async (step: string, name: string) => {
+    const response = await control.fetchApi(
+      `${control.basePath}/api/v4/system/ping?step=${step}&case=${name}`,
+    );
+    check(
+      response.status === 204 && response.body === null,
+      "generated-control",
+    );
+  };
+}
+
+async function checkFormatting(
+  observed: ReturnType<typeof controlObservation>,
+  widths?: readonly number[],
+) {
+  return checkChannelFormatting(
+    (kind, width, phase) =>
+      observed(
+        phase === "up" ? "format-right-up" : "format-right",
+        `${kind}-${width}`,
+      ),
+    isAndroid
+      ? {
+          swipe: (axis, coordinates) =>
+            observed("table-swipe", [axis, ...coordinates].join(",")),
+          rotate: (orientation) => observed("table-rotation", orientation),
+          rotateCode: (orientation) => observed("code-rotation", orientation),
+          tap: (phase, coordinates) =>
+            observed("code-tap", [phase, ...coordinates].join(",")),
+          back: () => observed("code-back", ""),
+          longPress: (x, y) => observed("table-selection", `press,${x},${y}`),
+          allowSelection: (allowed) =>
+            observed("table-selection", allowed ? "allow" : "deny"),
+        }
+      : undefined,
+    widths,
+  );
+}
+
+export async function checkDesktopFormatting(width: 320 | 820, port: string) {
+  const control = await fixtureStep("connect-formatting-driver", () =>
+    openNativeRestConnection(`https://127.0.0.1:${port}`),
+  );
+  try {
+    const observed = controlObservation(control);
+    const times = await checkFormatting(observed, [width]);
+    await fixtureStep("report-format-times", () =>
+      observed("format-times", encodeURIComponent(JSON.stringify(times))),
+    );
+  } finally {
+    await fixtureStep("close-formatting-driver", () => control.close());
+  }
+}
+
 async function checkTeamLoadOwnership(rid: number, other: number) {
   const begin = () => invoke<number>("begin_team_directory_load", { rid });
   const store = (handle: number, load: number, teams: unknown) =>
@@ -118,15 +175,7 @@ export async function checkGeneratedRequests(ports: string[]) {
       return { headers, signal };
     };
   }
-  async function observed(step: string, name: string) {
-    const response = await control.fetchApi(
-      `${control.basePath}/api/v4/system/ping?step=${step}&case=${name}`,
-    );
-    check(
-      response.status === 204 && response.body === null,
-      "generated-control",
-    );
-  }
+  const observed = controlObservation(control);
   async function checkAbort(
     name: string,
     send: (overrides: InitOverrideFunction) => Promise<{ raw: Response }>,
@@ -164,34 +213,14 @@ export async function checkGeneratedRequests(ports: string[]) {
     );
   }
   try {
-    const formatting = await androidFixtureStep("message-formatting", () =>
-      checkChannelFormatting(
-        (kind, width, phase) =>
-          observed(
-            phase === "up" ? "format-right-up" : "format-right",
-            `${kind}-${width}`,
-          ),
-        isAndroid
-          ? {
-              swipe: (axis, coordinates) =>
-                observed("table-swipe", [axis, ...coordinates].join(",")),
-              rotate: (orientation) => observed("table-rotation", orientation),
-              rotateCode: (orientation) =>
-                observed("code-rotation", orientation),
-              tap: (phase, coordinates) =>
-                observed("code-tap", [phase, ...coordinates].join(",")),
-              back: () => observed("code-back", ""),
-              longPress: (x, y) =>
-                observed("table-selection", `press,${x},${y}`),
-              allowSelection: (allowed) =>
-                observed("table-selection", allowed ? "allow" : "deny"),
-            }
-          : undefined,
-      ),
-    );
-    await fixtureStep("report-format-times", () =>
-      observed("format-times", encodeURIComponent(JSON.stringify(formatting))),
-    );
+    if (isAndroid) {
+      const times = await androidFixtureStep("message-formatting", () =>
+        checkFormatting(observed),
+      );
+      await fixtureStep("report-format-times", () =>
+        observed("format-times", encodeURIComponent(JSON.stringify(times))),
+      );
+    }
     await fixtureStep("generated-root-ping", async () => {
       const atRoot = await new SystemApi(new Configuration(root)).getPing(
         query,

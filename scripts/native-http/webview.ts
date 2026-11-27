@@ -36,6 +36,7 @@ import { respondToWorkspace } from "./workspace.ts";
 export function webviewServers(
   trusted: https.ServerOptions,
   untrusted: https.ServerOptions,
+  externalReceipt?: Promise<boolean>,
 ) {
   const pendingProfileImages = new Map([
     ["97", "profile-image-cancel"],
@@ -94,9 +95,9 @@ export function webviewServers(
   let offlineHistoryRequests = 0;
   let connections = 0;
   let before = false;
-  let formattingTimes:
-    | { width: number; first: number; unchanged: number }[]
-    | undefined;
+  const formattingTimes: { width: number; first: number; unchanged: number }[] =
+    [];
+  const formattingWidths = [320, 820];
   const formatKeyCases = ["code-320", "table-320", "code-820", "table-820"];
   const formatKeys: string[] = [];
   let heldFormatKey: string | undefined;
@@ -1689,6 +1690,7 @@ export function webviewServers(
           "release-history",
           "release-submission",
           "disconnect",
+          "external-handoff",
         ].includes(step));
     const name = url.searchParams.get("case") ?? "";
     const marker =
@@ -1711,7 +1713,16 @@ export function webviewServers(
         return false;
       }
     }
-    if (step === "before") {
+    if (step === "external-handoff") {
+      if (!externalReceipt) {
+        res.writeHead(404).end();
+        return;
+      }
+      if (!(await externalReceipt)) {
+        res.writeHead(503).end();
+        return;
+      }
+    } else if (step === "before") {
       assert.equal(
         connections,
         0,
@@ -1841,23 +1852,32 @@ export function webviewServers(
       assert.equal(name, tableGestures[tableGesture++]);
       if (!(await press(() => rotate(name)))) return;
     } else if (step === "format-times") {
-      assert.deepEqual(formatKeys, formatKeyCases);
+      const widths = swipeAndroid
+        ? formattingWidths
+        : [formattingWidths[formattingTimes.length]];
+      const completed = formattingTimes.length + widths.length;
+      assert(
+        completed <= formattingWidths.length,
+        "Duplicate formatting report",
+      );
+      assert.deepEqual(formatKeys, formatKeyCases.slice(0, completed * 2));
       assert.equal(tableGesture, swipeAndroid ? tableGestures.length : 0);
       assert.equal(selectionStep, swipeAndroid ? selectionSteps.length : 0);
       const data = JSON.parse(url.searchParams.get("case") ?? "null");
       assert.ok(Array.isArray(data));
       assert.deepEqual(
         data.map((row) => row.width),
-        [320, 820],
+        widths,
       );
       for (const row of data) {
         assert.ok(Number.isFinite(row.first) && row.first >= 0);
         assert.ok(Number.isFinite(row.unchanged) && row.unchanged >= 0);
       }
-      formattingTimes = data;
-      console.log(
-        "Verified native code-block and table scrolling at both widths.",
-      );
+      formattingTimes.push(...data);
+      if (completed === formattingWidths.length)
+        console.log(
+          "Verified native code-block and table scrolling at both widths.",
+        );
     } else if (step === "release-history") {
       refresh.release();
     } else if (step === "release-submission") {
@@ -1961,7 +1981,10 @@ export function webviewServers(
         "only the online control may reach the offline fixture",
       );
       assert(before);
-      assert.ok(formattingTimes);
+      assert.deepEqual(
+        formattingTimes.map(({ width }) => width),
+        formattingWidths,
+      );
       console.log(
         `Rendered 60 formatted posts in the ${platform} WebView (milliseconds): ${JSON.stringify(formattingTimes)}`,
       );

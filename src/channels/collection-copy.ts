@@ -2,6 +2,20 @@ export const collectionCopy = {
   en: {
     count: (n: number) => `${n} ${n === 1 ? "message" : "messages"}`,
     loaded: (n: number) => `${n} loaded`,
+    mentions: "Mentions",
+    loadingSaved: "Loading saved messages…",
+    loadingMentions: "Loading mentions…",
+    updatingList: "Updating the list…",
+    readNetwork: "No connection",
+    readStorage: "Couldn’t read the list on this device",
+    firstReadFailed: (name: string, reason: string) =>
+      `${name} couldn’t load. ${reason}.`,
+    retryUpdate: (name: string) => `Retry update: ${name}`,
+    updated: (name: string) => `${name} updated`,
+    updateFailed: (reason: string) =>
+      `The list couldn’t update: ${reason.toLowerCase()}. Showing the previous response.`,
+    updateFailedAnnouncement: (name: string, reason: string) =>
+      `${name} couldn’t update: ${reason.toLowerCase()}. Showing the previous response`,
     removing: "Removing from saved…",
     unpinning: "Unpinning…",
     saved: "Saved messages",
@@ -51,6 +65,20 @@ export const collectionCopy = {
   ru: {
     count: (n: number) => `Сообщений: ${n}`,
     loaded: (n: number) => `Загружено: ${n}`,
+    mentions: "Упоминания",
+    loadingSaved: "Загружаем сохранённые…",
+    loadingMentions: "Загружаем упоминания…",
+    updatingList: "Обновляем список…",
+    readNetwork: "Нет связи",
+    readStorage: "Не удалось прочитать список на устройстве",
+    firstReadFailed: (name: string, reason: string) =>
+      `${name} не загрузились. ${reason}.`,
+    retryUpdate: (name: string) => `Повторить обновление: ${name}`,
+    updated: (name: string) => `${name} обновлены`,
+    updateFailed: (reason: string) =>
+      `Список не обновился: ${reason.toLowerCase()}. Ниже — прошлый ответ сервера.`,
+    updateFailedAnnouncement: (name: string, reason: string) =>
+      `${name} не обновились: ${reason.toLowerCase()}. Показан прежний ответ`,
     removing: "Убираем из сохранённых…",
     unpinning: "Открепляем…",
     saved: "Сохранённые",
