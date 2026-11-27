@@ -10,6 +10,7 @@ export const entryText = {
     linkTitle: "Sign in to open the message",
     linkLead:
       "This link points to this server. The message will open after you sign in.",
+    linkCancelledTitle: "Sign-in canceled",
     linkCancelled: "The message will still open when you sign in.",
     declineLink: "Don’t open this link",
     browserMethod: "Opens the system browser",
@@ -50,6 +51,7 @@ export const entryText = {
     linkTitle: "Войдите, чтобы открыть сообщение",
     linkLead:
       "Ссылка ведёт на этот сервер. Сообщение откроется сразу после входа.",
+    linkCancelledTitle: "Вход отменён",
     linkCancelled: "Сообщение не открыто. Оно откроется, когда вы войдёте.",
     declineLink: "Не открывать ссылку",
     browserMethod: "Откроется системный браузер",

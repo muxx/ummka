@@ -465,7 +465,12 @@ test("a saved server with a pending link keeps sign-in and dismissal in the same
     form.getByRole("heading", { name: "Continue in your browser" }),
   );
   fireEvent.click(form.getByRole("button", { name: "Cancel sign-in" }));
-  await form.findByText("The message will still open when you sign in.");
+  await form.findByText("Sign-in canceled");
+  const canceled = within(form.getByRole("status"));
+  expect(canceled.getByText("Sign-in canceled")).toBeTruthy();
+  expect(
+    canceled.getByText("The message will still open when you sign in."),
+  ).toBeTruthy();
   expect(cancelBrowserSignIn).toHaveBeenCalledWith("browser-fixture");
   expect(acks).toEqual([]);
   expect(account.readPostDestination).not.toHaveBeenCalled();

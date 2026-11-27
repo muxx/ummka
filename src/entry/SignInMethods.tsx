@@ -254,7 +254,8 @@ export function SignInMethods({
             <>
               {cancelledDelivery === delivery && (
                 <p className="entry-link-status" role="status">
-                  {text.linkCancelled}
+                  <strong>{text.linkCancelledTitle}</strong>
+                  <span>{text.linkCancelled}</span>
                 </p>
               )}
               <h1 className="entry-link-title" ref={heading} tabIndex={-1}>

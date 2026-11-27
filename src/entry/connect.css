@@ -150,6 +150,8 @@
   font-size: 0.9rem;
 }
 .entry-link-status {
+  display: grid;
+  gap: 4px;
   margin: 16px 0 0;
   padding: 10px 12px;
   border-radius: 9px;
