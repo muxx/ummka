@@ -265,6 +265,18 @@
   },
   {
     "file": "users.yaml",
+    "method": "GET",
+    "path": "/api/v4/users/username/{username}",
+    "id": "GetUserByUsername"
+  },
+  {
+    "file": "users.yaml",
+    "method": "GET",
+    "path": "/api/v4/users/email/{email}",
+    "id": "GetUserByEmail"
+  },
+  {
+    "file": "users.yaml",
     "method": "POST",
     "path": "/api/v4/users/usernames",
     "id": "GetUsersByUsernames",

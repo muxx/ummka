@@ -59,6 +59,7 @@ import { checkCustomEmojiLookup } from "./custom-emoji.ts";
 import { checkEventActions } from "./event-actions.ts";
 import { checkEventConfiguration } from "./event-configuration.ts";
 import { checkEventStream } from "./event-stream.ts";
+import { checkExactProfileReads } from "./exact-profile-reads.ts";
 import { checkFileContent } from "./file-content.ts";
 import { checkFileSearch } from "./file-search.ts";
 import { checkFocusedConversation } from "./focused-conversation.ts";
@@ -137,7 +138,7 @@ const user = await (
   await create("users", {
     username,
     password,
-    email: "history@example.test",
+    email: "history+lookup?#%42@example.test",
     position: "Fixture engineer",
   })
 ).json();
@@ -1409,6 +1410,13 @@ assert.equal(
 );
 console.log(
   `Mattermost ${version} verified local user position and bot identity through generated profile reads.`,
+);
+await checkExactProfileReads(
+  base,
+  token,
+  readerToken,
+  { id: user.id, username, email: user.email },
+  version,
 );
 await checkProfileReads(
   base,

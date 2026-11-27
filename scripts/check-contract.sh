@@ -128,6 +128,12 @@ users.searchUsers({searchUsersRequest: {teamId: "team"}});
 // @ts-expect-error The page number is numeric.
 users.getUsers({page: "0"});
 (await users.getUsersByUsernames({ requestBody: ["ada"] })) satisfies User[];
+(await users.getUserByUsername({ username: "fixture:remote" })) satisfies User;
+(await users.getUserByEmail({ email: "fixture+dm@example.test" })) satisfies User;
+// @ts-expect-error An exact lookup needs its path identifier.
+users.getUserByUsername({});
+// @ts-expect-error The email path parameter is a string.
+users.getUserByEmail({ email: 42 });
 (await users.getProfileImage({ userId: "user" })) satisfies Blob;
 // @ts-expect-error Usernames are strings.
 users.getUsersByUsernames({ requestBody: [42] });

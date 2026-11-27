@@ -15,8 +15,17 @@ assert(
   platform === "macos" || platform === "android",
   "expected macos or android",
 );
+const workspaceBackOnly = process.argv[3] === "workspace-back";
+assert(
+  process.argv.length === 3 ||
+    (process.argv.length === 4 && platform === "macos" && workspaceBackOnly),
+  "expected optionally 'workspace-back' for macOS",
+);
 const dir = await mkdtemp(join(tmpdir(), "ummka-http-"));
-const external = platform === "macos" ? await macExternalLinkReceiver() : null;
+const external =
+  platform === "macos" && !workspaceBackOnly
+    ? await macExternalLinkReceiver()
+    : null;
 try {
   const fixture = await startFixture(dir);
   try {
@@ -25,6 +34,7 @@ try {
       fixture.webviewPorts,
       platform,
       external?.href,
+      workspaceBackOnly,
     );
     if (platform === "android")
       await checkAndroid(
@@ -37,48 +47,58 @@ try {
         fixture.lastNativeProbe,
       );
     else {
-      const result = await promisify(execFile)(
-        "cargo",
-        [
-          "test",
-          "--locked",
-          "--features",
-          "native-http-check",
-          "--lib",
-          "native_http::checks::wire",
-          "--",
-          "--exact",
-          "--nocapture",
-        ],
-        {
-          cwd: "src-tauri",
-          timeout: 300_000,
-          env: {
-            ...process.env,
-            UMMKA_HTTP_PORTS: fixture.ports.join(","),
-            UMMKA_HTTP_TEST_CA: join(dir, "trusted.pem"),
+      if (!workspaceBackOnly) {
+        const result = await promisify(execFile)(
+          "cargo",
+          [
+            "test",
+            "--locked",
+            "--features",
+            "native-http-check",
+            "--lib",
+            "native_http::checks::wire",
+            "--",
+            "--exact",
+            "--nocapture",
+          ],
+          {
+            cwd: "src-tauri",
+            timeout: 300_000,
+            env: {
+              ...process.env,
+              UMMKA_HTTP_PORTS: fixture.ports.join(","),
+              UMMKA_HTTP_TEST_CA: join(dir, "trusted.pem"),
+            },
           },
-        },
-      );
-      assert.match(result.stdout, /1 passed/);
+        );
+        assert.match(result.stdout, /1 passed/);
+      }
       try {
-        await checkMacWebview(fixture.webviewPorts, dir, config, {
-          registerKey: fixture.onMacInputReady,
-          progress: fixture.webviewProgress,
-        });
+        await checkMacWebview(
+          fixture.webviewPorts,
+          dir,
+          config,
+          {
+            registerKey: fixture.onMacInputReady,
+            progress: fixture.webviewProgress,
+          },
+          workspaceBackOnly,
+        );
       } catch (error) {
         console.error("macOS WebView fixture:", fixture.webviewProgress());
         throw error;
       }
     }
-    external?.verify();
-    fixture.verify(platform === "android");
-    console.log(
-      `Generated Mattermost requests verified in the ${platform} WebView: installation profile, users, team channels, channel history and JSON profile batches, HTTP states, TLS and abort.`,
-    );
-    console.log(
-      `Native HTTP verified on ${platform}: installation scope, TLS, connection reuse, HTTP/2 streams, redirects, cookies, cancellation and disconnects.`,
-    );
+    if (!workspaceBackOnly) {
+      external?.verify();
+      fixture.verify(platform === "android");
+      console.log(
+        `Generated Mattermost requests verified in the ${platform} WebView: installation profile, users, team channels, channel history and JSON profile batches, HTTP states, TLS and abort.`,
+      );
+      console.log(
+        `Native HTTP verified on ${platform}: installation scope, TLS, connection reuse, HTTP/2 streams, redirects, cookies, cancellation and disconnects.`,
+      );
+    }
   } finally {
     fixture.close();
   }
