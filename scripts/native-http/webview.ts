@@ -116,6 +116,8 @@ export function webviewServers(
   const selectionSteps = ["press", "deny", "press", "allow", "press"];
   let selectionStep = 0;
   let controlProgress = "not started";
+  let windowReceivedSocket: Socket | undefined;
+  let windowDataProgress = "not started";
   let onMacStep: ((stage: string) => void) | undefined;
   let controlRequests = 0;
   let sendRight: (() => Promise<void>) | undefined;
@@ -222,6 +224,18 @@ export function webviewServers(
           name: "old_room",
           type: "O",
           delete_at: 41,
+        },
+      },
+    ],
+    [
+      `/team/chat/api/v4/channels/${"z".repeat(26)}`,
+      {
+        name: "signed-link-identifier",
+        body: {
+          id: "z".repeat(26),
+          name: "release",
+          team_id: teamId,
+          type: "O",
         },
       },
     ],
@@ -543,7 +557,11 @@ export function webviewServers(
     ],
   ]);
   function hold(name: string, req: IncomingMessage, res: ServerResponse) {
-    req.socket.once("close", () => events.emit(`${name}-closed`));
+    if (name === "window") windowDataProgress = "held";
+    req.socket.once("close", () => {
+      if (name === "window") windowDataProgress = "closed";
+      events.emit(`${name}-closed`);
+    });
     events.emit(`${name}-received`);
     if (name === "body" || name.endsWith("-body"))
       res.writeHead(200, { "Content-Length": "100" }).write("A");
@@ -1821,6 +1839,17 @@ export function webviewServers(
       const wait = held.get(name);
       assert(wait);
       assert(step === "received" || step === "closed");
+      if (name === "window") {
+        if (step === "received") {
+          assert(!windowReceivedSocket, "duplicate window received receipt");
+          windowReceivedSocket = req.socket;
+        } else {
+          assert(
+            windowReceivedSocket && req.socket !== windowReceivedSocket,
+            "window closed receipt must follow received on a fresh control socket",
+          );
+        }
+      }
       await wait[step];
       if (name === "reload" && step === "closed" && prepareKeyboard) {
         const sendTab = prepareKeyboard;
@@ -1843,7 +1872,7 @@ export function webviewServers(
   return {
     servers: [data, control, foreign],
     progress: () =>
-      `control=${controlProgress}, data visits=${visits.length} [${visits.slice(-6).join(", ")}], completed Back steps=${stepIndex}`,
+      `control=${controlProgress}, window data=${windowDataProgress}, data visits=${visits.length} [${visits.slice(-6).join(", ")}], completed Back steps=${stepIndex}`,
     onMacInputReady(send: SendMacKey, completed: (stage: string) => void) {
       onMacStep = completed;
       pressWorkspaceBack = () => send("escape");
@@ -1902,6 +1931,7 @@ export function webviewServers(
       assert.equal(entrySettings.size, 2);
       assert.equal(untrustedRequests, 0);
       const expected = [
+        "signed-link-identifier",
         ...collectionBackSteps,
         "signed-single-channel",
         "signed-named-channel",

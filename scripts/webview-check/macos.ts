@@ -14,16 +14,21 @@ export type SendMacKey = (
   key: "right-down" | "right-up" | "escape",
 ) => Promise<void>;
 type KeyDriver = (send: SendMacKey, completed: (stage: string) => void) => void;
+type InteractiveFixture = {
+  registerKey: KeyDriver;
+  progress: () => string;
+};
+const windowStepTimeout = 10_000;
 
 export function watchWebviewSteps(expire: () => void, timeoutMs: number) {
   const steps = new Set<string>();
   let timer: NodeJS.Timeout | undefined = setTimeout(expire, timeoutMs);
   return {
-    completed(stage: string) {
+    completed(stage: string, budget = timeoutMs) {
       if (!timer || steps.has(stage)) return;
       steps.add(stage);
       clearTimeout(timer);
-      timer = setTimeout(expire, timeoutMs);
+      timer = setTimeout(expire, budget);
     },
     close() {
       clearTimeout(timer);
@@ -64,21 +69,26 @@ async function reportMainThread(pid: number) {
 async function launch(
   expected: string,
   env = process.env,
-  register?: KeyDriver,
+  fixture?: InteractiveFixture,
 ) {
   const processRun = exec("src-tauri/target/release/ummka", [], {
     // The interactive suite also has a deadline for each distinct fixture step.
-    timeout: register ? 300_000 : 45_000,
+    timeout: fixture ? 300_000 : 45_000,
     env,
   });
   let lastWebviewStep = "no browser stage reported";
+  let lastWindowStep: string | undefined;
   let stalled = false;
-  const watchdog = register
+  const watchdog = fixture
     ? watchWebviewSteps(
         () => {
           stalled = true;
           console.error(
-            `WKWebView made no further progress after ${lastWebviewStep}`,
+            `WKWebView made no further progress after ${lastWindowStep ?? lastWebviewStep}`,
+          );
+          console.error(
+            "macOS WebView before termination:",
+            fixture.progress(),
           );
           const pid = processRun.child.pid;
           if (pid)
@@ -89,7 +99,7 @@ async function launch(
       )
     : undefined;
   try {
-    if (register && watchdog) {
+    if (fixture && watchdog) {
       const input = processRun.child.stdin;
       const output = processRun.child.stdout;
       assert(input && output);
@@ -99,26 +109,37 @@ async function launch(
           line,
         );
         if (!step) return;
-        lastWebviewStep = `${step[1]} ${step[2]}`;
-        watchdog.completed(`browser ${lastWebviewStep}`);
-      });
-      const lines = outputLines[Symbol.asyncIterator]();
-      register(async (key) => {
-        await new Promise<void>((resolve, reject) => {
-          input.write(`${key}\n`, (error) =>
-            error ? reject(error) : resolve(),
-          );
-        });
-        // Each serial fixture command waits for AppKit to dispatch its event.
-        // A successful pipe write only means that Node queued bytes for the child.
-        for (;;) {
-          const line = await lines.next();
-          assert(!line.done, `Fixture exited before dispatching ${key}`);
-          if (!line.value.startsWith("UMMKA_KEY_DISPATCHED ")) continue;
-          assert.equal(line.value, `UMMKA_KEY_DISPATCHED ${key}`);
+        if (step[2].startsWith("window-lifetime-")) {
+          lastWindowStep = `${step[1]} ${step[2]}`;
+          watchdog.completed(lastWindowStep, windowStepTimeout);
           return;
         }
-      }, watchdog.completed);
+        lastWebviewStep = `${step[1]} ${step[2]}`;
+        if (!lastWindowStep) watchdog.completed(`browser ${lastWebviewStep}`);
+      });
+      const lines = outputLines[Symbol.asyncIterator]();
+      fixture.registerKey(
+        async (key) => {
+          await new Promise<void>((resolve, reject) => {
+            input.write(`${key}\n`, (error) =>
+              error ? reject(error) : resolve(),
+            );
+          });
+          // Each serial fixture command waits for AppKit to dispatch its event.
+          // A successful pipe write only means that Node queued bytes for the child.
+          for (;;) {
+            const line = await lines.next();
+            assert(!line.done, `Fixture exited before dispatching ${key}`);
+            if (!line.value.startsWith("UMMKA_KEY_DISPATCHED ")) continue;
+            assert.equal(line.value, `UMMKA_KEY_DISPATCHED ${key}`);
+            return;
+          }
+        },
+        (stage) => {
+          // Server progress does not acknowledge the native client's receipt.
+          if (!lastWindowStep) watchdog.completed(stage);
+        },
+      );
     }
     const { stdout } = await processRun;
     assert(!stalled, `WKWebView stalled at ${lastWebviewStep}`);
@@ -126,7 +147,9 @@ async function launch(
       stdout.split(/\r?\n/u).includes(`UMMKA_WEBVIEW_CHECK ${expected}`),
       stdout,
     );
-    const stage = register ? ` (last browser stage: ${lastWebviewStep})` : "";
+    const stage = fixture
+      ? ` (last browser stage: ${lastWebviewStep}; last native stage: ${lastWindowStep ?? "none"})`
+      : "";
     console.log(
       `WKWebView process ${processRun.child.pid} verified ${expected}${stage}.`,
     );
@@ -145,7 +168,7 @@ export async function checkMacWebview(
   ports: number[],
   dir: string,
   config: string,
-  registerKey: KeyDriver,
+  fixture: InteractiveFixture,
   workspaceBackOnly = false,
 ) {
   const keychain = join(dir, "sessions.keychain-db");
@@ -186,7 +209,7 @@ export async function checkMacWebview(
     await launch(
       workspaceBackOnly ? "workspace-back" : "PASS",
       { ...env, UMMKA_CHECK_KEY_INPUT: "1" },
-      registerKey,
+      fixture,
     );
     if (workspaceBackOnly) return;
     await checkMacSystemLinks(dir, env, postLinks(ports[0]));
