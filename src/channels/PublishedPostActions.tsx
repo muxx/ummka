@@ -14,10 +14,12 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { isMobile } from "../build-platform.ts";
+import type { EntryLanguage } from "../entry/language.ts";
 import type { LocalPost } from "../mattermost/local-history.ts";
 import { isMattermostId } from "../mattermost/model-fields.ts";
 import { CollectionMark } from "./PostCollectionPane.tsx";
 import { copyToClipboard, PostActionScope } from "./post-action-scope.ts";
+import { attachmentName, cardFiles } from "./post-attachment-cards.ts";
 import { publishedPostDocument } from "./published-post-document.ts";
 import { publishedPostExcerpt } from "./published-post-excerpt.ts";
 
@@ -27,6 +29,7 @@ type PublishedActions = {
   post: LocalPost;
   author: string;
   avatar: ReactNode;
+  language: EntryLanguage;
   openThread?: () => void;
   postTime?: PostTime;
   editedLabel?: string;
@@ -61,6 +64,7 @@ function AvailableActions({
   post,
   author,
   avatar,
+  language,
   openThread,
   postTime,
   editedLabel,
@@ -122,13 +126,13 @@ function AvailableActions({
             anchor={anchor}
             author={author}
             avatar={avatar}
-            postId={post.id}
+            post={post}
+            language={language}
             scope={scope}
             openThread={thread}
             bookmark={bookmark}
             postTime={postTime}
             editedLabel={editedLabel}
-            preview={postTime ? post.message : undefined}
           />,
           document.body,
         )}
@@ -209,24 +213,24 @@ function ActionDialog({
   anchor,
   author,
   avatar,
-  postId,
+  post,
+  language,
   scope,
   openThread,
   bookmark,
   postTime,
   editedLabel,
-  preview,
 }: {
   anchor: HTMLButtonElement;
   author: string;
   avatar: ReactNode;
-  postId: string;
+  post: LocalPost;
+  language: EntryLanguage;
   scope: Scope;
   openThread?: () => void;
   bookmark: ReturnType<typeof savePresentation>;
   postTime?: PostTime;
   editedLabel?: string;
-  preview?: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const action = useRef<HTMLButtonElement>(null);
@@ -236,12 +240,19 @@ function ActionDialog({
   const dismissed = useRef(false);
   const copying = useRef(false);
   const title = useId();
-  const excerpt = useMemo(
-    () =>
-      preview &&
-      publishedPostExcerpt(publishedPostDocument({ message: preview })),
-    [preview],
-  );
+  const { message, attachments } = post;
+  const showExcerpt = Boolean(postTime);
+  const excerpt = useMemo(() => {
+    if (!showExcerpt) return "";
+    if (message)
+      return publishedPostExcerpt(publishedPostDocument({ message }));
+    return attachments
+      ? cardFiles(attachments)
+          .map((file, index) => attachmentName(file, index + 1, language))
+          .join(", ")
+          .replace(/\s+/gu, " ")
+      : "";
+  }, [attachments, language, message, showExcerpt]);
   const { close, ownsRoute, text } = scope;
   useLayoutEffect(() => {
     const modal = dialog.current;
@@ -331,7 +342,7 @@ function ActionDialog({
     // Begin the clipboard operation in the initiating gesture on desktop WebKit.
     try {
       const copied = await copyToClipboard(
-        scope.prefix + encodeURIComponent(postId),
+        scope.prefix + encodeURIComponent(post.id),
         () => !dismissed.current && isCurrent(),
       );
       if (!copied) return;
@@ -445,7 +456,7 @@ function ActionDialog({
           menu
           onChange={() => {
             if (!dismissed.current)
-              scope.save(postId, !bookmark.filled, anchor, dismiss);
+              scope.save(post.id, !bookmark.filled, anchor, dismiss);
           }}
         />
         {scope.allowed && (

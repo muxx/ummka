@@ -17,6 +17,7 @@ import type { EntryLanguage } from "../entry/language.ts";
 import type { LocalPost } from "../mattermost/local-history.ts";
 import {
   attachmentCopy,
+  attachmentName,
   attachmentSize,
   cardFiles,
   hasDetails,
@@ -363,7 +364,7 @@ export function PublishedAttachments({
     <>
       <ul className="post-files">
         {files.map((item, i) => {
-          const name = item.name?.trim() || `${text.file} ${i + 1}`;
+          const name = attachmentName(item, i + 1, language);
           return (
             <li key={item.id}>
               <button

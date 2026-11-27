@@ -86,6 +86,14 @@ export const attachmentCopy = {
   },
 } as const;
 
+export function attachmentName(
+  file: PublishedFile,
+  position: number,
+  language: EntryLanguage,
+) {
+  return file.name?.trim() || `${attachmentCopy[language].file} ${position}`;
+}
+
 const numbers = {
   en: new Intl.NumberFormat("en", { maximumFractionDigits: 1 }),
   ru: new Intl.NumberFormat("ru", { maximumFractionDigits: 1 }),

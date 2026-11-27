@@ -114,6 +114,7 @@ function mount(
     second?: boolean;
     draftRead?: Promise<void>;
     savedReading?: boolean;
+    contents?: Pick<LocalPost, "message" | "attachments">;
   } = {},
 ) {
   const data = projectTeamSidebar({
@@ -151,6 +152,7 @@ function mount(
       ...root,
       userId: options.rootAuthor ?? userId,
       type: options.type ?? root.type,
+      ...options.contents,
       rootId: null,
       messageSource: null,
       ...(collapsed && {
@@ -165,12 +167,29 @@ function mount(
   if (!collapsed) rows.push({ ...reply, messageSource: null });
   if (options.second)
     rows.push({ ...secondRoot, rootId: null, messageSource: null });
+  const { message: replyMessage, attachments: replyFiles } =
+    options.contents ?? {};
+  const redactedFileCount = replyFiles?.redactedFileCount;
   const readThreadPage = vi
     .fn<Connection["readThreadPage"]>()
     .mockImplementation(async ({ rootId }) =>
       rootId === secondRoot.id
         ? { ...page, root: secondRoot, replies: [] }
-        : { ...page, root: { ...root, type: options.type ?? root.type } },
+        : {
+            ...page,
+            root: { ...root, type: options.type ?? root.type },
+            replies: [
+              {
+                ...reply,
+                message: replyMessage ?? reply.message,
+                fileIds: redactedFileCount ? [] : replyFiles?.fileIds,
+                metadata: replyFiles && {
+                  files: redactedFileCount ? [] : replyFiles.files,
+                  redactedFileCount,
+                },
+              },
+            ],
+          },
     );
   const drafts = new Map<string, ComposerDraft>();
   const draftKey = ({ channelId, rootId }: DraftLocation) =>
@@ -240,6 +259,7 @@ function mount(
       }),
     ),
     refreshChannelHistory: vi.fn(),
+    readPostFiles: vi.fn<Connection["readPostFiles"]>().mockResolvedValue([]),
     readThreadPage,
     readSavedPost: vi
       .fn<Connection["readSavedPost"]>()
@@ -1239,6 +1259,67 @@ async function rowActions(
 async function savingMenu() {
   return within(await screen.findByRole("dialog", { name: "Message actions" }));
 }
+
+const knownAttachment = {
+  id: "f".repeat(26),
+  name: "draft_*_v2.txt",
+};
+const observedAttachments = {
+  fileIds: [knownAttachment.id, "m".repeat(26)],
+  files: [knownAttachment],
+};
+
+test.each([
+  [
+    "named and ID-only attachments",
+    "",
+    observedAttachments,
+    "draft_*_v2.txt, Attachment 2",
+  ],
+  [
+    "redacted attachments",
+    "",
+    { ...observedAttachments, redactedFileCount: 2 },
+    null,
+  ],
+  ["an empty post", "", undefined, null],
+  ["text before attachments", "**Comment**", observedAttachments, "Comment"],
+] satisfies [string, string, LocalPost["attachments"], string | null][])(
+  "uses the touch sheet excerpt for %s in the channel and the thread",
+  async (_, message, attachments, expected) => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query.includes("pointer: coarse"),
+    }));
+    const account = mount(true, true, { contents: { message, attachments } });
+    const triggerName = /^Message actions ·/;
+    async function checkExcerpt(trigger: HTMLElement) {
+      fireEvent.click(trigger);
+      const sheet = await screen.findByRole("dialog", {
+        name: "Message actions",
+      });
+      const excerpt = sheet.querySelector(".post-actions-excerpt");
+      expect(excerpt?.textContent ?? null).toBe(expected);
+      fireEvent.click(within(sheet).getByRole("button", { name: "Close" }));
+      await waitFor(() => expect(document.activeElement).toBe(trigger));
+    }
+    await checkExcerpt(
+      await screen.findByRole("button", { name: triggerName }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Open thread, 1 reply/ }),
+    );
+    const thread = await screen.findByRole("complementary", { name: "Thread" });
+    const trigger = await waitFor(() => {
+      const row = thread.querySelector<HTMLElement>(
+        `article[data-post-id="${reply.id}"]`,
+      );
+      if (!row) throw Error("Missing thread reply");
+      return within(row).getByRole("button", { name: triggerName });
+    });
+    await checkExcerpt(trigger);
+    expect(account.readPostFiles).not.toHaveBeenCalled();
+  },
+);
 
 function holdSave(account: ReturnType<typeof mount>) {
   let finish!: () => void;

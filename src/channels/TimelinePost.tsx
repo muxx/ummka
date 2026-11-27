@@ -285,6 +285,7 @@ export function TimelinePost({
                 post={post}
                 author={name}
                 avatar={avatar}
+                language={locale}
                 openThread={inThread ? undefined : open}
                 editedLabel={post.editAt > 0 ? text.edited : undefined}
                 postTime={
