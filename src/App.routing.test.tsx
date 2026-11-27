@@ -13,10 +13,12 @@ import { App } from "./App";
 import { isMobile } from "./build-platform";
 import { ServerSignIn } from "./entry/ServerSignIn";
 import type { PendingPost } from "./mattermost/account-delivery.ts";
+import { signInWithBrowser } from "./mattermost/browser-sign-in";
 import { getDeviceLaunchContext } from "./mattermost/device-launch";
 import { inspectInstallation } from "./mattermost/inspect-installation";
 import {
   connectInstallation,
+  readInstallationSelection,
   selectInstallation,
 } from "./mattermost/installation-registry";
 import { openAccountRestConnection } from "./mattermost/native-rest";
@@ -27,10 +29,15 @@ vi.mock("./mattermost/device-launch", () => ({
 }));
 vi.mock("./mattermost/installation-registry", () => ({
   connectInstallation: vi.fn(),
+  readInstallationSelection: vi.fn(),
   selectInstallation: vi.fn(),
 }));
 vi.mock("./mattermost/native-rest", () => ({
   openAccountRestConnection: vi.fn(),
+}));
+vi.mock("./mattermost/browser-sign-in", () => ({
+  signInWithBrowser: vi.fn(),
+  cancelBrowserSignIn: vi.fn(),
 }));
 vi.mock("./mattermost/inspect-installation", async (original) => ({
   ...(await original<typeof import("./mattermost/inspect-installation")>()),
@@ -48,6 +55,17 @@ const profile = {
   ssoProviders: ["gitlab" as const],
   guestMagicLink: false,
 };
+let nativeBack: (() => void) | undefined;
+vi.mock("@tauri-apps/api/app", () => ({
+  onBackButtonPress: vi.fn(async (handler: () => void) => {
+    nativeBack = handler;
+    return {
+      unregister: () => {
+        if (nativeBack === handler) nativeBack = undefined;
+      },
+    };
+  }),
+}));
 beforeEach(() => {
   vi.resetAllMocks();
 });
@@ -55,6 +73,227 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
+test.each([true, false])(
+  "only carries a known installation name into the verified signed route (%s)",
+  async (sameAccount) => {
+    const current = sameAccount ? user : "x".repeat(26);
+    launch
+      .mockResolvedValueOnce({
+        status: "sign_in_required",
+        serverUrl: origin,
+        installations: [origin],
+      })
+      .mockResolvedValue({
+        status: "ready",
+        serverUrl: origin,
+        userId: current,
+        installations: [origin],
+      });
+    inspect.mockResolvedValue(profile);
+    const signed = vi.mocked(signInWithBrowser).mockResolvedValue(user);
+    const open = vi.mocked(openAccountRestConnection);
+    open.mockResolvedValue({
+      readJoinedTeams: async () => ({ teams: [], selectedTeam: null }),
+      refreshJoinedTeams: async () => true,
+      readSavedProfiles: async () => ({ profiles: {}, usernames: {} }),
+      readWorkspaceSettings: async () => ({ preferences: null, server: null }),
+      refreshWorkspaceServerPolicy: async () => false,
+      close: async () => {},
+    } as unknown as Awaited<ReturnType<typeof openAccountRestConnection>>);
+    render(<App language="en" />);
+    fireEvent.click(await screen.findByRole("button", { name: /GitLab/ }));
+    await screen.findByRole("heading", { name: "No teams yet" });
+    expect(signed).toHaveBeenCalledExactlyOnceWith(
+      origin,
+      "gitlab",
+      expect.any(Function),
+    );
+    expect(open).toHaveBeenCalledExactlyOnceWith(origin, current);
+    expect(screen.getByTitle(origin).textContent).toBe(
+      "chat.example.test/Work",
+    );
+    expect(Boolean(screen.queryByText("Winter"))).toBe(sameAccount);
+    expect(screen.getByText("You’re signed in.")).toBeTruthy();
+    expect(inspect).toHaveBeenCalledOnce();
+  },
+);
+
+test("the empty first choice returns from saved servers to the same account and focus", async () => {
+  const next = `${origin}/Lab`;
+  const installations = [origin, next];
+  const own = {
+    status: "ready",
+    serverUrl: origin,
+    userId: user,
+    installations,
+  } as const;
+  launch.mockResolvedValue(own);
+  vi.mocked(readInstallationSelection).mockResolvedValue({
+    selected: origin,
+    installations,
+  });
+  const open = vi.mocked(openAccountRestConnection);
+  open.mockResolvedValue({
+    readJoinedTeams: async () => ({ teams: [], selectedTeam: null }),
+    refreshJoinedTeams: async () => true,
+    readSavedProfiles: async () => ({ profiles: {}, usernames: {} }),
+    readWorkspaceSettings: async () => ({ preferences: null, server: null }),
+    refreshWorkspaceServerPolicy: async () => false,
+    close: async () => {},
+  } as unknown as Awaited<ReturnType<typeof openAccountRestConnection>>);
+  render(<App language="en" />);
+  const openPicker = async () => {
+    await screen.findByRole("heading", { name: "No teams yet" });
+    const button = screen.getByRole("button", { name: "Another server" });
+    fireEvent.click(button);
+    expect(
+      await screen.findByRole("heading", { name: "Servers on this device" }),
+    ).toBeTruthy();
+  };
+  await openPicker();
+  fireEvent.click(screen.getByRole("button", { name: "Back to team choice" }));
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Another server" }),
+  );
+  await openPicker();
+  if (process.env.TAURI_ENV_PLATFORM === "android") {
+    expect(nativeBack).toBeTypeOf("function");
+    act(() => nativeBack?.());
+  } else {
+    fireEvent.keyDown(document.body, { key: "Escape" });
+  }
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Another server" }),
+  );
+  await openPicker();
+  fireEvent.click(
+    screen.getByRole("button", { name: /Selected.*chat\.example\.test.*Work/ }),
+  );
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Another server" }),
+  );
+  expect(open).toHaveBeenCalledExactlyOnceWith(origin, user);
+  expect(selectInstallation).not.toHaveBeenCalled();
+  expect(inspect).not.toHaveBeenCalled();
+  await openPicker();
+  fireEvent.click(screen.getByRole("button", { name: "Add server" }));
+  await screen.findByRole("textbox", { name: "Server address" });
+  fireEvent.keyDown(document.body, { key: "Escape" });
+  const add = await screen.findByRole("button", { name: "Add server" });
+  expect(document.activeElement).toBe(add);
+
+  const nextUser = "x".repeat(26);
+  vi.mocked(selectInstallation).mockImplementationOnce(async () => {
+    launch.mockResolvedValue({ ...own, serverUrl: next, userId: nextUser });
+  });
+  fireEvent.click(add);
+  const input = await screen.findByRole("textbox", { name: "Server address" });
+  fireEvent.change(input, { target: { value: "chat.example.test/Work/Lab/" } });
+  fireEvent.submit(input.closest("form") as HTMLFormElement);
+  await screen.findByTitle(next);
+  expect(selectInstallation).toHaveBeenCalledExactlyOnceWith(next);
+  expect(open.mock.calls).toEqual([
+    [origin, user],
+    [next, nextUser],
+  ]);
+  expect(inspect).not.toHaveBeenCalled();
+  expect(signInWithBrowser).not.toHaveBeenCalled();
+});
+
+test.each([true, false])(
+  "returning after adding a third server uses the current registry (%s)",
+  async (originalRegistered) => {
+    const lab = `${origin}/Lab`;
+    const third = "https://third.example.test";
+    const otherUser = "z".repeat(26);
+    let selected = origin;
+    let installations = [origin, lab];
+    let authenticatedThird = false;
+    launch.mockImplementation(async () =>
+      selected === third && !authenticatedThird
+        ? { status: "sign_in_required", serverUrl: third, installations }
+        : {
+            status: "ready",
+            serverUrl: selected,
+            userId: selected === origin ? user : otherUser,
+            installations,
+          },
+    );
+    vi.mocked(readInstallationSelection).mockImplementation(async () => ({
+      installations,
+      selected,
+    }));
+    vi.mocked(connectInstallation).mockImplementation(async (url) => {
+      installations = originalRegistered ? [origin, lab, url] : [lab, url];
+      selected = url;
+    });
+    vi.mocked(selectInstallation).mockImplementation(async (url) => {
+      if (!installations.includes(url)) throw "not_registered";
+      selected = url;
+    });
+    inspect.mockResolvedValue({
+      ...profile,
+      serverUrl: third,
+      siteName: "Third",
+    });
+    const open = vi.mocked(openAccountRestConnection);
+    open.mockResolvedValue({
+      readJoinedTeams: async () => ({ teams: [], selectedTeam: null }),
+      refreshJoinedTeams: async () => true,
+      readSavedProfiles: async () => ({ profiles: {}, usernames: {} }),
+      readWorkspaceSettings: async () => ({ preferences: null, server: null }),
+      refreshWorkspaceServerPolicy: async () => false,
+      close: async () => {},
+    } as unknown as Awaited<ReturnType<typeof openAccountRestConnection>>);
+    render(<App language="en" />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Another server" }),
+    );
+    async function add() {
+      fireEvent.click(screen.getByRole("button", { name: "Add server" }));
+      const input = await screen.findByRole("textbox", {
+        name: "Server address",
+      });
+      fireEvent.change(input, { target: { value: third } });
+      fireEvent.submit(input.closest("form") as HTMLFormElement);
+    }
+    await add();
+    await screen.findByText("Third");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Change server address" }),
+    );
+    await screen.findByRole("textbox", { name: "Server address" });
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    if (originalRegistered) {
+      const restored = await screen.findByRole("button", {
+        name: "Add server",
+      });
+      expect(document.activeElement).toBe(restored);
+      expect(screen.getByTitle(third)).toBeTruthy();
+      expect(selected).toBe(origin);
+      expect(open).toHaveBeenCalledExactlyOnceWith(origin, user);
+      authenticatedThird = true;
+      await add();
+      await screen.findByTitle(third);
+      expect(open.mock.calls).toEqual([
+        [origin, user],
+        [third, otherUser],
+      ]);
+      expect(selected).toBe(third);
+    } else {
+      await screen.findByRole("alert");
+      expect(selected).toBe(third);
+      expect(installations).toEqual([lab, third]);
+      expect(open).toHaveBeenCalledExactlyOnceWith(origin, user);
+    }
+    expect(connectInstallation).toHaveBeenCalledExactlyOnceWith(third);
+    expect(vi.mocked(selectInstallation).mock.calls).toEqual(
+      originalRegistered ? [[origin], [third]] : [[origin]],
+    );
+    expect(inspect).toHaveBeenCalledOnce();
+    expect(signInWithBrowser).not.toHaveBeenCalled();
+  },
+);
 test("retries a failed protected-store read before offering an empty address", async () => {
   launch
     .mockRejectedValueOnce("credential_storage_unavailable")
@@ -200,6 +439,7 @@ test("restores the selected team, channel, messages and account actions without 
     status: "ready",
     serverUrl: origin,
     userId: user,
+    installations: [origin],
   });
   const team = {
     id: "b".repeat(26),

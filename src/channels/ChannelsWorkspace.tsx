@@ -1042,7 +1042,6 @@ export function ChannelsWorkspace({
     ) {
       request.stop(
         timeline.status === "inaccessible" ? "archived" : "unavailable",
-        position.membership,
       );
       return;
     }
@@ -1051,7 +1050,7 @@ export function ChannelsWorkspace({
         timeline.status,
       )
     ) {
-      request.stop("failed", position.membership);
+      request.stop("failed");
       return;
     }
     const scene = host.current;
@@ -1504,7 +1503,6 @@ export function ChannelsWorkspace({
                                 : reason === "failed"
                                   ? "failed"
                                   : "unavailable",
-                              position.membership,
                             )
                         : undefined
                     }

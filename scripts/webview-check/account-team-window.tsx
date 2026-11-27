@@ -2,7 +2,7 @@ import { fireEvent, waitFor, within } from "@testing-library/dom";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { App } from "../../src/App.tsx";
-import { usesMacOSOverlay } from "../../src/build-platform.ts";
+import { isMobile, usesMacOSOverlay } from "../../src/build-platform.ts";
 import {
   connectInstallation,
   forgetInstallation,
@@ -14,6 +14,7 @@ import {
   openAccountRestConnection,
 } from "../../src/mattermost/native-rest.ts";
 import { readRestoredOutgoing } from "./composer-drafts.ts";
+import { fixtureStep } from "./fixture-step.ts";
 import { checkRowPermalink } from "./published-post-actions.ts";
 
 export function openChannelNavigation(element: HTMLElement, label: string) {
@@ -21,6 +22,48 @@ export function openChannelNavigation(element: HTMLElement, label: string) {
     name: label,
   });
   if (back) flushSync(() => fireEvent.click(back));
+}
+
+export async function checkFirstTeamChoice(
+  host: HTMLElement,
+  server: string,
+  siteName?: string,
+) {
+  const ui = within(host);
+  await fixtureStep("check-first-team-choice", async () => {
+    const option = await ui.findByRole("button", { name: "Browser team" });
+    const heading = ui.getByRole("heading", { name: "Choose a team" });
+    const address = ui.getByTitle(server);
+    const other = ui.getByRole("button", { name: "Release team" });
+    if (
+      document.activeElement !== (isMobile ? heading : option) ||
+      Math.round(option.getBoundingClientRect().height) !== 64 ||
+      Math.round(other.getBoundingClientRect().height) !== 64 ||
+      address.textContent !== server.slice("https://".length) ||
+      (siteName && !within(option).queryByText(siteName)) ||
+      (!siteName && within(option).queryByText("Browser fixture")) ||
+      !ui.queryByText("You’re signed in.")
+    )
+      throw Error(
+        "The first team choice lost the account context, row height, or focus",
+      );
+    flushSync(() => fireEvent.click(option));
+  });
+  await fixtureStep("verify-saved-first-team", async () => {
+    await ui.findByText("Town fixture message", {}, { timeout: 10000 });
+    const account = await openAccountRestConnection(server, "f".repeat(26));
+    try {
+      if (
+        (await account.readJoinedTeams())?.selectedTeam !==
+        "Team0123456789012345678901"
+      )
+        throw Error(
+          "Opening a team did not save its selection in account storage",
+        );
+    } finally {
+      await account.close();
+    }
+  });
 }
 
 export async function checkSavedTeamWindow(

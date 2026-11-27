@@ -1710,6 +1710,7 @@ test("a late rejected refresh from a closed account cannot sign out a newly open
       status: "ready",
       serverUrl: "https://other.example.test",
       userId: "b".repeat(26),
+      installations: ["https://other.example.test"],
     }),
   });
   const opener = await screen.findByRole("button", { name: "Saved messages" });

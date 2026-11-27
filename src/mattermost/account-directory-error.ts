@@ -7,6 +7,7 @@ type Step =
   | "sidebar"
   | "begin"
   | "publish"
+  | "select"
   | "snapshot";
 type Field =
   | "teams.row"

@@ -36,7 +36,12 @@ test.each([null, "a".repeat(26)])(
             serverUrl: selected,
             installations: snapshot.installations,
           }
-        : { status: "ready", serverUrl: selected, userId },
+        : {
+            status: "ready",
+            serverUrl: selected,
+            userId,
+            installations: snapshot.installations,
+          },
     );
     expect(current).toHaveBeenCalledExactlyOnceWith(selected);
   },

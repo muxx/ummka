@@ -11,6 +11,7 @@ export function SavedServerPicker({
   linkedUrl,
   language,
   focusAdd,
+  backLabel,
   onChoose,
   onAdd,
   onClose,
@@ -21,6 +22,7 @@ export function SavedServerPicker({
   linkedUrl?: string;
   language: EntryLanguage;
   focusAdd: boolean;
+  backLabel?: string;
   onChoose: (url: string) => Promise<void>;
   onAdd: () => void;
   onClose: () => void;
@@ -68,7 +70,11 @@ export function SavedServerPicker({
 
   return (
     <EntryWindow
-      back={busy ? undefined : { label: text.backToSignIn, activate: close }}
+      back={
+        busy
+          ? undefined
+          : { label: backLabel ?? text.backToSignIn, activate: close }
+      }
     >
       <h1 ref={heading} tabIndex={-1} className="entry-saved-servers-title">
         {text.savedServers}

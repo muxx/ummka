@@ -20,6 +20,7 @@ export function openPostNavigation(
   selectedTeamId: string | null,
   confirm: (request: Consent) => Promise<boolean>,
   signal?: AbortSignal,
+  onJoined?: (membership: MembershipTarget) => void,
 ) {
   const origin = { ...source };
   async function navigate() {
@@ -102,6 +103,7 @@ export function openPostNavigation(
           joined,
         };
       joined.push(target);
+      onJoined?.(target);
     }
   }
 

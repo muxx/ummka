@@ -4,6 +4,7 @@ import {
   useEffect,
   useEffectEvent,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -23,8 +24,12 @@ import {
 } from "../mattermost/joined-teams";
 import { openAccountRestConnection } from "../mattermost/native-rest";
 import { EntryWindow } from "./EntryWindow";
+import { FirstTeamChoice, type FirstTeamSelection } from "./FirstTeamChoice";
 import type { EntryLanguage } from "./language";
-import { teamText } from "./team-text";
+import { SavedServerPicker } from "./SavedServerPicker";
+import { ServerSignIn } from "./ServerSignIn";
+import { SignedLinkOpeningWindow } from "./SignedLinkOpeningWindow";
+import { firstTeamText, teamText } from "./team-text";
 import {
   type MessageNavigation,
   useMessageNavigation,
@@ -33,7 +38,10 @@ import "./connect.css";
 import "./team-window.css";
 
 import { resumeChannelsLink } from "../mattermost/route-channels-link";
-import type { SystemPostRequest } from "./use-system-permalink";
+import type {
+  SignedLinkOpening,
+  SystemPostRequest,
+} from "./use-system-permalink";
 
 type Connection = Awaited<ReturnType<typeof openAccountRestConnection>>;
 type SessionCleanup = { confirmed: boolean; cause: unknown };
@@ -63,9 +71,19 @@ export type TeamWorkspace = {
 type Props = {
   serverUrl: string;
   userId: string;
+  siteName?: string;
+  deviceServers?: {
+    installations: readonly string[];
+    select: (url: string) => Promise<void>;
+    restore: (url: string, signal: AbortSignal) => Promise<string[]>;
+    connect: Parameters<typeof ServerSignIn>[0]["connect"];
+    changed: Parameters<typeof ServerSignIn>[0]["onAccountChanged"];
+  };
   language: EntryLanguage;
   onSessionEnded: () => void;
   systemPost?: SystemPostRequest;
+  opening?: SignedLinkOpening;
+  linkNotice?: ReactNode;
   children: (workspace: TeamWorkspace) => ReactNode;
 };
 
@@ -86,6 +104,7 @@ type Issue = Problem["issue"] | "offline" | "noCache" | "chooseFailed";
 type Notice = Issue | Problem | null;
 type TeamChoiceRequest =
   | { kind: "workspace"; onAccepted: () => void }
+  | { kind: "first"; onAccepted: () => void }
   | {
       kind: "message";
       directory: JoinedTeams;
@@ -99,10 +118,14 @@ function issueOf(notice: Notice) {
 function AccountWindow({
   serverUrl,
   userId,
+  siteName,
+  deviceServers,
   language,
   onSessionEnded,
   children,
   systemPost,
+  opening,
+  linkNotice,
   retry,
 }: Props & { retry: () => void }) {
   const text = teamText[language];
@@ -110,9 +133,44 @@ function AccountWindow({
   const [report, setNotice] = useState<Notice>(null);
   const notice = issueOf(report);
   const directoryCode = typeof report === "object" ? report?.code : undefined;
-  const [picker, setPicker] = useState(false);
   const [choosing, setChoosing] = useState(false);
+  const [firstChoice, setFirstChoice] = useState<FirstTeamSelection | null>(
+    null,
+  );
+  const [loading, setLoading] = useState(true);
+  const [accountName, setAccountName] = useState("");
+  const [servers, setServers] = useState<"list" | "add" | "return" | null>(
+    null,
+  );
+  const [restoreOtherServer, setRestoreOtherServer] = useState(false);
+  const [updatedInstallations, setUpdatedInstallations] = useState<string[]>();
+  const selectSaved = deviceServers?.select;
+  const restoreSaved = deviceServers?.restore;
+  const installations = updatedInstallations ?? deviceServers?.installations;
+  const addServer = useMemo(() => {
+    if (!selectSaved || !restoreSaved || !installations) return;
+    const restoreSelection = restoreSaved;
+    async function restore(signal: AbortSignal) {
+      const latest = await restoreSelection(serverUrl, signal);
+      signal.throwIfAborted();
+      setUpdatedInstallations(latest);
+    }
+    return {
+      installations,
+      async select(url: string, signal: AbortSignal) {
+        if (url !== serverUrl) return selectSaved(url);
+        await restore(signal);
+        setRestoreOtherServer(true);
+        setServers(null);
+      },
+      async onBack(signal: AbortSignal) {
+        await restore(signal);
+        setServers("return");
+      },
+    };
+  }, [installations, restoreSaved, selectSaved, serverUrl]);
   const [needsTeam, setNeedsTeam] = useState<SystemPostRequest | null>(null);
+  const picker = systemPost !== undefined && needsTeam === systemPost;
   const connection = useRef<Connection | null>(null);
   const exiting = useRef<"working" | "cleanup" | null>(null);
   const [cleanup, setCleanup] = useState<SessionCleanup | null>(null);
@@ -142,6 +200,9 @@ function AccountWindow({
   const readVersion = useRef(0);
   const retryRemoval = useRef<(() => void) | null>(null);
   const ended = useEffectEvent(onSessionEnded);
+  const canReadAccountName = useEffectEvent(
+    () => !systemPost || opening !== undefined,
+  );
   const read = useCallback(
     async (current: Connection, isCurrent: () => boolean = () => true) => {
       const version = ++readVersion.current;
@@ -181,6 +242,9 @@ function AccountWindow({
       connection.current = null;
       readVersion.current++;
       setChoosing(false);
+      setFirstChoice(null);
+      setLoading(true);
+      setAccountName("");
       setDirectory(null);
       setNotice(null);
     }
@@ -194,6 +258,7 @@ function AccountWindow({
         if (!signal.aborted) {
           retryRemoval.current = () => void removeRejectedSession(current);
           setNotice("storage");
+          setLoading(false);
         }
       }
     }
@@ -221,11 +286,40 @@ function AccountWindow({
         if (problem === "session" || problem === "unauthorized") {
           withdraw();
           ended();
-        } else setNotice({ issue: "storage", code: problem.code });
+        } else {
+          setNotice({ issue: "storage", code: problem.code });
+          setLoading(false);
+        }
         return;
       }
       if (signal.aborted) return;
+      if (!initial?.selectedTeam && canReadAccountName())
+        void readAccountName(acquired);
       await refresh();
+    }
+    async function readAccountName(current: Connection) {
+      try {
+        const saved = await current.readSavedProfiles({
+          ids: [userId],
+          usernames: [],
+        });
+        const profile = saved.profiles[userId];
+        if (
+          !signal.aborted &&
+          connection.current === current &&
+          profile?.id === userId
+        )
+          setAccountName(
+            [profile.firstName.trim(), profile.lastName.trim()]
+              .filter(Boolean)
+              .join(" "),
+          );
+      } catch (cause) {
+        if (!signal.aborted && connection.current === current) {
+          const problem = directoryProblem(cause);
+          if (typeof problem === "string") invalidation.current?.(problem);
+        }
+      }
     }
     async function refresh() {
       if (!acquired || signal.aborted || invalidated || exiting.current) return;
@@ -237,8 +331,18 @@ function AccountWindow({
         version === refreshVersion;
       if (!navigator.onLine) {
         setNotice(initial ? "offline" : "noCache");
+        setLoading(false);
         return;
       }
+      setLoading(true);
+      try {
+        await refreshOnline(active);
+      } finally {
+        if (active()) setLoading(false);
+      }
+    }
+    async function refreshOnline(active: () => boolean) {
+      if (!acquired) return;
       try {
         await acquired.refreshJoinedTeams(signal);
       } catch (error) {
@@ -258,6 +362,7 @@ function AccountWindow({
         try {
           const published = await read(acquired, active);
           if (active() && published !== undefined) {
+            initial = published;
             if (published === null)
               setNotice({ issue: "failed", code: "snapshot.unpublished" });
             else
@@ -330,7 +435,8 @@ function AccountWindow({
   ): Promise<boolean> {
     const message = request?.kind === "message" ? request : undefined;
     const signal = message?.signal;
-    const reportFailure = request?.kind !== "workspace";
+    const first = request?.kind === "first";
+    const reportFailure = !first && request?.kind !== "workspace";
     const current = connection.current;
     if (!current || (!signal && selection.current) || signal?.aborted)
       return false;
@@ -338,6 +444,9 @@ function AccountWindow({
       selection.current = true;
       setChoosing(true);
     }
+    const choice = { id: team.id, name: team.displayName.trim() || team.name };
+    let failure: FirstTeamSelection | null = null;
+    if (first) setFirstChoice({ ...choice, kind: "saving" });
     try {
       return await enqueue(async () => {
         if (connection.current !== current || signal?.aborted) return false;
@@ -346,7 +455,9 @@ function AccountWindow({
         if (connection.current !== current || signal?.aborted) return false;
         const accepted =
           selected?.selectedTeam === team.id ||
-          (await current.selectJoinedTeam(team.id));
+          (await (first
+            ? atDirectoryStep("select", () => current.selectJoinedTeam(team.id))
+            : current.selectJoinedTeam(team.id)));
         if (connection.current !== current || signal?.aborted) return false;
         if (accepted) {
           // Resolve the previous navigation before the next queued write can run.
@@ -355,32 +466,50 @@ function AccountWindow({
             const source = selected ?? message?.directory ?? previous;
             return source && { ...source, selectedTeam: team.id };
           });
-          setPicker(false);
           if (systemPost && needsTeam === systemPost && !signal)
             setNeedsTeam(null);
           setNotice((previous) =>
             previous === "chooseFailed" ? null : previous,
           );
+        } else if (first) {
+          failure = { ...choice, kind: "failed", unavailable: true };
         } else if (reportFailure) {
           setNotice("chooseFailed");
         }
-        if (!accepted && !reportFailure) return false;
+        if (!accepted && !reportFailure && !first) return false;
         try {
           await read(current);
-        } catch {
-          if (connection.current === current && !signal?.aborted)
-            setNotice("storage");
+        } catch (cause) {
+          if (connection.current === current && !signal?.aborted) {
+            if (first) {
+              const problem = directoryProblem(cause);
+              if (typeof problem === "string") {
+                sessionIssue(problem);
+                return false;
+              }
+              setNotice({ issue: "storage", code: problem.code });
+            } else setNotice("storage");
+          }
         }
         return accepted;
       });
-    } catch {
-      if (reportFailure && connection.current === current && !signal?.aborted)
+    } catch (cause) {
+      if (connection.current !== current || signal?.aborted) return false;
+      if (first) {
+        const problem = directoryProblem(cause);
+        if (typeof problem === "string") sessionIssue(problem);
+        else failure = { ...choice, kind: "failed", code: problem.code };
+      } else if (reportFailure) {
         setNotice("chooseFailed");
+      }
       return false;
     } finally {
       if (!signal) {
         selection.current = false;
-        if (connection.current === current) setChoosing(false);
+        if (connection.current === current) {
+          setChoosing(false);
+          if (first) setFirstChoice(failure);
+        }
       }
     }
   }
@@ -426,7 +555,6 @@ function AccountWindow({
             request,
             chooseTeam: () => {
               setNeedsTeam(request);
-              setPicker(true);
             },
           },
         );
@@ -449,10 +577,69 @@ function AccountWindow({
     void inspectSystem(systemPost, signal);
     return () => local.abort();
   }, [systemPost, handle, serverUrl, needsTeam]);
+  const openingActive = opening?.status === "waiting";
+  useEffect(() => {
+    if (!openingActive || !systemPost || handle) return;
+    if (!online) systemPost.stop("paused", "offline");
+    else if (!loading && notice) systemPost.stop("failed");
+  }, [openingActive, systemPost, handle, online, loading, notice]);
   const teams = directory?.teams ?? [];
   const selected = teams.find((team) => team.id === directory?.selectedTeam);
   const hasWorkspace = selected && connection.current && !picker;
-  useWorkspaceBack(Boolean(messageDialog && !hasWorkspace), null);
+  const waitingForLink =
+    opening &&
+    !picker &&
+    (!systemPost || messages.position?.system !== systemPost);
+  useWorkspaceBack(
+    Boolean(messageDialog && (!hasWorkspace || waitingForLink)),
+    null,
+  );
+  if (waitingForLink) {
+    return (
+      <>
+        <SignedLinkOpeningWindow
+          language={language}
+          siteName={siteName}
+          opening={{
+            ...opening,
+            retry: () => {
+              if (!handle) retry();
+              opening.retry();
+            },
+          }}
+        />
+        {messageDialog}
+      </>
+    );
+  }
+  if (servers && deviceServers && addServer && !systemPost && !picker) {
+    if (servers === "add") {
+      return (
+        <ServerSignIn
+          language={language}
+          connect={deviceServers.connect}
+          onAccountChanged={deviceServers.changed}
+          addFromPicker={addServer}
+        />
+      );
+    }
+    return (
+      <SavedServerPicker
+        language={language}
+        currentUrl={serverUrl}
+        currentName={siteName ?? ""}
+        installations={addServer.installations}
+        focusAdd={servers === "return"}
+        backLabel={firstTeamText[language].backToTeamChoice}
+        onChoose={deviceServers.select}
+        onAdd={() => setServers("add")}
+        onClose={() => {
+          setRestoreOtherServer(true);
+          setServers(null);
+        }}
+      />
+    );
+  }
   if (selected && connection.current && !picker) {
     return (
       <>
@@ -480,6 +667,38 @@ function AccountWindow({
         })}
         {messageDialog}
       </>
+    );
+  }
+  if (!systemPost && !picker) {
+    return (
+      <FirstTeamChoice
+        language={language}
+        serverUrl={serverUrl}
+        siteName={siteName}
+        accountName={accountName}
+        teams={orderJoinedTeams(teams, language)}
+        loading={loading}
+        hasDirectory={directory !== null}
+        notice={notice}
+        directoryCode={directoryCode}
+        choice={firstChoice}
+        reload={() => (retryRemoval.current ?? retry)()}
+        otherServer={
+          installations && installations.length > 1
+            ? () => {
+                setRestoreOtherServer(false);
+                setServers("list");
+              }
+            : undefined
+        }
+        restoreOtherServer={restoreOtherServer}
+        select={(team) =>
+          void choose(team, {
+            kind: "first",
+            onAccepted: captureTeamChange(),
+          })
+        }
+      />
     );
   }
   return (
@@ -548,6 +767,7 @@ function AccountWindow({
           {text.retry}
         </button>
       )}
+      {opening && linkNotice}
     </EntryWindow>
   );
 }
