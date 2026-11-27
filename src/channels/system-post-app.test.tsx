@@ -7,6 +7,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ResponseError } from "../../vendor/mattermost/index.js";
 import { signInWithBrowser } from "../mattermost/browser-sign-in.ts";
@@ -130,7 +131,7 @@ beforeEach(() => {
       const el = document.activeElement as HTMLElement;
       acks.push({
         id,
-        row: el.dataset.postId,
+        row: el.closest<HTMLElement>("[data-post-id]")?.dataset.postId,
         thread: !!el.closest(".thread-feed"),
       });
       queue.shift();
@@ -859,4 +860,116 @@ test("a fresh system delivery to the same saved post owns navigation", async () 
   expect(
     screen.queryByRole("button", { name: "Back to saved messages" }),
   ).toBeNull();
+});
+
+test("published links share signed post navigation without consuming any system delivery", async () => {
+  const { account } = boot();
+  const source = {
+    ...root,
+    id: "v".repeat(26),
+    channelId: home,
+    message: `[Open reply](${href(reply.id)})`,
+  };
+  const linkedReply = { ...reply, message: `[Open root](${href(root.id)})` };
+  account.readChannelWindow.mockImplementation(async (q) => ({
+    posts:
+      q.kind === "latest" && q.channelId === home
+        ? [source]
+        : q.kind === "around"
+          ? [q.postId === root.id ? root : linkedReply]
+          : [],
+    newer: { kind: "end" },
+    older: { kind: "end" },
+    firstInaccessiblePostTime: 0,
+  }));
+  account.readPostAnchor.mockImplementation(async (postId) => ({
+    postId,
+    rootId: postId === reply.id ? root.id : null,
+    channelId: design,
+    post: postId === reply.id ? linkedReply : root,
+  }));
+  account.readThreadPage.mockResolvedValue({
+    kind: "page",
+    root: { ...root, messageSource: undefined, rootId: "", deleteAt: 0 },
+    replies: [{ ...linkedReply, messageSource: undefined, deleteAt: 0 }],
+    next: null,
+  });
+  const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+  fireEvent.click(await screen.findByRole("link", { name: "Open reply" }));
+  const toRoot = await screen.findByRole("link", { name: "Open root" });
+  expect(toRoot.closest(".thread-feed")).toBeTruthy();
+  await waitFor(() =>
+    expect(document.activeElement).toBe(toRoot.closest("[data-post-id]")),
+  );
+  // The visible destination can be activated before the next focused-frame receipt.
+  hasFocus.mockReturnValue(true);
+  fireEvent.click(toRoot);
+  await waitFor(() => {
+    expect((document.activeElement as HTMLElement).dataset.postId).toBe(
+      root.id,
+    );
+    expect(document.activeElement?.closest(".thread-feed")).toBeNull();
+  });
+  expect(account.readPostAnchor.mock.calls.map(([id]) => id)).toEqual([
+    reply.id,
+    root.id,
+  ]);
+  expect(acks).toEqual([]);
+});
+
+test("a focused published link in the incoming destination allows its visible OS receipt and then opens the link", async () => {
+  const nativeFocus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+  queue.push({ id: "1", href: href(root.id) });
+  const { account } = boot();
+  const linkedRoot = { ...root, message: `[Open reply](${href(reply.id)})` };
+  account.readChannelWindow.mockImplementation(async (q) => ({
+    posts: q.kind === "around" ? [linkedRoot] : [],
+    newer: { kind: "end" },
+    older: { kind: "end" },
+    firstInaccessiblePostTime: 0,
+  }));
+  account.readPostAnchor.mockImplementation(async (postId) => ({
+    postId,
+    rootId: postId === reply.id ? root.id : null,
+    channelId: design,
+    post: postId === reply.id ? reply : linkedRoot,
+  }));
+
+  const link = await screen.findByRole("link", { name: "Open reply" });
+  await waitFor(() =>
+    expect(document.activeElement).toBe(link.closest("[data-post-id]")),
+  );
+  await userEvent.setup().click(link);
+  expect(document.activeElement).toBe(link);
+  expect(acks).toEqual([]);
+  expect(account.readPostAnchor.mock.calls.map(([id]) => id)).toEqual([
+    root.id,
+  ]);
+
+  Object.defineProperty(link, "getBoundingClientRect", {
+    configurable: true,
+    value: () => new DOMRect(0, 550, 50, 20),
+  });
+  nativeFocus.mockReturnValue(true);
+  fireEvent(window, new Event("focus"));
+  await act(async () => {
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+  });
+  expect(acks).toEqual([]);
+  Reflect.deleteProperty(link, "getBoundingClientRect");
+  fireEvent.scroll(link);
+  await waitFor(() => {
+    expect(acks).toEqual([{ id: "1", row: root.id, thread: false }]);
+    expect(document.activeElement?.closest(".thread-feed")).toBeTruthy();
+    expect((document.activeElement as HTMLElement).dataset.postId).toBe(
+      reply.id,
+    );
+  });
+  expect(account.readPostAnchor.mock.calls.map(([id]) => id)).toEqual([
+    root.id,
+    reply.id,
+  ]);
+  expect(queue).toEqual([]);
 });

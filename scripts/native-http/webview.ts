@@ -98,6 +98,8 @@ export function webviewServers(
   let onMacStep: ((stage: string) => void) | undefined;
   let controlRequests = 0;
   let sendRight: (() => Promise<void>) | undefined;
+  let sendEnter: (() => Promise<void>) | undefined;
+  let linkActivated = false;
   let prepareKeyboard: (() => Promise<void>) | undefined;
   const collectionBackSteps = [
     "collection-back-saved-reply",
@@ -557,6 +559,21 @@ export function webviewServers(
             !systemPostReads.has("dismissed"),
         );
         systemPostReads.add("dismissed");
+        await pressWorkspaceBack();
+        res.writeHead(204).end();
+        return;
+      }
+      if (
+        url.pathname === "/system-post-check/api/v4/system/ping" &&
+        [
+          "published-link-notice-back",
+          "published-link-denied-back",
+          "published-link-table-back",
+        ].includes(url.searchParams.get("step") ?? "")
+      ) {
+        const step = url.searchParams.get("step");
+        assert(pressWorkspaceBack && step && !systemPostReads.has(step));
+        systemPostReads.add(step);
         await pressWorkspaceBack();
         res.writeHead(204).end();
         return;
@@ -1516,6 +1533,7 @@ export function webviewServers(
         backSteps.some((label) => step === `back-${label}`) ||
         [
           "format-right",
+          "format-link",
           "table-swipe",
           "table-rotation",
           "table-back",
@@ -1601,6 +1619,10 @@ export function webviewServers(
       formatKeys.push(target);
       console.log(`Sending native ArrowRight to ${target}.`);
       if (!(await press(sendRight))) return;
+    } else if (step === "format-link") {
+      assert(sendEnter && !linkActivated && formattingTimes);
+      if (!(await press(sendEnter))) return;
+      linkActivated = true;
     } else if (step === "table-swipe") {
       const swipe = swipeAndroid;
       assert(swipe);
@@ -1699,6 +1721,7 @@ export function webviewServers(
       onMacStep = completed;
       pressWorkspaceBack = () => send("escape");
       sendRight = () => send("right");
+      sendEnter = () => send("enter");
     },
     onAndroidInputReady(
       send: SendAndroidKey,
@@ -1712,16 +1735,24 @@ export function webviewServers(
       prepareKeyboard = () => send("KEYCODE_TAB");
       pressWorkspaceBack = () => send("KEYCODE_BACK");
       sendRight = () => send("KEYCODE_DPAD_RIGHT");
+      sendEnter = () => send("KEYCODE_ENTER");
     },
     verify(platform: "macos" | "android") {
       if (platform === "android") {
         assert(systemPostReads.has("dismissed"), "Missing system-link Back");
+        assert(
+          systemPostReads.has("published-link-notice-back") &&
+            systemPostReads.has("published-link-denied-back") &&
+            systemPostReads.has("published-link-table-back"),
+          "Missing table link refusal Back",
+        );
         assert(
           tableBack,
           "Missing Android Back from the table into the thread",
         );
       }
 
+      assert(linkActivated, "Missing native link activation");
       refresh.verify();
       for (const read of [
         "live-search-destination",

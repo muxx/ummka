@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import {
+  deniedPost,
   systemReply as townReply,
   systemRoot as townRoot,
 } from "../webview-check/link-examples.ts";
@@ -167,7 +168,10 @@ export async function respondToWorkspace(
       },
     ],
   ]);
-  const message = postList(town, member, townMessage).posts[townRoot];
+  const townText = systemLinks
+    ? `[Open published reply](/system-post-check/browser/pl/${townReply})`
+    : townMessage;
+  const message = postList(town, member, townText).posts[townRoot];
   const fileInfo = {
     id: townFile,
     channel_id: town,
@@ -181,8 +185,16 @@ export async function respondToWorkspace(
     root_id: townRoot,
     create_at: 561,
     update_at: 561,
-    message:
-      "Reply visible only inside Town’s thread\n\n| Reply col |\n| :- |\n| First | **Exact overflow cell** |",
+    message: systemLinks
+      ? [
+          "| Destination |",
+          "| :- |",
+          `| [Open published root](/system-post-check/browser/pl/${townRoot}) |`,
+          ...Array.from({ length: 42 }, (_, index) => `| Example ${index} |`),
+          "| [Unsupported conversation](/system-post-check/browser/channels/town-square) |",
+          `| [Denied published message](/system-post-check/browser/pl/${deniedPost}) |`,
+        ].join("\n")
+      : "Reply visible only inside Town’s thread\n\n| Reply col |\n| :- |\n| First | **Exact overflow cell** |",
     file_ids: [replyFile],
     metadata: {
       files: [
@@ -310,7 +322,7 @@ export async function respondToWorkspace(
     );
   }
   if (thread) {
-    const page = postList(town, member, townMessage);
+    const page = postList(town, member, townText);
     const query = Object.fromEntries(url.searchParams);
     if (query.fromPost !== undefined) {
       assert.ok(query.direction === "up" || query.direction === "down");

@@ -26,7 +26,10 @@ import {
 } from "../../vendor/mattermost/index.js";
 import { checkAccountResponses } from "./account.ts";
 import { checkAccountThreadReadState } from "./account-thread-read-state.ts";
-import { checkChannelFormatting } from "./channel-formatting.tsx";
+import {
+  checkChannelFormatting,
+  checkPublishedLinkKey,
+} from "./channel-formatting.tsx";
 import { checkChannelRefresh } from "./channel-refresh.ts";
 import { checkCollectionWindow } from "./collection-window.tsx";
 import { checkDraftWrites } from "./composer-drafts.ts";
@@ -182,6 +185,7 @@ export async function checkGeneratedRequests(ports: string[]) {
         ),
       ),
     );
+    await checkPublishedLinkKey(() => observed("format-link", ""));
     const atRoot = await new SystemApi(new Configuration(root)).getPing(query);
     check(atRoot.status === "OK", "generated-root");
     const first = await api.getPing(query);

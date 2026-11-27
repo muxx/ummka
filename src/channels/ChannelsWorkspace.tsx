@@ -876,9 +876,14 @@ export function ChannelsWorkspace({
         !document.hasFocus()
       )
         return;
-      const row = document.activeElement;
+      const focused = document.activeElement;
+      if (!(focused instanceof HTMLElement)) return;
+      // Clicking an anchor can move focus inside the destination before its first visible frame.
+      const row = focused.matches("a[href]")
+        ? focused.closest<HTMLElement>("[data-post-id]")
+        : focused;
       if (
-        !(row instanceof HTMLElement) ||
+        !row ||
         row.dataset.postId !== request.target.postId ||
         !scene.contains(row)
       )
@@ -890,15 +895,13 @@ export function ChannelsWorkspace({
         return;
       const pane = row.closest(paneClass)?.getBoundingClientRect();
       const box = row.getBoundingClientRect();
+      const control = focused === row ? box : focused.getBoundingClientRect();
       if (
-        pane?.height &&
-        pane.width &&
-        box.height &&
-        box.width &&
-        pane.right > box.left &&
-        box.right > pane.left &&
-        pane.bottom > box.top &&
-        box.bottom > pane.top
+        pane &&
+        Math.min(pane.right, box.right, control.right) >
+          Math.max(pane.left, box.left, control.left) &&
+        Math.min(pane.bottom, box.bottom, control.bottom) >
+          Math.max(pane.top, box.top, control.top)
       )
         request.shown(row.dataset.postId);
     };

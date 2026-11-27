@@ -10,7 +10,7 @@ import { checkMacSystemLinks } from "./macos-links.ts";
 
 const exec = promisify(execFile);
 
-export type SendMacKey = (key: "right" | "escape") => Promise<void>;
+export type SendMacKey = (key: "right" | "escape" | "enter") => Promise<void>;
 type KeyDriver = (send: SendMacKey, completed: (stage: string) => void) => void;
 
 export function watchWebviewSteps(expire: () => void, timeoutMs: number) {

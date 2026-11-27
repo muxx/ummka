@@ -425,6 +425,7 @@ export function useMessageNavigation(
       function commit() {
         signal.throwIfAborted();
         setModal(null);
+        system?.request.positioned();
         setPosition(destination);
       }
       if (!(await selectTeam(team, teams, signal, commit)) && !signal.aborted)

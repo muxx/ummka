@@ -16,6 +16,7 @@ pub(crate) fn listen<R: Runtime>(window: &WebviewWindow<R>) {
             let (key_code, hold) = match line.as_str() {
                 "right" => (124, Duration::from_millis(160)),
                 "escape" => (53, Duration::ZERO),
+                "enter" => (36, Duration::ZERO),
                 _ => break,
             };
             println!("UMMKA_KEY_PHASE {line} received");
@@ -69,10 +70,11 @@ pub(crate) fn listen<R: Runtime>(window: &WebviewWindow<R>) {
 
 fn key_event(kind: NSEventType, window_number: NSInteger, key_code: u16) -> Retained<NSEvent> {
     // Deliver to the fixture's WKWebView even if its NSWindow is not the key window.
-    let key = if key_code == 124 {
-        ns_string!("\u{f703}")
-    } else {
-        ns_string!("\u{1b}")
+    let key = match key_code {
+        124 => ns_string!("\u{f703}"),
+        53 => ns_string!("\u{1b}"),
+        36 => ns_string!("\r"),
+        _ => unreachable!("invalid fixture key"),
     };
     NSEvent::keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_characters_charactersIgnoringModifiers_isARepeat_keyCode(
         kind,
