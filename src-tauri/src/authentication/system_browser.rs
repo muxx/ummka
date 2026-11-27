@@ -1,7 +1,8 @@
 //! Browser callbacks belong to a native presentation, including its cancellation and lifetime.
 use super::{SignInError, browser::BrowserSignIn};
 use crate::sessions::{Account, AccountSessions};
-use std::sync::Mutex;
+pub use crate::system_presentation::PresentationError;
+use crate::system_presentation::Presentations;
 use tauri::{AppHandle, Runtime, WebviewWindow};
 use tokio::sync::oneshot;
 use uuid::Uuid;
@@ -15,15 +16,6 @@ pub(crate) mod checks;
 #[cfg(target_os = "macos")]
 mod macos;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PresentationError {
-    Busy,
-    Cancelled,
-    Unsupported,
-    Unavailable,
-}
-
 #[derive(Debug, Eq, PartialEq)]
 pub enum SystemSignInError {
     Browser(PresentationError),
@@ -32,61 +24,7 @@ pub enum SystemSignInError {
 
 type Returned = Result<String, PresentationError>;
 
-struct Pending {
-    id: Uuid,
-    result: Option<oneshot::Sender<Returned>>,
-}
-
-#[derive(Default)]
-struct Presentations(Mutex<Option<Pending>>);
-
-static PRESENTATION: Presentations = Presentations(Mutex::new(None));
-
-impl Presentations {
-    fn reserve(&self) -> Result<(Uuid, oneshot::Receiver<Returned>), PresentationError> {
-        let mut state = self.0.lock().expect("browser presentation mutex poisoned");
-        if state.is_some() {
-            return Err(PresentationError::Busy);
-        }
-        let (send, receive) = oneshot::channel();
-        let id = Uuid::new_v4();
-        *state = Some(Pending {
-            id,
-            result: Some(send),
-        });
-        Ok((id, receive))
-    }
-
-    fn waiting(&self) -> Option<Uuid> {
-        let state = self.0.lock().expect("browser presentation mutex poisoned");
-        state
-            .as_ref()
-            .filter(|slot| slot.result.is_some())
-            .map(|slot| slot.id)
-    }
-
-    fn deliver(&self, id: Uuid, result: Returned) -> bool {
-        let mut state = self.0.lock().expect("browser presentation mutex poisoned");
-        if let Some(sender) = state
-            .as_mut()
-            .filter(|slot| slot.id == id)
-            .and_then(|slot| slot.result.take())
-        {
-            let _ = sender.send(result);
-            return true;
-        }
-        false
-    }
-
-    /// Returns true if an unfinished system dialog still needs to be dismissed.
-    fn release(&self, id: Uuid) -> bool {
-        self.0
-            .lock()
-            .expect("browser presentation mutex poisoned")
-            .take_if(|slot| slot.id == id)
-            .is_some_and(|slot| slot.result.is_some())
-    }
-}
+static PRESENTATION: Presentations<String> = Presentations::new();
 
 struct Owner<R: Runtime> {
     app: AppHandle<R>,
@@ -172,34 +110,4 @@ async fn open<R: Runtime>(
     _url: reqwest::Url,
 ) -> Result<(), PresentationError> {
     Err(PresentationError::Unsupported)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn an_os_result_belongs_to_one_request_and_cannot_finish_the_next_one() {
-        let broker = Presentations::default();
-        let (first, mut first_result) = broker.reserve().unwrap();
-        assert!(matches!(broker.reserve(), Err(PresentationError::Busy)));
-        broker.deliver(first, Err(PresentationError::Cancelled));
-        assert_eq!(
-            first_result.try_recv(),
-            Ok(Err(PresentationError::Cancelled))
-        );
-        assert!(!broker.release(first));
-        let (second, mut next) = broker.reserve().unwrap();
-        assert_ne!(first, second);
-        broker.deliver(first, Ok("late".into()));
-        assert_eq!(broker.waiting(), Some(second));
-        assert!(!broker.release(first));
-        broker.deliver(second, Ok("returned".into()));
-        broker.deliver(second, Err(PresentationError::Cancelled));
-        assert_eq!(next.try_recv(), Ok(Ok("returned".into())));
-        assert!(!broker.release(second));
-        let (abandoned, receive) = broker.reserve().unwrap();
-        assert!(broker.release(abandoned));
-        assert!(receive.blocking_recv().is_err());
-    }
 }

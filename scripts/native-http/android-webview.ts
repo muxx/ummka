@@ -5,6 +5,7 @@ import {
   postLinks,
   warmLink,
 } from "../webview-check/link-examples.ts";
+import { checkDocumentPicker } from "./android-document-picker.ts";
 
 type Adb = (...args: string[]) => Promise<string>;
 export type SendAndroidKey = (
@@ -197,6 +198,7 @@ export async function checkWebviewProcesses(
     "browser-checked",
     onAndroidInputReady,
   );
+  await checkDocumentPicker(adb, component, seeded);
   const external = await adb(
     "logcat",
     "-d",

@@ -14,7 +14,10 @@ import java.io.IOException
 class DeviceDocuments(private val resolver: ContentResolver) {
     fun request(raw: String): DocumentRequest {
         val uri = Uri.parse(raw)
-        require(uri.scheme == ContentResolver.SCHEME_CONTENT && !uri.authority.isNullOrEmpty())
+        // ContentResolver routes by the decoded authority after the optional Android user ID.
+        val authority = uri.authority?.substringAfterLast('@')
+        require(uri.scheme == ContentResolver.SCHEME_CONTENT && !authority.isNullOrEmpty())
+        require(authority != "${BuildConfig.APPLICATION_ID}.fileprovider")
         return DocumentRequest(resolver, uri)
     }
 }

@@ -141,6 +141,14 @@ export async function checkMacWebview(
       const executable = join(bundle, "Contents", "MacOS", "ummka");
       await copyFile("src-tauri/target/release/ummka", executable);
       await exec("/usr/bin/codesign", ["--force", "--sign", "-", bundle]);
+      const picker = await exec(executable, [], {
+        timeout: 95_000,
+        env: { ...env, UMMKA_CHECK_DOCUMENT_PICKER: "lifecycle" },
+      });
+      assert.match(picker.stdout, /^UMMKA_PICKER_STAGE checked$/mu);
+      console.log(
+        "AppKit attached one- and multiple-file panels, blocked duplicates, reopened and cancelled when the owner closed.",
+      );
       const { stdout } = await exec(executable, [], {
         timeout: 45_000,
         env: { ...env, UMMKA_CHECK_BROWSER_PRESENTATION: "start" },
