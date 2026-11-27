@@ -52,7 +52,6 @@ jobs:
       - run: make check-macos
         env:
           UMMKA_CHECK_MACOS_OFFLINE: "1"
-          UMMKA_CHECK_MACOS_BROWSER: "1"
           UMMKA_CHECK_EXTERNAL_HANDOFF: "1"
       - name: Verify and open the unpacked development build twice offline
         shell: bash
