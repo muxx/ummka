@@ -10,6 +10,7 @@ import { checkChannelTimeline } from "./channel-timeline.tsx";
 import { checkChannelsFrame } from "./channels-frame.tsx";
 import { checkEntryWindow } from "./entry-window.tsx";
 import { beginExchanges, finishExchangesAfterReload } from "./exchanges.ts";
+import { fixtureStep } from "./fixture-step.ts";
 import { checkGeneratedRequests } from "./generated.ts";
 import { checkNotificationSoundAssets } from "./notification-sounds.ts";
 import { checkPaletteSurfaces } from "./palette.ts";
@@ -95,8 +96,8 @@ async function checkResources() {
     await checkAttachmentWidth();
     const ports = String(import.meta.env.VITE_UMMKA_CHECK_PORTS).split(",");
     await checkGeneratedRequests(ports);
-    const invalid = await openExternalPostLink("/relative").catch(
-      (reason: unknown) => reason,
+    const invalid = await fixtureStep("reject-relative-external-link", () =>
+      openExternalPostLink("/relative").catch((reason: unknown) => reason),
     );
     if (invalid !== "invalid_url")
       throw Error("External URL validation failed");
@@ -114,11 +115,14 @@ async function checkResources() {
       if (missing !== "handler_unavailable")
         throw Error("Missing Android mail handler was not reported");
     }
-    await seedRegistry();
+    await fixtureStep("seed-offline-registry", seedRegistry);
     // LaunchServices activates the default browser. Finish work that needs the
     // fixture window and keyboard focus before handing it the foreground.
     const browserHref = import.meta.env.VITE_UMMKA_CHECK_EXTERNAL_HREF;
-    if (!android && browserHref) await openExternalPostLink(browserHref);
+    if (!android && browserHref)
+      await fixtureStep("open-external-link", () =>
+        openExternalPostLink(browserHref),
+      );
     location.replace("/ipc-result.html?pass");
     return;
   }

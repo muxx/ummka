@@ -52,6 +52,8 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
             rest_ipc::sign_out_account,
             rest_ipc::sign_out_on_device,
             rest_ipc::close_rest_connection,
+            #[cfg(all(feature = "webview-check", target_os = "macos"))]
+            rest_ipc::trace_webview_check,
             rest_ipc::drafts::read_composer_draft,
             rest_ipc::drafts::save_composer_draft,
             rest_ipc::drafts::transition_draft_command,
@@ -110,6 +112,9 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
                 .ok_or("missing main WebView")?;
             #[cfg(all(target_os = "macos", feature = "webview-check"))]
             {
+                app.add_capability(
+                    r#"{"identifier":"fixture-progress","local":true,"webviews":["main"],"permissions":["allow-trace-webview-check"]}"#,
+                )?;
                 // Setup runs on the main thread. The Tauri window owns this NSWindow.
                 let native = unsafe { &*main.ns_window()?.cast::<objc2_app_kit::NSWindow>() };
                 if std::env::var_os("UMMKA_CHECK_KEY_INPUT").is_some() {

@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { get } from "node:https";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
+import { startFixture } from "../native-http/fixture.ts";
+import { fixtureDeadline } from "./fixture-step.ts";
 import { watchWebviewSteps } from "./macos.ts";
 
 test("new fixture steps renew the deadline, but a repeating or stalled step expires", (t) => {
@@ -25,4 +31,62 @@ test("closing the fixture releases its watchdog", (t) => {
   watch.close();
   watch.completed("late");
   t.mock.timers.tick(100);
+});
+
+test("a pending browser operation fails with the name of its await", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const stuck = fixtureDeadline(
+    "close-generated-connections",
+    () => new Promise<never>(() => {}),
+    100,
+  );
+  const failed = assert.rejects(
+    stuck,
+    /Fixture timed out waiting for close-generated-connections/u,
+  );
+  t.mock.timers.tick(100);
+  await failed;
+});
+
+test("a completed browser operation clears its deadline", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  assert.equal(await fixtureDeadline("wait-for-thread-draft", () => 4, 100), 4);
+  t.mock.timers.tick(100);
+});
+
+test("a driver failure closes the control request without recording a completed key step", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "ummka-mac-key-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const fixture = await startFixture(dir);
+  t.after(() => fixture.close());
+  const failure = new Error("fixture process exited");
+  const reported = t.mock.method(console, "error", () => {});
+  fixture.onMacInputReady(
+    async (key) => {
+      assert.equal(key, "right");
+      throw failure;
+    },
+    () => assert.fail("a failed key counted as fixture progress"),
+  );
+  const status = await new Promise<number | undefined>((resolve, reject) => {
+    get(
+      {
+        host: "127.0.0.1",
+        port: fixture.webviewPorts[1],
+        ca: fixture.ca,
+        path: "/api/v4/system/ping?step=format-right&case=320",
+        signal: AbortSignal.timeout(2000),
+      },
+      (response) => {
+        response.resume();
+        resolve(response.statusCode);
+      },
+    ).on("error", reject);
+  });
+  assert.equal(status, 500);
+  assert.match(fixture.webviewProgress(), /format-right received/);
+  assert.deepEqual(reported.mock.calls[0]?.arguments, [
+    "Native input failed at format-right:",
+    failure,
+  ]);
 });

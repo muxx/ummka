@@ -5,6 +5,7 @@ import { App } from "../../src/App.tsx";
 import { openNativeRestConnection } from "../../src/mattermost/native-rest.ts";
 import { checkAvailableDirectoryWindow } from "./available-directory-window.ts";
 import { checkChannelNotificationsWindow } from "./channel-notifications-window.ts";
+import { fixtureStep } from "./fixture-step.ts";
 import {
   verifyAttachmentReturn,
   verifySearchAttachment,
@@ -37,7 +38,9 @@ export async function verifyWorkspaceBack(
   const ui = within(host);
   const threadText = "Unsent reply kept while searching";
   const channelText = channel.value;
-  const control = await openNativeRestConnection(`https://127.0.0.1:${port}`);
+  const control = await fixtureStep("connect-workspace-back-driver", () =>
+    openNativeRestConnection(`https://127.0.0.1:${port}`),
+  );
   let trusted = 0;
   const mac = !navigator.userAgent.includes("Android");
   function observed(e: KeyboardEvent) {
@@ -61,14 +64,19 @@ export async function verifyWorkspaceBack(
       );
   }
   try {
-    const { field: reply, thread } = await findThreadDraft(host);
+    const { field: reply, thread } = await fixtureStep(
+      "wait-for-thread-draft",
+      () => findThreadDraft(host),
+    );
     flushSync(() => fireEvent.input(reply, { target: { value: threadText } }));
     const replyRow = thread
       .getByText("Reply visible only inside Town’s thread")
       .closest("article");
     if (!replyRow) throw Error("Missing thread attachment row");
-    await verifyAttachmentReturn(replyRow, "reply-photo.png", "0 B", () =>
-      press("attachment-reply"),
+    await fixtureStep("return-from-reply-attachment", () =>
+      verifyAttachmentReturn(replyRow, "reply-photo.png", "0 B", () =>
+        press("attachment-reply"),
+      ),
     );
     if (
       !reply.isConnected ||
@@ -241,23 +249,31 @@ export async function checkDesktopBack(port: string) {
   document.body.append(host);
   const root = createRoot(host);
   try {
-    flushSync(() => root.render(<App language="en" />));
+    await fixtureStep("mount-desktop-workspace", () =>
+      flushSync(() => root.render(<App language="en" />)),
+    );
     const ui = within(host);
     const town = (
-      await ui.findByText("Town fixture message", {}, { timeout: 10000 })
+      await fixtureStep("wait-for-town-message", () =>
+        ui.findByText("Town fixture message", {}, { timeout: 10000 }),
+      )
     ).closest("article");
     if (!town)
       throw Error("The desktop channel did not render the fixture message");
-    const channel = await ui.findByRole<HTMLTextAreaElement>("textbox", {
-      name: "Message #Town Square…",
-    });
-    flushSync(() =>
-      fireEvent.input(channel, {
-        target: { value: "Unsent desktop channel draft" },
+    const channel = await fixtureStep("wait-for-town-draft", () =>
+      ui.findByRole<HTMLTextAreaElement>("textbox", {
+        name: "Message #Town Square…",
       }),
     );
     const opener = within(town).getByRole("button", { name: /Open thread/ });
-    flushSync(() => fireEvent.click(opener));
+    await fixtureStep("open-desktop-thread", () => {
+      flushSync(() =>
+        fireEvent.input(channel, {
+          target: { value: "Unsent desktop channel draft" },
+        }),
+      );
+      flushSync(() => fireEvent.click(opener));
+    });
     await verifyWorkspaceBack(host, port, opener, channel);
     flushSync(() =>
       fireEvent.click(ui.getByRole("button", { name: "Search" })),

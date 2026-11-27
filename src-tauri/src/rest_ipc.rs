@@ -297,6 +297,22 @@ pub(crate) fn seed_check_sessions(
     })
 }
 
+#[cfg(all(feature = "webview-check", target_os = "macos"))]
+#[tauri::command]
+pub(crate) fn trace_webview_check(step: &str, finished: bool) -> Result<(), &'static str> {
+    if step.is_empty()
+        || step.len() > 60
+        || !step
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte == b'-')
+    {
+        return Err("invalid fixture step");
+    }
+    let phase = if finished { "completed" } else { "started" };
+    println!("UMMKA_WEBVIEW_STEP {phase} {step}");
+    Ok(())
+}
+
 #[cfg(feature = "webview-check")]
 pub(crate) fn report_check<R: Runtime>(webview: &Webview<R>, url: &tauri::Url) {
     let local = match (url.scheme(), url.host_str()) {

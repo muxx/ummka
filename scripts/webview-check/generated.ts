@@ -29,6 +29,7 @@ import { checkChannelRefresh } from "./channel-refresh.ts";
 import { checkCollectionWindow } from "./collection-window.tsx";
 import { checkDraftWrites } from "./composer-drafts.ts";
 import { checkConnectServer } from "./connect-server.tsx";
+import { fixtureStep } from "./fixture-step.ts";
 import { checkChannelHistory } from "./history.ts";
 import { prepareHistoryLoads } from "./history-loads.ts";
 import { checkUnavailableHistoryServer } from "./local-history.ts";
@@ -152,7 +153,9 @@ export async function checkGeneratedRequests(ports: string[]) {
     const tail = rejected(reader.read());
     duringBody.abort(reason);
     check((await tail) === reason, `${name}-abort-body`);
-    await observed("closed", `${name}-body`);
+    await fixtureStep(`acknowledge-${name}-body-close`, () =>
+      observed("closed", `${name}-body`),
+    );
   }
   try {
     await observed(
@@ -887,13 +890,15 @@ export async function checkGeneratedRequests(ports: string[]) {
     await checkAbort("ping", (init) => api.getPingRaw(query, init));
     await checkAbort("batch", (init) => users.getUsersByIdsRaw(batch, init));
   } finally {
-    await Promise.all([
-      accountRoot.close(),
-      accountPrefix.close(),
-      root.close(),
-      prefixed.close(),
-      control.close(),
-      foreign.close(),
-    ]);
+    await fixtureStep("close-generated-connections", () =>
+      Promise.all([
+        accountRoot.close(),
+        accountPrefix.close(),
+        root.close(),
+        prefixed.close(),
+        control.close(),
+        foreign.close(),
+      ]),
+    );
   }
 }

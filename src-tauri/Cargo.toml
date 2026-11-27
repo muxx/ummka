@@ -15,7 +15,7 @@ tauri-build = { version = "=2.7.6", features = [] }
 
 [features]
 native-http-check = []
-webview-check = ["objc2-app-kit/NSEvent", "objc2-app-kit/NSGraphicsContext"]
+webview-check = ["dep:dispatch2", "objc2-app-kit/NSEvent", "objc2-app-kit/NSGraphicsContext"]
 
 [dependencies]
 futures-util = { version = "=0.3.34", default-features = false, features = ["sink"] }
@@ -42,6 +42,7 @@ rustls-platform-verifier = "=0.7.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "=0.6.2"
+dispatch2 = { version = "=0.3.1", optional = true, default-features = false, features = ["std", "objc2"] }
 objc2 = "=0.6.5"
 objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "block2", "NSApplication", "NSEvent", "NSOpenPanel", "NSPanel", "NSResponder", "NSSavePanel", "NSWindow"] }
 objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSError", "NSProcessInfo", "NSObject", "NSString", "NSURL"] }
