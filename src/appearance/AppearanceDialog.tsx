@@ -35,11 +35,17 @@ const copy = {
     doneCustom: "Свои цвета применены",
     doneDefault: "Цвета темы «Ночь с сиянием»",
     reset: "Вернуть исходные цвета",
-    contrast: "Недостаточный контраст",
+    contrast: {
+      presence:
+        "Индикатор присутствия сливается с навигацией. Измените один из этих цветов.",
+      notification:
+        "Значок уведомления сливается с навигацией. Измените один из этих цветов.",
+      selected:
+        "Выбранный канал сливается с навигацией. Сделайте его светлее или темнее.",
+      text: "Контраст текста слишком низкий. Измените цвет фона.",
+      row: "Выбранная строка в списках станет плохо читаемой. Выберите другой цвет выбранного канала.",
+    },
     storage: "Не удалось сохранить оформление на устройстве.",
-    text: "Текст",
-    muted: "Вторичный текст",
-    link: "Ссылка",
   },
   en: {
     title: "Appearance",
@@ -63,31 +69,31 @@ const copy = {
     doneCustom: "Custom colors applied",
     doneDefault: "Aurora Night colors applied",
     reset: "Restore default colors",
-    contrast: "Insufficient contrast",
+    contrast: {
+      presence:
+        "The presence indicator blends into the navigation. Change either color.",
+      notification:
+        "The notification badge blends into the navigation. Change either color.",
+      selected:
+        "The selected channel blends into the navigation. Make the selected channel lighter or darker.",
+      text: "The text is hard to read. Change the background color.",
+      row: "Selected rows in lists will be hard to read. Choose a different color for the selected channel.",
+    },
     storage: "Couldn’t save appearance on this device.",
-    text: "Text",
-    muted: "Secondary text",
-    link: "Link",
   },
 } as const;
 
-// Identify the editable swatch even when the contrast check names a derived surface.
-const contrastLabels = {
-  "on-navigation": "text",
-  "navigation-muted": "muted",
-  "navigation-hover": "navigation",
-  "on-selected": "text",
-  "on-notification": "text",
-  "row-selected": "selected",
-  "row-selected-hover": "selected",
-  text: "text",
-  muted: "muted",
-  link: "link",
-  selected: "selected",
-  notification: "notification",
-  navigation: "navigation",
-  presence: "presence",
-} as const;
+function contrastProblem({ roles: [foreground, background] }: PaletteError) {
+  if (background === "row-selected" || background === "row-selected-hover")
+    return "row";
+  if (
+    foreground === "presence" ||
+    foreground === "notification" ||
+    foreground === "selected"
+  )
+    return foreground;
+  return "text";
+}
 
 function outside(dialog: HTMLDialogElement, x: number, y: number) {
   const rect = dialog.getBoundingClientRect();
@@ -108,13 +114,14 @@ export default function AppearanceDialog({
   const text = copy[language];
   const title = useId();
   const dialog = useRef<HTMLDialogElement>(null);
+  const fields = useRef<HTMLDivElement>(null);
   const { settings, mode } = useSyncExternalStore(
     windowAppearance.subscribe,
     windowAppearance.getSnapshot,
   );
   const saved = settings.palettes[mode];
   const [colors, setColors] = useState(saved);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<{ message: string } | null>(null);
   const paletteKey = [mode, ...editableRoles.map((role) => saved[role])].join(
     "|",
   );
@@ -122,7 +129,7 @@ export default function AppearanceDialog({
   if (paletteKey !== editingKey) {
     setEditingKey(paletteKey);
     setColors(saved);
-    setError("");
+    setError(null);
   }
   const pressedBackdrop = useRef(false);
   useLayoutEffect(() => {
@@ -134,20 +141,19 @@ export default function AppearanceDialog({
       button?.focus();
     };
   }, [opener]);
+  useLayoutEffect(() => {
+    const scroll = fields.current;
+    if (error && scroll) scroll.scrollTop = scroll.scrollHeight;
+  }, [error]);
   function edit(action: () => void) {
     try {
       action();
-      setError("");
+      setError(null);
     } catch (error) {
-      if (error instanceof PaletteError) {
-        const labels = error.roles.map((role) =>
-          Object.hasOwn(contrastLabels, role)
-            ? text[contrastLabels[role as keyof typeof contrastLabels]]
-            : role,
-        );
-        setError(`${text.contrast} · ${labels.join(" / ")}`);
+      if (error instanceof PaletteError && error.roles.length === 2) {
+        setError({ message: text.contrast[contrastProblem(error)] });
       } else if (error instanceof DOMException) {
-        setError(text.storage);
+        setError({ message: text.storage });
       } else throw error;
     }
   }
@@ -184,7 +190,7 @@ export default function AppearanceDialog({
           <AppearanceMark name="close" />
         </button>
       </header>
-      <div className="appearance-fields modal-scroll">
+      <div ref={fields} className="appearance-fields modal-scroll">
         <h3>{text.theme}</h3>
         <div className="appearance-card">
           <span className="appearance-swatch" aria-hidden="true" />
@@ -226,13 +232,13 @@ export default function AppearanceDialog({
                 value={colors[role]}
                 onChange={(event) => {
                   setColors({ ...colors, [role]: event.currentTarget.value });
-                  setError("");
+                  setError(null);
                 }}
               />
             </label>
           ))}
         </div>
-        <p role="status">{error}</p>
+        <p role="status">{error?.message}</p>
       </div>
       <footer className="appearance-actions">
         <button
