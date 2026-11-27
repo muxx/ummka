@@ -401,7 +401,13 @@ export function ChannelsWorkspace({
     workspace,
     language,
     {
-      channel: (id) => resultRooms.get(id)?.title,
+      channel: (id) => {
+        const room = resultRooms.get(id);
+        if (room?.title)
+          return room.kind === "O" || room.kind === "P"
+            ? `# ${room.title}`
+            : room.title;
+      },
       author: (id) => author(id)?.name,
       condition: (kind, value) => {
         if (kind === "channel") {

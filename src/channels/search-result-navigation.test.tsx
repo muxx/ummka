@@ -52,9 +52,13 @@ test.each([
   async (collapsed, target) => {
     const { account } = fixture({ collapsed });
     const results = await search();
-    const trigger = await results.findByRole("button", {
+    const targetLabel = {
       name: target === root ? "Search root snippet" : "Search reply snippet",
-    });
+    };
+    const trigger = await results.findByRole("button", targetLabel);
+    const list = trigger.closest(".search-result-list");
+    if (!list) throw Error("Expected the result's scroll container");
+    list.scrollTop = 37;
     fireEvent.click(trigger);
     const row = await screen.findByText(target.message);
     await waitFor(() =>
@@ -86,10 +90,10 @@ test.each([
         ).toBe("Target draft"),
       );
     fireEvent.click(screen.getByRole("button", { name: "Back to results" }));
-    const restored = await screen.findByRole("button", {
-      name: trigger.textContent ?? "",
-    });
+    const restored = await screen.findByRole("button", targetLabel);
     await waitFor(() => expect(document.activeElement).toBe(restored));
+    expect(restored.closest(".search-result-list")?.scrollTop).toBe(37);
+    expect(restored.getAttribute("aria-current")).toBe("true");
     expect(account.readPostSearchPage).toHaveBeenCalledTimes(1);
     await waitFor(() =>
       expect(
@@ -1234,7 +1238,7 @@ test("search labels an outside channel and retains its result when another chann
     };
   });
   const results = await search();
-  await results.findByText("Shared releases");
+  await results.findByText("# Shared releases");
   expect(results.getByRole("button", { name: "Other note" })).toBeTruthy();
   expect(results.queryByText(unavailable)).toBeNull();
   expect(account.readChannelIdentity).toHaveBeenCalledTimes(2);
