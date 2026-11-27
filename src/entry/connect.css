@@ -124,7 +124,7 @@
 .entry-link-server {
   font-size: 1.04rem;
 }
-.entry-link-identity .entry-address strong {
+:where(.entry-link-identity) .entry-address strong {
   color: var(--text);
 }
 .entry-link-lock {
@@ -177,7 +177,8 @@
 .entry-decline-link:hover {
   background: var(--row-hover);
 }
-.entry-link-provider::after {
+.entry-link-provider::after,
+.entry-saved-server::after {
   content: "";
   flex: none;
   width: 6px;
@@ -187,7 +188,8 @@
   border-width: 1px 1px 0 0;
   transform: rotate(45deg);
 }
-.entry-link-provider:dir(rtl)::after {
+.entry-link-provider:dir(rtl)::after,
+.entry-saved-server:dir(rtl)::after {
   transform: rotate(-135deg);
 }
 .entry-gitlab-mark {
@@ -235,11 +237,97 @@
   font-size: 0.8125rem;
 }
 .entry-decline-link {
-  margin-block-start: 10px;
   padding-inline: 18px;
 }
-.entry-window[data-mobile] .entry-decline-link {
+.entry-card > .entry-decline-link {
+  margin-block-start: 10px;
+}
+.entry-link-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-block-start: 10px;
+}
+.entry-window[data-mobile] .entry-link-actions {
+  flex-direction: column;
+}
+.entry-window[data-mobile]
+  :is(.entry-card > .entry-decline-link, .entry-link-actions button) {
   width: 100%;
+  min-height: 48px;
+}
+:is(.entry-saved-servers-title, .entry-address-title):focus {
+  outline: none;
+}
+.entry-saved-servers-title + .entry-lead {
+  font-size: 0.9rem;
+}
+.entry-window[data-mobile] .entry-card:has(> .entry-saved-servers) {
+  padding-block-end: 38px;
+}
+.entry-saved-servers {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.entry-saved-server {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 80px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--divider);
+  border-radius: 12px;
+  color: var(--text);
+  background: var(--canvas);
+  text-align: start;
+  font: inherit;
+  cursor: pointer;
+}
+.entry-saved-server:hover {
+  background: var(--row-hover);
+}
+.entry-saved-server[aria-current="true"] {
+  border-color: var(--accent);
+}
+.entry-saved-server .entry-monogram {
+  width: 40px;
+  height: 40px;
+}
+.entry-saved-server-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+.entry-saved-server-copy small,
+.entry-saved-server-address {
+  color: var(--muted);
+  font-size: 0.81rem;
+}
+.entry-saved-server-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.entry-saved-server-name small {
+  padding: 1px 8px;
+  border-radius: 100px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--canvas));
+  font-weight: 600;
+}
+.entry-saved-server-address strong {
+  color: var(--text);
+}
+.entry-add-server {
+  margin-block-start: 18px;
+  padding-inline: 18px;
+}
+.entry-window[data-mobile] .entry-add-server {
   min-height: 48px;
 }
 

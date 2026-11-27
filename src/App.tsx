@@ -67,8 +67,7 @@ function EntryRoute({
     inbox.request?.target.serverUrl === address ? inbox.request : undefined;
   const needsSignIn =
     typeof launch === "object" && launch.status === "sign_in_required";
-  const signInLink =
-    needsSignIn && !request?.hasOtherInstallations ? request : undefined;
+  const signInLink = needsSignIn ? request : undefined;
   const notice = signInLink
     ? null
     : inbox.notice(needsSignIn, Boolean(inbox.request && address && !request));
@@ -118,6 +117,8 @@ function EntryRoute({
           launch.status === "sign_in_required" ? launch.serverUrl : undefined
         }
         link={signInLink}
+        installations={signInLink ? inbox.installations : undefined}
+        selectSaved={inbox.selectSaved}
         onAccountChanged={reopen}
       />
     );

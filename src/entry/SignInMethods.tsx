@@ -53,12 +53,16 @@ export function SignInMethods({
   profile,
   language,
   link,
+  onOtherServer,
+  returnFromPicker,
   onBack,
   onAccountChanged,
 }: {
   profile: Profile;
   language: EntryLanguage;
   link?: SignInLink;
+  onOtherServer?: () => void;
+  returnFromPicker?: boolean;
   onBack: () => void;
   onAccountChanged: () => void;
 }) {
@@ -75,6 +79,8 @@ export function SignInMethods({
   const operation = useRef<Attempt | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const buttons = useRef<HTMLUListElement>(null);
+  const otherServer = useRef<HTMLButtonElement>(null);
+  const restoreOtherServer = useRef(returnFromPicker);
   const returnTo = useRef<Provider | null>(null);
   const [waiting, setWaiting] = useState<Provider | null>(null);
   const [cancelling, setCancelling] = useState(false);
@@ -87,6 +93,13 @@ export function SignInMethods({
     const linked =
       delivery !== undefined || previousDelivery.current !== undefined;
     previousDelivery.current = delivery;
+    if (restoreOtherServer.current) {
+      restoreOtherServer.current = false;
+      if (otherServer.current) {
+        otherServer.current.focus();
+        return;
+      }
+    }
     const provider = returnTo.current;
     const button =
       !waiting && (provider || linked) && (!linked || !isMobile)
@@ -318,13 +331,25 @@ export function SignInMethods({
             </p>
           )}
           {link && (
-            <button
-              className="entry-secondary entry-decline-link"
-              type="button"
-              onClick={link.dismiss}
-            >
-              {text.declineLink}
-            </button>
+            <div className="entry-link-actions">
+              <button
+                className="entry-secondary entry-decline-link"
+                type="button"
+                onClick={link.dismiss}
+              >
+                {text.declineLink}
+              </button>
+              {onOtherServer && (
+                <button
+                  ref={otherServer}
+                  className="entry-secondary"
+                  type="button"
+                  onClick={onOtherServer}
+                >
+                  {text.otherServer}
+                </button>
+              )}
+            </div>
           )}
         </>
       )}

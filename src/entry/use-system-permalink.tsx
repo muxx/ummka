@@ -16,7 +16,6 @@ type Stop = "paused" | "unavailable" | "archived" | "failed";
 export type SystemPostRequest = {
   deliveryId: string;
   target: Target;
-  hasOtherInstallations: boolean;
   signal: AbortSignal;
   matchesUser: (userId: string) => boolean;
   shown: (postId: string) => void;
@@ -29,7 +28,7 @@ type State =
       serverUrl?: string;
       membership?: string;
     }
-  | { kind: "target"; request: SystemPostRequest }
+  | { kind: "target"; request: SystemPostRequest; installations: string[] }
   | { kind: "inbox"; id?: string };
 type Gate = {
   link: SystemChannelsLink;
@@ -85,24 +84,36 @@ export function useSystemPermalink(
     lastSelection.current = next;
     return next;
   }, []);
+  const pauseForServer = useCallback((serverUrl: string) => {
+    const gate = current.current;
+    const target = gate?.link.route?.target;
+    if (
+      gate &&
+      target?.kind === "permalink" &&
+      target.serverUrl !== serverUrl
+    ) {
+      gate.controller?.abort();
+      setState({ kind: "paused", serverUrl: target.serverUrl });
+    }
+  }, []);
   const connect = useCallback(
     (serverUrl: string, signal: AbortSignal) => {
-      const gate = current.current;
-      const target = gate?.link.route?.target;
-      if (
-        gate &&
-        target?.kind === "permalink" &&
-        target.serverUrl !== serverUrl
-      ) {
-        gate.controller?.abort();
-        setState({ kind: "paused", serverUrl: target.serverUrl });
-      }
+      pauseForServer(serverUrl);
       return enqueueSelection(() => {
         signal.throwIfAborted();
         return connectInstallation(serverUrl);
       });
     },
-    [enqueueSelection],
+    [enqueueSelection, pauseForServer],
+  );
+  const selectSaved = useCallback(
+    (serverUrl: string) =>
+      enqueueSelection(async () => {
+        await selectInstallation(serverUrl);
+        pauseForServer(serverUrl);
+        reopen();
+      }),
+    [enqueueSelection, pauseForServer, reopen],
   );
   const finish = useCallback(
     (gate: Gate, abort: boolean) => {
@@ -171,9 +182,6 @@ export function useSystemPermalink(
         const request: SystemPostRequest = {
           deliveryId: gate.link.id,
           target,
-          hasOtherInstallations: installations.some(
-            (installation) => installation !== target.serverUrl,
-          ),
           signal,
           matchesUser: (id) => {
             userId ??= id;
@@ -191,7 +199,7 @@ export function useSystemPermalink(
             setState({ kind, serverUrl: target.serverUrl, membership });
           },
         };
-        setState({ kind: "target", request });
+        setState({ kind: "target", request, installations });
       } catch {
         if (!signal.aborted)
           setState({ kind: "failed", serverUrl: target.serverUrl });
@@ -254,6 +262,8 @@ export function useSystemPermalink(
     };
   }, [start]);
   const request = state?.kind === "target" ? state.request : undefined;
+  const installations =
+    state?.kind === "target" ? state.installations : undefined;
   function dismiss() {
     if (current.current) finish(current.current, true);
     else if (state?.kind === "inbox" && state.id) {
@@ -309,5 +319,5 @@ export function useSystemPermalink(
       </aside>
     );
   }
-  return { ready, request, notice, connect };
+  return { ready, request, installations, notice, connect, selectSaved };
 }

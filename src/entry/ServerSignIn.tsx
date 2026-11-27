@@ -1,5 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { ResponseError } from "../../vendor/mattermost/index.js";
+import { isMobile } from "../build-platform";
+import { useWorkspaceBack } from "../channels/use-workspace-back";
 import { getDeviceLaunchContext } from "../mattermost/device-launch";
 import {
   InstallationAddressError,
@@ -7,6 +9,7 @@ import {
 } from "../mattermost/inspect-installation";
 import { EntryWindow } from "./EntryWindow";
 import { type EntryLanguage, entryText } from "./language";
+import { SavedServerPicker } from "./SavedServerPicker";
 import { type SignInLink, SignInMethods } from "./SignInMethods";
 import { sessionText } from "./session-text";
 import "./connect.css";
@@ -17,21 +20,33 @@ type Issue =
   | "missing"
   | "network"
   | "storage";
+type Picker = {
+  name: "servers";
+  profile: Profile;
+  installations: readonly string[];
+  choose: (serverUrl: string) => Promise<void>;
+  focusAdd?: boolean;
+};
 type Step =
-  | { name: "address"; issue?: Issue }
-  | { name: "checking"; restoring: boolean }
-  | { name: "profile"; profile: Profile };
+  | { name: "address"; issue?: Issue; picker?: Picker }
+  | { name: "checking"; restoring: boolean; picker?: Picker }
+  | { name: "profile"; profile: Profile; returnFromPicker?: boolean }
+  | Picker;
 
 export function ServerSignIn({
   language,
   savedServer,
   link,
+  installations,
+  selectSaved,
   connect,
   onAccountChanged,
 }: {
   language: EntryLanguage;
   savedServer?: string;
   link?: SignInLink;
+  installations?: readonly string[];
+  selectSaved?: (serverUrl: string) => Promise<void>;
   connect: (serverUrl: string, signal: AbortSignal) => Promise<void>;
   onAccountChanged: () => void;
 }) {
@@ -41,15 +56,16 @@ export function ServerSignIn({
     savedServer ? { name: "checking", restoring: true } : { name: "address" },
   );
   const active = useRef<AbortController | null>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
   const field = useRef<HTMLInputElement>(null);
   const returnToField = useRef(false);
 
   const inspect = useCallback(
-    async (input: string, explicit: boolean) => {
+    async (input: string, explicit: boolean, picker?: Picker) => {
       if (active.current) return;
       const request = new AbortController();
       active.current = request;
-      setStep({ name: "checking", restoring: !explicit });
+      setStep({ name: "checking", restoring: !explicit, picker });
       let readingDevice = false;
       try {
         const profile = await inspectInstallation(input, request.signal);
@@ -78,7 +94,7 @@ export function ServerSignIn({
             : error instanceof ResponseError && error.response.status === 404
               ? "missing"
               : "network";
-        setStep({ name: "address", issue });
+        setStep({ name: "address", issue, picker });
       } finally {
         if (active.current === request) active.current = null;
       }
@@ -96,16 +112,67 @@ export function ServerSignIn({
   }, [savedServer, inspect]);
   useLayoutEffect(() => {
     if (step.name === "address" && (returnToField.current || step.issue)) {
-      field.current?.focus();
+      const focusHeading = isMobile && step.picker && !step.issue;
+      (focusHeading ? heading.current : field.current)?.focus({
+        preventScroll: Boolean(focusHeading),
+      });
       returnToField.current = false;
     }
   }, [step]);
+  const picker = "picker" in step ? step.picker : undefined;
+  const backToServers =
+    step.name === "address" && picker
+      ? () => setStep({ ...picker, focusAdd: true })
+      : null;
+  useWorkspaceBack(false, backToServers);
+  if (step.name === "servers") {
+    return (
+      <SavedServerPicker
+        language={language}
+        currentUrl={step.profile.serverUrl}
+        currentName={step.profile.siteName}
+        installations={step.installations}
+        linkedUrl={savedServer}
+        focusAdd={step.focusAdd === true}
+        onChoose={step.choose}
+        onClose={() =>
+          setStep({
+            name: "profile",
+            profile: step.profile,
+            returnFromPicker: true,
+          })
+        }
+        onAdd={() => {
+          setAddress("");
+          returnToField.current = true;
+          setStep({ name: "address", picker: step });
+        }}
+      />
+    );
+  }
   if (step.name === "profile") {
+    const profileLink =
+      step.profile.serverUrl === savedServer ? link : undefined;
     return (
       <SignInMethods
         profile={step.profile}
         language={language}
-        link={step.profile.serverUrl === savedServer ? link : undefined}
+        link={profileLink}
+        returnFromPicker={step.returnFromPicker}
+        onOtherServer={
+          profileLink &&
+          selectSaved &&
+          installations &&
+          installations.length > 1
+            ? () =>
+                setStep({
+                  name: "servers",
+                  profile: step.profile,
+                  installations,
+                  choose: selectSaved,
+                })
+            : undefined
+        }
         onAccountChanged={onAccountChanged}
         onBack={() => {
           returnToField.current = true;
@@ -131,17 +198,25 @@ export function ServerSignIn({
                 setStep({ name: "address" });
               },
             }
-          : undefined
+          : backToServers
+            ? { label: text.backToServers, activate: backToServers }
+            : undefined
       }
     >
-      <h1>{text.title}</h1>
+      <h1
+        className={picker ? "entry-address-title" : undefined}
+        ref={heading}
+        tabIndex={picker ? -1 : undefined}
+      >
+        {text.title}
+      </h1>
       <p className="entry-lead">{text.lead}</p>
       <form
         className="entry-form"
         noValidate
         onSubmit={(event) => {
           event.preventDefault();
-          void inspect(address, true);
+          void inspect(address, true, picker);
         }}
       >
         <div>
@@ -165,7 +240,7 @@ export function ServerSignIn({
             aria-describedby={issue ? "entry-hint entry-error" : "entry-hint"}
             onChange={(event) => {
               setAddress(event.target.value);
-              if (issue) setStep({ name: "address" });
+              if (issue) setStep({ name: "address", picker });
             }}
           />
           <p id="entry-hint" className="entry-hint">
@@ -188,7 +263,7 @@ export function ServerSignIn({
           {busy ? text.busy : text.go}
         </button>
       </form>
-      {link && (
+      {link && !picker && (
         <button
           className="entry-secondary entry-decline-link"
           type="button"
