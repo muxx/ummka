@@ -34,6 +34,7 @@ import {
   ResponseError,
   UsersApi,
 } from "../../../vendor/mattermost/index.js";
+import { checkAccountPostFiles } from "./account-post-files.ts";
 import {
   allowFixtureBrowserSignIn,
   checkBrowserSignIn,
@@ -1717,6 +1718,31 @@ await checkChannelMemberRoles(
 );
 console.log(
   `Mattermost ${version} verified admin-first role order and excluded an existing outside profile from private channel search.`,
+);
+const fileRoom = await (
+  await create(
+    "channels",
+    {
+      team_id: team.id,
+      name: "account-post-files",
+      display_name: "Account post files",
+      type: "P",
+    },
+    readerToken,
+  )
+).json();
+await create(
+  `channels/${fileRoom.id}/members`,
+  { user_id: otherSaver.id },
+  readerToken,
+);
+await checkAccountPostFiles(
+  base,
+  fileRoom.id,
+  readerToken,
+  otherSaverToken,
+  otherSaver.id,
+  version,
 );
 await allowFixtureBrowserSignIn(base, token);
 const logout = await fetch(`${base}/api/v4/users/logout`, {

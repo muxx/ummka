@@ -11,7 +11,10 @@ export async function checkPostContext(
 ) {
   const query = { postId: "p".repeat(26) };
   const fileQuery = { fileId: "f".repeat(26) };
-  const attachments = await new PostsApi(prefixed).getFileInfosForPost(query);
+  const attachedPostId = "j".repeat(26);
+  const attachments = await new PostsApi(prefixed).getFileInfosForPost({
+    postId: attachedPostId,
+  });
   if (
     attachments?.length !== 2 ||
     attachments[0]?.name !== "zebra.txt" ||
@@ -20,7 +23,7 @@ export async function checkPostContext(
       (info, index) =>
         info.id === String(index + 1).repeat(26) &&
         info.channelId === "c".repeat(26) &&
-        info.postId === query.postId &&
+        info.postId === attachedPostId &&
         info.size === 24 + index &&
         info.mimeType === "text/plain",
     )

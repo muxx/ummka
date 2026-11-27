@@ -1,4 +1,8 @@
-import type { FileInfo, Post } from "../../vendor/mattermost/index.js";
+import type {
+  FileInfo,
+  Post,
+  PostsApi,
+} from "../../vendor/mattermost/index.js";
 import { isMattermostId } from "./model-fields.ts";
 
 interface ReceivedFile {
@@ -27,7 +31,10 @@ function nonnegativeInteger(value: number) {
   return Number.isSafeInteger(value) && value >= 0;
 }
 
-function fileDetails(file: FileInfo, post: Post): ReceivedFile {
+function fileDetails(
+  file: FileInfo,
+  post: Pick<Post, "id" | "channelId">,
+): ReceivedFile {
   if (
     !isMattermostId(file?.id) ||
     (file.postId !== undefined &&
@@ -92,15 +99,40 @@ export function receivedPostAttachments(
       invalid();
     result.fileIds = [...fileIds];
   }
-  if (files !== undefined) {
-    if (!Array.isArray(files)) invalid();
-    const seen = new Set<string>();
-    result.files = files.map((file) => {
-      const detail = fileDetails(file, post);
-      if (seen.has(detail.id)) invalid();
-      seen.add(detail.id);
-      return detail;
-    });
-  }
+  if (files !== undefined) result.files = receivedFiles(post, files);
   return result;
+}
+
+function receivedFiles(
+  post: Pick<Post, "id" | "channelId">,
+  files: FileInfo[],
+) {
+  if (!Array.isArray(files)) invalid();
+  const seen = new Set<string>();
+  return files.map((file) => {
+    const detail = fileDetails(file, post);
+    if (seen.has(detail.id)) invalid();
+    seen.add(detail.id);
+    return detail;
+  });
+}
+
+export async function readPostFiles(
+  posts: Pick<PostsApi, "getFileInfosForPostRaw">,
+  channelId: string,
+  postId: string,
+  signal?: AbortSignal,
+) {
+  signal?.throwIfAborted();
+  if (!isMattermostId(channelId) || !isMattermostId(postId))
+    throw new TypeError("Invalid Mattermost post attachment address.");
+  const response = await posts.getFileInfosForPostRaw({ postId }, { signal });
+  if (response.raw.status !== 200) {
+    await response.raw.body?.cancel();
+    throw new TypeError("Incomplete Mattermost post attachment response.");
+  }
+  const files = await response.value();
+  signal?.throwIfAborted();
+  // Mattermost 12.1 may return JSON null for a post without files.
+  return files === null ? [] : receivedFiles({ id: postId, channelId }, files);
 }

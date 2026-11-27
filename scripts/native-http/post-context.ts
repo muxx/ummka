@@ -12,12 +12,15 @@ export function respondToPostContext(
   const fileId = "f".repeat(26);
   const fileInfo = `/api/v4/files/${fileId}/info`;
   const base = `/api/v4/posts/${post}`;
+  const attachedPost = "j".repeat(26);
+  const visibleFiles = `/api/v4/posts/${attachedPost}/files/info`;
   const prefixed = url.pathname.startsWith("/team/chat/");
   const route = prefixed
     ? url.pathname.slice("/team/chat".length)
     : url.pathname;
   if (
     route !== fileInfo &&
+    route !== visibleFiles &&
     route !== `${base}/files/info` &&
     route !== `${base}/info` &&
     route !== `${base}/thread` &&
@@ -35,11 +38,23 @@ export function respondToPostContext(
   if (route === `${base}/files/info`) {
     assert.ok(prefixed);
     assert.equal(url.search, "");
+    response.writeHead(403, { "Content-Type": "application/json" }).end(
+      JSON.stringify({
+        id: "api.file.get_file.abac_denied.app_error",
+        status_code: 403,
+        message: "Attachment access denied",
+      }),
+    );
+    return "post-files-denied";
+  }
+  if (route === visibleFiles) {
+    assert.ok(prefixed);
+    assert.equal(url.search, "");
     response.writeHead(200, { "Content-Type": "application/json" }).end(
       JSON.stringify(
         ["zebra.txt", "apple.txt"].map((name, index) => ({
           id: String(index + 1).repeat(26),
-          post_id: post,
+          post_id: attachedPost,
           channel_id: channelId,
           name,
           size: 24 + index,
