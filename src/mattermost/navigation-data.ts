@@ -19,6 +19,8 @@ import {
   isMattermostTime,
 } from "./model-fields.ts";
 
+import { loadOwnChannelMemberships } from "./own-channel-membership.ts";
+
 type DirectoryRequest = <T>(
   send: (options: { signal: AbortSignal }) => Promise<T>,
 ) => Promise<T>;
@@ -129,21 +131,10 @@ export function loadAccountDirectory(
 }
 
 function joinedChannels(
-  userId: string,
   teamId: string,
   channels: Channel[],
-  members: ChannelMember[],
+  byChannel: ReadonlyMap<string, ChannelMember>,
 ) {
-  const byChannel = new Map<string, ChannelMember>();
-  for (const member of members) {
-    if (
-      !isMattermostId(member.channelId) ||
-      member.userId !== userId ||
-      byChannel.has(member.channelId)
-    )
-      throw new TypeError("Invalid Mattermost channel membership.");
-    byChannel.set(member.channelId, member);
-  }
   const seen = new Set<string>();
   const joined = new Map<
     string,
@@ -248,12 +239,14 @@ export function loadTeamDirectory(
           )
           .catch(emptyChannelList),
       ),
-      request((options) => api.getChannelMembersForUser(scope, options)),
+      request(({ signal }) =>
+        loadOwnChannelMemberships(config, userId, teamId, signal),
+      ),
       request((options) =>
         api.getSidebarCategoriesForTeamForUser(scope, options),
       ),
     ]);
-    const joined = joinedChannels(userId, teamId, channels, members);
+    const joined = joinedChannels(teamId, channels, members);
     return {
       teamId,
       channels: Array.from(joined.values()),

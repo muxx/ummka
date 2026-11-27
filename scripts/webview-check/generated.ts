@@ -470,6 +470,16 @@ export async function checkGeneratedRequests(ports: string[]) {
       "team-navigation-directory",
     );
     const teamId = "Team0123456789012345678901";
+    const channelId = "c".repeat(26);
+    check(
+      (await accountPrefix.readOwnChannelMembership(teamId, channelId)) ===
+        "member" &&
+        (await accountPrefix.readOwnChannelMembership(
+          teamId,
+          "q".repeat(26),
+        )) === "absent",
+      "read-own-channel-membership",
+    );
     const recipientPage = await users.getUsers({
       page: 1,
       perPage: 20,
@@ -514,7 +524,6 @@ export async function checkGeneratedRequests(ports: string[]) {
       check(result.kind === "applied", `signed-team-membership-${change}`);
     }
 
-    const channelId = "c".repeat(26);
     await checkCollectionRemoval(accountPrefix, channelId);
     const term = "from:fixture Привет";
     check(
