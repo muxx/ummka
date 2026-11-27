@@ -351,7 +351,12 @@ export function PostCollectionPane({
                   ? new Date(row.createAt)
                   : null;
               return (
-                <li key={row.id}>
+                <li
+                  key={row.id}
+                  className={
+                    kind === "all" ? "collection-saved-row" : undefined
+                  }
+                >
                   <button
                     type="button"
                     className="collection-open"
