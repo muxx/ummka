@@ -38,6 +38,7 @@ export type RotateAndroid = (
   orientation: "landscape" | "portrait",
 ) => Promise<void>;
 export type TapAndroid = (x: number, y: number) => Promise<void>;
+export type AndroidImeBack = (x: number, y: number) => Promise<void>;
 export type OnAndroidInputReady = (
   send: SendAndroidKey,
   swipe: SwipeAndroid,
@@ -45,6 +46,7 @@ export type OnAndroidInputReady = (
   clipboard: ClipboardPolicyStep,
   swipePreview: PreviewSwipeAndroid,
   tap: TapAndroid,
+  imeBack: AndroidImeBack,
 ) => void;
 
 export async function launchWebview(
@@ -55,21 +57,29 @@ export async function launchWebview(
   onAndroidInputReady?: OnAndroidInputReady,
   webviewProgress?: () => string,
 ) {
-  const send: SendAndroidKey = async (key) => {
-    if (key === "KEYCODE_BACK") {
-      // This case exercises app navigation. Android gives a visible IME the first Back.
-      const deadline = Date.now() + 5_000;
-      while (true) {
-        const input = await adb("shell", "dumpsys", "input_method");
-        if (/\bmInputShown=false\b/u.test(input)) break;
-        assert(
-          Date.now() < deadline,
-          "Thread navigation requires a hidden IME",
-        );
-        await delay(50);
-      }
+  async function waitForIme(shown: boolean, phase: string) {
+    const deadline = Date.now() + 5_000;
+    for (;;) {
+      const input = await adb("shell", "dumpsys", "input_method");
+      const state = /\bmInputShown=(true|false)\b/u.exec(input)?.[1];
+      if (state === String(shown)) return;
+      assert(
+        Date.now() < deadline,
+        `Expected the Android IME to be ${shown ? "shown" : "hidden"} ${phase} (mInputShown=${state ?? "missing"})`,
+      );
+      await delay(50);
     }
+  }
+  const keyevent = async (key: Parameters<SendAndroidKey>[0]) => {
     await adb("shell", "input", "keyevent", key);
+  };
+  const send: SendAndroidKey = async (key) => {
+    if (key === "KEYCODE_BACK")
+      await waitForIme(false, "before app navigation");
+    await keyevent(key);
+  };
+  const tap: TapAndroid = async (x, y) => {
+    await adb("shell", "input", "tap", String(x), String(y));
   };
   onAndroidInputReady?.(
     send,
@@ -180,8 +190,12 @@ export async function launchWebview(
         await motion("MOVE", Math.round(start + ((end - start) * step) / 4));
       await motion("UP", end);
     },
+    tap,
     async (x, y) => {
-      await adb("shell", "input", "tap", String(x), String(y));
+      await tap(x, y);
+      await waitForIme(true, "after tapping the search field");
+      await keyevent("KEYCODE_BACK");
+      await waitForIme(false, "after the keyboard's Back");
     },
   );
   assert.match(

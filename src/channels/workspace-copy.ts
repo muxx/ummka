@@ -30,6 +30,14 @@ export const workspaceCopy = {
     more: "More",
     close: "Close account menu",
     formatMentions: (n: number) => `Mentions: ${n}`,
+    conversation: {
+      O: "Public channel",
+      P: "Private channel",
+      D: "Direct message",
+      G: "Group message",
+      self: "Notes to yourself",
+      archived: "Archived channel",
+    },
   },
   ru: {
     positionLost: "Сообщения, которые вы читали, здесь больше недоступны.",
@@ -62,5 +70,13 @@ export const workspaceCopy = {
     more: "Ещё",
     close: "Закрыть меню аккаунта",
     formatMentions: (n: number) => `Упоминаний: ${n}`,
+    conversation: {
+      O: "Открытый канал",
+      P: "Закрытый канал",
+      D: "Личная переписка",
+      G: "Групповая переписка",
+      self: "Заметки для себя",
+      archived: "Канал в архиве",
+    },
   },
 } as const;
