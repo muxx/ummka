@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { isAndroid } from "../../src/build-platform.ts";
 import { composerPostMentions } from "../../src/channels/composer-mentions.ts";
 import { resolveComposerSubmission } from "../../src/channels/composer-submission.ts";
 import { readGroupMentionAudience } from "../../src/channels/group-mention-audience.ts";
@@ -165,8 +166,13 @@ export async function checkGeneratedRequests(ports: string[]) {
         JSON.stringify(
           await checkChannelFormatting(
             (kind, width) => observed("format-right", `${kind}-${width}`),
-            navigator.userAgent.includes("Android")
-              ? (from, to, y) => observed("table-swipe", `${from},${to},${y}`)
+            isAndroid
+              ? {
+                  swipe: (axis, coordinates) =>
+                    observed("table-swipe", [axis, ...coordinates].join(",")),
+                  rotate: (orientation) =>
+                    observed("table-rotation", orientation),
+                }
               : undefined,
           ),
         ),

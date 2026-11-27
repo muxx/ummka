@@ -23,13 +23,18 @@ export type ClipboardPolicyStep = (
   step: (typeof clipboardPolicySteps)[number],
 ) => Promise<void>;
 export type SwipeAndroid = (
-  from: number,
-  to: number,
-  y: number,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+) => Promise<void>;
+export type RotateAndroid = (
+  orientation: "landscape" | "portrait",
 ) => Promise<void>;
 export type OnAndroidInputReady = (
   send: SendAndroidKey,
   swipe: SwipeAndroid,
+  rotate: RotateAndroid,
   clipboard: ClipboardPolicyStep,
 ) => void;
 
@@ -58,16 +63,26 @@ export async function launchWebview(
   };
   onAndroidInputReady?.(
     send,
-    async (from, to, y) => {
+    async (x1, y1, x2, y2) => {
       await adb(
         "shell",
         "input",
         "swipe",
-        String(from),
-        String(y),
-        String(to),
-        String(y),
+        String(x1),
+        String(y1),
+        String(x2),
+        String(y2),
         "320",
+      );
+    },
+    async (orientation) => {
+      await adb(
+        "shell",
+        "cmd",
+        "window",
+        "user-rotation",
+        "lock",
+        orientation === "landscape" ? "1" : "0",
       );
     },
     async (step) => {

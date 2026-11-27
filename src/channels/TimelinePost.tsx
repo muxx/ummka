@@ -119,6 +119,7 @@ export function TimelinePost({
   ownName,
   focusable,
   highlighted,
+  inThread,
   collapsedThreads,
   onOpenThread,
   expanded = false,
@@ -131,6 +132,7 @@ export function TimelinePost({
   ownName?: string;
   focusable?: boolean;
   highlighted?: boolean;
+  inThread?: boolean;
   collapsedThreads?: boolean;
   onOpenThread?: (post: LocalPost) => void;
   expanded?: boolean;
@@ -206,7 +208,12 @@ export function TimelinePost({
           <p className="timeline-attempt-text">{post.message}</p>
         ) : (
           <PostBodyDisclosure locale={locale}>
-            <PublishedPostBody message={post.message} locale={locale} />
+            <PublishedPostBody
+              message={post.message}
+              locale={locale}
+              authorName={name}
+              inThread={inThread}
+            />
           </PostBodyDisclosure>
         )}
         {Boolean(hasAttachments) && !post.outgoing && (

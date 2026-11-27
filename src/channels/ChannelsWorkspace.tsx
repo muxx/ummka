@@ -43,6 +43,11 @@ import {
   AttachmentWindow,
   useAttachmentWindow,
 } from "./PublishedAttachments.tsx";
+import {
+  PublishedTableScreen,
+  PublishedTableWindow,
+  usePublishedTableWindow,
+} from "./PublishedTableWindow.tsx";
 import type { ReactionThread } from "./submit-channel-reaction.ts";
 import { TeamChannelDirectory } from "./TeamChannelDirectory.tsx";
 import { ThreadPane } from "./ThreadPane.tsx";
@@ -800,29 +805,37 @@ export function ChannelsWorkspace({
   const channelTitle = channel
     ? selectedLabel || channel.displayName || text.nav
     : text.choose;
-  const attachments = useAttachmentWindow(
-    workspace,
-    JSON.stringify([
-      connection.rid,
-      team.id,
-      chosen,
-      activeThread?.id,
-      position?.request.requestId,
-      page,
-      directoryOpen,
-      historyDenied,
-      collections.view?.key,
-      Boolean(search.panel),
-    ]),
+  const roomTitle =
     channel && (channel.kind === "O" || channel.kind === "P")
       ? `# ${channelTitle}`
-      : channelTitle,
+      : channelTitle;
+  const presentationScope = JSON.stringify([
+    connection.rid,
+    team.id,
+    chosen,
+    activeThread?.id,
+    position?.request.requestId,
+    page,
+    directoryOpen,
+    historyDenied,
+    collections.view?.key,
+    Boolean(search.panel),
+  ]);
+  const attachments = useAttachmentWindow(
+    workspace,
+    presentationScope,
+    roomTitle,
+  );
+  const tables = usePublishedTableWindow(
+    presentationScope,
+    channel ? roomTitle : (selectedLabel ?? ""),
   );
   useWorkspaceBack(
     accountOpen ||
       notificationRoom !== null ||
       workspace.messages.dialogOpen ||
-      Boolean(attachments.selected),
+      Boolean(attachments.selected) ||
+      Boolean(tables.opening),
     workspaceBack(),
   );
   useEffect(() => {
@@ -1378,5 +1391,12 @@ export function ChannelsWorkspace({
       )}
     </div>
   );
-  return <AttachmentWindow value={attachments}>{content}</AttachmentWindow>;
+  return (
+    <AttachmentWindow value={attachments}>
+      <PublishedTableWindow value={tables.value}>
+        {content}
+        <PublishedTableScreen tables={tables} />
+      </PublishedTableWindow>
+    </AttachmentWindow>
+  );
 }

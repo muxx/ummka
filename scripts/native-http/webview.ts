@@ -11,6 +11,7 @@ import { respondToAccount } from "./account.ts";
 import {
   type ClipboardPolicyStep,
   clipboardPolicySteps,
+  type RotateAndroid,
   type SendAndroidKey,
   type SwipeAndroid,
 } from "./android-webview.ts";
@@ -79,7 +80,16 @@ export function webviewServers(
   const formatKeyCases = ["code-320", "table-320", "code-820", "table-820"];
   const formatKeys: string[] = [];
   let swipeAndroid: SwipeAndroid | undefined;
-  let tableSwiped = false;
+  let rotateAndroid: RotateAndroid | undefined;
+  const tableGestures = [
+    "preview",
+    "horizontal",
+    "vertical",
+    "landscape",
+    "portrait",
+  ];
+  let tableGesture = 0;
+  let tableBack = false;
   let controlProgress = "not started";
   let onMacStep: ((stage: string) => void) | undefined;
   let controlRequests = 0;
@@ -1503,6 +1513,8 @@ export function webviewServers(
         [
           "format-right",
           "table-swipe",
+          "table-rotation",
+          "table-back",
           "format-times",
           "received",
           "closed",
@@ -1564,6 +1576,10 @@ export function webviewServers(
       );
       visits.push(marker);
       if (!(await press(pressWorkspaceBack))) return;
+    } else if (step === "table-back") {
+      assert(swipeAndroid && pressWorkspaceBack && !tableBack);
+      if (!(await press(pressWorkspaceBack))) return;
+      tableBack = true;
     } else if (step?.startsWith("back-")) {
       assert.equal(step, "back-" + backSteps[stepIndex]);
       assert(
@@ -1581,20 +1597,29 @@ export function webviewServers(
       if (!(await press(sendRight))) return;
     } else if (step === "table-swipe") {
       const swipe = swipeAndroid;
-      assert(swipe && !tableSwiped);
-      assert.deepEqual(formatKeys, formatKeyCases.slice(0, 2));
-      const coordinates =
-        /^([1-9]\d{0,3}),([1-9]\d{0,3}),([1-9]\d{0,3})$/u.exec(
-          url.searchParams.get("case") ?? "",
+      assert(swipe);
+      const match =
+        /^(preview|horizontal|vertical),([1-9]\d{0,3}),([1-9]\d{0,3}),([1-9]\d{0,3}),([1-9]\d{0,3})$/u.exec(
+          name,
         );
-      assert(coordinates);
-      const [, from, to, y] = coordinates.map(Number);
-      assert(from > to);
-      tableSwiped = true;
-      if (!(await press(() => swipe(from, to, y)))) return;
+      assert(match);
+      const [, axis, x1, y1, x2, y2] = match;
+      assert.equal(axis, tableGestures[tableGesture++]);
+      if (
+        !(await press(() =>
+          swipe(Number(x1), Number(y1), Number(x2), Number(y2)),
+        ))
+      )
+        return;
+    } else if (step === "table-rotation") {
+      const rotate = rotateAndroid;
+      assert(rotate);
+      assert(name === "landscape" || name === "portrait");
+      assert.equal(name, tableGestures[tableGesture++]);
+      if (!(await press(() => rotate(name)))) return;
     } else if (step === "format-times") {
       assert.deepEqual(formatKeys, formatKeyCases);
-      assert.equal(tableSwiped, swipeAndroid !== undefined);
+      assert.equal(tableGesture, swipeAndroid ? tableGestures.length : 0);
       const data = JSON.parse(url.searchParams.get("case") ?? "null");
       assert.ok(Array.isArray(data));
       assert.deepEqual(
@@ -1653,17 +1678,24 @@ export function webviewServers(
     onAndroidInputReady(
       send: SendAndroidKey,
       swipe: SwipeAndroid,
+      rotate: RotateAndroid,
       runClipboardStep: ClipboardPolicyStep,
     ) {
       clipboard = runClipboardStep;
       swipeAndroid = swipe;
+      rotateAndroid = rotate;
       prepareKeyboard = () => send("KEYCODE_TAB");
       pressWorkspaceBack = () => send("KEYCODE_BACK");
       sendRight = () => send("KEYCODE_DPAD_RIGHT");
     },
     verify(platform: "macos" | "android") {
-      if (platform === "android")
+      if (platform === "android") {
         assert(systemPostReads.has("dismissed"), "Missing system-link Back");
+        assert(
+          tableBack,
+          "Missing Android Back from the table into the thread",
+        );
+      }
 
       refresh.verify();
       for (const read of [

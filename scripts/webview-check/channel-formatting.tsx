@@ -1,11 +1,20 @@
+import { fireEvent, waitFor, within } from "@testing-library/dom";
+import type { ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { applyPalette, resolvePalette } from "../../src/appearance/palette.ts";
 import { isAndroid } from "../../src/build-platform.ts";
 import { ChannelTimeline } from "../../src/channels/ChannelTimeline.tsx";
+import {
+  PublishedTableScreen,
+  PublishedTableWindow,
+  usePublishedTableWindow,
+} from "../../src/channels/PublishedTableWindow.tsx";
 import type { LocalChannelWindow } from "../../src/mattermost/local-history.ts";
 
 const longCode = `  const summary = "${"a".repeat(320)}";`;
+const extraCell = "wide".repeat(70);
+const lastRow = isAndroid ? 78 : 6;
 const bodies = [
   "# Notes\n\n## Decisions\n\nRead **bold**, *emphasis* and ~~old~~.",
   "> A quote\n>\n> > Another quote",
@@ -17,12 +26,17 @@ const bodies = [
   [
     "| Name | Status | Score |",
     "| :--- | :---: | ---: |",
-    `| **Aurora** | Ready | 17 | ${"wide".repeat(70)} |`,
-    ...Array.from({ length: 6 }, (_, i) => `| Row ${i} | In progress | ${i} |`),
+    `| **Aurora** | Ready | 17 | ${extraCell} |`,
+    ...Array.from(
+      { length: lastRow },
+      (_, i) => `| Row ${i} | In progress | ${i} |`,
+    ),
+    "| Last row | *Italic* | `keep  spaces` | Extra | Detail | A | B | C | D | **Last cell** |",
   ].join("\n"),
   "| Short |\n| --- |\n| Fits |",
   "A short inline `const  value` with an ampersand &amp; text.",
   "A paragraph with ordinary readable text.\n\n~~~\nlet value;\n~~~",
+  `| Long |\n| --- |\n| ${"wrap generously ".repeat(140)} |`,
 ];
 
 function checkDisclosure(host: HTMLElement, width: number) {
@@ -129,46 +143,246 @@ async function checkArrowRight(
   }
 }
 
+type Swipe = (
+  axis: "preview" | "horizontal" | "vertical",
+  coordinates: [number, number, number, number],
+) => Promise<void>;
+
 async function checkTableSwipe(
-  table: HTMLElement,
-  swipe: (from: number, to: number, y: number) => Promise<void>,
+  target: HTMLElement,
+  axis: Parameters<Swipe>[0],
+  swipe: Swipe,
+  moves: () => boolean,
 ) {
-  table.scrollLeft = 0;
-  table.scrollIntoView({ block: "center" });
-  const bounds = table.getBoundingClientRect();
+  const bounds = target.getBoundingClientRect();
   const left = Math.max(0, bounds.left);
   const right = Math.min(window.innerWidth, bounds.right);
   const top = Math.max(0, bounds.top);
   const bottom = Math.min(window.innerHeight, bounds.bottom);
-  if (right - left < 100 || top >= bottom)
-    throw Error("No visible touch path across the table");
+  const x = (left + right) / 2;
+  const y = (top + bottom) / 2;
+  const coordinates =
+    axis === "horizontal"
+      ? [right - 16, y, left + 16, y]
+      : [x, axis === "preview" ? y : bottom - 16, x, top + 16];
+  if (
+    Math.hypot(
+      coordinates[0] - coordinates[2],
+      coordinates[1] - coordinates[3],
+    ) < 28
+  )
+    throw Error(`No visible touch path across the ${axis} table`);
   const scale = window.devicePixelRatio;
   let touched = false;
   const observe = (event: TouchEvent) => {
     if (event.isTrusted) touched = true;
   };
-  table.addEventListener("touchstart", observe, { passive: true });
+  target.addEventListener("touchstart", observe, { passive: true });
   try {
     await swipe(
-      Math.round((right - 16) * scale),
-      Math.round((left + 16) * scale),
-      Math.round(((top + bottom) / 2) * scale),
+      axis,
+      coordinates.map((value) => Math.round(value * scale)) as [
+        number,
+        number,
+        number,
+        number,
+      ],
     );
-    const deadline = performance.now() + 2500;
-    while ((!touched || table.scrollLeft < 15) && performance.now() < deadline)
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    if (!touched || table.scrollLeft < 15)
-      throw Error(
-        `Table touch: trusted=${touched}, scroll=${table.scrollLeft}`,
-      );
+    await waitFor(() => {
+      if (!touched || !moves())
+        throw Error(
+          `Table ${axis} touch: trusted=${touched}, offsets=${target.scrollLeft},${target.scrollTop}`,
+        );
+    });
   } finally {
-    table.removeEventListener("touchstart", observe);
+    target.removeEventListener("touchstart", observe);
   }
+}
+
+function FormattingWorkspace({ children }: { children: ReactNode }) {
+  const tables = usePublishedTableWindow("formatting", "# Formatting");
+  return (
+    <PublishedTableWindow value={tables.value}>
+      {children}
+      <PublishedTableScreen tables={tables} />
+    </PublishedTableWindow>
+  );
+}
+
+async function checkMobileTable(
+  table: HTMLElement | null,
+  fittingTable: HTMLElement | null,
+  tallTable: HTMLElement | null,
+  pressRight: () => Promise<void>,
+  physical?: {
+    swipe: Swipe;
+    rotate: (orientation: "landscape" | "portrait") => Promise<void>;
+  },
+) {
+  if (!table || !fittingTable || !tallTable)
+    throw Error("Missing compact tables");
+  const verifyPreview = () => {
+    const limit = Math.floor(innerWidth / 96);
+    if (
+      table.querySelectorAll("tr").length !== limit ||
+      table.querySelectorAll("thead th").length !== 3 ||
+      table.querySelectorAll("tbody tr:first-child td").length !==
+        Math.min(limit, 4) ||
+      table.querySelectorAll("tbody tr:last-child td:first-child")[0]
+        ?.textContent !== `Row ${limit - 3}` ||
+      !table.hasAttribute("data-more-rows") ||
+      getComputedStyle(table).overflow !== "clip"
+    )
+      throw Error(`Table preview did not recalculate at ${innerWidth}px`);
+  };
+  verifyPreview();
+  if (
+    fittingTable.hasAttribute("data-more-rows") ||
+    fittingTable.hasAttribute("data-more-columns") ||
+    table.clientHeight > 300
+  )
+    throw Error("Unexpected fitting-table fade or preview height");
+
+  const button = within(table).getByRole("button", {
+    name: `Open table: ${lastRow + 3} rows, 10 columns`,
+  });
+  const short = within(fittingTable).getByRole("button", {
+    name: "Open table: 2 rows, 1 column",
+  });
+  const shortCell = within(fittingTable).getByRole("cell", { name: "Fits" });
+  const expand = short.querySelector("svg");
+  if (
+    !expand ||
+    expand.getBoundingClientRect().left + 1 <
+      shortCell.getBoundingClientRect().right
+  )
+    throw Error("The expand button covers the fitting table's cells");
+  if (physical) {
+    const feed = table.closest<HTMLElement>(".timeline-scroll");
+    if (
+      !feed ||
+      tallTable.clientHeight !== 300 ||
+      !tallTable.hasAttribute("data-more-rows") ||
+      tallTable.hasAttribute("data-more-columns")
+    )
+      throw Error(
+        "A wrapping cell must clip at exactly 300px and fade only at the bottom",
+      );
+    tallTable.scrollIntoView({ block: "center" });
+    const origin = feed.scrollTop;
+    await checkTableSwipe(
+      tallTable,
+      "preview",
+      physical.swipe,
+      () => feed.scrollTop > origin + 15 && tallTable.scrollTop === 0,
+    );
+  }
+  table.scrollIntoView({ block: "center" });
+  button.focus({ preventScroll: true });
+  flushSync(() => fireEvent.click(button));
+  const dialog = within(document.body).getByRole("dialog", { name: "Table" });
+  const ui = within(dialog);
+  const full = ui.getByRole("region", { name: "Table" });
+  ui.getByText("Ada · # Formatting");
+  const header = ui.getByRole("columnheader", { name: "Score" });
+  const last = ui.getByRole("cell", { name: "Last cell" });
+  const dimensions = `${full.clientWidth}×${full.clientHeight}/${full.scrollWidth}×${full.scrollHeight}`;
+  if (
+    full.scrollWidth <= full.clientWidth ||
+    full.scrollHeight <= full.clientHeight ||
+    ui.getAllByRole("table").length !== 1 ||
+    ui.getAllByRole("row").length !== lastRow + 3 ||
+    document.activeElement !== full ||
+    getComputedStyle(header).textAlign !== "right" ||
+    !ui.getByRole("cell", { name: "Italic" }).querySelector("em") ||
+    !last.querySelector("strong") ||
+    !ui.getByRole("cell", { name: /keep +spaces/ }).querySelector("code")
+  )
+    throw Error(
+      `Full table: ${dimensions}, focus=${document.activeElement?.tagName}, rows=${ui.getAllByRole("row").length}, align=${getComputedStyle(header).textAlign}`,
+    );
+  await checkArrowRight(full, "full table", pressRight);
+  if (physical) {
+    full.scrollLeft = 0;
+    await checkTableSwipe(
+      full,
+      "horizontal",
+      physical.swipe,
+      () => full.scrollLeft >= 15,
+    );
+    await checkTableSwipe(
+      full,
+      "vertical",
+      physical.swipe,
+      () => full.scrollTop >= 15,
+    );
+  }
+  const range = document.createRange();
+  range.selectNodeContents(last);
+  const bounds = full.getBoundingClientRect();
+  const stickyTop = header.getBoundingClientRect().top;
+  full.scrollTo(
+    full.scrollLeft + range.getBoundingClientRect().left - bounds.left - 2,
+    full.scrollHeight,
+  );
+  const cellText = range.getBoundingClientRect();
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  if (
+    cellText.left < bounds.left ||
+    cellText.right > bounds.right ||
+    cellText.bottom > bounds.bottom ||
+    cellText.top < bounds.top ||
+    Math.abs(header.getBoundingClientRect().top - stickyTop) > 1 ||
+    selection?.toString() !== "Last cell"
+  )
+    throw Error("Could not reach and select the last cell");
+  selection.removeAllRanges();
+  flushSync(() => fireEvent.click(ui.getByRole("button", { name: "Back" })));
+  await waitFor(() => {
+    if (dialog.isConnected || document.activeElement !== button)
+      throw Error("The full screen did not restore its exact opener");
+  });
+  if (physical) {
+    const origin = innerWidth;
+    await physical.rotate("landscape");
+    try {
+      await waitFor(
+        () => {
+          if (innerWidth <= origin)
+            throw Error("Android did not rotate into landscape");
+          verifyPreview();
+        },
+        { timeout: 4000 },
+      );
+    } finally {
+      await physical.rotate("portrait");
+    }
+    await waitFor(
+      () => {
+        if (innerWidth !== origin)
+          throw Error("Android did not return to portrait");
+        verifyPreview();
+      },
+      { timeout: 4000 },
+    );
+  }
+  flushSync(() => fireEvent.click(short));
+  const small = within(
+    within(document.body).getByRole("dialog", { name: "Table" }),
+  );
+  if (
+    !small.getByRole("cell", { name: "Fits" }) ||
+    small.queryByText("Last cell")
+  )
+    throw Error("Opening a second table showed a previous selection");
+  flushSync(() => fireEvent.click(small.getByRole("button", { name: "Back" })));
 }
 
 export async function checkChannelFormatting(
   pressRight: (kind: "code" | "table", width: number) => Promise<void>,
-  swipe?: (from: number, to: number, y: number) => Promise<void>,
+  mobile?: Parameters<typeof checkMobileTable>[4],
 ) {
   const author = () => ({ name: "Ada" });
   const posts: LocalChannelWindow["posts"] = Array.from(
@@ -201,18 +415,20 @@ export async function checkChannelFormatting(
       const start = performance.now();
       flushSync(() =>
         root.render(
-          <ChannelTimeline
-            channelId="formatted"
-            locale="en"
-            author={author}
-            offline={false}
-            page={{
-              posts: [...posts],
-              older: { kind: "end" },
-              newer: { kind: "end" },
-              firstInaccessiblePostTime: 0,
-            }}
-          />,
+          <FormattingWorkspace>
+            <ChannelTimeline
+              channelId="formatted"
+              locale="en"
+              author={author}
+              offline={false}
+              page={{
+                posts: [...posts],
+                older: { kind: "end" },
+                newer: { kind: "end" },
+                firstInaccessiblePostTime: 0,
+              }}
+            />
+          </FormattingWorkspace>,
         ),
       );
       const pane = host.querySelector<HTMLElement>(".timeline-scroll");
@@ -254,7 +470,7 @@ export async function checkChannelFormatting(
       const task = host.querySelector<HTMLInputElement>(
         ".published-post input",
       );
-      const label = host.querySelector<HTMLElement>(".published-post em");
+      const label = heading.parentElement?.querySelector("em");
       if (
         host.querySelectorAll("article").length !== 60 ||
         !heading ||
@@ -289,64 +505,78 @@ export async function checkChannelFormatting(
         pressRight("code", width),
       );
 
+      function checkEmphasisSelection(node: HTMLElement) {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        if (selection?.toString() !== "emphasis")
+          throw Error("formatted text selection");
+        selection.removeAllRanges();
+        return { range, selection };
+      }
+
       const tableIn = (index: number) =>
         host.querySelector<HTMLElement>(
           `[data-post-id="${posts[index].id}"] .post-table`,
         );
       const table = tableIn(7);
       const fittingTable = tableIn(8);
-      const headers = [...(table?.querySelectorAll("th[scope=col]") ?? [])];
-      const row = [
-        ...(table?.querySelectorAll("tbody tr:first-child td") ?? []),
-      ];
-      if (
-        table?.getAttribute("role") !== "region" ||
-        table.getAttribute("aria-label") !== "Table" ||
-        table.scrollWidth <= table.clientWidth ||
-        headers.map((cell) => cell.textContent).join(",") !==
-          "Name,Status,Score" ||
-        getComputedStyle(headers[1]).textAlign !== "center" ||
-        getComputedStyle(headers[2]).textAlign !== "right" ||
-        row.length !== 4 ||
-        row[0]?.querySelector("strong")?.textContent !== "Aurora" ||
-        row[2]?.textContent !== "17" ||
-        row[3]?.textContent !== "wide".repeat(70)
-      )
-        throw Error("Table headings, alignment, overflow or authored cells");
-      if (
-        !fittingTable ||
-        fittingTable.hasAttribute("tabindex") ||
-        fittingTable.hasAttribute("role")
-      )
-        throw Error("A fitting table added a keyboard stop");
-      await checkArrowRight(table, `table-${width}`, () =>
-        pressRight("table", width),
-      );
-      const offset = table.scrollLeft;
-      table.scrollLeft = offset;
-      const neighbor = posts[6];
-      posts[6] = { ...neighbor, message: `${neighbor.message}!` };
-      draw();
-      posts[6] = neighbor;
-      if (table !== tableIn(7) || Math.abs(table.scrollLeft - offset) > 1)
-        throw Error(
-          "The table lost its horizontal position on a neighboring edit",
+      if (isAndroid) {
+        checkEmphasisSelection(label);
+        await checkMobileTable(
+          table,
+          fittingTable,
+          tableIn(11),
+          () => pressRight("table", width),
+          width === 320 ? mobile : undefined,
         );
-      if (width === 320 && swipe) await checkTableSwipe(table, swipe);
-
-      const range = document.createRange();
-      range.selectNodeContents(label);
-      const selection = window.getSelection();
-      selection?.removeAllRanges();
-      selection?.addRange(range);
-      if (selection?.toString() !== "emphasis")
-        throw Error("formatted text selection");
-      selection.removeAllRanges();
-      range.selectNodeContents(row[3]);
-      selection.addRange(range);
-      if (selection.toString() !== row[3].textContent)
-        throw Error("Table cell text could not be selected");
-      selection.removeAllRanges();
+      } else {
+        const headers = [...(table?.querySelectorAll("th[scope=col]") ?? [])];
+        const row = [
+          ...(table?.querySelectorAll("tbody tr:first-child td") ?? []),
+        ];
+        if (
+          table?.getAttribute("role") !== "region" ||
+          table.getAttribute("aria-label") !== "Table" ||
+          table.scrollWidth <= table.clientWidth ||
+          headers.map((cell) => cell.textContent).join(",") !==
+            "Name,Status,Score" ||
+          getComputedStyle(headers[1]).textAlign !== "center" ||
+          getComputedStyle(headers[2]).textAlign !== "right" ||
+          row.length !== 4 ||
+          row[0]?.querySelector("strong")?.textContent !== "Aurora" ||
+          row[2]?.textContent !== "17" ||
+          row[3]?.textContent !== extraCell
+        )
+          throw Error("Table headings, alignment, overflow or authored cells");
+        if (
+          !fittingTable ||
+          fittingTable.hasAttribute("tabindex") ||
+          fittingTable.hasAttribute("role")
+        )
+          throw Error("A fitting table added a keyboard stop");
+        await checkArrowRight(table, `table-${width}`, () =>
+          pressRight("table", width),
+        );
+        const offset = table.scrollLeft;
+        table.scrollLeft = offset;
+        const neighbor = posts[6];
+        posts[6] = { ...neighbor, message: `${neighbor.message}!` };
+        draw();
+        posts[6] = neighbor;
+        if (table !== tableIn(7) || Math.abs(table.scrollLeft - offset) > 1)
+          throw Error(
+            "The table lost its horizontal position on a neighboring edit",
+          );
+        const { range, selection } = checkEmphasisSelection(label);
+        range.selectNodeContents(row[3]);
+        selection.addRange(range);
+        if (selection.toString() !== row[3].textContent)
+          throw Error("Table cell text could not be selected");
+        selection.removeAllRanges();
+      }
       const latest = posts.at(-1);
       if (!latest) throw Error("Missing formatting fixture post");
       posts.push({

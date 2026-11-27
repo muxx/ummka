@@ -1,11 +1,20 @@
 import {
+  createContext,
   Fragment,
   memo,
+  useContext,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
+import { isAndroid } from "../build-platform.ts";
+import {
+  PublishedTableWindow,
+  type TableOrigin,
+  tableCopy,
+  tableOpenLabel,
+} from "./PublishedTableWindow.tsx";
 import { publishedPostDocument } from "./published-post-document.ts";
 import "./published-post.css";
 
@@ -13,8 +22,8 @@ type Block = ReturnType<typeof publishedPostDocument>[number];
 type Inline = Extract<Block, { kind: "paragraph" }>["children"][number];
 type Locale = "en" | "ru";
 const labels = {
-  en: { image: "Image", task: "Task", code: "Code", table: "Table" },
-  ru: { image: "Изображение", task: "Задача", code: "Код", table: "Таблица" },
+  en: { image: "Image", task: "Task", code: "Code" },
+  ru: { image: "Изображение", task: "Задача", code: "Код" },
 };
 
 function useHorizontalRegion<T extends HTMLElement>(label: string) {
@@ -89,34 +98,127 @@ function inlines(nodes: Inline[], locale: Locale) {
 }
 
 type TableBlock = Extract<Block, { kind: "table" }>;
-function PostTable({ table, locale }: { table: TableBlock; locale: Locale }) {
-  const region = useHorizontalRegion<HTMLDivElement>(labels[locale].table);
+type TableProps = { table: TableBlock; locale: Locale };
+const PostTableOrigin = createContext<TableOrigin | null>(null);
+
+function TableGrid({ table, locale, limit }: TableProps & { limit?: number }) {
   function row(cells: Inline[][], heading: boolean) {
     const Cell = heading ? "th" : "td";
-    return cells.map((cell, column) => (
-      <Cell
-        // biome-ignore lint/suspicious/noArrayIndexKey: A cell is identified by its column.
-        key={column}
-        scope={heading ? "col" : undefined}
-        style={{ textAlign: table.align[column] ?? undefined }}
-      >
-        {inlines(cell, locale)}
-      </Cell>
-    ));
+    return (limit === undefined ? cells : cells.slice(0, limit)).map(
+      (cell, column) => (
+        <Cell
+          // biome-ignore lint/suspicious/noArrayIndexKey: A cell is identified by its column.
+          key={column}
+          scope={heading ? "col" : undefined}
+          style={{ textAlign: table.align[column] ?? undefined }}
+        >
+          {inlines(cell, locale)}
+        </Cell>
+      ),
+    );
   }
   return (
+    <table>
+      <thead>
+        <tr>{row(table.header, true)}</tr>
+      </thead>
+      <tbody>
+        {(limit === undefined
+          ? table.rows
+          : table.rows.slice(0, limit - 1)
+        ).map((cells, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: Rows follow their authored position.
+          <tr key={index}>{row(cells, false)}</tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function InlineTable(props: TableProps) {
+  const region = useHorizontalRegion<HTMLDivElement>(
+    tableCopy[props.locale].title,
+  );
+  return (
     <div className="post-table" {...region}>
-      <table>
-        <thead>
-          <tr>{row(table.header, true)}</tr>
-        </thead>
-        <tbody>
-          {table.rows.map((cells, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: Rows follow their authored position.
-            <tr key={index}>{row(cells, false)}</tr>
-          ))}
-        </tbody>
-      </table>
+      <TableGrid {...props} />
+    </div>
+  );
+}
+
+function TablePreview({ table, locale }: TableProps) {
+  const controls = useContext(PublishedTableWindow);
+  const origin = useContext(PostTableOrigin);
+  if (!controls || !origin)
+    throw new Error("A mobile table requires its workspace and post");
+  const { limit, open } = controls;
+  const preview = useRef<HTMLDivElement>(null);
+  const rows = table.rows.length + 1;
+  const columns = useMemo(
+    () =>
+      table.rows.reduce(
+        (n, row) => Math.max(n, row.length),
+        table.header.length,
+      ),
+    [table],
+  );
+  const hasMoreRows = rows > limit;
+  const hasMoreColumns = columns > limit || columns > 5;
+  useLayoutEffect(() => {
+    const frame = preview.current;
+    const area = frame?.firstElementChild;
+    const grid = area?.querySelector("table");
+    if (!frame || !area || !grid) return;
+    const measure = () => {
+      frame.toggleAttribute(
+        "data-more-columns",
+        hasMoreColumns || grid.offsetWidth > area.clientWidth,
+      );
+      frame.toggleAttribute(
+        "data-more-rows",
+        hasMoreRows || grid.offsetHeight > area.clientHeight,
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(area);
+    observer.observe(grid);
+    return () => observer.disconnect();
+  }, [hasMoreColumns, hasMoreRows]);
+  return (
+    <div className="post-table post-table-preview" ref={preview}>
+      <div className="post-table-preview-grid">
+        <TableGrid table={table} locale={locale} limit={limit} />
+      </div>
+      <button
+        className="post-table-open"
+        type="button"
+        aria-label={tableOpenLabel(locale, rows, columns)}
+        aria-haspopup="dialog"
+        onClick={({ currentTarget: button }) => {
+          button.focus({ preventScroll: true });
+          open({
+            ...origin,
+            button,
+            locale,
+            content: <TableGrid table={table} locale={locale} />,
+          });
+        }}
+      >
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 24 24"
+          width="17"
+          height="17"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M14 5h5v5m0-5-6 6m-3 8H5v-5m0 5 6-6" />
+        </svg>
+      </button>
     </div>
   );
 }
@@ -166,7 +268,11 @@ function blockNode(block: Block, locale: Locale): React.ReactNode {
     case "quote":
       return <blockquote>{blocks(block.blocks, locale)}</blockquote>;
     case "table":
-      return <PostTable table={block} locale={locale} />;
+      return isAndroid ? (
+        <TablePreview table={block} locale={locale} />
+      ) : (
+        <InlineTable table={block} locale={locale} />
+      );
     case "codeBlock":
       return <PostCode block={block} locale={locale} />;
     case "rule":
@@ -203,10 +309,16 @@ function blocks(nodes: Block[], locale: Locale, tight = false) {
 export const PublishedPostBody = memo(function PublishedPostBody({
   message,
   locale,
+  authorName,
+  inThread,
 }: {
   message: string;
   locale: Locale;
-}) {
+} & TableOrigin) {
   const document = useMemo(() => publishedPostDocument({ message }), [message]);
-  return <div className="published-post">{blocks(document, locale)}</div>;
+  return (
+    <PostTableOrigin value={{ authorName, inThread }}>
+      <div className="published-post">{blocks(document, locale)}</div>
+    </PostTableOrigin>
+  );
 });

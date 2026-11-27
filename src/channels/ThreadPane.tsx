@@ -239,6 +239,7 @@ function ThreadContent({
         <TimelinePost
           post={row}
           focusable
+          inThread
           locale={locale}
           time={time}
           author={resolve}
@@ -265,6 +266,7 @@ function ThreadContent({
           <div className="thread-root">
             <TimelinePost
               post={root}
+              inThread
               locale={locale}
               time={time}
               author={resolve}

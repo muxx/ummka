@@ -2,6 +2,7 @@ import { fireEvent, waitFor, within } from "@testing-library/dom";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { App } from "../../src/App.tsx";
+import { isAndroid } from "../../src/build-platform.ts";
 import {
   getCurrentAccountId,
   openAccountRestConnection,
@@ -28,7 +29,7 @@ export async function waitForAppForeground() {
 
 async function workspaceFixtureStep(
   controlPort: string,
-  step: "search-result-back" | "allow-design-posts",
+  step: "search-result-back" | "allow-design-posts" | "table-back",
 ) {
   const control = await openNativeRestConnection(
     `https://127.0.0.1:${controlPort}`,
@@ -42,6 +43,41 @@ async function workspaceFixtureStep(
   } finally {
     await control.close();
   }
+}
+
+async function checkTableReturn(
+  host: HTMLElement,
+  row: HTMLElement,
+  inspect: (table: ReturnType<typeof within>) => void,
+  origin: string,
+  nativeBack?: () => Promise<void>,
+) {
+  const opener = within(row).getByRole("button", { name: /^Open table:/ });
+  const feed = row.closest<HTMLElement>(".timeline-scroll");
+  if (!feed) throw Error("The table has no origin feed");
+  opener.scrollIntoView({ block: "nearest" });
+  const offset = feed.scrollTop;
+  flushSync(() => fireEvent.click(opener));
+  const dialog = within(host).getByRole("dialog", { name: "Table" });
+  const modal = within(dialog);
+  modal.getByText(origin);
+  const button = modal.getByRole("button", { name: "Back" });
+  if (document.activeElement !== modal.getByRole("region", { name: "Table" }))
+    throw Error("The full table did not focus its scrolling area");
+  inspect(within(within(dialog).getByRole("table")));
+  if (nativeBack) await nativeBack();
+  else flushSync(() => fireEvent.click(button));
+  await waitFor(() => {
+    if (
+      dialog.isConnected ||
+      document.activeElement !== opener ||
+      !feed.isConnected ||
+      Math.abs(feed.scrollTop - offset) > 1
+    )
+      throw Error(
+        "Closing the full table lost the origin post or its position",
+      );
+  });
 }
 
 async function checkThreadReply(
@@ -209,6 +245,15 @@ export async function checkBrowserApp(server: string, controlPort: string) {
       throw Error(
         "Timeline table lost its accessible column header or alignment",
       );
+    if (isAndroid)
+      await checkTableReturn(
+        host,
+        town,
+        (full) => {
+          full.getByRole("cell", { name: "Aurora" });
+        },
+        "fixture-author · # Town Square",
+      );
     const opener = within(town).getByRole("button", { name: "Open thread" });
     opener.focus();
     flushSync(() => fireEvent.click(opener));
@@ -220,13 +265,23 @@ export async function checkBrowserApp(server: string, controlPort: string) {
     );
     const replyRow = reply.closest("article");
     if (!replyRow) throw Error("Missing published reply");
-    const replyTable = within(within(replyRow).getByRole("table"));
-    const extraCell = replyTable.getByRole("cell", {
-      name: "Exact overflow cell",
-    });
-    if (!extraCell.querySelector("strong"))
-      throw Error("Thread table lost the formatting of an extra cell");
-    replyTable.getByRole("columnheader", { name: "Reply col" });
+    function inspectReplyTable(replyTable: ReturnType<typeof within>) {
+      const extraCell = replyTable.getByRole("cell", {
+        name: "Exact overflow cell",
+      });
+      if (!extraCell.querySelector("strong"))
+        throw Error("Thread table lost the formatting of an extra cell");
+      replyTable.getByRole("columnheader", { name: "Reply col" });
+    }
+    if (isAndroid)
+      await checkTableReturn(
+        host,
+        replyRow,
+        inspectReplyTable,
+        "fixture-author · thread in # Town Square",
+        () => workspaceFixtureStep(controlPort, "table-back"),
+      );
+    else inspectReplyTable(within(within(replyRow).getByRole("table")));
     if (town.getClientRects().length || document.activeElement === townDraft)
       throw Error("The compact thread did not take over the conversation");
     await verifyWorkspaceBack(host, controlPort, opener, townDraft);
