@@ -269,10 +269,24 @@ export async function verifyWorkspaceBack(
     const mobileNav = ui.queryByRole("button", { name: "Channels" });
     if (mobileNav) flushSync(() => fireEvent.click(mobileNav));
     const directory = ui.getByRole("button", { name: "Directory" });
+    const navigation = directory.parentElement;
+    if (!navigation) throw Error("The Directory row has no navigation pane");
+    const itemBounds = directory.getBoundingClientRect();
+    const navigationBounds = navigation.getBoundingClientRect();
+    if (
+      Math.abs(itemBounds.left - navigationBounds.left - 9) > 1 ||
+      Math.abs(itemBounds.width + 18 - navigation.clientWidth) > 1 ||
+      itemBounds.height !== (mobileNav ? 44 : 31)
+    )
+      throw Error("Directory row does not fit its navigation insets");
     flushSync(() => fireEvent.click(directory));
     const catalog = within(await ui.findByRole("main", { name: "Directory" }));
     const title = catalog.getByRole("heading", { level: 1, name: "Directory" });
-    if (document.activeElement !== title || channel.getClientRects().length)
+    if (
+      document.activeElement !== title ||
+      channel.getClientRects().length ||
+      directory.getAttribute("aria-current") !== "page"
+    )
       throw Error("The catalog did not take focus from the channel");
     await press("directory");
     await waitFor(() => {
