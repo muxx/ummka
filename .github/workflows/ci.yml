@@ -49,7 +49,22 @@ jobs:
           env-vars: DEVELOPER_DIR
           cache-bin: false
       - run: npm ci
-      - run: make check-macos
+      - name: Verify macOS and run JavaScript tests
+        shell: bash
+        run: |
+          make check-macos-preflight
+          /usr/bin/time -p npm test > "$RUNNER_TEMP/ummka-npm-test.log" 2>&1 &
+          test_pid=$!
+          native_status=0
+          make check-macos-native || native_status=$?
+          test_status=0
+          wait "$test_pid" || test_status=$?
+          echo '::group::npm test'
+          cat "$RUNNER_TEMP/ummka-npm-test.log"
+          printf 'npm test exit status: %s\n' "$test_status"
+          echo '::endgroup::'
+          if (( test_status != 0 )); then exit "$test_status"; fi
+          exit "$native_status"
         env:
           UMMKA_CHECK_MACOS_OFFLINE: "1"
           UMMKA_CHECK_MACOS_BROWSER: "1"

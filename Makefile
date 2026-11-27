@@ -1,6 +1,6 @@
 export PATH := $(CURDIR)/.check-tools:$(PATH)
 
-.PHONY: check check-macos package-macos check-android check-android-package check-android-http check-contract generate-bindings check-mattermost check-mattermost-10.10.1 check-mattermost-12.1.0
+.PHONY: check check-macos check-macos-preflight check-macos-native package-macos check-android check-android-package check-android-http check-contract generate-bindings check-mattermost check-mattermost-10.10.1 check-mattermost-12.1.0
 check: check-macos check-android check-contract check-mattermost
 
 check-mattermost: check-mattermost-10.10.1 check-mattermost-12.1.0
@@ -18,12 +18,17 @@ generate-bindings:
 	sh scripts/install-check-tools.sh
 	touch $@
 
-check-macos: .check-tools/installed
+check-macos: check-macos-preflight
+	npm test
+	$(MAKE) check-macos-native
+
+check-macos-preflight: .check-tools/installed
 	.check-tools/actionlint -shellcheck .check-tools/shellcheck
 	.check-tools/shellcheck scripts/*.sh
 	npm run lint
 	npm run unused
-	npm test
+
+check-macos-native: .check-tools/installed
 	npm run tauri -- build --bundles app -- --locked
 	cd src-tauri && cargo fmt --all -- --check
 	cd src-tauri && cargo clippy --all-targets --all-features --locked -- -D warnings
