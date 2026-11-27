@@ -1,4 +1,5 @@
 import {
+  type CSSProperties,
   type ReactNode,
   type RefObject,
   useId,
@@ -7,6 +8,9 @@ import {
 } from "react";
 import smallMark from "../../src-tauri/icons/symbols/ummka-small.svg?no-inline";
 import { isMobile, usesMacOSOverlay } from "../build-platform.ts";
+import type { EntryLanguage } from "../entry/language.ts";
+import { PaneWidthNotice } from "./PaneWidthControls.tsx";
+import { usePaneWidths } from "./use-pane-widths.ts";
 import "./frame.css";
 
 type FrameLabels = {
@@ -37,6 +41,8 @@ type FrameProps = {
     ref: RefObject<HTMLHeadingElement | null>,
   ) => ReactNode;
   sidePanel?: ReactNode;
+  standalonePanel?: boolean;
+  language?: EntryLanguage;
   resultReturn?: ReactNode;
   returnInThread?: boolean;
   composer?: ReactNode;
@@ -86,6 +92,8 @@ export function ChannelsFrame({
   toolbar,
   channelHeading,
   sidePanel,
+  standalonePanel,
+  language = "en",
   resultReturn,
   returnInThread,
   composer,
@@ -107,6 +115,18 @@ export function ChannelsFrame({
   const openThread = thread?.id;
   const replyRef = thread?.replyRef;
   const showingPanel = Boolean(sidePanel);
+  const split = showingPanel ? !standalonePanel : Boolean(openThread);
+  const { geometry, storageUnavailable } = usePaneWidths(
+    root,
+    split ? "right" : "closed",
+  );
+  const widthStyles =
+    geometry &&
+    ({
+      "--navigation-choice": `${geometry.navigation.width}px`,
+      "--right-choice": `${geometry.right.width}px`,
+      "--expanded-choice": `${geometry.right.expanded}px`,
+    } as CSSProperties);
   const previous = useRef({ page, channelId, openThread });
 
   useLayoutEffect(() => {
@@ -173,11 +193,13 @@ export function ChannelsFrame({
     <div
       ref={root}
       className="channels-frame"
+      style={widthStyles || undefined}
       data-macos-overlay={overlay || undefined}
       onFocusCapture={(event) => {
         lastFocus.current = event.target;
       }}
     >
+      {storageUnavailable && <PaneWidthNotice language={language} />}
       <header
         className="channels-bar"
         data-surface="topbar"

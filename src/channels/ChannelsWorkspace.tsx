@@ -1161,6 +1161,13 @@ export function ChannelsWorkspace({
   const content = (
     <div ref={host} className="workspace-window">
       <ChannelsFrame
+        language={language}
+        standalonePanel={
+          collections.view?.kind === "mentions" &&
+          collections.mentionState !== null &&
+          !mentionPolicyChanged &&
+          collections.view.standalone
+        }
         labels={{
           navigation: text.nav,
           account: text.account,

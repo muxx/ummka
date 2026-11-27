@@ -14,7 +14,7 @@
 }
 .channels-bar,
 .channels-panes {
-  --sidebar-width: 244px;
+  --sidebar-width: var(--navigation-choice, 244px);
 }
 .channels-bar {
   --bar-inset: max(16px, env(safe-area-inset-left));
@@ -185,8 +185,23 @@
   padding-inline-end: env(safe-area-inset-right);
 }
 .channels-thread {
-  flex: 0 0 clamp(300px, 32cqi, 420px);
+  flex: 0 0 var(--right-choice, 400px);
   border-inline-start: 1px solid var(--divider);
+}
+.pane-width-notice {
+  position: absolute;
+  z-index: 4;
+  inset-block-end: max(16px, env(safe-area-inset-bottom));
+  inset-inline-start: max(16px, env(safe-area-inset-left));
+  max-width: calc(100% - 32px);
+  box-sizing: border-box;
+  margin: 0;
+  padding: 8px 12px;
+  color: var(--text);
+  background: var(--canvas);
+  border: 1px solid var(--divider);
+  border-radius: 7px;
+  font-size: 0.8125rem;
 }
 .channels-pane-body,
 .channels-conversation-body {
@@ -216,13 +231,13 @@
 @container (900px < width <= 1100px) {
   .channels-bar,
   .channels-panes {
-    --sidebar-width: 216px;
+    --sidebar-width: var(--navigation-choice, 216px);
   }
 }
 @container (width <= 900px) {
   .channels-bar,
   .channels-panes {
-    --sidebar-width: 180px;
+    --sidebar-width: var(--navigation-choice, 180px);
   }
 }
 @container (width <= 1100px) {

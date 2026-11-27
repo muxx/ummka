@@ -1,24 +1,5 @@
 .mentions-pane {
-  --min-panel: 304px;
-  --normal-panel: 400px;
-  --min-channel: min(352px, calc(100cqi - 168px - var(--min-panel)));
-  --room: calc(100cqi - var(--sidebar-width));
-  --wide-panel: min(
-    60cqi,
-    1536px,
-    calc(var(--room) - min(240px, var(--min-channel) - 48px))
-  );
-  flex: 0 0
-    max(
-      var(--min-panel),
-      min(
-        var(--normal-panel),
-        var(--wide-panel) -
-        48px,
-        var(--room) -
-        var(--min-channel)
-      )
-    );
+  flex: 0 0 var(--right-choice, 400px);
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -29,7 +10,7 @@
   color: var(--text);
 }
 .mentions-pane[data-wide] {
-  flex-basis: var(--wide-panel);
+  flex-basis: var(--expanded-choice, 60cqi);
 }
 .channels-panes:has(.mentions-pane[data-standalone]) .channels-conversation {
   display: none;
@@ -166,17 +147,6 @@
   font-size: 0.7rem;
   color: var(--muted);
   white-space: nowrap;
-}
-@container (width > 1680px) {
-  .mentions-pane {
-    --normal-panel: 500px;
-  }
-}
-@container (width <= 900px) {
-  .mentions-pane {
-    --min-panel: 264px;
-    --normal-panel: 300px;
-  }
 }
 @container (width <= 740px) {
   .mentions-pane,
