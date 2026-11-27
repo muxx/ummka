@@ -176,6 +176,9 @@ export async function checkGeneratedRequests(ports: string[]) {
                     observed("table-selection", `press,${x},${y}`),
                   allowSelection: (allowed) =>
                     observed("table-selection", allowed ? "allow" : "deny"),
+                  tap: (phase, coordinates) =>
+                    observed("code-tap", [phase, ...coordinates].join(",")),
+                  back: () => observed("code-back", ""),
                 }
               : undefined,
           ),

@@ -32,11 +32,13 @@ export type SwipeAndroid = (
 export type RotateAndroid = (
   orientation: "landscape" | "portrait",
 ) => Promise<void>;
+export type TapAndroid = (x: number, y: number) => Promise<void>;
 export type OnAndroidInputReady = (
   send: SendAndroidKey,
   swipe: SwipeAndroid,
   rotate: RotateAndroid,
   clipboard: ClipboardPolicyStep,
+  tap: TapAndroid,
 ) => void;
 
 export async function launchWebview(
@@ -153,6 +155,9 @@ export async function launchWebview(
         ),
         /Broadcast completed: result=-1/u,
       );
+    },
+    async (x, y) => {
+      await adb("shell", "input", "tap", String(x), String(y));
     },
   );
   assert.match(

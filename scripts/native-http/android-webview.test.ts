@@ -219,6 +219,9 @@ test("the new document receives its control response only after the keyboard eve
       async () => {
         throw Error("unexpected clipboard policy request");
       },
+      async () => {
+        assert.fail("The reload check does not tap");
+      },
     );
     let first: Promise<number | undefined> | undefined;
     try {

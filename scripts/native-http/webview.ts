@@ -14,6 +14,7 @@ import {
   type RotateAndroid,
   type SendAndroidKey,
   type SwipeAndroid,
+  type TapAndroid,
 } from "./android-webview.ts";
 import { respondToChannelMembers } from "./channel-members.ts";
 import { respondToChannelView } from "./channel-view.ts";
@@ -94,6 +95,10 @@ export function webviewServers(
   let tableBack = false;
   const selectionSteps = ["press", "deny", "press", "allow", "press"];
   let selectionStep = 0;
+  let tapAndroid: TapAndroid | undefined;
+  const codeTaps = ["preview", "copy"];
+  let codeTap = 0;
+  let codeBack = false;
   let controlProgress = "not started";
   let onMacStep: ((stage: string) => void) | undefined;
   let controlRequests = 0;
@@ -1520,6 +1525,8 @@ export function webviewServers(
           "table-rotation",
           "table-back",
           "table-selection",
+          "code-tap",
+          "code-back",
           "format-times",
           "received",
           "closed",
@@ -1601,6 +1608,20 @@ export function webviewServers(
       formatKeys.push(target);
       console.log(`Sending native ArrowRight to ${target}.`);
       if (!(await press(sendRight))) return;
+    } else if (step === "code-tap") {
+      const tap = tapAndroid;
+      assert(tap);
+      const match = /^(preview|copy),([1-9]\d{0,3}),([1-9]\d{0,3})$/u.exec(
+        name,
+      );
+      assert(match);
+      assert.equal(match[1], codeTaps[codeTap]);
+      if (!(await press(() => tap(Number(match[2]), Number(match[3]))))) return;
+      codeTap++;
+    } else if (step === "code-back") {
+      assert(codeTap === codeTaps.length && !codeBack && pressWorkspaceBack);
+      if (!(await press(pressWorkspaceBack))) return;
+      codeBack = true;
     } else if (step === "table-swipe") {
       const swipe = swipeAndroid;
       assert(swipe);
@@ -1705,10 +1726,12 @@ export function webviewServers(
       swipe: SwipeAndroid,
       rotate: RotateAndroid,
       runClipboardStep: ClipboardPolicyStep,
+      tap: TapAndroid,
     ) {
       clipboard = runClipboardStep;
       swipeAndroid = swipe;
       rotateAndroid = rotate;
+      tapAndroid = tap;
       prepareKeyboard = () => send("KEYCODE_TAB");
       pressWorkspaceBack = () => send("KEYCODE_BACK");
       sendRight = () => send("KEYCODE_DPAD_RIGHT");
@@ -1716,6 +1739,10 @@ export function webviewServers(
     verify(platform: "macos" | "android") {
       if (platform === "android") {
         assert(systemPostReads.has("dismissed"), "Missing system-link Back");
+        assert(
+          codeTap === codeTaps.length && codeBack,
+          "Missing Android code tap or Back",
+        );
         assert(
           tableBack,
           "Missing Android Back from the table into the thread",

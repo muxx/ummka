@@ -5,11 +5,13 @@ import { createRoot } from "react-dom/client";
 import { applyPalette, resolvePalette } from "../../src/appearance/palette.ts";
 import { isAndroid } from "../../src/build-platform.ts";
 import { ChannelTimeline } from "../../src/channels/ChannelTimeline.tsx";
+import { PublishedCodeReader } from "../../src/channels/PublishedCodeReader.tsx";
 import {
+  PublishedReaderWindow,
   PublishedTableScreen,
-  PublishedTableWindow,
-  usePublishedTableWindow,
-} from "../../src/channels/PublishedTableWindow.tsx";
+  usePublishedReaderWindow,
+} from "../../src/channels/PublishedReaderWindow.tsx";
+import { useWorkspaceBack } from "../../src/channels/use-workspace-back.ts";
 import type { LocalChannelWindow } from "../../src/mattermost/local-history.ts";
 
 const longCode = `  const summary = "${"a".repeat(320)}";`;
@@ -280,12 +282,14 @@ async function waitForTableSelection(table: HTMLElement, allowed: boolean) {
 }
 
 function FormattingWorkspace({ children }: { children: ReactNode }) {
-  const tables = usePublishedTableWindow("formatting", "# Formatting");
+  const tables = usePublishedReaderWindow("formatting", "# Formatting");
+  useWorkspaceBack(Boolean(tables.opening), null);
   return (
-    <PublishedTableWindow value={tables.value}>
+    <PublishedReaderWindow value={tables.value}>
       {children}
-      <PublishedTableScreen tables={tables} />
-    </PublishedTableWindow>
+      <PublishedTableScreen reader={tables} />
+      <PublishedCodeReader reader={tables} />
+    </PublishedReaderWindow>
   );
 }
 
@@ -530,9 +534,129 @@ async function checkMobileTable(
   flushSync(() => fireEvent.click(small.getByRole("button", { name: "Back" })));
 }
 
+type CodeInput = {
+  tap: (
+    phase: "preview" | "copy",
+    coordinates: [number, number],
+  ) => Promise<void>;
+  back: () => Promise<void>;
+};
+
+async function checkCopyCode(scope: HTMLElement, source: string) {
+  const button = await within(scope).findByRole("button", {
+    name: "Copy code",
+  });
+  const original = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  let copied: string | undefined;
+  // Record this fixture's write without touching the user's desktop clipboard.
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText: async (value: string) => {
+        copied = value;
+      },
+    },
+  });
+  try {
+    flushSync(() => button.click());
+    await within(scope).findByText("Code copied.");
+    if (copied !== source)
+      throw Error("The clipboard did not receive the exact code source");
+  } finally {
+    if (original) Object.defineProperty(navigator, "clipboard", original);
+    else Reflect.deleteProperty(navigator, "clipboard");
+  }
+}
+
+async function tapCodeControl(
+  control: HTMLElement,
+  phase: "preview" | "copy",
+  tap: CodeInput["tap"],
+) {
+  let trusted = false;
+  const observe = (event: MouseEvent) => {
+    trusted = event.isTrusted;
+  };
+  control.addEventListener("click", observe, { once: true });
+  const bounds = control.getBoundingClientRect();
+  const scale = devicePixelRatio / 2;
+  try {
+    await tap(phase, [
+      Math.round(
+        (Math.max(0, bounds.left) + Math.min(innerWidth, bounds.right)) * scale,
+      ),
+      Math.round(
+        (Math.max(0, bounds.top) + Math.min(innerHeight, bounds.bottom)) *
+          scale,
+      ),
+    ]);
+    await waitFor(() => {
+      if (!trusted)
+        throw Error(`Code ${phase} did not receive a trusted Android tap`);
+    });
+  } finally {
+    control.removeEventListener("click", observe);
+  }
+}
+
+async function checkMobileCode(
+  host: HTMLElement,
+  width: number,
+  pressRight: () => Promise<void>,
+  physical?: CodeInput,
+) {
+  const trigger = Array.from(
+    host.querySelectorAll<HTMLButtonElement>(".post-code-preview"),
+  ).find((button) => button.querySelector("code")?.textContent === longCode);
+  if (
+    !trigger ||
+    !within(host).getAllByRole("button", { name: "Open code: 1 line" }).length
+  )
+    throw Error("Missing mobile code trigger");
+  const pane = trigger.closest(".timeline-scroll");
+  if (!pane) throw Error("Missing code timeline");
+  trigger.scrollIntoView({ block: "center" });
+  const position = pane.scrollTop;
+  if (physical) {
+    await tapCodeControl(trigger, "preview", physical.tap);
+  } else {
+    flushSync(() => trigger.click());
+  }
+  const dialog = await within(host).findByRole("dialog", { name: "Code" });
+  const panel = within(dialog);
+  const region = panel.getByRole("region", { name: "Full code, 1 line" });
+  if (
+    document.activeElement !== region ||
+    region.querySelector("pre code")?.textContent !== longCode ||
+    panel.getByText("Ada · # Formatting") === null
+  )
+    throw Error("Wrong full code or initial reading focus");
+  await checkArrowRight(region, `code-${width}`, pressRight);
+  if (physical) {
+    const copy = await panel.findByRole("button", { name: "Copy code" });
+    await tapCodeControl(copy, "copy", physical.tap);
+    await waitFor(() => {
+      const status = panel.getByRole("status").textContent;
+      if (status !== "Code copied.")
+        throw Error(`Android system clipboard: ${status}`);
+    });
+  }
+  await checkCopyCode(dialog, longCode);
+  if (physical) await physical.back();
+  else flushSync(() => panel.getByRole("button", { name: "Back" }).click());
+  await waitFor(() => {
+    if (
+      dialog.isConnected ||
+      document.activeElement !== trigger ||
+      Math.abs(pane.scrollTop - position) > 1
+    )
+      throw Error("Back lost the code trigger or reading position");
+  });
+}
+
 export async function checkChannelFormatting(
   pressRight: (kind: "code" | "table", width: number) => Promise<void>,
-  mobile?: Parameters<typeof checkMobileTable>[4],
+  mobile?: NonNullable<Parameters<typeof checkMobileTable>[4]> & CodeInput,
 ) {
   const author = () => ({ name: "Ada" });
   const posts: LocalChannelWindow["posts"] = Array.from(
@@ -593,19 +717,6 @@ export async function checkChannelFormatting(
     try {
       const first = draw(),
         unchanged = draw();
-      const codeBlocks = [
-        ...host.querySelectorAll<HTMLPreElement>(".published-post pre"),
-      ];
-      const pre = codeBlocks.find((code) => code.textContent === longCode);
-      const shortCode = codeBlocks.find(
-        (code) => code.textContent === "let value;",
-      );
-      if (
-        !shortCode ||
-        shortCode.hasAttribute("tabindex") ||
-        shortCode.hasAttribute("role")
-      )
-        throw Error("short code adds a keyboard stop");
       const heading = host.querySelector<HTMLElement>(".published-post h1");
       const secondHeading = heading?.nextElementSibling;
       if (!(secondHeading instanceof HTMLElement) || !heading)
@@ -631,13 +742,6 @@ export async function checkChannelFormatting(
         host.querySelector(".published-post a,.published-post img")
       )
         throw Error("formatted page semantics");
-      if (
-        !pre ||
-        pre.scrollWidth <= pre.clientWidth ||
-        pre.tabIndex !== 0 ||
-        pre.getAttribute("aria-label") !== "Code (ts)"
-      )
-        throw Error("overflowing code is not a keyboard target");
       const inline = Array.from(host.querySelectorAll("p code")).find(
         (code) => code.textContent === "const  value",
       )?.firstChild;
@@ -651,9 +755,38 @@ export async function checkChannelFormatting(
       if (measure(5, 7) < 1.8 * measure(4, 5))
         throw Error("Inline code collapsed its repeated spaces");
 
-      await checkArrowRight(pre, `code-${width}`, () =>
-        pressRight("code", width),
-      );
+      if (isAndroid) {
+        await checkMobileCode(
+          host,
+          width,
+          () => pressRight("code", width),
+          width === 320 ? mobile : undefined,
+        );
+      } else {
+        const codeBlocks = Array.from(
+          host.querySelectorAll<HTMLPreElement>(".published-post pre"),
+        );
+        const pre = codeBlocks.find((block) => block.textContent === longCode);
+        const short = codeBlocks.find(
+          (block) => block.textContent === "let value;",
+        );
+        if (
+          !pre ||
+          pre.scrollWidth <= pre.clientWidth ||
+          pre.tabIndex !== 0 ||
+          pre.getAttribute("aria-label") !== "Code (ts)" ||
+          !short ||
+          short.hasAttribute("tabindex") ||
+          short.hasAttribute("role")
+        )
+          throw Error("Wrong desktop code keyboard targets");
+        await checkArrowRight(pre, `code-${width}`, () =>
+          pressRight("code", width),
+        );
+        const code = pre.closest<HTMLElement>(".post-code-desktop");
+        if (!code) throw Error("Missing desktop code copy");
+        await checkCopyCode(code, longCode);
+      }
 
       function checkEmphasisSelection(node: HTMLElement) {
         const range = document.createRange();
