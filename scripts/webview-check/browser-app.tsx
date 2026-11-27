@@ -11,6 +11,7 @@ import { openChannelNavigation } from "./account-team-window.tsx";
 import { checkAvailableDirectoryWindow } from "./available-directory-window.ts";
 import { checkModalScroll } from "./modal-scroll.ts";
 import { checkPendingCommandActions } from "./pending-command-actions.ts";
+import { verifySearchAttachment } from "./published-attachments.ts";
 import { findThreadDraft, verifyWorkspaceBack } from "./workspace-back.tsx";
 
 export async function waitForAppForeground() {
@@ -234,47 +235,7 @@ export async function checkBrowserApp(server: string, controlPort: string) {
       ),
     );
     await results.findByText("Search found this fixture post");
-    flushSync(() =>
-      fireEvent.click(results.getByRole("button", { name: "Files" })),
-    );
-    const fileAction = { name: "Show message with file window-fixture.pdf" };
-    const openFile = await results.findByRole("button", fileAction);
-    flushSync(() => fireEvent.click(openFile));
-    await waitFor(
-      () => {
-        const row = host.querySelector<HTMLElement>(
-          "article[data-navigation-target]",
-        );
-        const box = row?.getBoundingClientRect();
-        const feed = row?.closest(".timeline-scroll")?.getBoundingClientRect();
-        if (
-          !box?.height ||
-          !feed ||
-          box.bottom <= feed.top ||
-          box.top >= feed.bottom ||
-          row?.dataset.postId !== "v".repeat(26) ||
-          document.activeElement !== row
-        ) {
-          throw Error("The file did not focus its visible, canonical message");
-        }
-      },
-      { timeout: 10_000 },
-    );
-    flushSync(() =>
-      fireEvent.click(ui.getByRole("button", { name: "Back to results" })),
-    );
-    results = within(
-      await ui.findByRole("complementary", { name: "Search results" }),
-    );
-    await waitFor(() => {
-      if (
-        document.activeElement !== results.getByRole("button", fileAction) ||
-        townDraft.value !== "Draft from the channel window"
-      )
-        throw Error(
-          "Returning did not restore the original file and channel draft",
-        );
-    });
+    results = await verifySearchAttachment(host, controlPort, townDraft);
     flushSync(() =>
       fireEvent.click(results.getByRole("button", { name: /Messages/ })),
     );

@@ -194,8 +194,15 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
         throw Error("Lost mentioned reply on return");
     });
     await back("mentions-list");
-    if (document.activeElement !== mentions)
-      throw Error("Lost the mentions opener on close");
+    await waitFor(() => {
+      if (
+        ui.queryByRole("complementary", { name: "Mentions" }) ||
+        document.activeElement !== mentions
+      )
+        throw Error(
+          "Closing mentions did not restore focus to its toolbar button",
+        );
+    });
   } finally {
     await driver.close();
     flushSync(() => root.unmount());

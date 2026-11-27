@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
 import type { LocalPost } from "../mattermost/local-history.ts";
 import type { TimelineMessage } from "./conversation-rows.ts";
+import { PublishedAttachments } from "./PublishedAttachments.tsx";
 import { PublishedPostBody } from "./PublishedPostBody.tsx";
 import { initials } from "./profile-initials.ts";
 
@@ -145,6 +146,12 @@ export function TimelinePost({
       ? post.threadSummary
       : undefined;
   const showCount = Boolean(summary && summary.replyCount > 0);
+  const attachments = !post.outgoing && post.attachments;
+  const hasAttachments =
+    attachments &&
+    (attachments.fileIds?.length ||
+      attachments.files?.length ||
+      attachments.redactedFileCount);
   return (
     <article
       className="timeline-post"
@@ -152,7 +159,7 @@ export function TimelinePost({
       data-navigation-target={highlighted || undefined}
       data-local-id={post.localId}
       data-outgoing={post.outgoing ? "" : undefined}
-      tabIndex={focusable || post.outgoing ? -1 : undefined}
+      tabIndex={focusable || post.outgoing || hasAttachments ? -1 : undefined}
     >
       <div className="timeline-avatar" aria-hidden="true">
         {person?.avatar ??
@@ -198,6 +205,13 @@ export function TimelinePost({
           <p className="timeline-attempt-text">{post.message}</p>
         ) : (
           <PublishedPostBody message={post.message} locale={locale} />
+        )}
+        {Boolean(hasAttachments) && !post.outgoing && (
+          <PublishedAttachments
+            post={post}
+            authorName={name}
+            language={locale}
+          />
         )}
         {open && summary && showCount && (
           <ReplyCount

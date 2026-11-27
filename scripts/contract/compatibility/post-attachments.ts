@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { cardFiles } from "../../../src/channels/post-attachment-cards.ts";
 import { openThreadReplyWindow } from "../../../src/channels/thread-reply-window.ts";
 import { channelHistoryPage } from "../../../src/mattermost/channel-history-page.ts";
 import type { LocalPost } from "../../../src/mattermost/local-history.ts";
@@ -66,6 +67,15 @@ export async function checkPostAttachments(
     assert.deepEqual(
       row.attachments?.files?.map((file) => [file.id, file.name, file.size]),
       files.map((file) => [file.id, file.name, file.size]),
+    );
+    assert.ok(row.attachments);
+    assert.deepEqual(
+      cardFiles(row.attachments).map((file) => [file.id, file.name, file.size]),
+      wire.file_ids.map((fileId) => [
+        fileId,
+        fileId === a ? "receipt-a.txt" : "receipt-b.txt",
+        fileId === a ? 5 : 6,
+      ]),
     );
     assert.equal(row.attachments?.redactedFileCount, undefined);
     orders.push(

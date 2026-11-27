@@ -4,6 +4,7 @@ import { openExternalPostLink } from "../../src/mattermost/external-post-link.ts
 import { openNativeRestConnection } from "../../src/mattermost/native-rest.ts";
 import { findStandardEmoji } from "../../src/mattermost/standard-emoji.ts";
 import { checkAppearance } from "./appearance.ts";
+import { checkAttachmentWidth } from "./attachment-width.tsx";
 import { checkBrowserAction } from "./browser-action.ts";
 import { checkChannelTimeline } from "./channel-timeline.tsx";
 import { checkChannelsFrame } from "./channels-frame.tsx";
@@ -91,6 +92,7 @@ async function checkResources() {
       throw Error("standard-emoji-directory");
     await checkChannelsFrame();
     await checkChannelTimeline();
+    await checkAttachmentWidth();
     const ports = String(import.meta.env.VITE_UMMKA_CHECK_PORTS).split(",");
     await checkGeneratedRequests(ports);
     const invalid = await openExternalPostLink("/relative").catch(
