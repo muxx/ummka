@@ -31,7 +31,11 @@ test.each([null, "a".repeat(26)])(
     current.mockResolvedValue(userId);
     await expect(getDeviceLaunchContext()).resolves.toEqual(
       userId === null
-        ? { status: "sign_in_required", serverUrl: selected }
+        ? {
+            status: "sign_in_required",
+            serverUrl: selected,
+            installations: snapshot.installations,
+          }
         : { status: "ready", serverUrl: selected, userId },
     );
     expect(current).toHaveBeenCalledExactlyOnceWith(selected);

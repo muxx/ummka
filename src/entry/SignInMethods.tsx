@@ -57,6 +57,7 @@ export function SignInMethods({
   language,
   link,
   linkResult,
+  restored,
   onOtherServer,
   returnFromPicker,
   onBack,
@@ -66,9 +67,10 @@ export function SignInMethods({
   language: EntryLanguage;
   link?: SignInLink;
   linkResult?: EntryLinkResult;
+  restored?: boolean;
   onOtherServer?: () => void;
   returnFromPicker?: boolean;
-  onBack: () => void;
+  onBack?: () => void;
   onAccountChanged: () => void;
 }) {
   const text = entryText[language];
@@ -76,7 +78,6 @@ export function SignInMethods({
   const address = new URL(profile.serverUrl);
   const name = profile.siteName.trim() || address.host;
   const gitlabOnly =
-    !!link &&
     profile.ssoProviders.length === 1 &&
     profile.ssoProviders[0] === "gitlab" &&
     !profile.passwordIdentifiers.length &&
@@ -91,7 +92,10 @@ export function SignInMethods({
   const [waiting, setWaiting] = useState<Provider | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [message, setMessage] = useState("");
-  const [cancelledDelivery, setCancelledDelivery] = useState<string>();
+  const [cancelled, setCancelled] = useState<{
+    provider: Provider;
+    delivery?: string;
+  }>();
   const delivery = link?.deliveryId;
   const previousDelivery = useRef(delivery);
   const coldOutcome = useRef(linkResult !== undefined);
@@ -111,9 +115,7 @@ export function SignInMethods({
     }
     const provider = returnTo.current;
     const button =
-      !waiting &&
-      (linked || provider || initial) &&
-      (!isMobile || (!linked && !initial))
+      !waiting && (!isMobile || (provider && !linked && !initial))
         ? buttons.current?.querySelector<HTMLButtonElement>(
             provider ? `button[data-provider="${provider}"]` : "button",
           )
@@ -150,7 +152,7 @@ export function SignInMethods({
     operation.current = request;
     returnTo.current = provider;
     setMessage("");
-    setCancelledDelivery(undefined);
+    setCancelled(undefined);
     setCancelling(false);
     setWaiting(provider);
     try {
@@ -173,7 +175,8 @@ export function SignInMethods({
       } else {
         const detail = explain(error, labels);
         setMessage(detail);
-        if (!detail) setCancelledDelivery(previousDelivery.current);
+        if (!detail)
+          setCancelled({ provider, delivery: previousDelivery.current });
         setWaiting(null);
       }
       return;
@@ -188,7 +191,12 @@ export function SignInMethods({
     if (operation.current && !operation.current.cancelling)
       void cancel(operation.current);
   }
-  useWorkspaceBack(false, waiting ? cancelCurrent : link ? null : onBack);
+  const back = waiting
+    ? { label: labels.cancel, activate: cancelCurrent }
+    : !link && onBack
+      ? { label: text.back, activate: onBack }
+      : undefined;
+  useWorkspaceBack(false, back?.activate ?? null);
   return (
     <EntryWindow
       notice={
@@ -210,63 +218,43 @@ export function SignInMethods({
           />
         )
       }
-      back={
-        waiting
-          ? { label: labels.cancel, activate: cancelCurrent }
-          : link
-            ? undefined
-            : { label: text.back, activate: onBack }
-      }
+      back={back}
     >
       <div
         className={
-          link ? "entry-identity entry-link-identity" : "entry-identity"
+          link
+            ? "entry-identity entry-link-identity"
+            : "entry-identity entry-link-identity entry-ordinary-identity"
         }
       >
         <span className="entry-monogram" aria-hidden="true">
           {Array.from(name)[0]}
         </span>
         <div>
-          {link ? (
-            <strong className="entry-link-server">{name}</strong>
-          ) : (
-            <h1 ref={waiting ? undefined : heading} tabIndex={-1}>
-              {name}
-            </h1>
-          )}
-          <p className="entry-address" dir="ltr">
-            {link ? (
-              <>
-                <svg
-                  className="entry-link-lock"
-                  viewBox="0 0 16 16"
-                  aria-hidden="true"
-                >
-                  <rect x="4" y="7" width="8" height="6" rx="1" />
-                  <path d="M6 7V5a2 2 0 0 1 4 0v2" />
-                </svg>
-                {address.host}
-                <strong>
-                  {profile.serverUrl.slice(address.origin.length)}
-                </strong>
-              </>
-            ) : (
-              profile.serverUrl
-            )}
+          <strong className="entry-link-server">{name}</strong>
+          <p className="entry-address" dir="ltr" title={profile.serverUrl}>
+            <svg
+              className="entry-link-lock"
+              viewBox="0 0 16 16"
+              aria-hidden="true"
+            >
+              <rect x="4" y="7" width="8" height="6" rx="1" />
+              <path d="M6 7V5a2 2 0 0 1 4 0v2" />
+            </svg>
+            {address.host}
+            <strong>{profile.serverUrl.slice(address.origin.length)}</strong>
           </p>
         </div>
       </div>
       {waiting ? (
         <>
-          {link ? (
-            <h1 className="entry-link-title" tabIndex={-1} ref={heading}>
-              {labels.waiting}
-            </h1>
-          ) : (
-            <h2 tabIndex={-1} ref={heading}>
-              {labels.waiting}
-            </h2>
-          )}
+          <h1
+            className={link ? "entry-link-title" : "entry-ordinary-title"}
+            tabIndex={-1}
+            ref={heading}
+          >
+            {labels.waiting}
+          </h1>
           <p role="status">
             {cancelling ? labels.cancelling : providerNames[waiting]}
           </p>
@@ -284,7 +272,7 @@ export function SignInMethods({
         <>
           {link ? (
             <>
-              {cancelledDelivery === delivery && (
+              {cancelled && cancelled.delivery === delivery && (
                 <p className="entry-link-status" role="status">
                   <strong>{text.linkCancelledTitle}</strong>
                   <span>{text.linkCancelled}</span>
@@ -296,14 +284,38 @@ export function SignInMethods({
               <p className="entry-lead entry-link-lead">{text.linkLead}</p>
             </>
           ) : (
-            <h2>{text.methods}</h2>
+            <>
+              {cancelled && cancelled.delivery === undefined && (
+                <p className="entry-ordinary-cancelled" role="status">
+                  {text.browserCancelled(providerNames[cancelled.provider])}
+                </p>
+              )}
+              <h1 className="entry-ordinary-title" ref={heading} tabIndex={-1}>
+                {restored ? text.restoreSignIn : text.methods}
+              </h1>
+              <p className="entry-lead entry-ordinary-lead">
+                {restored ? text.restoreSignInLead : text.methodsLead}
+              </p>
+            </>
           )}
           {profile.passwordIdentifiers.length > 0 ||
           profile.ssoProviders.length > 0 ||
           profile.guestMagicLink ? (
-            <ul className="entry-methods" ref={buttons}>
+            <ul
+              className={link ? "entry-methods" : "entry-ordinary-methods"}
+              ref={buttons}
+            >
               {profile.passwordIdentifiers.length > 0 && (
-                <li>{text.password}</li>
+                <li>
+                  {link ? (
+                    text.password
+                  ) : (
+                    <span className="entry-link-method entry-ordinary-unavailable">
+                      <strong>{text.password}</strong>
+                      <small>{text.methodUnavailable}</small>
+                    </span>
+                  )}
+                </li>
               )}
               {profile.ssoProviders.map((provider) => (
                 <li key={provider}>
@@ -311,25 +323,21 @@ export function SignInMethods({
                     className={
                       gitlabOnly
                         ? "entry-primary entry-link-primary"
-                        : link
-                          ? "entry-link-provider"
-                          : "entry-primary"
+                        : "entry-link-provider"
                     }
                     type="button"
                     data-provider={provider}
                     aria-label={
-                      link && !gitlabOnly ? providerNames[provider] : undefined
+                      gitlabOnly ? undefined : providerNames[provider]
                     }
                     aria-describedby={
                       gitlabOnly
                         ? providerDescription
-                        : link
-                          ? providerDescription + provider
-                          : undefined
+                        : providerDescription + provider
                     }
                     onClick={() => void start(provider)}
                   >
-                    {link && provider === "gitlab" && (
+                    {provider === "gitlab" && (
                       <svg
                         className="entry-gitlab-mark"
                         viewBox="0 0 24 24"
@@ -340,20 +348,29 @@ export function SignInMethods({
                     )}
                     {gitlabOnly ? (
                       text.gitlabSignIn
-                    ) : link ? (
+                    ) : (
                       <span className="entry-link-method">
                         <strong>{providerNames[provider]}</strong>
                         <small id={providerDescription + provider}>
                           {text.browserMethod}
                         </small>
                       </span>
-                    ) : (
-                      providerNames[provider]
                     )}
                   </button>
                 </li>
               ))}
-              {profile.guestMagicLink && <li>{text.guest}</li>}
+              {profile.guestMagicLink && (
+                <li>
+                  {link ? (
+                    text.guest
+                  ) : (
+                    <span className="entry-link-method entry-ordinary-unavailable">
+                      <strong>{text.guest}</strong>
+                      <small>{text.methodUnavailable}</small>
+                    </span>
+                  )}
+                </li>
+              )}
             </ul>
           ) : (
             <p>{text.none}</p>
@@ -382,6 +399,18 @@ export function SignInMethods({
                   {text.otherServer}
                 </button>
               )}
+            </div>
+          )}
+          {!link && (onOtherServer || onBack) && (
+            <div className="entry-ordinary-actions">
+              <button
+                ref={onOtherServer ? otherServer : undefined}
+                className="entry-secondary"
+                type="button"
+                onClick={onOtherServer ?? onBack}
+              >
+                {onOtherServer ? text.otherServer : text.cancel}
+              </button>
             </div>
           )}
         </>

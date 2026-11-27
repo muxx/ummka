@@ -10,11 +10,15 @@ import { useLayoutEffect } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import "./channels/workspace-dom.test-utils.ts";
 import { App } from "./App";
+import { isMobile } from "./build-platform";
 import { ServerSignIn } from "./entry/ServerSignIn";
 import type { PendingPost } from "./mattermost/account-delivery.ts";
 import { getDeviceLaunchContext } from "./mattermost/device-launch";
 import { inspectInstallation } from "./mattermost/inspect-installation";
-import { connectInstallation } from "./mattermost/installation-registry";
+import {
+  connectInstallation,
+  selectInstallation,
+} from "./mattermost/installation-registry";
 import { openAccountRestConnection } from "./mattermost/native-rest";
 import { outgoingRowState } from "./mattermost/outgoing-row-state.ts";
 
@@ -23,6 +27,7 @@ vi.mock("./mattermost/device-launch", () => ({
 }));
 vi.mock("./mattermost/installation-registry", () => ({
   connectInstallation: vi.fn(),
+  selectInstallation: vi.fn(),
 }));
 vi.mock("./mattermost/native-rest", () => ({
   openAccountRestConnection: vi.fn(),
@@ -62,17 +67,75 @@ test("retries a failed protected-store read before offering an empty address", a
   expect(inspect).not.toHaveBeenCalled();
   view.unmount();
 });
-test("returns to saved sign-in without selecting a server again", async () => {
-  launch.mockResolvedValue({ status: "sign_in_required", serverUrl: origin });
+test("restored sign-in opens the saved list with one server and returns focus", async () => {
+  launch.mockResolvedValue({
+    status: "sign_in_required",
+    serverUrl: origin,
+    installations: [origin],
+  });
   inspect.mockResolvedValue(profile);
   render(<App language="en" />);
-  await screen.findByRole("button", { name: "GitLab" });
+  await screen.findByRole("heading", { name: "Sign in again" });
   expect(inspect.mock.calls[0][0]).toBe(origin);
   expect(connectInstallation).not.toHaveBeenCalled();
-  fireEvent.click(
-    screen.getByRole("button", { name: "Change server address" }),
+  expect(
+    screen.queryByRole("button", { name: "Change server address" }),
+  ).toBeNull();
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(screen.queryByRole("textbox")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Another server" }));
+  expect(
+    screen.getByRole("heading", { name: "Servers on this device" }),
+  ).toBeTruthy();
+  expect(screen.queryByText("Message link is waiting for sign-in")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Add server" }));
+  expect(screen.getByRole<HTMLInputElement>("textbox").value).toBe("");
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Add server" }),
   );
-  expect(screen.getByRole<HTMLInputElement>("textbox").value).toBe(origin);
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Another server" }),
+  );
+  expect(selectInstallation).not.toHaveBeenCalled();
+  expect(inspect).toHaveBeenCalledOnce();
+});
+test("keeps the saved list open on a failed switch and reads the new installation after retry", async () => {
+  const next = "https://chat.example.test/Other";
+  const installations = [origin, next];
+  launch
+    .mockResolvedValueOnce({
+      status: "sign_in_required",
+      serverUrl: origin,
+      installations,
+    })
+    .mockResolvedValue({
+      status: "sign_in_required",
+      serverUrl: next,
+      installations,
+    });
+  inspect.mockImplementation(async (url) => ({ ...profile, serverUrl: url }));
+  vi.mocked(selectInstallation)
+    .mockRejectedValueOnce("fixture failure")
+    .mockResolvedValueOnce();
+  render(<App language="en" />);
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Another server" }),
+  );
+  const destination = screen.getByRole("button", {
+    name: /chat.example.test.*Other/,
+  });
+  fireEvent.click(destination);
+  expect((await screen.findByRole("alert")).textContent).toContain(
+    "Couldn’t switch servers.",
+  );
+  expect(inspect).toHaveBeenCalledOnce();
+  fireEvent.click(destination);
+  await screen.findByRole("heading", { name: "Sign in again" });
+  expect(screen.getByTitle(next)).toBeTruthy();
+  expect(inspect.mock.calls.map(([url]) => url)).toEqual([origin, next]);
+  expect(connectInstallation).not.toHaveBeenCalled();
 });
 function BackOnFirstFrame() {
   useLayoutEffect(() => {
@@ -104,11 +167,17 @@ test("Back cancels a saved server even in the first visible frame", async () => 
   expect(field.value).toBe(origin);
   expect(field.readOnly).toBe(false);
   expect(document.activeElement).toBe(field);
-  expect(screen.queryByRole("button", { name: "GitLab" })).toBeNull();
+  expect(
+    screen.queryByRole("button", { name: "Sign in with GitLab" }),
+  ).toBeNull();
 });
 
 test("allows switching away from a slow saved server and ignores its delayed profile", async () => {
-  launch.mockResolvedValue({ status: "sign_in_required", serverUrl: origin });
+  launch.mockResolvedValue({
+    status: "sign_in_required",
+    serverUrl: origin,
+    installations: [origin],
+  });
   let finish!: (value: typeof profile) => void;
   inspect.mockImplementation(
     () =>
@@ -123,7 +192,7 @@ test("allows switching away from a slow saved server and ignores its delayed pro
   expect(inspect.mock.calls[0][1]?.aborted).toBe(true);
   await act(async () => finish(profile));
   expect(screen.getByRole<HTMLInputElement>("textbox").value).toBe(origin);
-  expect(screen.queryByRole("heading", { name: "Winter" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Sign in again" })).toBeNull();
 });
 test("restores the selected team, channel, messages and account actions without a network request", async () => {
   vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
@@ -369,14 +438,24 @@ test("a failed explicit selection keeps the typed address available for retry", 
     "device’s account data",
   );
   expect(input.value).toBe(origin);
-  expect(screen.queryByRole("button", { name: "GitLab" })).toBeNull();
+  expect(
+    screen.queryByRole("button", { name: "Sign in with GitLab" }),
+  ).toBeNull();
 });
 
 test("an explicit device selection completes before another address can be submitted", async () => {
   const next = "https://other.example.test/path";
   launch
-    .mockResolvedValueOnce({ status: "sign_in_required", serverUrl: origin })
-    .mockResolvedValue({ status: "sign_in_required", serverUrl: next });
+    .mockResolvedValueOnce({
+      status: "sign_in_required",
+      serverUrl: origin,
+      installations: [origin],
+    })
+    .mockResolvedValue({
+      status: "sign_in_required",
+      serverUrl: next,
+      installations: [origin, next],
+    });
   inspect
     .mockResolvedValueOnce(profile)
     .mockResolvedValueOnce({ ...profile, serverUrl: next, siteName: "Other" });
@@ -388,10 +467,9 @@ test("an explicit device selection completes before another address can be submi
       }),
   );
   render(<App language="en" />);
-  await screen.findByRole("button", { name: "GitLab" });
-  fireEvent.click(
-    screen.getByRole("button", { name: "Change server address" }),
-  );
+  await screen.findByRole("button", { name: "Sign in with GitLab" });
+  fireEvent.click(screen.getByRole("button", { name: "Another server" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add server" }));
   const field = screen.getByRole<HTMLInputElement>("textbox");
   fireEvent.change(field, { target: { value: next } });
   await act(async () =>
@@ -399,7 +477,7 @@ test("an explicit device selection completes before another address can be submi
   );
   expect(vi.mocked(connectInstallation).mock.calls).toEqual([[next]]);
   expect(
-    screen.queryByRole("button", { name: "Change server address" }),
+    screen.queryByRole("button", { name: "Back to saved servers" }),
   ).toBeNull();
   expect(field.readOnly).toBe(true);
   const form = field.form;
@@ -407,8 +485,32 @@ test("an explicit device selection completes before another address can be submi
   fireEvent.submit(form);
   expect(connectInstallation).toHaveBeenCalledOnce();
   await act(async () => finish());
-  expect(screen.getByRole("heading", { name: "Other" })).toBe(
-    document.activeElement,
+  expect(document.activeElement).toBe(
+    isMobile
+      ? screen.getByRole("heading", { name: "How would you like to sign in?" })
+      : screen.getByRole("button", { name: "Sign in with GitLab" }),
   );
-  expect(screen.getByText(next)).toBeTruthy();
+  expect(screen.getByText("Other")).toBeTruthy();
+  expect(screen.getByTitle(next)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.getByRole<HTMLInputElement>("textbox").value).toBe(next);
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(
+    screen
+      .getByRole("button", { name: /Other.*Selected/ })
+      .getAttribute("aria-current"),
+  ).toBe("true");
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(screen.getByRole("heading", { name: "Sign in again" })).toBeTruthy();
+  expect(screen.getByTitle(next)).toBeTruthy();
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Another server" }),
+  );
+  expect(selectInstallation).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Another server" }));
+  expect(
+    screen
+      .getByRole("button", { name: /Other.*Selected/ })
+      .getAttribute("aria-current"),
+  ).toBe("true");
 });
