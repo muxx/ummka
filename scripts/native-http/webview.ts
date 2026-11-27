@@ -1818,6 +1818,8 @@ export function webviewServers(
           "live-search-posts",
           "live-search-files",
           "live-search-file-anchor",
+          "browser-action-confirmed",
+          `live-posts-${"c".repeat(26)}`,
           "live-search-destination",
           "live-search-post-anchor",
           "live-window-thread",
