@@ -124,7 +124,13 @@ function EntryRoute({
         }
         link={signInLink}
         linkResult={inbox.entryResult}
-        installations={signInLink ? inbox.installations : undefined}
+        installations={
+          signInLink
+            ? inbox.installations
+            : launch.status === "sign_in_required"
+              ? launch.installations
+              : undefined
+        }
         selectSaved={inbox.selectSaved}
         onAccountChanged={reopen}
       />

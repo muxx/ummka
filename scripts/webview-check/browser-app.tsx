@@ -167,10 +167,11 @@ export async function checkBrowserApp(server: string, controlPort: string) {
       { name: "GitLab" },
       { timeout: 15_000 },
     );
+    ui.getByRole("button", { name: "Google" });
     flushSync(() => fireEvent.click(provider));
     if (
       !ui.getByRole("heading", { name: "Continue in your browser" }) ||
-      !ui.queryByText(server)
+      !ui.queryByTitle(server)
     )
       throw Error("browser wait lost the chosen installation");
     await ui.findByText("Town fixture message", {}, { timeout: 20_000 });
@@ -563,7 +564,11 @@ export async function checkBrowserApp(server: string, controlPort: string) {
       { timeout: 10_000 },
     );
     local.click();
-    await ui.findByRole("button", { name: "GitLab" }, { timeout: 15_000 });
+    await ui.findByRole(
+      "heading",
+      { name: "Sign in again" },
+      { timeout: 15_000 },
+    );
   } finally {
     root.unmount();
     host.remove();

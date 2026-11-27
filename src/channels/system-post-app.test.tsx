@@ -102,7 +102,11 @@ function boot(options: Parameters<typeof fixture>[0] = {}) {
             serverUrl: selected,
             userId: sessions.get(selected) as string,
           }
-        : { status: "sign_in_required", serverUrl: selected },
+        : {
+            status: "sign_in_required",
+            serverUrl: selected,
+            installations: saved,
+          },
   });
 }
 beforeEach(() => {
@@ -292,7 +296,7 @@ test("a warm outcome preserves typing and an address error, then leaves after su
       vi
         .mocked(invoke)
         .mock.calls.some(([command]) => command === "connect_installation")
-        ? { status: "sign_in_required", serverUrl: base }
+        ? { status: "sign_in_required", serverUrl: base, installations: [base] }
         : { status: "first_launch" },
   });
   const profile = {
@@ -325,7 +329,9 @@ test("a warm outcome preserves typing and an address error, then leaves after su
   expect(screen.getByText("This link can’t be opened")).toBeTruthy();
   expect(acks).toEqual([]);
   submit();
-  await screen.findByRole("heading", { name: "Winter" });
+  await screen.findByRole("heading", {
+    name: "How would you like to sign in?",
+  });
   await waitFor(() => expect(acks.map(({ id }) => id)).toEqual(["A"]));
   expect(screen.queryByText("This link can’t be opened")).toBeNull();
   expect(
@@ -365,9 +371,9 @@ test("the known outcome remains through browser wait and cancellation and leaves
   });
 
   const { account } = boot();
-  const provider = { name: /^GitLab$/u };
+  const provider = { name: "Sign in with GitLab" };
   const action = await screen.findByRole("button", provider);
-  const server = screen.getByRole("heading", { name: "Winter" });
+  const server = screen.getByRole("heading", { name: "Sign in again" });
   expect(document.activeElement).toBe(isMobile ? server : action);
   const outcome = screen
     .getByText("ummka can’t open this type of link yet")
@@ -413,7 +419,11 @@ test("confirming a connection leaves a delivery that has not been shown for the 
         return { status: "first_launch" };
       return await new Promise((resolve) => {
         confirmConnection = () =>
-          resolve({ status: "sign_in_required", serverUrl: base });
+          resolve({
+            status: "sign_in_required",
+            serverUrl: base,
+            installations: [base],
+          });
       });
     },
   });
@@ -437,7 +447,9 @@ test("confirming a connection leaves a delivery that has not been shown for the 
     confirmConnection?.();
     await new Promise<void>((resolve) => setImmediate(resolve));
   });
-  await screen.findByRole("heading", { name: "Winter" });
+  await screen.findByRole("heading", {
+    name: "How would you like to sign in?",
+  });
   expect(screen.getByText("You’re still signing in to “Winter”.")).toBeTruthy();
   expect(acks).toEqual([]);
   fireEvent.click(screen.getByRole("button", { name: "Close" }));
@@ -693,13 +705,14 @@ test("a saved server with a pending link keeps sign-in and dismissal in the same
 
   fireEvent.click(form.getByRole("button", { name: "Don’t open this link" }));
   await waitFor(() => expect(acks.map((entry) => entry.id)).toEqual(["1"]));
-  const regularHeading = form.getByRole("heading", { name: "Winter" });
+  const regularHeading = form.getByRole("heading", { name: "Sign in again" });
   expect(document.activeElement).toBe(
-    isMobile ? regularHeading : form.getByRole("button", { name: "GitLab" }),
+    isMobile ? regularHeading : linkedProvider(),
   );
   expect(
-    screen.getByRole("button", { name: "Change server address" }),
-  ).toBeTruthy();
+    screen.queryByRole("button", { name: "Change server address" }),
+  ).toBeNull();
+  expect(form.getByRole("button", { name: "Another server" })).toBeTruthy();
   expect(
     form.queryByText("The message will still open when you sign in."),
   ).toBeNull();
@@ -898,7 +911,7 @@ test("Add server submits through the existing address form without consuming the
     target: { value: third },
   });
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-  await screen.findByRole("button", { name: "GitLab" });
+  await screen.findByRole("button", { name: "Sign in with GitLab" });
   expect(selected).toBe(third);
   expect(invoke).toHaveBeenCalledWith("connect_installation", {
     serverUrl: third,
@@ -1242,12 +1255,11 @@ test("a manual server choice wins an earlier native link selection and keeps the
     return result;
   });
   const { account } = boot();
-  await screen.findByRole("button", { name: "GitLab" });
+  await screen.findByRole("button", { name: "Sign in with GitLab" });
   act(() => enqueue("1", href(reply.id, nested)));
   await waitFor(() => expect(releaseSelection).toBeTypeOf("function"));
-  fireEvent.click(
-    screen.getByRole("button", { name: "Change server address" }),
-  );
+  fireEvent.click(screen.getByRole("button", { name: "Another server" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add server" }));
   fireEvent.change(screen.getByRole("textbox", { name: "Server address" }), {
     target: { value: manual },
   });
