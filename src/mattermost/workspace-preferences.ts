@@ -11,6 +11,7 @@ type LicenseSettings = {
   LockTeammateNameDisplay?: string;
   IsLicensed?: string;
   LDAPGroups?: string;
+  Compliance?: unknown;
 };
 
 type Settings = {
@@ -19,6 +20,8 @@ type Settings = {
   EnableCrossTeamSearch?: string;
   EnableFileAttachments?: string;
   EnableFileSearch?: string;
+  EnableMobileFileUpload?: unknown;
+  MaxFileSize?: string;
   ExperimentalViewArchivedChannels?: string;
   UniqueEmojiReactionLimitPerPost?: string;
   PostEditTimeLimit?: string;
@@ -181,6 +184,40 @@ function signedLimit(raw: string | undefined, field: string) {
   throw TypeError(`Invalid Mattermost ${field} limit.`);
 }
 
+type FileUploadSettings =
+  | { kind: "disabled" }
+  | { kind: "enabled"; maxFileBytes: string };
+
+export type WorkspacePolicyPlatform = "android" | "desktop";
+
+function fileUploadSettings(
+  {
+    EnableFileAttachments: enabled,
+    EnableMobileFileUpload: mobileUpload,
+    MaxFileSize: limit,
+  }: Settings,
+  license: LicenseSettings,
+  platform: WorkspacePolicyPlatform,
+): FileUploadSettings | undefined {
+  // Mattermost Mobile defaults an unset upload flag to enabled.
+  if (
+    enabled === "false" ||
+    (platform === "android" &&
+      license.IsLicensed === "true" &&
+      license.Compliance === "true" &&
+      Boolean(mobileUpload) &&
+      mobileUpload !== "true")
+  )
+    return { kind: "disabled" };
+  if (
+    enabled === "true" &&
+    limit !== undefined &&
+    /^(?:0|[1-9][0-9]{0,18})$/.test(limit) &&
+    BigInt(limit) <= 9223372036854775807n
+  )
+    return { kind: "enabled", maxFileBytes: limit };
+}
+
 export type ServerPolicy = {
   userStatusesEnabled: boolean;
   dmRecipientScope?: "any" | "team";
@@ -193,10 +230,12 @@ export type ServerPolicy = {
   lockNameFormat: boolean;
   sharedChannelDMs?: boolean;
   search?: { allTeams: boolean; files: boolean; archivedChannels: boolean };
+  fileUpload?: FileUploadSettings;
 };
 export function workspaceServerPolicy(
   config: Settings,
   license: LicenseSettings,
+  platform: WorkspacePolicyPlatform = "desktop",
 ): ServerPolicy {
   const value = config.CollapsedThreads;
   // WebApp lets the user opt in to any defined mode other than disabled.
@@ -207,6 +246,7 @@ export function workspaceServerPolicy(
         ? value
         : "default_off";
   const mentions = mentionSettings(config, license);
+  const fileUpload = fileUploadSettings(config, license, platform);
   const uniqueReactionLimit = signedLimit(
     config.UniqueEmojiReactionLimitPerPost,
     "reaction",
@@ -224,6 +264,7 @@ export function workspaceServerPolicy(
       dmRecipientScope: config.RestrictDirectMessage === "any" ? "any" : "team",
     }),
     ...(mentions && { mentions }),
+    ...(fileUpload && { fileUpload }),
     ...(postEditLimitSeconds !== undefined && { postEditLimitSeconds }),
     ...(uniqueReactionLimit !== undefined && { uniqueReactionLimit }),
     collapsedThreads: mode,
