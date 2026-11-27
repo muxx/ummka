@@ -265,7 +265,7 @@ export async function verifyWorkspaceBack(
       if (reopened.isConnected || document.activeElement !== opener)
         throw Error("The reopened thread did not return to the same post");
     });
-    await checkChannelNotificationsWindow(host, () => press("notifications"));
+    await checkChannelNotificationsWindow(host, press);
     const mobileNav = ui.queryByRole("button", { name: "Channels" });
     if (mobileNav) flushSync(() => fireEvent.click(mobileNav));
     const directory = ui.getByRole("button", { name: "Directory" });

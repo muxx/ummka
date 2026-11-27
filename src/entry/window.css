@@ -85,10 +85,12 @@ body {
   object-fit: contain;
   pointer-events: none;
 }
-.entry-card {
-  box-sizing: border-box;
+.entry-pane {
   width: min(100%, 440px);
   min-width: 0;
+}
+.entry-card {
+  box-sizing: border-box;
   padding: 28px 26px 26px;
   border-radius: 18px;
   color: var(--text);
@@ -135,9 +137,11 @@ body {
   padding-block: 12px 20px;
   height: 44px;
 }
-.entry-window[data-mobile] .entry-card {
+.entry-window[data-mobile] .entry-pane {
   flex: 0 0 auto;
   width: 100%;
+}
+.entry-window[data-mobile] .entry-card {
   padding: 22px 16px;
   border-radius: 22px 22px 0 0;
 }
