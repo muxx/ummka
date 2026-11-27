@@ -16,7 +16,6 @@ import {
   type openPostCollection,
   returnedPostRemoved,
 } from "./post-collection.ts";
-import { initials } from "./profile-initials.ts";
 import { publishedPostDocument } from "./published-post-document.ts";
 import { publishedPostExcerpt } from "./published-post-excerpt.ts";
 import "./post-collection-pane.css";
@@ -475,8 +474,8 @@ export function PostCollectionPane({
                       );
                     }}
                   >
-                    <span className="timeline-avatar" aria-hidden="true">
-                      {name ? initials(name) : "•"}
+                    <span className="collection-avatar" aria-hidden="true">
+                      {name ? Array.from(name)[0] : null}
                     </span>
                     <span className="collection-content">
                       <strong className="collection-author">
