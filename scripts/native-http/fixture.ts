@@ -9,6 +9,7 @@ import type { Server, Socket } from "node:net";
 import { join } from "node:path";
 import { authPrefix, checkAuthVisits, handleAuth } from "./authentication.ts";
 import { eventFixture } from "./channel-events.ts";
+import { draftFileUploadFixture } from "./draft-file-upload.ts";
 import { fileTransferFixture } from "./file-transfer.ts";
 import { fileUploadFixture } from "./file-upload.ts";
 import { mobileFilePolicyFixture } from "./mobile-file-policy.ts";
@@ -172,11 +173,13 @@ export async function startFixture(dir: string) {
   const eventStream = eventFixture();
   const fileTransfers = fileTransferFixture();
   const uploads = fileUploadFixture();
+  const draftUploads = draftFileUploadFixture();
   const tls = https.createServer(certs.trusted, (request, response) => {
     const path = request.url;
     observe("https", path);
     if (eventStream.control(request, response)) return;
     if (uploads.handle(request, response)) return;
+    if (draftUploads.handle(request, response)) return;
     if (fileTransfers.handle(request, response)) return;
     if (mobilePolicy.handle(request, response)) return;
     const control = path?.match(
@@ -362,6 +365,7 @@ export async function startFixture(dir: string) {
         eventStream.verify();
         fileTransfers.verify();
         uploads.verify();
+        draftUploads.verify(android);
         mobilePolicy.verify();
         webview.verify(android ? "android" : "macos");
         assert.deepEqual(checkpoints, [
