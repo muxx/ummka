@@ -6,26 +6,36 @@ import { openNativeRestConnection } from "../../src/mattermost/native-rest.ts";
 import { checkAvailableDirectoryWindow } from "./available-directory-window.ts";
 import { checkChannelNotificationsWindow } from "./channel-notifications-window.ts";
 import { fixtureStep } from "./fixture-step.ts";
+import { systemReply } from "./link-examples.ts";
 import {
   verifyAttachmentReturn,
   verifySearchAttachment,
 } from "./published-attachments.ts";
 
 export function findThreadDraft(host: HTMLElement) {
-  const ui = within(host);
-  // History and the native draft store finish independently. Wait for the
-  // loaded reply and its editor in the same currently mounted thread.
+  // Observe the workspace, not unrelated mutations elsewhere in the test
+  // document. Check DOM identity before traversing the accessibility tree.
   return waitFor(
     () => {
-      const pane = ui.getByRole("complementary", { name: "Thread" });
-      const thread = within(pane);
-      thread.getByText("Reply visible only inside Town’s thread");
-      const field = thread.getByRole<HTMLTextAreaElement>("textbox", {
-        name: "Reply in thread…",
-      });
-      return { pane, thread, field };
+      const pane = host.querySelector<HTMLElement>("aside.channels-thread");
+      const reply = pane?.querySelector<HTMLElement>(
+        `article[data-post-id="${systemReply}"]`,
+      );
+      const field = pane?.querySelector<HTMLTextAreaElement>(
+        'textarea[aria-label="Reply in thread…"]',
+      );
+      const visible = field && field.getClientRects().length > 0;
+      if (!pane || !reply || !visible) {
+        const notice = pane?.querySelector(".workspace-notice")?.textContent;
+        const editor = field ? (visible ? "visible" : "hidden") : "absent";
+        throw Error(
+          `Thread draft pending (pane=${Boolean(pane)}, reply=${Boolean(reply)}, editor=${editor}, document=${document.visibilityState}${notice ? `, notice=${notice}` : ""})`,
+        );
+      }
+      within(reply).getByText("Reply visible only inside Town’s thread");
+      return { pane, thread: within(pane), field };
     },
-    { timeout: 10_000 },
+    { container: host, timeout: 10_000, onTimeout: (error) => error },
   );
 }
 
@@ -240,62 +250,57 @@ export async function verifyWorkspaceBack(
     });
   } finally {
     window.removeEventListener("keydown", observed, true);
-    await control.close();
   }
+  await fixtureStep("close-workspace-back-driver", control.close);
 }
 
 export async function checkDesktopBack(port: string) {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
-  try {
-    await fixtureStep("mount-desktop-workspace", () =>
-      flushSync(() => root.render(<App language="en" />)),
-    );
-    const ui = within(host);
-    const town = (
-      await fixtureStep("wait-for-town-message", () =>
-        ui.findByText("Town fixture message", {}, { timeout: 10000 }),
-      )
-    ).closest("article");
-    if (!town)
-      throw Error("The desktop channel did not render the fixture message");
-    const channel = await fixtureStep("wait-for-town-draft", () =>
-      ui.findByRole<HTMLTextAreaElement>("textbox", {
-        name: "Message #Town Square…",
+  await fixtureStep("mount-desktop-workspace", () =>
+    flushSync(() => root.render(<App language="en" />)),
+  );
+  const ui = within(host);
+  const town = (
+    await fixtureStep("wait-for-town-message", () =>
+      ui.findByText("Town fixture message", {}, { timeout: 10000 }),
+    )
+  ).closest("article");
+  if (!town)
+    throw Error("The desktop channel did not render the fixture message");
+  const channel = await fixtureStep("wait-for-town-draft", () =>
+    ui.findByRole<HTMLTextAreaElement>("textbox", {
+      name: "Message #Town Square…",
+    }),
+  );
+  const opener = within(town).getByRole("button", { name: /Open thread/ });
+  await fixtureStep("open-desktop-thread", () => {
+    flushSync(() =>
+      fireEvent.input(channel, {
+        target: { value: "Unsent desktop channel draft" },
       }),
     );
-    const opener = within(town).getByRole("button", { name: /Open thread/ });
-    await fixtureStep("open-desktop-thread", () => {
-      flushSync(() =>
-        fireEvent.input(channel, {
-          target: { value: "Unsent desktop channel draft" },
-        }),
-      );
-      flushSync(() => fireEvent.click(opener));
-    });
-    await verifyWorkspaceBack(host, port, opener, channel);
-    flushSync(() =>
-      fireEvent.click(ui.getByRole("button", { name: "Search" })),
-    );
-    const query = within(
-      await ui.findByRole("dialog", { name: "What are you looking for?" }),
-    );
-    flushSync(() =>
-      fireEvent.input(query.getByRole("searchbox"), {
-        target: { value: "window fixture" },
-      }),
-    );
-    flushSync(() =>
-      fireEvent.click(query.getByRole("button", { name: "Search" })),
-    );
-    const results = await verifySearchAttachment(host, port, channel);
-    flushSync(() =>
-      fireEvent.click(results.getByRole("button", { name: "Close search" })),
-    );
-    await checkAvailableDirectoryWindow(host, port);
-  } finally {
-    root.unmount();
-    host.remove();
-  }
+    flushSync(() => fireEvent.click(opener));
+  });
+  await verifyWorkspaceBack(host, port, opener, channel);
+  flushSync(() => fireEvent.click(ui.getByRole("button", { name: "Search" })));
+  const query = within(
+    await ui.findByRole("dialog", { name: "What are you looking for?" }),
+  );
+  flushSync(() =>
+    fireEvent.input(query.getByRole("searchbox"), {
+      target: { value: "window fixture" },
+    }),
+  );
+  flushSync(() =>
+    fireEvent.click(query.getByRole("button", { name: "Search" })),
+  );
+  const results = await verifySearchAttachment(host, port, channel);
+  flushSync(() =>
+    fireEvent.click(results.getByRole("button", { name: "Close search" })),
+  );
+  await checkAvailableDirectoryWindow(host, port);
+  root.unmount();
+  host.remove();
 }

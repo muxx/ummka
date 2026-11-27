@@ -49,16 +49,15 @@ export async function checkBrowserAction(port: string, controlPort: string) {
     await fixtureStep("connect-desktop-installation", () =>
       connectInstallation(server),
     );
-    try {
-      await checkDesktopBack(controlPort);
-    } finally {
-      await fixtureStep("remove-desktop-account", () =>
-        forgetLocalAccount(server, "f".repeat(26)),
-      );
-      await fixtureStep("remove-desktop-installation", () =>
-        forgetInstallation(server),
-      );
-    }
+    // A failed run exits the disposable process. Do not defer its result
+    // behind more account IPC against that process.
+    await checkDesktopBack(controlPort);
+    await fixtureStep("remove-desktop-account", () =>
+      forgetLocalAccount(server, "f".repeat(26)),
+    );
+    await fixtureStep("remove-desktop-installation", () =>
+      forgetInstallation(server),
+    );
     return;
   }
 
