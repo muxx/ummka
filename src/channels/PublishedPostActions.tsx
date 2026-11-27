@@ -1,42 +1,82 @@
 import {
   type ContextType,
+  type KeyboardEvent,
   type ReactNode,
+  type Ref,
   useContext,
   useEffect,
   useId,
   useLayoutEffect,
   useRef,
+  useState,
+  useSyncExternalStore,
 } from "react";
 import { createPortal } from "react-dom";
+import { isMobile } from "../build-platform.ts";
 import type { LocalPost } from "../mattermost/local-history.ts";
 import { isMattermostId } from "../mattermost/model-fields.ts";
+import { CollectionMark } from "./PostCollectionPane.tsx";
 import { copyToClipboard, PostActionScope } from "./post-action-scope.ts";
 
-export function PublishedPostActions({
-  post,
-  author,
-  avatar,
-  openThread,
-}: {
+type Scope = NonNullable<ContextType<typeof PostActionScope>>;
+type PublishedActions = {
   post: LocalPost;
   author: string;
   avatar: ReactNode;
   openThread?: () => void;
-}) {
+};
+
+function guardButtonActivation(
+  event: KeyboardEvent<HTMLElement>,
+  disabled = false,
+) {
+  // Held Enter can follow focus between the dialog and its opener.
+  if (
+    (event.repeat || disabled) &&
+    (event.key === "Enter" || event.key === " ")
+  )
+    event.preventDefault();
+}
+
+export function PublishedPostActions(props: PublishedActions) {
   const scope = useContext(PostActionScope);
-  const id = useId();
-  const thread = post.type === "burn_on_read" ? undefined : openThread;
+  const { post } = props;
   if (
     !scope ||
-    (!scope.allowed && !thread) ||
     !isMattermostId(post.id) ||
     post.type.startsWith("system_") ||
     (post.type === "burn_on_read" && post.userId !== scope.userId)
   )
     return null;
+  return <AvailableActions {...props} scope={scope} />;
+}
+
+function AvailableActions({
+  post,
+  author,
+  avatar,
+  openThread,
+  scope,
+}: PublishedActions & { scope: Scope }) {
+  const id = useId();
+  const status = useSyncExternalStore(
+    scope.account.subscribeToSavedPostState,
+    () => scope.account.getSavedPostPresentation(post.id),
+  );
+  const bookmark = savePresentation(status, scope);
+  const thread = post.type === "burn_on_read" ? undefined : openThread;
   const anchor = scope.anchor?.id === id ? scope.anchor : null;
   return (
     <>
+      {!isMobile && (
+        <SaveButton
+          bookmark={bookmark}
+          onChange={(origin) => {
+            origin.focus({ preventScroll: true });
+            scope.save(post.id, !bookmark.filled, origin);
+          }}
+        />
+      )}
       <button
         type="button"
         id={id}
@@ -46,6 +86,7 @@ export function PublishedPostActions({
         aria-expanded={Boolean(anchor)}
         aria-label={scope.text.actions}
         title={scope.text.actions}
+        onKeyDown={guardButtonActivation}
         onClick={(e) => {
           e.currentTarget.focus({ preventScroll: true });
           scope.open(e.currentTarget);
@@ -72,10 +113,80 @@ export function PublishedPostActions({
             postId={post.id}
             scope={scope}
             openThread={thread}
+            bookmark={bookmark}
           />,
           document.body,
         )}
     </>
+  );
+}
+
+function savePresentation(
+  status: ReturnType<Scope["account"]["getSavedPostPresentation"]>,
+  { text, online }: Scope,
+) {
+  const filled = status === "saved" || status === "removing";
+  const busy = status === "saving" || status === "removing";
+  let detail: string | undefined;
+  if (status === "unconfirmed") detail = text.savedUnconfirmed;
+  else if (!filled && !busy && status !== "unsaved") {
+    detail = !online
+      ? text.savedOffline
+      : status === "read-refused"
+        ? text.savedReadRefused
+        : status === "read-failed"
+          ? text.savedReadFailed
+          : text.savedLoading;
+  }
+  const label =
+    status === "saving"
+      ? text.saving
+      : status === "removing"
+        ? text.removing
+        : filled
+          ? text.unsave
+          : text.save;
+  return { busy, detail, filled, label };
+}
+
+function SaveButton({
+  bookmark,
+  onChange,
+  menu = false,
+  control,
+}: {
+  bookmark: ReturnType<typeof savePresentation>;
+  onChange: (origin: HTMLButtonElement) => void;
+  menu?: boolean;
+  control?: Ref<HTMLButtonElement>;
+}) {
+  const hint = useId();
+  const { busy, detail, filled, label } = bookmark;
+  const disabled = busy || Boolean(detail);
+  return (
+    <button
+      ref={control}
+      type="button"
+      className={menu ? "post-actions-save" : "timeline-post-save"}
+      aria-label={label}
+      aria-busy={busy || undefined}
+      aria-disabled={disabled || undefined}
+      aria-describedby={menu && detail ? hint : undefined}
+      aria-description={menu ? undefined : detail}
+      title={menu ? undefined : (detail ?? label)}
+      onKeyDown={(event) => guardButtonActivation(event, disabled)}
+      onClick={(event) => {
+        if (!disabled) onChange(event.currentTarget);
+      }}
+    >
+      <CollectionMark kind="all" filled={filled} />
+      {menu && (
+        <span>
+          <strong>{label}</strong>
+          {detail && <small id={hint}>{detail}</small>}
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -86,16 +197,21 @@ function ActionDialog({
   postId,
   scope,
   openThread,
+  bookmark,
 }: {
   anchor: HTMLButtonElement;
   author: string;
   avatar: ReactNode;
   postId: string;
-  scope: NonNullable<ContextType<typeof PostActionScope>>;
+  scope: Scope;
   openThread?: () => void;
+  bookmark: ReturnType<typeof savePresentation>;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const action = useRef<HTMLButtonElement>(null);
+  const saveAction = useRef<HTMLButtonElement>(null);
+  const waitingForBookmark = useRef(Boolean(bookmark.detail));
+  const [bookmarkAnnouncement, setBookmarkAnnouncement] = useState("");
   const dismissed = useRef(false);
   const copying = useRef(false);
   const title = useId();
@@ -124,7 +240,7 @@ function ActionDialog({
       modal.style.top = `${Math.max(8, Math.min(top, window.innerHeight - size.height - 8))}px`;
     }
     position();
-    action.current?.focus({ preventScroll: true });
+    (action.current ?? saveAction.current)?.focus({ preventScroll: true });
     const sizeObserver = new ResizeObserver(position);
     sizeObserver.observe(modal);
     window.addEventListener("resize", position);
@@ -158,8 +274,18 @@ function ActionDialog({
       (document.activeElement === document.body ||
         document.activeElement === dialog.current)
     )
-      action.current?.focus({ preventScroll: true });
+      (action.current ?? saveAction.current)?.focus({ preventScroll: true });
   }, [scope.allowed]);
+  useLayoutEffect(() => {
+    if (
+      waitingForBookmark.current &&
+      !bookmark.detail &&
+      !bookmark.busy &&
+      document.activeElement === saveAction.current
+    )
+      setBookmarkAnnouncement(bookmark.label);
+    waitingForBookmark.current = Boolean(bookmark.detail);
+  }, [bookmark.detail, bookmark.busy, bookmark.label]);
   useEffect(
     () => () => {
       if (!anchor.isConnected) close(anchor);
@@ -198,6 +324,7 @@ function ActionDialog({
       id={`${anchor.id}-menu`}
       className="post-actions-dialog"
       aria-labelledby={title}
+      onKeyDown={guardButtonActivation}
       onCancel={(event) => {
         event.preventDefault();
         dismiss();
@@ -267,12 +394,17 @@ function ActionDialog({
             {scope.canReply ? text.reply : text.openThread}
           </button>
         )}
+        <SaveButton
+          bookmark={bookmark}
+          control={saveAction}
+          menu
+          onChange={() => {
+            if (!dismissed.current)
+              scope.save(postId, !bookmark.filled, anchor, dismiss);
+          }}
+        />
         {scope.allowed && (
-          <button
-            type="button"
-            ref={openThread ? undefined : action}
-            onClick={() => void copy()}
-          >
+          <button type="button" onClick={() => void copy()}>
             <svg
               aria-hidden="true"
               width="18"
@@ -290,6 +422,9 @@ function ActionDialog({
           </button>
         )}
       </div>
+      <span className="post-action-announcement" role="status">
+        {bookmarkAnnouncement}
+      </span>
     </dialog>
   );
 }

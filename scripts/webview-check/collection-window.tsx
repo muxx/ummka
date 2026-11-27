@@ -281,6 +281,33 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
           "Closing mentions did not restore focus to its toolbar button",
         );
     });
+    const timeline = (await ui.findByText("Town fixture message")).closest(
+      "article",
+    );
+    if (!timeline) throw Error("Missing published Town post");
+    const actions = within(timeline).getByRole("button", {
+      name: "Message actions",
+    });
+    async function toggleBookmark(name: string, notice: string) {
+      click(actions);
+      const dialog = await within(document.body).findByRole("dialog", {
+        name: "Message actions",
+      });
+      const bookmark = await within(dialog).findByRole("button", { name });
+      click(bookmark);
+      await ui.findByText(notice);
+      if (dialog.isConnected || document.activeElement !== actions)
+        throw Error("Bookmark action lost focus in the native timeline");
+    }
+    await toggleBookmark("Remove from Saved", "Removed from Saved.");
+    await toggleBookmark(
+      "Save",
+      "Saved. Only you can see your saved messages.",
+    );
+    click(trigger);
+    await (await findPane("Saved messages")).findByRole("button", {
+      name: /Town fixture message/,
+    });
   } finally {
     await driver.close();
     flushSync(() => root.unmount());

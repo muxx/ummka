@@ -1162,6 +1162,9 @@ export function ChannelsWorkspace({
     userId,
     language,
     access === "writable",
+    connection,
+    online,
+    sessionIssue,
   );
   useWorkspaceBack(
     accountOverlay !== null ||
