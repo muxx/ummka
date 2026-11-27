@@ -18,6 +18,7 @@ import java.io.File
 import java.io.FileNotFoundException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /** Installed only in the isolated HTTP-check APK. No device documents are read. */
@@ -25,9 +26,12 @@ class DocumentSourceFixture : ContentProvider() {
     override fun onCreate() = true
     override fun getType(uri: Uri) = "application/octet-stream"
     private val openState = AtomicInteger()
+    private val absentRestored = AtomicBoolean()
+    private val absentOpens = AtomicInteger()
     @Volatile private var writer: ParcelFileDescriptor? = null
 
     override fun query(uri: Uri, projection: Array<out String>?, selection: String?, args: Array<out String>?, order: String?): Cursor {
+        val key = uri.lastPathSegment.orEmpty()
         val size: Long? = when (uri.lastPathSegment) {
             "range" -> 5L
             "short" -> 9L
@@ -47,16 +51,41 @@ class DocumentSourceFixture : ContentProvider() {
                     } else 0L
                 }
             }
-            else -> null
+            "draft-reading", "draft-stream" -> null
+            "draft-absent-opens" -> absentOpens.get().toLong()
+            "draft-restore" -> {
+                absentRestored.set(true)
+                null
+            }
+            else -> if (key.startsWith("draft-")) key.removePrefix("draft-").length.toLong() else null
         }
         return MatrixCursor(arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE, Document.COLUMN_MIME_TYPE)).apply {
-            addRow(arrayOf<Any?>("облако.bin", size, getType(uri)))
+            val name = if (key.startsWith("draft-")) "${key.removePrefix("draft-")}.txt" else "облако.bin"
+            addRow(arrayOf<Any?>(name, size, getType(uri)))
         }
     }
 
     // ContentResolver routes openAssetFileDescriptor("r") through typed assets.
     override fun openTypedAssetFile(uri: Uri, mimeTypeFilter: String, opts: Bundle?, signal: CancellationSignal?): AssetFileDescriptor {
         require(mimeTypeFilter == "*/*")
+        val key = uri.lastPathSegment.orEmpty()
+        if (key.startsWith("draft-")) {
+            val name = key.removePrefix("draft-")
+            if (name == "absent") {
+                absentOpens.incrementAndGet()
+                if (!absentRestored.get()) throw FileNotFoundException()
+            }
+            val pipe = ParcelFileDescriptor.createReliablePipe()
+            if (name == "reading") {
+                Os.write(pipe[1].fileDescriptor, "chunk".toByteArray(), 0, 5)
+                writer = pipe[1]
+            } else {
+                ParcelFileDescriptor.AutoCloseOutputStream(pipe[1]).use {
+                    it.write((if (name == "stream") "cloud" else name).toByteArray())
+                }
+            }
+            return AssetFileDescriptor(pipe[0], 0, AssetFileDescriptor.UNKNOWN_LENGTH)
+        }
         if (uri.lastPathSegment == "await-open") {
             val stopped = CountDownLatch(1)
             val cancel = requireNotNull(signal)

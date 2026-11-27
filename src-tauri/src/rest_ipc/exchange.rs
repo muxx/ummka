@@ -38,7 +38,7 @@ struct Exchange {
 impl Resource for Exchange {}
 
 pub(super) struct Session {
-    pub(super) http: RestConnection,
+    pub(super) http: Arc<RestConnection>,
     resources: Mutex<ResourceTable>,
     pub(super) history: super::history::LocalHistory,
     pub(super) lifetime: CancellationToken,
@@ -62,7 +62,7 @@ impl Session {
     pub(super) fn new(http: RestConnection) -> Self {
         let lifetime = http.lifetime();
         Self {
-            http,
+            http: Arc::new(http),
             resources: Mutex::default(),
             history: super::history::LocalHistory::new(),
             lifetime,
