@@ -10,7 +10,7 @@ import {
 } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
 import { CollectionReadNotice } from "./CollectionReadNotice.tsx";
-import { CollectionScroll } from "./CollectionScroll.tsx";
+import { CollectionScroll, restoreCollectionRow } from "./CollectionScroll.tsx";
 import { collectionCopy } from "./collection-copy.ts";
 import type { openMentionList } from "./mention-list.ts";
 import { publishedPostDocument } from "./published-post-document.ts";
@@ -147,16 +147,8 @@ export function MentionsPane({
   }, [state]);
   const initial = useRef(restore);
   useLayoutEffect(() => {
-    const row = initial.current;
-    const target =
-      row &&
-      list.current?.querySelector<HTMLElement>(
-        `[data-collection-post="${CSS.escape(row.id)}"]`,
-      );
-    if (row && list.current && target) {
-      list.current.scrollTop = row.scroll;
-      target.focus({ preventScroll: true });
-    } else heading.current?.focus();
+    if (!restoreCollectionRow(list.current, initial.current))
+      heading.current?.focus();
   }, []);
   useEffect(() => {
     if (state.status === "session" || state.status === "unauthorized")
@@ -263,6 +255,7 @@ export function MentionsPane({
               key={post.id}
               aria-disabled={!online || undefined}
               data-collection-post={post.id}
+              aria-current={restore?.id === post.id || undefined}
               onClick={(e) => {
                 if (online)
                   openRow(

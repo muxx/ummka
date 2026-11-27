@@ -30,6 +30,10 @@ type Removal =
   | "unauthorized"
   | "session";
 
+export function newestCollectionItems(items: Collection["items"]) {
+  return [...items].sort((a, b) => (b.createAt ?? 0) - (a.createAt ?? 0));
+}
+
 export function openPostCollection(account: Account, source: Source) {
   const scope = { ...source };
   const listeners = new Set<() => void>();

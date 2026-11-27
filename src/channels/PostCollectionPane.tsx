@@ -8,9 +8,12 @@ import {
 } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
 import { CollectionReadNotice } from "./CollectionReadNotice.tsx";
-import { CollectionScroll } from "./CollectionScroll.tsx";
+import { CollectionScroll, restoreCollectionRow } from "./CollectionScroll.tsx";
 import { collectionCopy } from "./collection-copy.ts";
-import type { openPostCollection } from "./post-collection.ts";
+import {
+  newestCollectionItems,
+  type openPostCollection,
+} from "./post-collection.ts";
 import { initials } from "./profile-initials.ts";
 import { publishedPostDocument } from "./published-post-document.ts";
 import { publishedPostExcerpt } from "./published-post-excerpt.ts";
@@ -102,26 +105,15 @@ export function PostCollectionPane({
   const retryRows = useRef<Set<string> | null>(null);
   const initial = useRef(restore);
   useLayoutEffect(() => {
-    const previous = initial.current;
-    const row =
-      previous &&
-      list.current?.querySelector<HTMLButtonElement>(
-        `[data-collection-post="${CSS.escape(previous.id)}"]`,
-      );
-    if (row && list.current && previous) {
-      list.current.scrollTop = previous.scroll;
-      row.focus({ preventScroll: true });
-    } else heading.current?.focus();
+    if (!restoreCollectionRow(list.current, initial.current))
+      heading.current?.focus();
   }, []);
   useEffect(() => {
     if (state.status === "unauthorized" || state.status === "session")
       sessionIssue(state.status);
   }, [sessionIssue, state.status]);
   const rows = useMemo(
-    () =>
-      [...(state.value?.items ?? [])].sort(
-        (a, b) => (b.createAt ?? 0) - (a.createAt ?? 0),
-      ),
+    () => newestCollectionItems(state.value?.items ?? []),
     [state.value],
   );
   const dates = useMemo(

@@ -7,6 +7,7 @@ import {
 } from "react";
 import { openMentionList } from "./mention-list.ts";
 import { openPostCollection } from "./post-collection.ts";
+import type { measureTimeline } from "./timeline-viewport.ts";
 
 type CollectionsAccount = Parameters<typeof openPostCollection>[0] &
   Parameters<typeof openMentionList>[0];
@@ -20,7 +21,14 @@ type View = { key: number; opener: HTMLButtonElement } & (
   | (Source & { model: ReturnType<typeof openPostCollection> })
   | (Mentions & { model: ReturnType<typeof openMentionList> })
 );
-type RowOrigin = { id: string; channelId: string | null; scroll: number };
+type RowOrigin = {
+  id: string;
+  channelId: string | null;
+  scroll: number;
+  ids: readonly string[];
+  partial: boolean;
+  reading: ReturnType<typeof measureTimeline> | null;
+};
 const subscribeToNothing = () => () => {};
 const empty = () => null;
 
@@ -44,7 +52,9 @@ export function useWorkspaceCollections(
     returnFocus.current = null;
     if (button.isConnected) button.focus();
   }, [view]);
-  const activation = useRef<AbortController | null>(null);
+  const activation = useRef<{ id: string; controller: AbortController } | null>(
+    null,
+  );
   const origin = useRef<RowOrigin | null>(null);
   const [restore, setRestore] = useState<RowOrigin | null>(null);
   const collection = view?.kind === "mentions" ? null : view;
@@ -62,7 +72,7 @@ export function useWorkspaceCollections(
   }, [view, online]);
   useEffect(
     () => () => {
-      activation.current?.abort();
+      activation.current?.controller.abort();
       if (owned.current?.kind === "pins") owned.current.model.close();
       saved.current?.close();
       previousMentions.current?.model.close();
@@ -72,7 +82,7 @@ export function useWorkspaceCollections(
     [],
   );
   function abort() {
-    activation.current?.abort();
+    activation.current?.controller.abort();
     activation.current = null;
   }
   function close(focus = true) {
@@ -105,33 +115,36 @@ export function useWorkspaceCollections(
         model: openMentionList(account, source.archivedChannels),
       };
       next = { ...owner, ...source, model: previousMentions.current.model };
+    } else if (source.kind === "all") {
+      saved.current ??= openPostCollection(account, source);
+      next = { ...owner, ...source, model: saved.current };
     } else {
-      const model =
-        source.kind === "all"
-          ? (saved.current ??= openPostCollection(account, source))
-          : openPostCollection(account, source);
-      next = { ...owner, ...source, model };
+      next = {
+        ...owner,
+        ...source,
+        model: openPostCollection(account, source),
+      };
     }
     owned.current = next;
     setView(next);
   }
   async function activate(
-    from: RowOrigin,
+    id: string,
     open: (signal: AbortSignal) => Promise<void>,
   ) {
-    if (activation.current && origin.current?.id === from.id) return;
+    if (activation.current?.id === id) return;
     abort();
     const request = new AbortController();
-    activation.current = request;
-    origin.current = from;
+    activation.current = { id, controller: request };
     try {
       await open(request.signal);
     } finally {
-      if (activation.current === request) activation.current = null;
+      if (activation.current?.controller === request) activation.current = null;
     }
   }
-  function restoreRow() {
-    const row = origin.current;
+  function restoreRow(id: string) {
+    if (!origin.current) return null;
+    const row = { ...origin.current, id };
     setRestore(row);
     origin.current = null;
     return row;

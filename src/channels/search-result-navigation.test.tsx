@@ -969,7 +969,7 @@ test("reopening Saved keeps the previous rows through a failed refresh and retri
   await pane().findByText("Saved messages updated");
   expect(document.activeElement).toBe(stale);
   expect(account.readSavedPosts.mock.calls.map(([, offset]) => offset)).toEqual(
-    [0, 0, undefined, 0],
+    [0, 0, 0],
   );
 });
 
@@ -1238,4 +1238,97 @@ test("search labels an outside channel and retains its result when another chann
   expect(results.getByRole("button", { name: "Other note" })).toBeTruthy();
   expect(results.queryByText(unavailable)).toBeNull();
   expect(account.readChannelIdentity).toHaveBeenCalledTimes(2);
+});
+
+test("steps between a saved channel post and reply, then Back opens the same selected row without rereading the list", async () => {
+  const { account } = fixture();
+  const trigger = await screen.findByRole("button", { name: "Saved messages" });
+  fireEvent.click(trigger);
+  const pane = within(
+    await screen.findByRole("complementary", { name: "Saved messages" }),
+  );
+  fireEvent.click(
+    await pane.findByRole("button", { name: /Saved root preview/ }),
+  );
+  const group = () =>
+    within(screen.getByRole("group", { name: "Saved messages" }));
+  await screen.findByRole("group", { name: "Saved messages" });
+  expect(group().getByRole("status").textContent).toBe("2 of 2");
+  expect(group().getByRole("button", { name: "Next in list" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  fireEvent.click(group().getByRole("button", { name: "Previous in list" }));
+  const thread = await screen.findByRole("complementary", { name: "Thread" });
+  await within(thread).findByText(reply.message);
+  expect(group().getByRole("status").textContent).toBe("1 of 2");
+  await waitFor(() => expect(account.readPostAnchor).toHaveBeenCalledTimes(2));
+  if (nativeBack) await act(async () => nativeBack?.());
+  else fireEvent.keyDown(window, { key: "Escape" });
+  const selected = await screen.findByRole("button", {
+    name: /Saved reply preview/,
+  });
+  expect(selected.getAttribute("aria-current")).toBe("true");
+  expect(document.activeElement).toBe(selected);
+  expect(account.readSavedPosts).toHaveBeenCalledTimes(1);
+  expect(
+    (
+      await screen.findByRole<HTMLTextAreaElement>("textbox", {
+        name: "Message #Home…",
+      })
+    ).value,
+  ).toBe("Original unfinished draft");
+});
+
+test("a collection return requests the visible channel anchor from local history", async () => {
+  const { account } = fixture();
+  const anchor = {
+    ...root,
+    id: "s".repeat(26),
+    channelId: home,
+    message: "Reading from the middle",
+    rootId: null,
+  };
+  const read = account.readChannelWindow.getMockImplementation();
+  account.readChannelWindow.mockImplementation(async (query) =>
+    query.channelId === home
+      ? {
+          posts: [anchor],
+          older: { kind: "end" },
+          newer: { kind: "more", postId: anchor.id },
+          firstInaccessiblePostTime: 0,
+        }
+      : (read?.(query) ?? null),
+  );
+  const text = await screen.findByText(anchor.message);
+  const article = text.closest("article");
+  const viewport = text.closest(".timeline-scroll");
+  if (!article || !viewport) throw Error("Missing channel timeline fixture");
+  Object.defineProperty(viewport, "clientHeight", { value: 300 });
+  Object.defineProperty(viewport, "scrollHeight", { value: 1200 });
+  viewport.scrollTop = 330;
+  vi.spyOn(viewport, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(30, 20, 400, 300),
+  );
+  vi.spyOn(article, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(40, 55, 380, 100),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Saved messages" }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Saved root preview/ }),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Back to saved messages" }),
+  );
+  await waitFor(() =>
+    expect(account.readChannelWindow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "around",
+        channelId: home,
+        postId: anchor.id,
+      }),
+    ),
+  );
+  expect(account.readSavedPosts).toHaveBeenCalledTimes(1);
+  expect(await screen.findByText(anchor.message)).toBeTruthy();
 });
