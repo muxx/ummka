@@ -128,7 +128,10 @@ beforeEach(() => {
       selected = (args as { serverUrl: string }).serverUrl;
       return;
     }
-    if (cmd === "pending_channels_link") return queue[0] ?? null;
+    if (cmd === "pending_channels_link") {
+      const head = queue[0];
+      return head ? { ...head, waiting: queue.length - 1 } : null;
+    }
     if (cmd === "acknowledge_channels_link") {
       const { id } = args as { id: string };
       expect(id).toBe(queue[0]?.id);

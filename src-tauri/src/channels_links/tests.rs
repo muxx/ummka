@@ -19,6 +19,25 @@ fn platform_delivery_before_and_after_the_main_view_emits_only_a_wakeup() {
         .build()
         .unwrap();
     let main = window.as_ref();
+    let head = || {
+        invoke(main, "pending_channels_link", LOCAL, json!({}))
+            .unwrap()
+            .deserialize::<Value>()
+            .unwrap()
+    };
+    let ack = |id: &str| {
+        invoke(
+            main,
+            "acknowledge_channels_link",
+            LOCAL,
+            json!({ "id": id }),
+        )
+        .unwrap()
+        .deserialize::<bool>()
+        .unwrap()
+    };
+    let href = link.as_str().to_owned();
+    assert_eq!(head(), json!({"id":"1","href":href,"waiting":0}));
     let wakeups = Arc::new(AtomicUsize::new(0));
     main.listen("channels-link-available", {
         let wakeups = Arc::clone(&wakeups);
@@ -36,10 +55,16 @@ fn platform_delivery_before_and_after_the_main_view_emits_only_a_wakeup() {
     assert_eq!(wakeups.load(Ordering::SeqCst), 0);
     deliver(vec![link.clone(), link]);
     assert_eq!(wakeups.load(Ordering::SeqCst), 1);
-    assert_eq!(
-        app.state::<ChannelsLinks>().0.lock().unwrap().links.len(),
-        3
-    );
+    assert_eq!(head(), json!({"id":"1","href":href,"waiting":2}));
+    // Reading the snapshot again after reconnect must not consume the head.
+    assert_eq!(head(), json!({"id":"1","href":href,"waiting":2}));
+    assert!(ack("1"));
+    assert_eq!(head(), json!({"id":"2","href":href,"waiting":1}));
+    assert!(ack("2"));
+    assert_eq!(head(), json!({"id":"3","href":href,"waiting":0}));
+    assert!(ack("3"));
+    assert_eq!(head(), Value::Null);
+    assert_eq!(wakeups.load(Ordering::SeqCst), 1);
 }
 
 #[test]
@@ -116,12 +141,12 @@ fn only_local_main_can_inspect_or_acknowledge_the_first_delivery() {
         .unwrap()
     };
     let first = head();
-    assert_eq!(first["href"], url.as_str());
+    assert_eq!(first, json!({"id":"1","href":url.as_str(),"waiting":1}));
     assert_eq!(head(), first);
     assert!(!ack("2"));
     assert!(ack(first["id"].as_str().unwrap()));
     assert!(!ack(first["id"].as_str().unwrap()));
-    assert_eq!(head(), json!({"id":"2","href":url.as_str()}));
+    assert_eq!(head(), json!({"id":"2","href":url.as_str(),"waiting":0}));
     assert!(ack("2"));
     assert_eq!(head(), Value::Null);
     assert!(!ack("2"));

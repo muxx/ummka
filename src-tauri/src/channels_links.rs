@@ -8,6 +8,13 @@ pub(crate) struct Delivery {
     href: String,
 }
 
+#[derive(Serialize)]
+pub(crate) struct QueueHead {
+    #[serde(flatten)]
+    delivery: Delivery,
+    waiting: usize,
+}
+
 #[derive(Default)]
 struct Pending {
     links: VecDeque<Delivery>,
@@ -69,14 +76,12 @@ pub(crate) fn receive<R: Runtime>(_app: &AppHandle<R>, _event: RunEvent) {
 }
 
 #[tauri::command]
-pub(crate) fn pending_channels_link(inbox: State<'_, ChannelsLinks>) -> Option<Delivery> {
-    inbox
-        .0
-        .lock()
-        .expect("link inbox poisoned")
-        .links
-        .front()
-        .cloned()
+pub(crate) fn pending_channels_link(inbox: State<'_, ChannelsLinks>) -> Option<QueueHead> {
+    let state = inbox.0.lock().expect("link inbox poisoned");
+    Some(QueueHead {
+        delivery: state.links.front()?.clone(),
+        waiting: state.links.len() - 1,
+    })
 }
 
 #[tauri::command]

@@ -37,6 +37,10 @@ const route = vi.mocked(routeChannelsLink);
 const errors = vi.fn();
 const navigate =
   vi.fn<(link: SystemChannelsLink, signal: AbortSignal) => Promise<void>>();
+function head() {
+  const delivery = queue[0];
+  return delivery ? { ...delivery, waiting: queue.length - 1 } : null;
+}
 beforeEach(() => {
   vi.resetAllMocks();
   active = new AbortController();
@@ -48,7 +52,7 @@ beforeEach(() => {
     return unlisten;
   });
   read.mockImplementation(async (name, args) => {
-    if (name === "pending_channels_link") return queue[0] ?? null;
+    if (name === "pending_channels_link") return head();
     expect(name).toBe("acknowledge_channels_link");
     expect(args).toEqual({ id: queue[0]?.id });
     queue.shift();
@@ -99,6 +103,150 @@ test("a warm notification during an empty native read is retained", async () => 
   );
 });
 
+test("the first subscription and a reopened view read the waiting count without a notification", async () => {
+  queue.push({ id: "a", href: url }, { id: "b", href: url });
+  const first = deferred<void>();
+  const reopened = deferred<void>();
+  navigate
+    .mockReturnValueOnce(first.promise)
+    .mockReturnValueOnce(reopened.promise);
+  const onWaiting = vi.fn();
+  await watchSystemChannelsLinks(navigate, errors, active.signal, {
+    onWaiting,
+  });
+  await vi.waitFor(() => expect(delivered()).toEqual(["a"]));
+  expect(onWaiting.mock.calls).toEqual([["a", 1]]);
+  active.abort();
+  first.resolve();
+  active = new AbortController();
+  await watchSystemChannelsLinks(navigate, errors, active.signal, {
+    onWaiting,
+  });
+  await vi.waitFor(() => expect(delivered()).toEqual(["a", "a"]));
+  expect(onWaiting.mock.calls).toEqual([
+    ["a", 1],
+    ["a", 1],
+  ]);
+  active.abort();
+  reopened.resolve();
+  expect(queue).toHaveLength(2);
+});
+
+test("a notification while reading the first snapshot refreshes its count", async () => {
+  queue.push({ id: "a", href: url });
+  const before = head();
+  const snapshot = deferred<ReturnType<typeof head>>();
+  read.mockReturnValueOnce(snapshot.promise);
+  const gate = deferred<void>();
+  navigate.mockReturnValueOnce(gate.promise);
+  const onWaiting = vi.fn();
+  await watchSystemChannelsLinks(navigate, errors, active.signal, {
+    onWaiting,
+  });
+  queue.push({ id: "b", href: url }, { id: "c", href: url });
+  wake();
+  snapshot.resolve(before);
+  await vi.waitFor(() => expect(onWaiting.mock.calls).toEqual([["a", 2]]));
+  expect(delivered()).toEqual(["a"]);
+  expect(queue).toHaveLength(3);
+  active.abort();
+  gate.resolve();
+});
+
+test("a notification during an active refresh requests a newer snapshot without another navigation", async () => {
+  queue.push({ id: "a", href: url });
+  const gate = deferred<void>();
+  navigate.mockReturnValueOnce(gate.promise);
+  const onWaiting = vi.fn();
+  await watchSystemChannelsLinks(navigate, errors, active.signal, {
+    onWaiting,
+  });
+  await vi.waitFor(() => expect(delivered()).toEqual(["a"]));
+  queue.push({ id: "b", href: url });
+  const before = head();
+  const snapshot = deferred<ReturnType<typeof head>>();
+  read.mockReturnValueOnce(snapshot.promise);
+  wake();
+  expect(read).toHaveBeenCalledTimes(2);
+  queue.push({ id: "c", href: url });
+  wake();
+  expect(read).toHaveBeenCalledTimes(2);
+  snapshot.resolve(before);
+  await vi.waitFor(() =>
+    expect(onWaiting.mock.calls).toEqual([
+      ["a", 0],
+      ["a", 2],
+    ]),
+  );
+  expect(delivered()).toEqual(["a"]);
+  expect(queue).toHaveLength(3);
+  active.abort();
+  gate.resolve();
+});
+
+test("a late refresh for the acknowledged head cannot replace the next head's count", async () => {
+  queue.push({ id: "a", href: url });
+  const first = deferred<void>();
+  const second = deferred<void>();
+  navigate
+    .mockReturnValueOnce(first.promise)
+    .mockReturnValueOnce(second.promise);
+  const onWaiting = vi.fn();
+  await watchSystemChannelsLinks(navigate, errors, active.signal, {
+    onWaiting,
+  });
+  await vi.waitFor(() => expect(delivered()).toEqual(["a"]));
+  queue.push({ id: "b", href: url });
+  const before = head();
+  const snapshot = deferred<ReturnType<typeof head>>();
+  read.mockReturnValueOnce(snapshot.promise);
+  wake();
+  first.resolve();
+  await vi.waitFor(() => expect(delivered()).toEqual(["a", "b"]));
+  queue.push({ id: "c", href: url });
+  wake();
+  snapshot.resolve(before);
+  await vi.waitFor(() =>
+    expect(onWaiting.mock.calls).toEqual([
+      ["a", 0],
+      ["b", 0],
+      ["b", 1],
+    ]),
+  );
+  expect(queue.map((x) => x.id)).toEqual(["b", "c"]);
+  active.abort();
+  second.resolve();
+});
+
+test("a failed read of the waiting count keeps the active delivery and clears the count", async () => {
+  queue.push({ id: "a", href: url });
+  const gate = deferred<void>();
+  navigate.mockReturnValueOnce(gate.promise);
+  const onWaiting = vi.fn();
+  await watchSystemChannelsLinks(navigate, errors, active.signal, {
+    onWaiting,
+  });
+  await vi.waitFor(() => expect(delivered()).toEqual(["a"]));
+  queue.push({ id: "b", href: url });
+  read.mockRejectedValueOnce(Error("snapshot unavailable"));
+  wake();
+  await vi.waitFor(() =>
+    expect(onWaiting).toHaveBeenLastCalledWith("a", undefined),
+  );
+  expect(errors).not.toHaveBeenCalled();
+  wake();
+  await vi.waitFor(() =>
+    expect(onWaiting.mock.calls).toEqual([
+      ["a", 0],
+      ["a", undefined],
+      ["a", 1],
+    ]),
+  );
+  expect(delivered()).toEqual(["a"]);
+  active.abort();
+  gate.resolve();
+});
+
 test.each(["routing", "navigation", "acknowledgement"])(
   "a %s failure leaves the link available for explicit retry",
   async (stage) => {
@@ -107,7 +255,7 @@ test.each(["routing", "navigation", "acknowledgement"])(
     if (stage === "routing") route.mockRejectedValueOnce(failure);
     if (stage === "navigation") navigate.mockRejectedValueOnce(failure);
     if (stage === "acknowledgement") {
-      read.mockResolvedValueOnce(queue[0]).mockRejectedValueOnce(failure);
+      read.mockResolvedValueOnce(head()).mockRejectedValueOnce(failure);
     }
     const observer = await watchSystemChannelsLinks(
       navigate,
@@ -127,7 +275,7 @@ test.each(["routing", "navigation", "acknowledgement"])(
 
 test("a refused acknowledgement pauses delivery until the caller retries", async () => {
   queue.push({ id: "1", href: url });
-  read.mockResolvedValueOnce(queue[0]).mockResolvedValueOnce(false);
+  read.mockResolvedValueOnce(head()).mockResolvedValueOnce(false);
   const observer = await watchSystemChannelsLinks(
     navigate,
     errors,
@@ -207,7 +355,7 @@ test("a failed read before any ID was observed cannot be dismissed", async () =>
 });
 test("a lost acknowledgement response does not suppress the new delivery with the same URL", async () => {
   queue.push({ id: "1", href: url }, { id: "2", href: url });
-  read.mockResolvedValueOnce(queue[0]).mockImplementationOnce(async () => {
+  read.mockResolvedValueOnce(head()).mockImplementationOnce(async () => {
     queue.shift();
     throw Error("response lost");
   });

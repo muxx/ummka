@@ -241,7 +241,7 @@ export function useSystemPermalink(
           }
         },
         signal,
-        () => setReady(true),
+        { onEmpty: () => setReady(true) },
       )
         .then((active) => {
           if (!signal.aborted) observer.current = active;
