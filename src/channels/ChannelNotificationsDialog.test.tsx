@@ -52,14 +52,31 @@ const button = (name: string) => screen.getByRole("button", { name });
 const group = (name: string) => within(screen.getByRole("group", { name }));
 test("loads scoped settings and focuses mute; a rejected save keeps edits for manual retry", async () => {
   const { read, write, props } = setup();
-  write.mockRejectedValueOnce(new TypeError("connection lost"));
+  let refuse: (reason: Error) => void = (reason) => {
+    throw reason;
+  };
+  write.mockImplementationOnce(
+    () =>
+      new Promise<void>((_resolve, reject) => {
+        refuse = reject;
+      }),
+  );
   const mute = await screen.findByRole("checkbox", { name: /Mute channel/ });
   expect(document.activeElement).toBe(mute);
   expect(read.mock.calls[0][0]).toBe(props.channelId);
   fireEvent.click(group("On mobile").getByRole("radio", { name: /Nothing/ }));
-  fireEvent.click(button("Save"));
-  await screen.findByRole("alert");
+  const save = button("Save");
+  fireEvent.click(save);
+  expect(document.activeElement).toBe(save);
+  expect(save.getAttribute("aria-disabled")).toBe("true");
+  expect(save.matches(":disabled")).toBe(false);
+  expect(fireEvent.pointerDown(save)).toBe(false);
+  fireEvent.click(save);
   expect(write).toHaveBeenCalledTimes(1);
+  await act(async () => refuse(new TypeError("connection lost")));
+  await screen.findByRole("alert");
+  expect(document.activeElement).toBe(save);
+  expect(save.hasAttribute("aria-disabled")).toBe(false);
   expect(props.dismiss).not.toHaveBeenCalled();
   expect(
     group("On mobile").getByRole<HTMLInputElement>("radio", { name: /Nothing/ })
@@ -95,11 +112,16 @@ test("no changes and cancellation never submit; grouped mentions, mute and reset
   fireEvent.click(button("Reset · On desktop"));
   fireEvent.click(button("Cancel"));
   expect(write).not.toHaveBeenCalled();
+  expect(props.back).toHaveBeenCalledOnce();
+  expect(props.dismiss).toHaveBeenCalledOnce();
   fireEvent(
     screen.getByRole("dialog"),
     new Event("cancel", { cancelable: true }),
   );
-  expect(props.back).toHaveBeenCalledOnce();
+  expect(props.back).toHaveBeenCalledTimes(2);
+  fireEvent.click(button("Close"));
+  expect(props.dismiss).toHaveBeenCalledTimes(2);
+  expect(write).not.toHaveBeenCalled();
 });
 test("ignores duplicate saves and late completions after leaving the account", async () => {
   const { props, write, view } = setup();

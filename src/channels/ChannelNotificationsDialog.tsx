@@ -63,6 +63,7 @@ function NotificationDialog({
 }: Props & { retry: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null),
     first = useRef<HTMLInputElement>(null),
+    submit = useRef<HTMLButtonElement>(null),
     saving = useRef<AbortController | null>(null),
     id = useId();
   const [preview] = useState(createNotificationSoundPreview);
@@ -127,6 +128,7 @@ function NotificationDialog({
     }
     const request = new AbortController();
     saving.current = request;
+    submit.current?.focus({ preventScroll: true });
     setBusy(true);
     setError(null);
     try {
@@ -237,11 +239,19 @@ function NotificationDialog({
         <footer>
           {error && <p role="alert">{t[error]}</p>}
           <div>
-            <button type="button" onClick={dismiss}>
+            <button type="button" onClick={back}>
               {t.cancel}
             </button>
             {state ? (
-              <button className="primary" type="submit" disabled={busy}>
+              <button
+                ref={submit}
+                className="primary"
+                type="submit"
+                aria-disabled={busy || undefined}
+                onPointerDown={(event) => {
+                  if (saving.current) event.preventDefault();
+                }}
+              >
                 {t.save}
               </button>
             ) : (
