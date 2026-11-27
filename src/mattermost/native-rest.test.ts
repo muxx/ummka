@@ -8,6 +8,8 @@ import {
   PostsApi,
   type Reaction,
   ReactionsApi,
+  type User,
+  UsersApi,
 } from "../../vendor/mattermost/index.js";
 import { channelUploadCapability } from "../channels/channel-upload-policy.ts";
 import * as emoji from "./account-custom-emoji.ts";
@@ -23,6 +25,7 @@ import {
 } from "./native-rest.ts";
 import * as directory from "./navigation-data.ts";
 import * as membership from "./own-membership.ts";
+import * as recipient from "./recipient-conversation.ts";
 import * as searchClock from "./search-timezone.ts";
 import * as profiles from "./visible-profiles.ts";
 import * as workspace from "./workspace-server.ts";
@@ -566,6 +569,8 @@ test("passes the canonical installation and closes the exact native handle", asy
   expect("readFollowedThreads" in connection).toBe(false);
   expect("readFollowedThreadTotals" in connection).toBe(false);
   expect("changeOwnMembership" in connection).toBe(false);
+  expect("openRecipientConversation" in connection).toBe(false);
+  expect("readConversationRecipients" in connection).toBe(false);
   expect("addOwnReaction" in connection).toBe(false);
   expect("removeOwnReaction" in connection).toBe(false);
   expect("readPendingPosts" in connection).toBe(false);
@@ -618,6 +623,7 @@ test("opens a native account by installation and user ID", async () => {
     "markTeamThreadsRead",
     "notifyChannelHistoryChanged",
     "openRecentMentions",
+    "openRecipientConversation",
     "readAccountDirectory",
     "readAssociatedMentionGroups",
     "readChannelBookmarks",
@@ -630,6 +636,7 @@ test("opens a native account by installation and user ID", async () => {
     "readChannelTimezoneCount",
     "readChannelWindow",
     "readConversationRecipient",
+    "readConversationRecipients",
     "readCustomEmoji",
     "readDraft",
     "readFileAnchor",
@@ -1249,6 +1256,172 @@ test("closing an account discards its pending bookmark list", async () => {
     expect(call).toHaveBeenCalledOnce();
   } finally {
     call.mockRestore();
+  }
+});
+
+test("closing an account while its recipient scope loads never dispatches the search", async () => {
+  const userId = "u".repeat(26);
+  let complete!: (value: unknown) => void;
+  ipc
+    .mockResolvedValueOnce(9)
+    .mockReturnValueOnce(
+      new Promise((resolve) => {
+        complete = resolve;
+      }),
+    )
+    .mockResolvedValueOnce(undefined);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    userId,
+  );
+  const pending = account.readConversationRecipients("t".repeat(26), {
+    kind: "search",
+    term: "anna",
+  });
+  expect(ipc).toHaveBeenLastCalledWith("read_workspace_settings", { rid: 9 });
+  await account.close();
+  complete({ server: { dmRecipientScope: "any" } });
+  await expect(pending).rejects.toBe("cancelled");
+  expect(ipc).toHaveBeenCalledTimes(3);
+});
+
+test("a recipient result cannot outlive its account connection", async () => {
+  ipc
+    .mockResolvedValueOnce(9)
+    .mockResolvedValueOnce({ server: { dmRecipientScope: "any" } })
+    .mockResolvedValueOnce(undefined);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    "u".repeat(26),
+  );
+  let finish!: (profiles: User[]) => void;
+  const response = new Promise<User[]>((resolve) => {
+    finish = resolve;
+  });
+  const search = vi
+    .spyOn(UsersApi.prototype, "searchUsers")
+    .mockReturnValue(response);
+  try {
+    const pending = account.readConversationRecipients("t".repeat(26), {
+      kind: "search",
+      term: "anna",
+    });
+    await vi.waitFor(() => expect(search).toHaveBeenCalledOnce());
+    await account.close();
+    finish([{ id: "p".repeat(26), username: "anna", deleteAt: 0 }]);
+    await expect(pending).rejects.toBe("cancelled");
+    expect(search).toHaveBeenCalledOnce();
+    expect(ipc).toHaveBeenCalledTimes(3);
+  } finally {
+    search.mockRestore();
+  }
+});
+
+test("closing after reading the recipient scope never prepares a REST query", async () => {
+  ipc.mockResolvedValueOnce(9);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    "u".repeat(26),
+  );
+  let closed: Promise<void> | undefined;
+  const readScope = vi.fn(() => {
+    closed = account.close();
+    return "any";
+  });
+  ipc
+    .mockResolvedValueOnce({
+      server: {
+        get dmRecipientScope() {
+          return readScope();
+        },
+      },
+    })
+    .mockResolvedValueOnce(undefined)
+    .mockRejectedValueOnce("unknown_connection");
+  const [result] = await Promise.allSettled([
+    account.readConversationRecipients("t".repeat(26), {
+      kind: "search",
+      term: "anna",
+    }),
+  ]);
+  await closed;
+  expect(readScope).toHaveBeenCalledOnce();
+  expect(ipc.mock.calls.map(([command]) => command)).toEqual([
+    "open_rest_connection",
+    "read_workspace_settings",
+    "close_rest_connection",
+  ]);
+  expect(result).toEqual({ status: "rejected", reason: "cancelled" });
+});
+
+test("a recipient request belongs to its connection until the receipt arrives", async () => {
+  const userId = "u".repeat(26);
+  const peer = "p".repeat(26);
+  ipc.mockResolvedValueOnce(31);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    userId,
+  );
+  let finish!: () => void;
+  const open = vi
+    .spyOn(recipient, "openRecipientConversation")
+    .mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = () =>
+            resolve({
+              kind: "applied",
+              channelId: "d".repeat(26),
+              channelKind: "D",
+            });
+        }),
+    );
+  try {
+    const pending = account.openRecipientConversation([peer]);
+    expect(open).toHaveBeenCalledExactlyOnceWith(
+      expect.anything(),
+      userId,
+      [peer],
+      expect.any(AbortSignal),
+    );
+    await account.close();
+    finish();
+    await expect(pending).rejects.toBe("cancelled");
+    await expect(account.openRecipientConversation([peer])).rejects.toBe(
+      "unknown_connection",
+    );
+    expect(open).toHaveBeenCalledTimes(1);
+  } finally {
+    open.mockRestore();
+  }
+});
+
+test("closing an account during the group hash never prepares a REST request", async () => {
+  ipc.mockResolvedValueOnce(31).mockResolvedValueOnce(undefined);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    "u".repeat(26),
+  );
+  let finish!: (bytes: ArrayBuffer) => void;
+  const hash = new Promise<ArrayBuffer>((resolve) => {
+    finish = resolve;
+  });
+  const digest = vi.spyOn(crypto.subtle, "digest").mockReturnValue(hash);
+  try {
+    const pending = account.openRecipientConversation([
+      "p".repeat(26),
+      "q".repeat(26),
+    ]);
+    expect(digest).toHaveBeenCalledExactlyOnceWith("SHA-1", expect.anything());
+    await account.close();
+    finish(new ArrayBuffer(20));
+    await expect(pending).rejects.toBe("cancelled");
+    expect(ipc.mock.calls.map(([command]) => command)).toEqual([
+      "open_rest_connection",
+      "close_rest_connection",
+    ]);
+  } finally {
+    digest.mockRestore();
   }
 });
 

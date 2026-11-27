@@ -53,6 +53,10 @@ import {
   type KnownChannelName,
   resolveConversationIdentifier,
 } from "./conversation-link-identifier.ts";
+import {
+  type RecipientQuery,
+  readConversationRecipients,
+} from "./conversation-recipients.ts";
 import { executeAccountCommand } from "./execute-account-command.ts";
 import {
   type CommandIntent,
@@ -96,6 +100,7 @@ import { accountCollectionActions } from "./post-collection-actions.ts";
 import { readPostDestination } from "./post-destination.ts";
 import { readPostEditHistory } from "./post-edit-history.ts";
 import { openRecentMentions } from "./recent-mentions.ts";
+import { openRecipientConversation } from "./recipient-conversation.ts";
 import { createRestTransport } from "./rest-transport.ts";
 import { readSearchTimezone } from "./search-timezone.ts";
 import { canonicalServerUrl } from "./server-url.ts";
@@ -202,6 +207,15 @@ export async function openAccountRestConnection(
     if (retired) throw "cancelled";
     signal?.throwIfAborted();
     return result;
+  }
+  function readRecipientWhileOpen<T>(
+    read: (signal: AbortSignal) => Promise<T>,
+    signal?: AbortSignal,
+  ) {
+    const active = signal
+      ? AbortSignal.any([signal, recipientLifetime.signal])
+      : recipientLifetime.signal;
+    return readWhileOpen(() => read(active), active);
   }
   const readTeamSidebar = (teamId: string) =>
     invoke<TeamSidebar | null>("read_team_sidebar", { rid, teamId });
@@ -355,15 +369,13 @@ export async function openAccountRestConnection(
       target: ConversationRecipientTarget,
       signal?: AbortSignal,
     ) {
-      return readWhileOpen(
-        () =>
+      return readRecipientWhileOpen(
+        (active) =>
           readConversationRecipient(
             new UsersApi(config),
             target,
             readSavedProfiles,
-            signal
-              ? AbortSignal.any([signal, recipientLifetime.signal])
-              : recipientLifetime.signal,
+            active,
           ),
         signal,
       );
@@ -389,6 +401,16 @@ export async function openAccountRestConnection(
     },
     readCustomEmoji(emojiName: string, signal?: AbortSignal) {
       return readWhileOpen(() => readCustomEmoji(config, emojiName, signal));
+    },
+    openRecipientConversation(
+      recipientIds: readonly string[],
+      signal?: AbortSignal,
+    ) {
+      return readRecipientWhileOpen(
+        (active) =>
+          openRecipientConversation(config, userId, recipientIds, active),
+        signal,
+      );
     },
     readOwnChannelMembership(
       teamId: string,
@@ -501,6 +523,25 @@ export async function openAccountRestConnection(
             }
           : saved;
       });
+    },
+    readConversationRecipients(
+      teamId: string,
+      query: RecipientQuery,
+      signal?: AbortSignal,
+    ) {
+      return readRecipientWhileOpen(
+        (active) =>
+          readConversationRecipients(
+            config,
+            teamId,
+            query,
+            async () =>
+              (await readWhileOpen(readWorkspaceSettings, active)).server
+                ?.dmRecipientScope,
+            active,
+          ),
+        signal,
+      );
     },
     async refreshWorkspaceServerPolicy(
       signal?: AbortSignal,
