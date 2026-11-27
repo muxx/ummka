@@ -13,7 +13,7 @@ import {
 } from "../../src/channels/PublishedReaderWindow.tsx";
 import { useWorkspaceBack } from "../../src/channels/use-workspace-back.ts";
 import type { LocalChannelWindow } from "../../src/mattermost/local-history.ts";
-import { fixtureDeadline } from "./fixture-step.ts";
+import { fixtureDeadline, fixtureStep } from "./fixture-step.ts";
 
 const longCode = `  const summary = "${"a".repeat(320)}";`;
 const extraCell = "wide".repeat(70);
@@ -728,6 +728,7 @@ export async function checkChannelFormatting(
     phase?: "up",
   ) => Promise<void>,
   mobile?: NonNullable<Parameters<typeof checkMobileTable>[4]> & CodeInput,
+  widths: readonly number[] = [320, 820],
 ) {
   const author = () => ({ name: "Ada" });
   const posts: LocalChannelWindow["posts"] = Array.from(
@@ -763,7 +764,7 @@ export async function checkChannelFormatting(
     };
   }
   const results = [];
-  for (const width of [320, 820]) {
+  for (const width of widths) {
     const host = document.createElement("div");
     host.style.width = `${width}px`;
     host.style.height = "420px";
@@ -841,6 +842,7 @@ export async function checkChannelFormatting(
       if (measure(5, 7) < 1.8 * measure(4, 5))
         throw Error("Inline code collapsed its repeated spaces");
 
+      let desktopCode: HTMLPreElement | undefined;
       if (isAndroid) {
         await checkMobileCode(
           host,
@@ -866,12 +868,6 @@ export async function checkChannelFormatting(
           short.hasAttribute("role")
         )
           throw Error("Wrong desktop code keyboard targets");
-        await checkArrowRight(
-          pre,
-          `code-${width}`,
-          () => pressRight("code", width),
-          () => pressRight("code", width, "up"),
-        );
         const code = pre.closest<HTMLElement>(".post-code-desktop");
         if (!code) throw Error("Missing desktop code copy");
         const source = pre.querySelector("code")?.firstChild;
@@ -888,6 +884,8 @@ export async function checkChannelFormatting(
         )
           throw Error("Copy covers the end of the first code line");
         await checkCopyCode(code, longCode);
+        pre.scrollLeft = 0;
+        desktopCode = pre;
       }
 
       function checkEmphasisSelection(node: HTMLElement) {
@@ -950,8 +948,7 @@ export async function checkChannelFormatting(
           fittingTable.hasAttribute("role")
         )
           throw Error("A fitting table added a keyboard stop");
-        // Use a stationary offset for the render check. The native key below
-        // starts a WebKit scroll animation that can continue after keyup.
+        // Verify the neighboring render before starting a keyboard scroll.
         table.scrollLeft = 100;
         const offset = table.scrollLeft;
         if (offset <= 1)
@@ -967,12 +964,6 @@ export async function checkChannelFormatting(
             `The neighboring edit moved the table at ${width}px from ${offset} to ${table.scrollLeft}`,
           );
         table.scrollLeft = 0;
-        await checkArrowRight(
-          table,
-          `table-${width}`,
-          () => pressRight("table", width),
-          () => pressRight("table", width, "up"),
-        );
         const { range, selection } = checkEmphasisSelection(label);
         range.selectNodeContents(row[3]);
         selection.addRange(range);
@@ -997,6 +988,29 @@ export async function checkChannelFormatting(
         checkDisclosure(host, width);
       } finally {
         posts.pop();
+      }
+      // Finish DOM updates and programmatic scrolls before testing AppKit's
+      // default action. WebKit can keep animating after keyup.
+      if (!isAndroid) {
+        if (!desktopCode || !table)
+          throw Error("Missing desktop scroll targets");
+        const code = desktopCode;
+        await fixtureStep("scroll-formatting-code", () =>
+          checkArrowRight(
+            code,
+            `code-${width}`,
+            () => pressRight("code", width),
+            () => pressRight("code", width, "up"),
+          ),
+        );
+        await fixtureStep("scroll-formatting-table", () =>
+          checkArrowRight(
+            table,
+            `table-${width}`,
+            () => pressRight("table", width),
+            () => pressRight("table", width, "up"),
+          ),
+        );
       }
       results.push({ width, first, unchanged });
     } finally {

@@ -214,7 +214,7 @@ export async function verifyWorkspaceBack(
       form
         .getByRole<HTMLButtonElement>("button", { name: "Close search" })
         .focus();
-    await press("dialog");
+    await fixtureStep("back-search-dialog", () => press("dialog"));
     await waitFor(() => {
       if (
         ui.queryByRole("dialog") ||
