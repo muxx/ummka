@@ -205,7 +205,7 @@ pub(crate) async fn finish_cached_post_observation<R: Runtime>(
     webview: Webview<R>,
     rid: ResourceId,
     load: ResourceId,
-    observation: Option<PostObservation>,
+    observation: Option<serde_json::Value>,
 ) -> Result<bool, ExchangeError> {
     let session = super::session(&webview, rid)?;
     let ticket = session
@@ -213,6 +213,9 @@ pub(crate) async fn finish_cached_post_observation<R: Runtime>(
     let Some(observation) = observation else {
         return Ok(false);
     };
+    // Invalid observations consume the ticket as well.
+    let observation = serde_json::from_value::<PostObservation>(observation)
+        .map_err(|_| ExchangeError::InvalidHistoryRequest)?;
     session
         .with_history(&webview.state::<AccountSessions>(), move |view| {
             view.observe_cached_post(ticket.0, observation)
