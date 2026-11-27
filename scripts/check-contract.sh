@@ -30,6 +30,8 @@ download emoji-12.1.0.json "https://raw.githubusercontent.com/mattermost/matterm
 npm run contract:emoji -- "$cache/emoji-10.10.1.json" "$cache/emoji-12.1.0.json" "$work/emoji.json"
 
 download introduction.yaml "$upstream/introduction.yaml" 4b3786cc86ec1097c29f5b1bea8e9a32d09c4ddb6244140ec094425b6fdc5e09
+download sharedchannels.yaml "$upstream/sharedchannels.yaml" 30a1a3bbdf46bbdb60c3812dfb52a367d52516da628cc8d9a1827b12d66f9c2e
+download sharedchannels-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/sharedchannels.yaml" 986b35f437c772aff043e14af79097e078dbf442e0a389ffca4386c52d85ce9d
 download system.yaml "$upstream/system.yaml" 10e9e11b14d34d30a661474269f69220f8ebdb05db64cd53e30cb199a665ae8e
 download status.yaml "$upstream/status.yaml" e1adcf4a377c13618d7229f5319bfaceeea1879810d17cec5887f88b4032cde7
 download status-12.1.0.yaml "https://raw.githubusercontent.com/mattermost/mattermost/243e3d0135203ab9166fe8f2873b07f697b06fd4/api/v4/source/status.yaml" e1adcf4a377c13618d7229f5319bfaceeea1879810d17cec5887f88b4032cde7
@@ -174,6 +176,14 @@ declare const channels: ChannelsApi;
 channels.createDirectChannel({ requestBody: [7] });
 // @ts-expect-error A group needs its participant array.
 channels.createGroupChannel({});
+import type { SharedChannelsApi } from "./compiled/index.js";
+declare const shared: SharedChannelsApi;
+const dmCapability = await shared.canUserDirectMessage({ userId: "me", otherUserId: "peer" });
+dmCapability.canDm satisfies boolean;
+// @ts-expect-error An intended recipient is required.
+shared.canUserDirectMessage({ userId: "me" });
+// @ts-expect-error The request belongs to an account.
+shared.canUserDirectMessage({ otherUserId: "peer" });
 const managed = await channels.getManagedCategories({ teamId: "team" });
 managed satisfies Record<string, string>;
 // @ts-expect-error The mapping belongs to one team.

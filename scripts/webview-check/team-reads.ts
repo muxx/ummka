@@ -10,6 +10,7 @@ import {
   PreferencesApi,
   ResponseError,
   RolesApi,
+  SharedChannelsApi,
   TeamsApi,
 } from "../../vendor/mattermost/index.js";
 import { checkDirectoryQuery } from "../contract/compatibility/directory-query.ts";
@@ -32,6 +33,17 @@ export async function checkTeamReads(
     throw Error("Native account returned the wrong channel roster");
   const root = new Configuration(rootAccount);
   const prefixed = new Configuration(prefixedAccount);
+  const shared = new SharedChannelsApi(prefixed);
+  for (const [peer, expected] of [
+    ["p", false],
+    ["q", true],
+  ] as const) {
+    const capability = await shared.canUserDirectMessage({
+      userId: "me",
+      otherUserId: peer.repeat(26),
+    });
+    if (capability.canDm !== expected) throw Error("signed remote DM decision");
+  }
   const entry = await new EmojiApi(prefixed).getEmojiByName({
     emojiName: "fixture+wave",
   });
