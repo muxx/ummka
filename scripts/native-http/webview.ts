@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -989,16 +990,34 @@ export function webviewServers(
         "Bearer fixture-prefixed-session",
       );
       assert.equal(req.headers.cookie, undefined);
-      assert.deepEqual(
-        await json(req),
-        direct ? [userId] : ["x".repeat(26), "y".repeat(26)],
-      );
+      const ids = await json(req);
+      assert.ok(Array.isArray(ids));
+      const byAccount = ids[0] === userId && ids.length > 1;
+      const peers = ["x".repeat(26), "y".repeat(26)];
+      const members = direct
+        ? [userId, byAccount ? peers[0] : userId]
+        : [userId, ...peers];
+      assert.deepEqual(ids, byAccount ? members : direct ? [userId] : peers);
+      const event = direct
+        ? "open-self-conversation"
+        : "open-group-conversation";
       visits.push(
-        direct ? "open-self-conversation" : "open-group-conversation",
+        byAccount
+          ? direct
+            ? "account-direct-conversation"
+            : "account-group-conversation"
+          : event,
       );
+      const name = direct
+        ? [...members].sort().join("__")
+        : createHash("sha1")
+            .update([...members].sort().join(""))
+            .digest("hex");
       res.writeHead(201, { "Content-Type": "application/json" }).end(
         JSON.stringify({
           id: (direct ? "d" : "g").repeat(26),
+          delete_at: 0,
+          name,
           team_id: "",
           type: direct ? "D" : "G",
         }),
@@ -1973,6 +1992,8 @@ export function webviewServers(
         "read-team-threads",
         "read-thread",
         "read-team-threads",
+        "account-direct-conversation",
+        "account-group-conversation",
         "open-self-conversation",
         "open-group-conversation",
         "follow-thread",

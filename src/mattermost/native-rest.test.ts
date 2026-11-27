@@ -23,6 +23,7 @@ import {
 } from "./native-rest.ts";
 import * as directory from "./navigation-data.ts";
 import * as membership from "./own-membership.ts";
+import * as recipient from "./recipient-conversation.ts";
 import * as searchClock from "./search-timezone.ts";
 import * as profiles from "./visible-profiles.ts";
 import * as workspace from "./workspace-server.ts";
@@ -566,6 +567,7 @@ test("passes the canonical installation and closes the exact native handle", asy
   expect("readFollowedThreads" in connection).toBe(false);
   expect("readFollowedThreadTotals" in connection).toBe(false);
   expect("changeOwnMembership" in connection).toBe(false);
+  expect("openRecipientConversation" in connection).toBe(false);
   expect("addOwnReaction" in connection).toBe(false);
   expect("removeOwnReaction" in connection).toBe(false);
   expect("readPendingPosts" in connection).toBe(false);
@@ -618,6 +620,7 @@ test("opens a native account by installation and user ID", async () => {
     "markTeamThreadsRead",
     "notifyChannelHistoryChanged",
     "openRecentMentions",
+    "openRecipientConversation",
     "readAccountDirectory",
     "readAssociatedMentionGroups",
     "readChannelBookmarks",
@@ -1248,6 +1251,77 @@ test("closing an account discards its pending bookmark list", async () => {
     expect(call).toHaveBeenCalledOnce();
   } finally {
     call.mockRestore();
+  }
+});
+
+test("a recipient request belongs to its connection until the receipt arrives", async () => {
+  const userId = "u".repeat(26);
+  const peer = "p".repeat(26);
+  ipc.mockResolvedValueOnce(31);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    userId,
+  );
+  let finish!: () => void;
+  const open = vi
+    .spyOn(recipient, "openRecipientConversation")
+    .mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = () =>
+            resolve({
+              kind: "applied",
+              channelId: "d".repeat(26),
+              channelKind: "D",
+            });
+        }),
+    );
+  try {
+    const pending = account.openRecipientConversation([peer]);
+    expect(open).toHaveBeenCalledExactlyOnceWith(
+      expect.anything(),
+      userId,
+      [peer],
+      expect.any(AbortSignal),
+    );
+    await account.close();
+    finish();
+    await expect(pending).rejects.toBe("cancelled");
+    await expect(account.openRecipientConversation([peer])).rejects.toBe(
+      "unknown_connection",
+    );
+    expect(open).toHaveBeenCalledTimes(1);
+  } finally {
+    open.mockRestore();
+  }
+});
+
+test("closing an account during the group hash never prepares a REST request", async () => {
+  ipc.mockResolvedValueOnce(31).mockResolvedValueOnce(undefined);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    "u".repeat(26),
+  );
+  let finish!: (bytes: ArrayBuffer) => void;
+  const hash = new Promise<ArrayBuffer>((resolve) => {
+    finish = resolve;
+  });
+  const digest = vi.spyOn(crypto.subtle, "digest").mockReturnValue(hash);
+  try {
+    const pending = account.openRecipientConversation([
+      "p".repeat(26),
+      "q".repeat(26),
+    ]);
+    expect(digest).toHaveBeenCalledExactlyOnceWith("SHA-1", expect.anything());
+    await account.close();
+    finish(new ArrayBuffer(20));
+    await expect(pending).rejects.toBe("cancelled");
+    expect(ipc.mock.calls.map(([command]) => command)).toEqual([
+      "open_rest_connection",
+      "close_rest_connection",
+    ]);
+  } finally {
+    digest.mockRestore();
   }
 });
 

@@ -989,6 +989,25 @@ export async function checkGeneratedRequests(ports: string[]) {
         groupConversation.teamId === "",
       "signed group conversation",
     );
+    const ownDirect = await accountPrefix.openRecipientConversation([
+      "x".repeat(26),
+    ]);
+    const ownGroup = await accountPrefix.openRecipientConversation([
+      "x".repeat(26),
+      "y".repeat(26),
+    ]);
+    check(
+      ownDirect.kind === "applied" &&
+        ownDirect.channelKind === "D" &&
+        ownDirect.channelId === "d".repeat(26),
+      "account confirms direct recipient",
+    );
+    check(
+      ownGroup.kind === "applied" &&
+        ownGroup.channelKind === "G" &&
+        ownGroup.channelId === "g".repeat(26),
+      "account confirms group recipients",
+    );
     const unsignedConversations = new ChannelsApi(new Configuration(prefixed));
     for (const request of [
       () =>
