@@ -8,8 +8,10 @@ import {
 } from "react";
 import { openPostNavigation } from "../channels/post-navigation.ts";
 import type { TimelineRequest } from "../channels/timeline-reader.ts";
+import type { TimelinePlace } from "../channels/timeline-viewport.ts";
 import type { WorkspaceConnection } from "../channels/use-workspace-read.ts";
 import { workspaceFailure } from "../channels/workspace-data.ts";
+import { directoryProblem } from "../mattermost/account-directory-error.ts";
 import type { JoinedTeam, JoinedTeams } from "../mattermost/joined-teams.ts";
 import type { MembershipTarget } from "../mattermost/own-membership.ts";
 import type { TeamSidebar } from "../mattermost/team-sidebar.ts";
@@ -23,11 +25,30 @@ type Consent = Parameters<Parameters<typeof openPostNavigation>[3]>[0];
 type Outcome = Awaited<
   ReturnType<ReturnType<typeof openPostNavigation>["open"]>
 >["target"];
+export type SavedCollectionOrigin = {
+  teamId: string;
+  channelId: string | null;
+  scroll: number;
+  offset?: number;
+  reading: TimelinePlace | null;
+};
+type SavedCollectionReturn = {
+  rid: number;
+  teamId: string;
+  place?: Omit<SavedCollectionOrigin, "teamId"> & { id: string };
+  unavailableChannel?: string;
+};
+type Selection = {
+  channelId: string | null;
+  fromTeam?: string;
+};
 type Position = {
   request: Extract<TimelineRequest, { kind: "focus" }>;
   sidebar: TeamSidebar;
   membership: string;
   system?: SystemPostRequest;
+  saved?: SavedCollectionOrigin;
+  choosingChannel?: boolean;
 };
 type Queue = <T>(work: () => Promise<T>) => Promise<T>;
 type Modal =
@@ -47,6 +68,7 @@ const copy = {
     archived: "This message is outside the available history.",
     unattached: "This file is no longer attached to a message.",
     failed: "Couldn’t open the message. Try again.",
+    savedReturnFailed: "Couldn’t return to saved messages. Try again.",
     unconfirmed: "The server hasn’t confirmed membership.",
     forbidden: "The server refused access.",
     joinedTeam: "You joined the team.",
@@ -66,6 +88,8 @@ const copy = {
     archived: "Сообщение за границей доступной истории.",
     unattached: "Этот файл больше не прикреплён к сообщению.",
     failed: "Не удалось открыть сообщение. Попробуйте ещё раз.",
+    savedReturnFailed:
+      "Не удалось вернуться к сохранённым. Попробуйте ещё раз.",
     unconfirmed: "Сервер не подтвердил вступление.",
     forbidden: "Сервер отказал в доступе.",
     joinedTeam: "Вы вступили в команду.",
@@ -214,7 +238,13 @@ export type MessageNavigation = {
     source: Source,
     signal: AbortSignal,
     origin: HTMLElement | SystemOrigin,
+    saved?: SavedCollectionOrigin,
   ) => Promise<void>;
+  savedReturn: SavedCollectionReturn | null;
+  returnToSaved: (control: HTMLElement | null) => Promise<void>;
+  endSaved: () => void;
+  completeChannelChoice: (id: number, accepted: boolean) => void;
+  closeSavedSurface: (teamId: string) => void;
   enqueue: Queue;
   clear: () => void;
 };
@@ -227,15 +257,22 @@ export function useMessageNavigation(
   enqueue: Queue,
   selectTeam: (
     team: JoinedTeam,
-    directory: JoinedTeams,
     signal: AbortSignal,
     commit: () => void,
+    selection: Selection,
   ) => Promise<boolean>,
 ) {
   const [position, setPosition] = useState<Position | null>(null);
+  const [savedReturn, setSavedReturn] = useState<SavedCollectionReturn | null>(
+    null,
+  );
   const [modal, setModal] = useState<Modal | null>(null);
-  const current = useRef<AbortController | null>(null);
+  const current = useRef<{
+    controller: AbortController;
+    kind: "open" | "return";
+  } | null>(null);
   const counter = useRef(0);
+  const savedSurfaces = useRef(new Set<string>());
   const external = useRef<SystemPostRequest | null>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {
@@ -247,30 +284,76 @@ export function useMessageNavigation(
   const clear = useCallback(() => {
     external.current?.stop("paused");
     external.current = null;
-    current.current?.abort();
+    current.current?.controller.abort();
     current.current = null;
     returnFocus.current = null;
     setModal(null);
     setPosition(null);
+    setSavedReturn(null);
   }, []);
-  function captureTeamChange() {
+  function captureTeamChange(teamId: string) {
     const previous = counter.current;
     return () => {
       if (counter.current === previous) clear();
-      else setPosition((visible) => (visible === position ? null : visible));
+      else {
+        if (current.current?.kind === "return") {
+          current.current.controller.abort();
+          current.current = null;
+        }
+        setPosition((visible) => (visible === position ? null : visible));
+      }
+      setSavedReturn(
+        connection && savedSurfaces.current.has(teamId)
+          ? { rid: connection.rid, teamId }
+          : null,
+      );
     };
   }
   useLayoutEffect(() => {
     if (!connection) return;
-    return () => current.current?.abort();
+    return () => {
+      current.current?.controller.abort();
+      savedSurfaces.current.clear();
+    };
   }, [connection]);
+  useLayoutEffect(() => {
+    if (!directory) return;
+    for (const id of savedSurfaces.current)
+      if (!directory.teams.some((team) => team.id === id))
+        savedSurfaces.current.delete(id);
+    setPosition((visible) => {
+      if (
+        !visible?.saved ||
+        directory.teams.some(({ id }) => id === visible.saved?.teamId)
+      )
+        return visible;
+      const { saved: _saved, ...destination } = visible;
+      return destination;
+    });
+  }, [directory]);
   useEffect(() => {
-    if (!online && current.current) clear();
+    if (online || !current.current) return;
+    if (current.current.kind === "return") {
+      current.current.controller.abort();
+      current.current = null;
+    } else clear();
   }, [online, clear]);
+  function endSaved() {
+    if (current.current?.kind === "return") {
+      current.current.controller.abort();
+      current.current = null;
+    }
+    setPosition((visible) => {
+      if (!visible?.saved) return visible;
+      const { saved: _saved, ...destination } = visible;
+      return destination;
+    });
+  }
   async function open(
     source: Source,
     originSignal: AbortSignal,
     origin: HTMLElement | SystemOrigin,
+    saved?: SavedCollectionOrigin,
   ) {
     const system = origin instanceof HTMLElement ? undefined : origin;
     if (!connection || !directory || originSignal.aborted) return;
@@ -280,17 +363,17 @@ export function useMessageNavigation(
     }
     if (current.current) {
       if (!system) return;
-      current.current.abort();
+      current.current.controller.abort();
       setModal(null);
     }
     const requestId = ++counter.current;
     external.current = system?.request ?? null;
     const task = new AbortController(),
       { signal } = task;
-    current.current = task;
+    current.current = { controller: task, kind: "open" };
     const abort = () => {
       task.abort();
-      if (current.current === task) {
+      if (current.current?.controller === task) {
         current.current = null;
         setModal(null);
       }
@@ -420,23 +503,27 @@ export function useMessageNavigation(
         sidebar,
         membership: membershipDetail(),
         ...(system && { system: system.request }),
+        ...(saved &&
+          !system &&
+          saved.teamId !== team.id && { saved, choosingChannel: true }),
       };
-      const selected = await enqueue(() => {
-        signal.throwIfAborted();
-        return connection.selectSidebarChannel(team.id, target.channelId);
-      });
-      signal.throwIfAborted();
-      if (!selected) {
-        error(text.missing);
-        return;
-      }
       function commit() {
         signal.throwIfAborted();
         setModal(null);
         system?.request.positioned();
+        savedSurfaces.current.delete(destination.request.teamId);
+        if (destination.saved)
+          savedSurfaces.current.add(destination.saved.teamId);
+        setSavedReturn(null);
         setPosition(destination);
       }
-      if (!(await selectTeam(team, teams, signal, commit)) && !signal.aborted)
+      if (
+        !(await selectTeam(team, signal, commit, {
+          channelId: destination.choosingChannel ? null : target.channelId,
+          fromTeam: saved?.teamId,
+        })) &&
+        !signal.aborted
+      )
         error(text.failed);
     } catch (cause) {
       if (signal.aborted) return;
@@ -450,12 +537,147 @@ export function useMessageNavigation(
       } else error(issue === "forbidden" ? text.missing : text.failed);
     } finally {
       originSignal.removeEventListener("abort", abort);
-      if (current.current === task) current.current = null;
+      if (current.current?.controller === task) current.current = null;
+    }
+  }
+  async function returnToSaved(control: HTMLElement | null) {
+    const saved = position?.saved;
+    if (!position || !saved || !connection || !online || current.current)
+      return;
+    const task = new AbortController();
+    const { signal } = task;
+    current.current = { controller: task, kind: "return" };
+    counter.current++;
+    const text = copy[language];
+    const fromTeam = position.request.teamId;
+    const sourceTeam = saved.teamId;
+    function fail(message: string, unavailable = false) {
+      if (unavailable) {
+        savedSurfaces.current.delete(sourceTeam);
+        endSaved();
+      }
+      setModal({
+        kind: "error",
+        text: message,
+        close: () => {
+          if (control?.isConnected) returnFocus.current = control;
+          setModal(null);
+        },
+      });
+    }
+    try {
+      let refreshed: boolean;
+      try {
+        refreshed = await connection.refreshJoinedTeams(signal);
+      } catch (cause) {
+        if (signal.aborted) return;
+        const problem = directoryProblem(cause);
+        if (typeof problem === "string") sessionIssue(problem);
+        else fail(text.savedReturnFailed);
+        return;
+      }
+      signal.throwIfAborted();
+      if (!refreshed) {
+        fail(text.savedReturnFailed);
+        return;
+      }
+      const teams = await connection.readJoinedTeams();
+      signal.throwIfAborted();
+      if (!teams) {
+        fail(text.savedReturnFailed);
+        return;
+      }
+      const team = teams.teams.find(({ id }) => id === sourceTeam);
+      if (!team) {
+        fail(text.forbidden, true);
+        return;
+      }
+      if (teams.selectedTeam !== fromTeam) return;
+      let channelId = saved.channelId;
+      if (channelId) {
+        try {
+          const refreshedSidebar = await connection.refreshTeamSidebar(
+            team.id,
+            signal,
+          );
+          signal.throwIfAborted();
+          const sidebar = refreshedSidebar
+            ? await connection.readTeamSidebar(team.id)
+            : null;
+          signal.throwIfAborted();
+          if (!sidebar) {
+            fail(text.savedReturnFailed);
+            return;
+          }
+          if (!sidebar.data.channels.some(({ id }) => id === channelId))
+            channelId = null;
+        } catch (cause) {
+          signal.throwIfAborted();
+          if (workspaceFailure(cause, "network") !== "forbidden") throw cause;
+          channelId = null;
+        }
+      }
+      const accepted = await selectTeam(
+        team,
+        signal,
+        () => {
+          signal.throwIfAborted();
+          setSavedReturn({
+            rid: connection.rid,
+            teamId: saved.teamId,
+            ...(saved.channelId &&
+              !channelId && { unavailableChannel: saved.channelId }),
+            place: {
+              channelId,
+              reading: channelId ? saved.reading : null,
+              scroll: saved.scroll,
+              offset: saved.offset,
+              id: position.request.post.id,
+            },
+          });
+          setPosition(null);
+        },
+        { channelId: null, fromTeam },
+      );
+      signal.throwIfAborted();
+      if (!accepted) {
+        const currentTeams = await connection.readJoinedTeams();
+        signal.throwIfAborted();
+        const revoked =
+          currentTeams &&
+          !currentTeams.teams.some(({ id }) => id === sourceTeam);
+        fail(
+          revoked ? text.forbidden : text.savedReturnFailed,
+          Boolean(revoked),
+        );
+      }
+    } catch (cause) {
+      if (signal.aborted) return;
+      const issue = workspaceFailure(cause, "network");
+      if (issue === "session" || issue === "unauthorized") sessionIssue(issue);
+      else fail(text.savedReturnFailed);
+    } finally {
+      if (current.current?.controller === task) current.current = null;
     }
   }
   return {
     navigation: {
       position,
+      savedReturn,
+      returnToSaved,
+      endSaved,
+      completeChannelChoice: (id, accepted) => {
+        setPosition((visible) =>
+          visible?.request.requestId === id
+            ? accepted
+              ? { ...visible, choosingChannel: false }
+              : null
+            : visible,
+        );
+      },
+      closeSavedSurface: (teamId) => {
+        savedSurfaces.current.delete(teamId);
+      },
       open,
       clear,
       enqueue,

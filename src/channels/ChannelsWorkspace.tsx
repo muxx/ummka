@@ -220,6 +220,7 @@ export function ChannelsWorkspace({
   );
   const accountOverlayReturn = useRef<HTMLButtonElement | null>(null);
   const appearanceButton = useRef<HTMLButtonElement>(null);
+  const savedButton = useRef<HTMLButtonElement>(null);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [appearanceNotice, setAppearanceNotice] = useState("");
   const appearanceLabel = language === "ru" ? "Оформление" : "Appearance";
@@ -234,6 +235,7 @@ export function ChannelsWorkspace({
     online,
     archivePolicy,
     sessionIssue,
+    () => workspace.messages.closeSavedSurface(team.id),
   );
   const mentionLabels = mentionCopy[language];
   const collectionLabels = collectionCopy[language];
@@ -288,12 +290,15 @@ export function ChannelsWorkspace({
   );
   const [selected, setSelected] = useState<string | null>(null);
   const [thread, setThread] = useState<LocalPost | null>(null);
-  const position =
+  const requestedPosition =
     workspace.messages.position?.request.teamId === team.id &&
     workspace.messages.position.request.rid === connection.rid &&
     !workspace.messages.position.system?.signal.aborted
       ? workspace.messages.position
       : null;
+  const position = requestedPosition?.choosingChannel
+    ? null
+    : requestedPosition;
   const [confirmedThread, setConfirmedThread] =
     useState<TeamWorkspace["systemPost"]>();
   const [closedRequest, setClosedRequest] = useState<number | null>(null);
@@ -302,12 +307,14 @@ export function ChannelsWorkspace({
     setThread(null);
     setClosedRequest(position?.request.requestId ?? null);
   }, [position]);
-  const [choiceFailed, setChoiceFailed] = useState(false);
+  const [choiceFailed, setChoiceFailed] = useState<{
+    exclude?: string;
+  } | null>(null);
   const suppressLatest = useRef(Boolean(workspace.systemPost));
   if (!workspace.systemPost || position?.system) suppressLatest.current = false;
   const choice = useRef(0);
   const active = useRef(false);
-  useEffect(() => {
+  useLayoutEffect(() => {
     active.current = true;
     return () => {
       active.current = false;
@@ -357,18 +364,39 @@ export function ChannelsWorkspace({
     !["forbidden", "unauthorized", "session"].includes(status)
       ? position.sidebar
       : published;
-  const channel = useMemo(
-    () =>
-      snapshot
-        ? position
-          ? (snapshot.data.channels.find(
-              (c) => c.id === position.request.post.channelId,
-            ) ?? null)
-          : (snapshot.data.channels.find((c) => c.id === selected) ??
-            openingChannel(snapshot, language))
-        : null,
-    [snapshot, selected, language, position],
-  );
+  const requestedReturn = workspace.messages.savedReturn;
+  const savedReturn =
+    requestedReturn &&
+    requestedReturn.rid === connection.rid &&
+    requestedReturn.teamId === team.id
+      ? requestedReturn
+      : null;
+  const excludedChannel =
+    choiceFailed?.exclude ?? savedReturn?.unavailableChannel;
+  const channel = useMemo(() => {
+    if (!snapshot) return null;
+    if (position)
+      return (
+        snapshot.data.channels.find(
+          (c) => c.id === position.request.post.channelId,
+        ) ?? null
+      );
+    const sidebar = excludedChannel
+      ? {
+          ...snapshot,
+          data: {
+            ...snapshot.data,
+            channels: snapshot.data.channels.filter(
+              (c) => c.id !== excludedChannel,
+            ),
+          },
+        }
+      : snapshot;
+    return (
+      sidebar.data.channels.find((c) => c.id === selected) ??
+      openingChannel(sidebar, language)
+    );
+  }, [snapshot, selected, language, position, excludedChannel]);
   const chosen = channel?.id ?? null;
   const recent = useRef(new Set<string>());
   useEffect(() => {
@@ -391,6 +419,38 @@ export function ChannelsWorkspace({
     request: Extract<TimelineRequest, { kind: "restore" }>;
     place: TimelinePlace;
   } | null>(null);
+  const appliedSavedReturn =
+    useRef<TeamWorkspace["messages"]["savedReturn"]>(null);
+  const waitingChannel = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (
+      requestedPosition?.choosingChannel &&
+      waitingChannel.current !== requestedPosition.request.requestId
+    ) {
+      const { request } = requestedPosition;
+      waitingChannel.current = request.requestId;
+      chooseChannel(request.post.channelId, (accepted) => {
+        workspace.messages.completeChannelChoice(request.requestId, accepted);
+      });
+    }
+    if (
+      !savedReturn ||
+      appliedSavedReturn.current === savedReturn ||
+      position ||
+      !savedButton.current
+    )
+      return;
+    appliedSavedReturn.current = savedReturn;
+    const place = savedReturn.place;
+    collectionReading.current = null;
+    if (place?.channelId)
+      chooseChannel(place.channelId, (accepted) => {
+        if (!accepted) return;
+        restoreConversation(place.channelId, place.reading);
+        collectionReading.current = place.reading;
+      });
+    collections.open({ kind: "all", returnRow: place }, savedButton.current);
+  });
   const restoration =
     !position && restoredChannel?.channelId === chosen ? restoredChannel : null;
   const timeline = useChannelTimeline(
@@ -524,7 +584,10 @@ export function ChannelsWorkspace({
     [current, settings, userId, profiles, language, compact],
   );
   const resultRooms = useMemo(() => {
-    const result = new Map<string, { title: string; kind: string }>();
+    const result = new Map<
+      string,
+      { title: string; kind: string; team?: string }
+    >();
     if (!resultChannelIds.size) return result;
     for (const room of [...extraRooms.values(), ...(channels ?? [])]) {
       if (!resultChannelIds.has(room.id)) continue;
@@ -535,7 +598,15 @@ export function ChannelsWorkspace({
         settings?.nameFormat ?? "username",
         language,
       );
-      result.set(room.id, { title, kind: room.kind });
+      const other =
+        "teamId" in room && room.teamId && room.teamId !== team.id
+          ? workspace.teamChoice.teams.find(({ id }) => id === room.teamId)
+          : undefined;
+      result.set(room.id, {
+        title,
+        kind: room.kind,
+        ...(other && { team: other.displayName || other.name }),
+      });
     }
     return result;
   }, [
@@ -546,6 +617,8 @@ export function ChannelsWorkspace({
     profiles,
     settings?.nameFormat,
     language,
+    team.id,
+    workspace.teamChoice.teams,
   ]);
   const selectedRow = sections
     .flatMap((section) => section.rows)
@@ -599,23 +672,31 @@ export function ChannelsWorkspace({
     setChannelMenuOpen(false);
     if (!returning && (position || search.origin)) search.dismiss();
     workspace.messages.clear();
-    const version = ++choice.current;
     if (id !== chosen) closeThread();
-    setSelected(id);
+    chooseChannel(id);
+  }
+  function chooseChannel(id: string, outcome?: (accepted: boolean) => void) {
+    const version = ++choice.current;
+    if (!outcome) setSelected(id);
     setPage("conversation");
-    setChoiceFailed(false);
+    setChoiceFailed(null);
     void workspace.messages.enqueue(async () => {
       if (!active.current || version !== choice.current) return false;
+      let accepted = false;
       try {
-        if (await connection.selectSidebarChannel(team.id, id)) return true;
+        accepted = await connection.selectSidebarChannel(team.id, id);
       } catch {
         /* The local choice is acknowledged only by SQLite. */
       }
       if (active.current && version === choice.current) {
-        setSelected(null);
-        setChoiceFailed(true);
+        if (!accepted) {
+          setSelected(null);
+          setChoiceFailed(outcome ? { exclude: id } : {});
+          if (outcome) directory.retry();
+        } else if (outcome) setSelected(id);
+        outcome?.(accepted);
       }
-      return false;
+      return accepted;
     });
   }
   const access = channelComposerAccess({
@@ -722,17 +803,19 @@ export function ChannelsWorkspace({
       ? collectionOrigin.ids.indexOf(position.request.post.id)
       : -1;
   const collectionDestination = collectionIndex >= 0 ? collections.view : null;
-  function returnToCollection() {
-    if (!position) return;
-    collections.abort();
-    const source = collections.restoreRow(position.request.post.id);
-    const reading = source?.reading;
+  const savedSource =
+    position?.saved &&
+    workspace.teamChoice.teams.find(({ id }) => id === position.saved?.teamId);
+  function restoreConversation(
+    channelId: string | null,
+    reading: TimelinePlace | null,
+  ) {
     const anchors = reading?.anchors
       .filter(({ published }) => published)
       .map(({ id }) => id);
-    if (source?.channelId && reading && anchors?.length) {
+    if (channelId && reading && anchors?.length) {
       setRestoredChannel({
-        channelId: source.channelId,
+        channelId,
         request: {
           kind: "restore",
           requestId: ++restoreVersion.current,
@@ -741,6 +824,12 @@ export function ChannelsWorkspace({
         place: reading,
       });
     } else setRestoredChannel(null);
+  }
+  function returnToCollection() {
+    if (!position) return;
+    collections.abort();
+    const source = collections.restoreRow(position.request.post.id);
+    restoreConversation(source?.channelId ?? null, source?.reading ?? null);
     if (source?.channelId) choose(source.channelId, true);
     else workspace.messages.clear();
   }
@@ -753,9 +842,29 @@ export function ChannelsWorkspace({
       workspace.messages.dialogOpen
     )
       return;
-    void collections.activate(postId, (signal) =>
-      workspace.messages.open({ kind: "post", id: postId }, signal, control),
+    openCollectionPost(postId, control);
+  }
+  function openCollectionPost(id: string, control: HTMLElement) {
+    const from = collections.origin.current;
+    const saved =
+      collections.view?.kind === "all" && from
+        ? {
+            teamId: team.id,
+            channelId: from.channelId,
+            scroll: from.scroll,
+            offset: from.offset,
+            reading: from.reading,
+          }
+        : undefined;
+    void collections.activate(id, (signal) =>
+      workspace.messages.open({ kind: "post", id }, signal, control, saved),
     );
+  }
+  function returnToSaved() {
+    const control = host.current?.querySelector<HTMLElement>(
+      "[data-cross-team] .collection-step-back",
+    );
+    void workspace.messages.returnToSaved(control ?? null);
   }
   function endCollection(control: HTMLButtonElement) {
     const id = position?.request.post.id;
@@ -770,6 +879,7 @@ export function ChannelsWorkspace({
       .closest(".channels-conversation, .channels-thread")
       ?.querySelector<HTMLElement>(".channels-pane-head :is(h1, h2)");
     collections.close(false);
+    if (savedSource) workspace.messages.endSaved();
     (visible ?? heading)?.focus({ preventScroll: true });
   }
 
@@ -887,6 +997,7 @@ export function ChannelsWorkspace({
     id: string,
     origin: HTMLButtonElement,
     scroll: number,
+    offset?: number,
   ) {
     const view = collections.view;
     if (!view) return;
@@ -902,6 +1013,7 @@ export function ChannelsWorkspace({
       id,
       channelId: chosen,
       scroll,
+      offset: view.kind === "all" ? offset : undefined,
       ids,
       partial:
         view.kind === "mentions"
@@ -912,9 +1024,7 @@ export function ChannelsWorkspace({
           ? null
           : (readChannelPlace() ?? collectionReading.current),
     };
-    void collections.activate(id, (signal) =>
-      workspace.messages.open({ kind: "post", id }, signal, origin),
-    );
+    openCollectionPost(id, origin);
   }
   const visibleSearchPanel = position ? null : search.panel;
   const canReturnToResults = Boolean(
@@ -942,6 +1052,7 @@ export function ChannelsWorkspace({
         if (compact || !chosen) setPage("navigation");
       };
     if (manualThread) return closeThread;
+    if (savedSource) return returnToSaved;
     if (collectionDestination) return returnToCollection;
     if (collections.view && !position) return () => collections.close();
     if (canReturnToResults) return returnToResults;
@@ -1228,6 +1339,7 @@ export function ChannelsWorkspace({
             <button
               type="button"
               className="channels-icon-action collection-saved-trigger"
+              ref={savedButton}
               aria-label={collectionLabels.saved}
               title={collectionLabels.saved}
               onClick={(event) =>
@@ -1357,6 +1469,18 @@ export function ChannelsWorkspace({
                   {position.membership}
                 </span>
               )}
+              {savedSource && (
+                <CollectionResultSteps
+                  name={collectionLabels.saved}
+                  icon={<CollectionMark kind="all" />}
+                  backLabel={collectionLabels.savedBack}
+                  language={language}
+                  sourceTeam={savedSource.displayName || savedSource.name}
+                  blocked={!online || workspace.messages.dialogOpen}
+                  back={returnToSaved}
+                  end={endCollection}
+                />
+              )}
               {collectionOrigin &&
                 collectionDestination &&
                 (collectionDestination.kind === "pins" ? (
@@ -1387,9 +1511,12 @@ export function ChannelsWorkspace({
                         : collectionLabels.savedBack
                     }
                     language={language}
-                    index={collectionIndex}
-                    count={collectionOrigin.ids.length}
-                    partial={collectionOrigin.partial}
+                    steps={{
+                      index: collectionIndex,
+                      count: collectionOrigin.ids.length,
+                      partial: collectionOrigin.partial,
+                      open: stepCollection,
+                    }}
                     blocked={
                       !online ||
                       workspace.messages.dialogOpen ||
@@ -1397,7 +1524,6 @@ export function ChannelsWorkspace({
                       Boolean(reader.opening) ||
                       Boolean(actions.anchor)
                     }
-                    step={stepCollection}
                     back={returnToCollection}
                     end={endCollection}
                   />

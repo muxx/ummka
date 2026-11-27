@@ -6,7 +6,7 @@ type Snapshot = { rows: RowPlace[]; focused: HTMLButtonElement | null };
 
 export function restoreCollectionRow(
   pane: HTMLDivElement | null,
-  previous: { id: string; scroll: number } | null,
+  previous: { id: string; scroll: number; offset?: number } | null,
 ) {
   if (!pane || !previous) return false;
   const row = pane.querySelector<HTMLButtonElement>(
@@ -15,6 +15,9 @@ export function restoreCollectionRow(
   if (!row) return false;
   pane.scrollTop = previous.scroll;
   const bounds = pane.getBoundingClientRect();
+  if (previous.offset !== undefined)
+    pane.scrollTop +=
+      row.getBoundingClientRect().top - bounds.top - previous.offset;
   const box = row.getBoundingClientRect();
   row.focus({ preventScroll: true });
   if (box.top < bounds.top || box.bottom > bounds.bottom)

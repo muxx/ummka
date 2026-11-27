@@ -185,13 +185,16 @@ export function fixture({
     rid: 9,
     close: vi.fn().mockResolvedValue(undefined),
     signOutOnDevice: vi.fn().mockResolvedValue("removed"),
-    readJoinedTeams: vi.fn(async () => ({ teams, selectedTeam })),
+    readJoinedTeams: vi.fn<Account["readJoinedTeams"]>(async () => ({
+      teams,
+      selectedTeam,
+    })),
     refreshJoinedTeams: vi.fn().mockResolvedValue(true),
     selectJoinedTeam: vi.fn(async (next: string) => {
       selectedTeam = next;
       return true;
     }),
-    readTeamSidebar: vi.fn(readSidebar),
+    readTeamSidebar: vi.fn<Account["readTeamSidebar"]>(readSidebar),
     readChannelNotifications: vi
       .fn<Account["readChannelNotifications"]>()
       .mockResolvedValue({ account: {}, channel: {} }),

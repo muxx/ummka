@@ -21,6 +21,11 @@ export const collectionCopy = {
     saved: "Saved messages",
     pins: "Pinned messages",
     savedBack: "Back to saved messages",
+    otherTeam: (name: string) => `team “${name}”`,
+    sourceTeam: (name: string) => `Team “${name}”`,
+    savedBackIn: (name: string) => `Back to saved messages in team “${name}”`,
+    savedIn: (name: string) =>
+      `The list is in team “${name}”. Return to it to open the next or previous message.`,
     pinsBack: "Back to pinned messages",
     earlierLoaded: "Earlier saved messages loaded.",
     finished: "End of saved messages.",
@@ -85,6 +90,11 @@ export const collectionCopy = {
     saved: "Сохранённые",
     pins: "Закреплённые сообщения",
     savedBack: "К сохранённым",
+    otherTeam: (name: string) => `команда «${name}»`,
+    sourceTeam: (name: string) => `Команда «${name}»`,
+    savedBackIn: (name: string) => `К сохранённым в команде «${name}»`,
+    savedIn: (name: string) =>
+      `Список — в команде «${name}». Вернитесь к нему, чтобы открыть соседнее сообщение`,
     pinsBack: "К закреплённым",
     earlierLoaded: "Более ранние сохранённые загружены.",
     finished: "Список сохранённых закончился.",

@@ -83,11 +83,18 @@ export function PostCollectionPane({
   language: EntryLanguage;
   online: boolean;
   canRemove: boolean;
-  channelInfo: (id: string) => { title: string; kind: string } | undefined;
+  channelInfo: (
+    id: string,
+  ) => { title: string; kind: string; team?: string } | undefined;
   authorName: (id: string) => string | undefined;
   savedIds: ReadonlySet<string>;
-  restore: { id: string; scroll: number } | null;
-  openRow: (id: string, trigger: HTMLButtonElement, scroll: number) => void;
+  restore: { id: string; scroll: number; offset?: number } | null;
+  openRow: (
+    id: string,
+    trigger: HTMLButtonElement,
+    scroll: number,
+    offset?: number,
+  ) => void;
   close: () => void;
 }) {
   const text = collectionCopy[language];
@@ -113,13 +120,21 @@ export function PostCollectionPane({
   const retryRows = useRef<Set<string> | null>(null);
   const initial = useRef(restore);
   useLayoutEffect(() => {
-    if (!restoreCollectionRow(list.current, initial.current))
-      heading.current?.focus();
+    if (restoreCollectionRow(list.current, initial.current))
+      initial.current = null;
+    else heading.current?.focus();
   }, []);
   const rows = useMemo(
     () => newestCollectionItems(state.value?.items ?? []),
     [state.value],
   );
+  useLayoutEffect(() => {
+    if (!initial.current || !rows.some((row) => row.id === initial.current?.id))
+      return;
+    if (document.activeElement === heading.current)
+      restoreCollectionRow(list.current, initial.current);
+    initial.current = null;
+  }, [rows]);
   const dates = useMemo(
     () => ({
       short: new Intl.DateTimeFormat(language, {
@@ -353,7 +368,10 @@ export function PostCollectionPane({
                 else if (room.kind === "D" || room.kind === "G") {
                   const context = room.kind === "D" ? text.direct : text.group;
                   place = room.title ? room.title + " · " + context : context;
-                } else place = "# " + room.title;
+                } else {
+                  place = `# ${room.title}`;
+                  if (room.team) place += ` · ${text.otherTeam(room.team)}`;
+                }
               }
               if (row.rootId)
                 place = place
@@ -383,10 +401,15 @@ export function PostCollectionPane({
                     aria-disabled={!canRead}
                     onClick={(event) => {
                       if (!canRead) return;
+                      const pane = list.current;
                       openRow(
                         row.id,
                         event.currentTarget,
-                        list.current?.scrollTop ?? 0,
+                        pane?.scrollTop ?? 0,
+                        pane
+                          ? event.currentTarget.getBoundingClientRect().top -
+                              pane.getBoundingClientRect().top
+                          : undefined,
                       );
                     }}
                   >

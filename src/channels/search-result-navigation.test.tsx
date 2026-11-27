@@ -168,6 +168,7 @@ test("the compact destination keeps a visible way back when its channel disappea
   if (!read) throw Error("Fixture needs a saved sidebar");
   account.readTeamSidebar.mockImplementation(async (team) => {
     const saved = await read(team);
+    if (!saved) return null;
     return {
       ...saved,
       data: {
@@ -428,7 +429,7 @@ test("the destination adopts newly published membership while the source sidebar
   let published = false;
   account.readTeamSidebar.mockImplementation(async (team) => {
     const snapshot = await original(team);
-    return published
+    return published || !snapshot
       ? snapshot
       : {
           ...snapshot,
@@ -1188,6 +1189,7 @@ test("removing the selected channel from the joined sidebar closes its notificat
   const form = await screen.findByRole("dialog", { name: "Notifications" });
   await within(form).findByRole("checkbox", { name: /Mute channel/ });
   const before = await account.readTeamSidebar(winter);
+  if (!before) throw Error("Fixture sidebar required");
   account.readTeamSidebar.mockResolvedValue({
     selectedChannel: null,
     data: { ...before.data, channels: [] },
