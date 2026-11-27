@@ -12,6 +12,18 @@ import {
 import type { EntryLanguage } from "./language.ts";
 
 type Target = Extract<ChannelsTarget, { kind: "permalink" }>;
+type RejectedTarget = Exclude<ChannelsTarget, Target>;
+type RejectedLink =
+  | { kind: "unknown" }
+  | {
+      kind: "unsupported";
+      serverUrl: string;
+      place: "threads" | "channels" | "messages";
+    };
+export type EntryLinkResult = RejectedLink & {
+  waiting?: number;
+  close: () => void;
+};
 type Stop = "paused" | "unavailable" | "archived" | "failed";
 export type SystemPostRequest = {
   deliveryId: string;
@@ -24,10 +36,11 @@ export type SystemPostRequest = {
 };
 type State =
   | {
-      kind: "unknown" | "unsupported" | "switching" | Stop;
+      kind: "switching" | Stop;
       serverUrl?: string;
       membership?: string;
     }
+  | (RejectedLink & { id: string; close: () => void })
   | { kind: "target"; request: SystemPostRequest; installations: string[] }
   | { kind: "inbox"; id?: string };
 type Gate = {
@@ -72,6 +85,7 @@ export function useSystemPermalink(
 ) {
   const [ready, setReady] = useState(false);
   const [state, setState] = useState<State | null>(null);
+  const [waiting, setWaiting] = useState<{ id: string; count?: number }>();
   const subscribeAgain = useRef<(() => void) | null>(null);
   const current = useRef<Gate | null>(null);
   const observer = useRef<Awaited<
@@ -149,7 +163,12 @@ export function useSystemPermalink(
       const { signal } = controller;
       const target = gate.link.route?.target;
       if (target?.kind !== "permalink") {
-        setState({ kind: target ? "unsupported" : "unknown" });
+        const rejected = describeRejectedLink(target);
+        setState({
+          ...rejected,
+          id: gate.link.id,
+          close: () => finish(gate, true),
+        });
         setReady(true);
         return;
       }
@@ -241,7 +260,10 @@ export function useSystemPermalink(
           }
         },
         signal,
-        { onEmpty: () => setReady(true) },
+        {
+          onEmpty: () => setReady(true),
+          onWaiting: (id, count) => setWaiting({ id, count }),
+        },
       )
         .then((active) => {
           if (!signal.aborted) observer.current = active;
@@ -264,6 +286,13 @@ export function useSystemPermalink(
   const request = state?.kind === "target" ? state.request : undefined;
   const installations =
     state?.kind === "target" ? state.installations : undefined;
+  const entryResult: EntryLinkResult | undefined =
+    state?.kind === "unknown" || state?.kind === "unsupported"
+      ? {
+          ...state,
+          waiting: waiting?.id === state.id ? waiting.count : undefined,
+        }
+      : undefined;
   function dismiss() {
     if (current.current) finish(current.current, true);
     else if (state?.kind === "inbox" && state.id) {
@@ -292,7 +321,7 @@ export function useSystemPermalink(
     const address =
       state.kind === "target"
         ? state.request.target.serverUrl
-        : "serverUrl" in state
+        : "serverUrl" in state && state.kind !== "unsupported"
           ? state.serverUrl
           : undefined;
     const message =
@@ -319,5 +348,25 @@ export function useSystemPermalink(
       </aside>
     );
   }
-  return { ready, request, installations, notice, connect, selectSaved };
+  return {
+    ready,
+    request,
+    installations,
+    entryResult,
+    notice,
+    connect,
+    selectSaved,
+  };
+}
+
+function describeRejectedLink(
+  target: RejectedTarget | undefined,
+): RejectedLink {
+  return target
+    ? {
+        kind: "unsupported",
+        serverUrl: target.serverUrl,
+        place: target.kind === "threads" ? "threads" : target.route,
+      }
+    : { kind: "unknown" };
 }

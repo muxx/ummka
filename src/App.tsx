@@ -68,9 +68,16 @@ function EntryRoute({
   const needsSignIn =
     typeof launch === "object" && launch.status === "sign_in_required";
   const signInLink = needsSignIn ? request : undefined;
-  const notice = signInLink
-    ? null
-    : inbox.notice(needsSignIn, Boolean(inbox.request && address && !request));
+  const resultInEntry =
+    launch === "reading" ||
+    (typeof launch === "object" && launch.status !== "ready");
+  const notice =
+    signInLink || (resultInEntry && inbox.entryResult)
+      ? null
+      : inbox.notice(
+          needsSignIn,
+          Boolean(inbox.request && address && !request),
+        );
   function screen() {
     if (launch === "reading")
       return (
@@ -117,6 +124,7 @@ function EntryRoute({
           launch.status === "sign_in_required" ? launch.serverUrl : undefined
         }
         link={signInLink}
+        linkResult={inbox.entryResult}
         installations={signInLink ? inbox.installations : undefined}
         selectSaved={inbox.selectSaved}
         onAccountChanged={reopen}
