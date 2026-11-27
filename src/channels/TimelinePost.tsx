@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
 import type { LocalPost } from "../mattermost/local-history.ts";
 import type { TimelineMessage } from "./conversation-rows.ts";
+import { PostBodyDisclosure } from "./PostBodyDisclosure.tsx";
 import { PublishedAttachments } from "./PublishedAttachments.tsx";
 import { PublishedPostBody } from "./PublishedPostBody.tsx";
 import { initials } from "./profile-initials.ts";
@@ -204,7 +205,9 @@ export function TimelinePost({
         {post.outgoing ? (
           <p className="timeline-attempt-text">{post.message}</p>
         ) : (
-          <PublishedPostBody message={post.message} locale={locale} />
+          <PostBodyDisclosure locale={locale}>
+            <PublishedPostBody message={post.message} locale={locale} />
+          </PostBodyDisclosure>
         )}
         {Boolean(hasAttachments) && !post.outgoing && (
           <PublishedAttachments
