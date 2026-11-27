@@ -194,11 +194,9 @@ function Notice({
 export function ChannelsWorkspace({
   workspace,
   language,
-  onEnded,
 }: {
   workspace: TeamWorkspace;
   language: EntryLanguage;
-  onEnded: () => void;
 }) {
   const { connection, team, userId, policy, online, sessionIssue } = workspace;
   const text = workspaceCopy[language];
@@ -662,6 +660,9 @@ export function ChannelsWorkspace({
     error(policy.server.status) ||
     (policy.userReadFailed ? text.storage : null);
   const own = profiles.byId.get(userId);
+  const accountName = own
+    ? teammateName(own, settings?.nameFormat ?? "full_name")
+    : "";
   function author(id: string) {
     const profile = profiles.byId.get(id);
     return profile && settings
@@ -1331,9 +1332,7 @@ export function ChannelsWorkspace({
         returnInThread={compact && Boolean(activeThread)}
         accountRef={accountButton}
         draftRef={directoryOpen ? undefined : draftField}
-        accountName={
-          own && settings ? teammateName(own, settings.nameFormat) : ""
-        }
+        accountName={accountName}
         teamName={team.displayName || team.name}
         channel={
           directoryOpen
@@ -1550,7 +1549,7 @@ export function ChannelsWorkspace({
         <AccountSessionWindow
           workspace={workspace}
           language={language}
-          onEnded={onEnded}
+          accountName={accountName}
           onDismiss={closed}
         />
       )}
