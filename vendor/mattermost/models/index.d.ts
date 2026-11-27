@@ -3,6 +3,7 @@ export * from './AddTeamMemberRequest.js';
 export * from './AppError.js';
 export * from './AutocompleteCommand.js';
 export * from './AutocompleteSuggestion.js';
+export * from './CanUserDirectMessage200Response.js';
 export * from './Channel.js';
 export * from './ChannelBookmark.js';
 export * from './ChannelBookmarkWithFileInfo.js';

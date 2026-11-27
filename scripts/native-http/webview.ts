@@ -321,6 +321,14 @@ export function webviewServers(
       },
     ],
     [
+      `/team/chat/api/v4/sharedchannels/users/me/can_dm/${"p".repeat(26)}`,
+      { name: "remote-dm-capability-denied", body: { can_dm: false } },
+    ],
+    [
+      `/team/chat/api/v4/sharedchannels/users/me/can_dm/${"q".repeat(26)}`,
+      { name: "remote-dm-capability-allowed", body: { can_dm: true } },
+    ],
+    [
       `/team/chat/api/v4/teams/${teamId}/channels/managed_categories`,
       {
         name: "managed-category-mappings",
@@ -1504,6 +1512,10 @@ export function webviewServers(
     assert.equal(req.method, "GET");
     const teamRead = teamReads.get(url.pathname + url.search);
     if (teamRead) {
+      if (teamRead.name.startsWith("remote-dm-capability-")) {
+        assert.equal(req.method, "GET");
+        assert.equal(await text(req), "");
+      }
       visits.push(teamRead.name);
       assert.equal(
         req.headers.authorization,
@@ -2181,6 +2193,8 @@ export function webviewServers(
         "sidebar-preferences",
         "sidebar-preferences",
         "list-saved-more",
+        "remote-dm-capability-denied",
+        "remote-dm-capability-allowed",
         "custom-emoji-by-name",
         "custom-emoji-by-name",
         "custom-emoji-by-name",

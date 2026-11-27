@@ -79,3 +79,36 @@ export function correctProfileTimezone(source: Fields, newer: Fields): Fields {
   }
   return corrected;
 }
+
+// Both successful branches emit this boolean. The older server does not implement the operation.
+// https://github.com/mattermost/mattermost/blob/v12.1.0/server/channels/api4/shared_channel.go#L319-L358
+export function correctDmCapability(
+  source: Fields,
+  baseline: Fields,
+  path: string,
+) {
+  const result = structuredClone(source);
+  const success = object(
+    object(result.responses, "DM capability responses")["200"],
+    "DM capability success",
+  );
+  const schema = object(
+    object(
+      object(success.content, "DM capability content")["application/json"],
+      "DM capability JSON",
+    ).schema,
+    "DM capability schema",
+  );
+  const properties = object(schema.properties, "DM capability properties");
+  if (
+    Object.hasOwn(baseline, path) ||
+    result.operationId !== "CanUserDirectMessage" ||
+    schema.type !== "object" ||
+    Object.hasOwn(schema, "required") ||
+    !isDeepStrictEqual(Object.keys(properties), ["can_dm"]) ||
+    object(properties.can_dm, "can_dm").type !== "boolean"
+  )
+    throw Error("Review the pinned DM capability response");
+  schema.required = ["can_dm"];
+  return result;
+}
