@@ -514,10 +514,37 @@ export async function checkBrowserApp(server: string, controlPort: string) {
     if ((await getCurrentAccountId(server)) !== "f".repeat(26))
       throw Error("entry did not retain the signed-in account");
     await checkAvailableDirectoryWindow(host, controlPort);
+    const avatar = ui.getByRole("button", { name: "Account" });
+    function openSignOut() {
+      flushSync(() => fireEvent.click(avatar));
+      flushSync(() =>
+        fireEvent.click(ui.getByRole("button", { name: "Sign out" })),
+      );
+      const confirmation = within(
+        ui.getByRole("dialog", { name: "Sign out of this account?" }),
+      );
+      const cancel = confirmation.getByRole("button", { name: "Cancel" });
+      if (document.activeElement !== cancel)
+        throw Error("Sign-out confirmation did not focus Cancel");
+      return confirmation;
+    }
+    function checkDismissed() {
+      if (ui.queryByRole("dialog") || document.activeElement !== avatar)
+        throw Error("Dismissed sign-out did not return focus to the avatar");
+    }
+    const approval = openSignOut();
     flushSync(() =>
-      fireEvent.click(ui.getByRole("button", { name: "Account" })),
+      fireEvent.click(approval.getByRole("button", { name: "Cancel" })),
     );
-    ui.getByRole("button", { name: "Sign out" }).click();
+    checkDismissed();
+    const keyboard = openSignOut();
+    flushSync(() =>
+      fireEvent.keyDown(keyboard.getByRole("button", { name: "Cancel" }), {
+        key: "Escape",
+      }),
+    );
+    checkDismissed();
+    openSignOut().getByRole("button", { name: "Sign out" }).click();
     const stay = await ui.findByRole(
       "button",
       { name: "Stay signed in" },
@@ -525,10 +552,11 @@ export async function checkBrowserApp(server: string, controlPort: string) {
     );
     if ((await getCurrentAccountId(server)) !== "f".repeat(26))
       throw Error("unconfirmed sign-out removed the account");
+    if (document.activeElement !== stay)
+      throw Error("An unconfirmed sign-out did not focus Stay signed in");
     flushSync(() => fireEvent.click(stay));
-    if (document.activeElement !== ui.getByRole("button", { name: "Sign out" }))
-      throw Error("cancelled sign-out lost focus");
-    ui.getByRole("button", { name: "Sign out" }).click();
+    checkDismissed();
+    openSignOut().getByRole("button", { name: "Sign out" }).click();
     const local = await ui.findByRole(
       "button",
       { name: "Sign out only on this device" },
