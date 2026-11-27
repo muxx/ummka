@@ -22,8 +22,14 @@ export const clipboardPolicySteps = [
 export type ClipboardPolicyStep = (
   step: (typeof clipboardPolicySteps)[number],
 ) => Promise<void>;
+export type SwipeAndroid = (
+  from: number,
+  to: number,
+  y: number,
+) => Promise<void>;
 export type OnAndroidInputReady = (
   send: SendAndroidKey,
+  swipe: SwipeAndroid,
   clipboard: ClipboardPolicyStep,
 ) => void;
 
@@ -34,22 +40,35 @@ export async function launchWebview(
   expected: string,
   onAndroidInputReady?: OnAndroidInputReady,
 ) {
-  onAndroidInputReady?.(
-    async (key) => {
-      if (key === "KEYCODE_BACK") {
-        // This case exercises app navigation. Android gives a visible IME the first Back.
-        const deadline = Date.now() + 5_000;
-        while (true) {
-          const input = await adb("shell", "dumpsys", "input_method");
-          if (/\bmInputShown=false\b/u.test(input)) break;
-          assert(
-            Date.now() < deadline,
-            "Thread navigation requires a hidden IME",
-          );
-          await delay(50);
-        }
+  const send: SendAndroidKey = async (key) => {
+    if (key === "KEYCODE_BACK") {
+      // This case exercises app navigation. Android gives a visible IME the first Back.
+      const deadline = Date.now() + 5_000;
+      while (true) {
+        const input = await adb("shell", "dumpsys", "input_method");
+        if (/\bmInputShown=false\b/u.test(input)) break;
+        assert(
+          Date.now() < deadline,
+          "Thread navigation requires a hidden IME",
+        );
+        await delay(50);
       }
-      await adb("shell", "input", "keyevent", key);
+    }
+    await adb("shell", "input", "keyevent", key);
+  };
+  onAndroidInputReady?.(
+    send,
+    async (from, to, y) => {
+      await adb(
+        "shell",
+        "input",
+        "swipe",
+        String(from),
+        String(y),
+        String(to),
+        String(y),
+        "320",
+      );
     },
     async (step) => {
       if (step === "resume") {

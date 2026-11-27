@@ -57,7 +57,7 @@ test("renders code and unsupported blocks literally, decodes parsed text only on
   });
   const before = structuredClone(doc);
   expect(publishedPostExcerpt(doc)).toBe(
-    "Use &amp; and &amp;. **raw** <tag> <aside>literal</aside> | a | b | |---|---| | c | d |",
+    "Use &amp; and &amp;. **raw** <tag> <aside>literal</aside> a b c d",
   );
   expect(doc).toEqual(before);
 });
@@ -71,3 +71,11 @@ test.each(["", "  \n ", "---", "![](https://example.test/image)"])(
   "returns an empty excerpt for content without readable words (%s)",
   (message) => expect(excerpt(message)).toBe(""),
 );
+
+test("reads each table header and authored cell, including cells past the last heading", () => {
+  expect(
+    excerpt(
+      "Before\n\n| A | B |\n| :- | -: |\n| x | **y** | `z` |\n| only |\n\nAfter",
+    ),
+  ).toBe("Before A B x y z only After");
+});

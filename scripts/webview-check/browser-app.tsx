@@ -200,15 +200,33 @@ export async function checkBrowserApp(server: string, controlPort: string) {
     );
     const town = ui.getByText("Town fixture message").closest("article");
     if (!town) throw Error("Town post is outside its timeline row");
+    const table = within(within(town).getByRole("table"));
+    const score = table.getByRole("columnheader", { name: "Score" });
+    if (
+      score.getAttribute("scope") !== "col" ||
+      getComputedStyle(score).textAlign !== "right"
+    )
+      throw Error(
+        "Timeline table lost its accessible column header or alignment",
+      );
     const opener = within(town).getByRole("button", { name: "Open thread" });
     opener.focus();
     flushSync(() => fireEvent.click(opener));
     const thread = await ui.findByRole("complementary", { name: "Thread" });
-    await within(thread).findByText(
+    const reply = await within(thread).findByText(
       "Reply visible only inside Town’s thread",
       {},
       { timeout: 10_000 },
     );
+    const replyRow = reply.closest("article");
+    if (!replyRow) throw Error("Missing published reply");
+    const replyTable = within(within(replyRow).getByRole("table"));
+    const extraCell = replyTable.getByRole("cell", {
+      name: "Exact overflow cell",
+    });
+    if (!extraCell.querySelector("strong"))
+      throw Error("Thread table lost the formatting of an extra cell");
+    replyTable.getByRole("columnheader", { name: "Reply col" });
     if (town.getClientRects().length || document.activeElement === townDraft)
       throw Error("The compact thread did not take over the conversation");
     await verifyWorkspaceBack(host, controlPort, opener, townDraft);

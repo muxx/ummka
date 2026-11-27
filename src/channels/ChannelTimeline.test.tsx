@@ -414,9 +414,19 @@ test("reads the published body with native headings, labeled tasks, lists and co
   expect(row.querySelector("br")).toBeTruthy();
   expect(row.textContent).toContain("Read docs Image");
   expect(row.textContent).toContain("<small>HTML</small>");
-  expect(row.textContent).toContain("| a | b |\n| - | - |\n| c | d |");
+  const table = within(row).getByRole("table");
+  expect(
+    within(table)
+      .getAllByRole("columnheader")
+      .map((cell) => cell.textContent),
+  ).toEqual(["a", "b"]);
+  expect(
+    within(table)
+      .getAllByRole("cell")
+      .map((cell) => cell.textContent),
+  ).toEqual(["c", "d"]);
   expect(row.textContent).not.toContain("Original Markdown for editing");
-  expect(row.querySelector("a,img,small,table,iframe")).toBeNull();
+  expect(row.querySelector("a,img,small,iframe")).toBeNull();
   expect(container.querySelector(".published-post [tabindex]")).toBeNull();
   rerender(<ChannelTimeline {...base} page={data} locale="ru" />);
   expect(row.textContent).toContain("Read docs Изображение");
@@ -427,7 +437,7 @@ test("parses 60 mounted canonical bodies once and only reparses the changed mess
   const parse = vi.spyOn(markdownDocument, "publishedPostDocument");
   const history = Array.from({ length: 60 }, (_, i) => ({
     ...post("post-" + i, 100 + i),
-    message: `**Body ${i}**`,
+    message: i === 19 ? "| A |\n| - |\n| Visible table |" : `**Body ${i}**`,
   }));
   const { rerender } = render(
     <ChannelTimeline {...base} page={page(...history)} />,
@@ -449,4 +459,5 @@ test("parses 60 mounted canonical bodies once and only reparses the changed mess
   rerender(<ChannelTimeline {...base} page={page(...edited)} />);
   expect(parse).toHaveBeenCalledExactlyOnceWith({ message: "_Changed_" });
   expect(screen.getByText("Changed").tagName).toBe("EM");
+  expect(screen.getByRole("cell", { name: "Visible table" })).toBeTruthy();
 });

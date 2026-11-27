@@ -163,8 +163,11 @@ export async function checkGeneratedRequests(ports: string[]) {
       "format-times",
       encodeURIComponent(
         JSON.stringify(
-          await checkChannelFormatting((width) =>
-            observed("format-right", String(width)),
+          await checkChannelFormatting(
+            (kind, width) => observed("format-right", `${kind}-${width}`),
+            navigator.userAgent.includes("Android")
+              ? (from, to, y) => observed("table-swipe", `${from},${to},${y}`)
+              : undefined,
           ),
         ),
       ),

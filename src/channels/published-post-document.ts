@@ -23,6 +23,12 @@ type Block =
   | { kind: "rule" }
   | { kind: "literal"; text: string }
   | {
+      kind: "table";
+      align: ("left" | "center" | "right" | null)[];
+      header: Inline[][];
+      rows: Inline[][][];
+    }
+  | {
       kind: "list";
       start: number | null;
       loose: boolean;
@@ -141,6 +147,17 @@ function blocks(tokens: Token[]): Block[] {
           text: token.text,
         });
         break;
+      case "table": {
+        const row = (cells: Tokens.TableCell[]) =>
+          cells.map((cell) => inline(cell.tokens));
+        nodes.push({
+          kind: "table",
+          align: token.align,
+          header: row(token.header),
+          rows: token.rows.map(row),
+        });
+        break;
+      }
       case "list":
         nodes.push({
           kind: "list",

@@ -13,9 +13,33 @@ type Block = ReturnType<typeof publishedPostDocument>[number];
 type Inline = Extract<Block, { kind: "paragraph" }>["children"][number];
 type Locale = "en" | "ru";
 const labels = {
-  en: { image: "Image", task: "Task", code: "Code" },
-  ru: { image: "Изображение", task: "Задача", code: "Код" },
+  en: { image: "Image", task: "Task", code: "Code", table: "Table" },
+  ru: { image: "Изображение", task: "Задача", code: "Код", table: "Таблица" },
 };
+
+function useHorizontalRegion<T extends HTMLElement>(label: string) {
+  const ref = useRef<T>(null);
+  const [scrollable, setScrollable] = useState(false);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    // WebKit needs an explicit keyboard target for an overflowing block.
+    const fit = () => setScrollable(element.scrollWidth > element.clientWidth);
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(element);
+    if (element.firstElementChild) observer.observe(element.firstElementChild);
+    return () => observer.disconnect();
+  }, []);
+  const keyboardRegion = scrollable
+    ? {
+        role: "region",
+        tabIndex: 0,
+        "aria-label": label,
+      }
+    : undefined;
+  return { ref, ...keyboardRegion };
+}
 
 function PostCode({
   block,
@@ -24,30 +48,13 @@ function PostCode({
   block: Extract<Block, { kind: "codeBlock" }>;
   locale: Locale;
 }) {
-  const ref = useRef<HTMLPreElement>(null);
-  const [scrollable, setScrollable] = useState(false);
-  useLayoutEffect(() => {
-    const pre = ref.current;
-    if (!pre) return;
-    // WebKit needs an explicit keyboard target to scroll overflowing code.
-    const fit = () => setScrollable(pre.scrollWidth > pre.clientWidth);
-    fit();
-    const observer = new ResizeObserver(fit);
-    observer.observe(pre);
-    if (pre.firstElementChild) observer.observe(pre.firstElementChild);
-    return () => observer.disconnect();
-  }, []);
-  const keyboardRegion = scrollable
-    ? {
-        role: "region",
-        tabIndex: 0,
-        "aria-label": block.language
-          ? `${labels[locale].code} (${block.language})`
-          : labels[locale].code,
-      }
-    : undefined;
+  const region = useHorizontalRegion<HTMLPreElement>(
+    block.language
+      ? `${labels[locale].code} (${block.language})`
+      : labels[locale].code,
+  );
   return (
-    <pre ref={ref} {...keyboardRegion}>
+    <pre {...region}>
       <code>{block.text}</code>
     </pre>
   );
@@ -79,6 +86,39 @@ function inlines(nodes: Inline[], locale: Locale) {
     // biome-ignore lint/suspicious/noArrayIndexKey: Document nodes are positional and carry no identity across edits.
     <Fragment key={index}>{inlineNode(node, locale)}</Fragment>
   ));
+}
+
+type TableBlock = Extract<Block, { kind: "table" }>;
+function PostTable({ table, locale }: { table: TableBlock; locale: Locale }) {
+  const region = useHorizontalRegion<HTMLDivElement>(labels[locale].table);
+  function row(cells: Inline[][], heading: boolean) {
+    const Cell = heading ? "th" : "td";
+    return cells.map((cell, column) => (
+      <Cell
+        // biome-ignore lint/suspicious/noArrayIndexKey: A cell is identified by its column.
+        key={column}
+        scope={heading ? "col" : undefined}
+        style={{ textAlign: table.align[column] ?? undefined }}
+      >
+        {inlines(cell, locale)}
+      </Cell>
+    ));
+  }
+  return (
+    <div className="post-table" {...region}>
+      <table>
+        <thead>
+          <tr>{row(table.header, true)}</tr>
+        </thead>
+        <tbody>
+          {table.rows.map((cells, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: Rows follow their authored position.
+            <tr key={index}>{row(cells, false)}</tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 type ListBlock = Extract<Block, { kind: "list" }>;
@@ -125,6 +165,8 @@ function blockNode(block: Block, locale: Locale): React.ReactNode {
     }
     case "quote":
       return <blockquote>{blocks(block.blocks, locale)}</blockquote>;
+    case "table":
+      return <PostTable table={block} locale={locale} />;
     case "codeBlock":
       return <PostCode block={block} locale={locale} />;
     case "rule":

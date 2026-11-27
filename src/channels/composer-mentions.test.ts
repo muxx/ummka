@@ -69,3 +69,10 @@ test.each(mentionTextCases)(
     );
   },
 );
+
+test("uses the authored cells beyond a table heading for mention detection", () => {
+  expect(composerPostMentions("| Name |\n| - |\n| `@all` | @here |")).toEqual({
+    channel: ["@here"],
+    groupCandidates: [],
+  });
+});

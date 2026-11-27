@@ -14,7 +14,13 @@ const bodies = [
   "See [notes](https://example.test/notes) and ![A diagram](https://example.test/image).",
   "First line  \nSecond line\n\n---",
   "<div>Read as typed</div>",
-  "| a | b |\n| - | - |\n| c | d |",
+  [
+    "| Name | Status | Score |",
+    "| :--- | :---: | ---: |",
+    `| **Aurora** | Ready | 17 | ${"wide".repeat(70)} |`,
+    ...Array.from({ length: 6 }, (_, i) => `| Row ${i} | In progress | ${i} |`),
+  ].join("\n"),
+  "| Short |\n| --- |\n| Fits |",
   "A short inline `const  value` with an ampersand &amp; text.",
   "A paragraph with ordinary readable text.\n\n~~~\nlet value;\n~~~",
 ];
@@ -75,8 +81,94 @@ function checkDisclosure(host: HTMLElement, width: number) {
     throw Error(`Closing the long post lost its visible action at ${width}px`);
 }
 
+async function checkArrowRight(
+  element: HTMLElement,
+  target: string,
+  pressRight: () => Promise<void>,
+) {
+  element.scrollIntoView({ block: "center" });
+  element.focus();
+  if (document.activeElement !== element || element.scrollLeft !== 0)
+    throw Error("Scrollable block did not receive initial focus");
+  const phases = new Set<string>();
+  const observed: string[] = [];
+  const observeRight = (event: KeyboardEvent) => {
+    const tag =
+      event.target instanceof Element ? event.target.tagName : "window";
+    observed.push(`${event.type}/${event.code}/${tag}`);
+    if (
+      event.key === "ArrowRight" &&
+      event.isTrusted &&
+      event.target === element
+    )
+      phases.add(event.type);
+  };
+  window.addEventListener("keydown", observeRight, true);
+  window.addEventListener("keyup", observeRight, true);
+  try {
+    await pressRight();
+    // Keep the focused block mounted until both halves of the
+    // physical press arrive, including the release after native scrolling.
+    const deadline = performance.now() + 2500;
+    while (
+      (phases.size < 2 || element.scrollLeft === 0) &&
+      performance.now() < deadline
+    )
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    if (
+      phases.size !== 2 ||
+      element.scrollLeft <= 0 ||
+      document.activeElement !== element
+    )
+      throw Error(
+        `${target} after native ArrowRight: events=${observed.join(",")} scroll=${element.scrollLeft} focus=${document.activeElement === element}`,
+      );
+  } finally {
+    window.removeEventListener("keydown", observeRight, true);
+    window.removeEventListener("keyup", observeRight, true);
+  }
+}
+
+async function checkTableSwipe(
+  table: HTMLElement,
+  swipe: (from: number, to: number, y: number) => Promise<void>,
+) {
+  table.scrollLeft = 0;
+  table.scrollIntoView({ block: "center" });
+  const bounds = table.getBoundingClientRect();
+  const left = Math.max(0, bounds.left);
+  const right = Math.min(window.innerWidth, bounds.right);
+  const top = Math.max(0, bounds.top);
+  const bottom = Math.min(window.innerHeight, bounds.bottom);
+  if (right - left < 100 || top >= bottom)
+    throw Error("No visible touch path across the table");
+  const scale = window.devicePixelRatio;
+  let touched = false;
+  const observe = (event: TouchEvent) => {
+    if (event.isTrusted) touched = true;
+  };
+  table.addEventListener("touchstart", observe, { passive: true });
+  try {
+    await swipe(
+      Math.round((right - 16) * scale),
+      Math.round((left + 16) * scale),
+      Math.round(((top + bottom) / 2) * scale),
+    );
+    const deadline = performance.now() + 2500;
+    while ((!touched || table.scrollLeft < 15) && performance.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    if (!touched || table.scrollLeft < 15)
+      throw Error(
+        `Table touch: trusted=${touched}, scroll=${table.scrollLeft}`,
+      );
+  } finally {
+    table.removeEventListener("touchstart", observe);
+  }
+}
+
 export async function checkChannelFormatting(
-  pressRight: (width: number) => Promise<void>,
+  pressRight: (kind: "code" | "table", width: number) => Promise<void>,
+  swipe?: (from: number, to: number, y: number) => Promise<void>,
 ) {
   const author = () => ({ name: "Ada" });
   const posts: LocalChannelWindow["posts"] = Array.from(
@@ -193,47 +285,55 @@ export async function checkChannelFormatting(
       if (measure(5, 7) < 1.8 * measure(4, 5))
         throw Error("Inline code collapsed its repeated spaces");
 
-      pre.scrollIntoView({ block: "center" });
-      pre.focus();
-      if (document.activeElement !== pre || pre.scrollLeft !== 0)
-        throw Error("Scrollable code did not receive initial focus");
-      const phases = new Set<string>();
-      const observed: string[] = [];
-      const observeRight = (event: KeyboardEvent) => {
-        const element =
-          event.target instanceof Element ? event.target.tagName : "window";
-        observed.push(`${event.type}/${event.code}/${element}`);
-        if (
-          event.key === "ArrowRight" &&
-          event.isTrusted &&
-          event.target === pre
-        )
-          phases.add(event.type);
-      };
-      window.addEventListener("keydown", observeRight, true);
-      window.addEventListener("keyup", observeRight, true);
-      try {
-        await pressRight(width);
-        // Keep this focused code block mounted until both halves of the
-        // physical press arrive, including the release after native scrolling.
-        const deadline = performance.now() + 2500;
-        while (
-          (phases.size < 2 || pre.scrollLeft === 0) &&
-          performance.now() < deadline
-        )
-          await new Promise((resolve) => setTimeout(resolve, 20));
-        if (
-          phases.size !== 2 ||
-          pre.scrollLeft <= 0 ||
-          document.activeElement !== pre
-        )
-          throw Error(
-            `Code after native ArrowRight at ${width}px: events=${observed.join(",")} scroll=${pre.scrollLeft} focus=${document.activeElement === pre}`,
-          );
-      } finally {
-        window.removeEventListener("keydown", observeRight, true);
-        window.removeEventListener("keyup", observeRight, true);
-      }
+      await checkArrowRight(pre, `code-${width}`, () =>
+        pressRight("code", width),
+      );
+
+      const tableIn = (index: number) =>
+        host.querySelector<HTMLElement>(
+          `[data-post-id="${posts[index].id}"] .post-table`,
+        );
+      const table = tableIn(7);
+      const fittingTable = tableIn(8);
+      const headers = [...(table?.querySelectorAll("th[scope=col]") ?? [])];
+      const row = [
+        ...(table?.querySelectorAll("tbody tr:first-child td") ?? []),
+      ];
+      if (
+        table?.getAttribute("role") !== "region" ||
+        table.getAttribute("aria-label") !== "Table" ||
+        table.scrollWidth <= table.clientWidth ||
+        headers.map((cell) => cell.textContent).join(",") !==
+          "Name,Status,Score" ||
+        getComputedStyle(headers[1]).textAlign !== "center" ||
+        getComputedStyle(headers[2]).textAlign !== "right" ||
+        row.length !== 4 ||
+        row[0]?.querySelector("strong")?.textContent !== "Aurora" ||
+        row[2]?.textContent !== "17" ||
+        row[3]?.textContent !== "wide".repeat(70)
+      )
+        throw Error("Table headings, alignment, overflow or authored cells");
+      if (
+        !fittingTable ||
+        fittingTable.hasAttribute("tabindex") ||
+        fittingTable.hasAttribute("role")
+      )
+        throw Error("A fitting table added a keyboard stop");
+      await checkArrowRight(table, `table-${width}`, () =>
+        pressRight("table", width),
+      );
+      const offset = table.scrollLeft;
+      table.scrollLeft = offset;
+      const neighbor = posts[6];
+      posts[6] = { ...neighbor, message: `${neighbor.message}!` };
+      draw();
+      posts[6] = neighbor;
+      if (table !== tableIn(7) || Math.abs(table.scrollLeft - offset) > 1)
+        throw Error(
+          "The table lost its horizontal position on a neighboring edit",
+        );
+      if (width === 320 && swipe) await checkTableSwipe(table, swipe);
+
       const range = document.createRange();
       range.selectNodeContents(label);
       const selection = window.getSelection();
@@ -241,6 +341,11 @@ export async function checkChannelFormatting(
       selection?.addRange(range);
       if (selection?.toString() !== "emphasis")
         throw Error("formatted text selection");
+      selection.removeAllRanges();
+      range.selectNodeContents(row[3]);
+      selection.addRange(range);
+      if (selection.toString() !== row[3].textContent)
+        throw Error("Table cell text could not be selected");
       selection.removeAllRanges();
       const latest = posts.at(-1);
       if (!latest) throw Error("Missing formatting fixture post");

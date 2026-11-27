@@ -161,6 +161,9 @@ test("the new document receives its control response only after the keyboard eve
         await delivery;
       },
       async () => {
+        assert.fail("The reload check does not swipe");
+      },
+      async () => {
         throw Error("unexpected clipboard policy request");
       },
     );

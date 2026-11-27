@@ -11,6 +11,8 @@ const townFile = "h".repeat(26);
 const replyFile = "g".repeat(26);
 const design = "d".repeat(26);
 const member = "f".repeat(26);
+const townMessage =
+  "Town fixture message\n\n| Name | Score |\n| :- | -: |\n| Aurora | 17 |";
 
 const publicRoom = {
   id: "z".repeat(26),
@@ -165,9 +167,7 @@ export async function respondToWorkspace(
       },
     ],
   ]);
-  const message = postList(town, member, "Town fixture message").posts[
-    townRoot
-  ];
+  const message = postList(town, member, townMessage).posts[townRoot];
   const fileInfo = {
     id: townFile,
     channel_id: town,
@@ -181,7 +181,8 @@ export async function respondToWorkspace(
     root_id: townRoot,
     create_at: 561,
     update_at: 561,
-    message: "Reply visible only inside Town’s thread",
+    message:
+      "Reply visible only inside Town’s thread\n\n| Reply col |\n| :- |\n| First | **Exact overflow cell** |",
     file_ids: [replyFile],
     metadata: {
       files: [
@@ -309,7 +310,7 @@ export async function respondToWorkspace(
     );
   }
   if (thread) {
-    const page = postList(town, member, "Town fixture message");
+    const page = postList(town, member, townMessage);
     const query = Object.fromEntries(url.searchParams);
     if (query.fromPost !== undefined) {
       assert.ok(query.direction === "up" || query.direction === "down");
@@ -374,7 +375,7 @@ export async function respondToWorkspace(
       postList(
         channelId,
         member,
-        channelId === town ? "Town fixture message" : "Design fixture message",
+        channelId === town ? townMessage : "Design fixture message",
       ),
       "live-posts-" + channelId,
     );

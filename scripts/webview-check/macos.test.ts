@@ -74,7 +74,7 @@ test("a driver failure closes the control request without recording a completed 
         host: "127.0.0.1",
         port: fixture.webviewPorts[1],
         ca: fixture.ca,
-        path: "/api/v4/system/ping?step=format-right&case=320",
+        path: "/api/v4/system/ping?step=format-right&case=code-320",
         signal: AbortSignal.timeout(2000),
       },
       (response) => {
@@ -84,9 +84,9 @@ test("a driver failure closes the control request without recording a completed 
     ).on("error", reject);
   });
   assert.equal(status, 500);
-  assert.match(fixture.webviewProgress(), /format-right received/);
+  assert.match(fixture.webviewProgress(), /format-right\(code-320\) received/);
   assert.deepEqual(reported.mock.calls[0]?.arguments, [
-    "Native input failed at format-right:",
+    "Native input failed at format-right(code-320):",
     failure,
   ]);
 });

@@ -12,6 +12,7 @@ import {
   type ClipboardPolicyStep,
   clipboardPolicySteps,
   type SendAndroidKey,
+  type SwipeAndroid,
 } from "./android-webview.ts";
 import { respondToChannelMembers } from "./channel-members.ts";
 import { respondToChannelView } from "./channel-view.ts";
@@ -75,7 +76,10 @@ export function webviewServers(
   let formattingTimes:
     | { width: number; first: number; unchanged: number }[]
     | undefined;
-  const formatKeyWidths: number[] = [];
+  const formatKeyCases = ["code-320", "table-320", "code-820", "table-820"];
+  const formatKeys: string[] = [];
+  let swipeAndroid: SwipeAndroid | undefined;
+  let tableSwiped = false;
   let controlProgress = "not started";
   let onMacStep: ((stage: string) => void) | undefined;
   let controlRequests = 0;
@@ -1498,6 +1502,7 @@ export function webviewServers(
         backSteps.some((label) => step === `back-${label}`) ||
         [
           "format-right",
+          "table-swipe",
           "format-times",
           "received",
           "closed",
@@ -1508,7 +1513,8 @@ export function webviewServers(
         ].includes(step));
     const name = url.searchParams.get("case") ?? "";
     const marker =
-      (step === "received" || step === "closed") && held.has(name)
+      ((step === "received" || step === "closed") && held.has(name)) ||
+      step === "format-right"
         ? `${step}(${name})`
         : knownStep
           ? step
@@ -1568,15 +1574,27 @@ export function webviewServers(
       stepIndex++;
     } else if (step === "format-right") {
       assert(sendRight, "Missing native keyboard driver");
-      const width = Number(url.searchParams.get("case"));
-      assert.equal(width, [320, 820][formatKeyWidths.length]);
-      formatKeyWidths.push(width);
-      console.log(
-        `Sending native ArrowRight to the ${width}px formatting fixture.`,
-      );
+      const target = url.searchParams.get("case");
+      assert.equal(target, formatKeyCases[formatKeys.length]);
+      formatKeys.push(target);
+      console.log(`Sending native ArrowRight to ${target}.`);
       if (!(await press(sendRight))) return;
+    } else if (step === "table-swipe") {
+      const swipe = swipeAndroid;
+      assert(swipe && !tableSwiped);
+      assert.deepEqual(formatKeys, formatKeyCases.slice(0, 2));
+      const coordinates =
+        /^([1-9]\d{0,3}),([1-9]\d{0,3}),([1-9]\d{0,3})$/u.exec(
+          url.searchParams.get("case") ?? "",
+        );
+      assert(coordinates);
+      const [, from, to, y] = coordinates.map(Number);
+      assert(from > to);
+      tableSwiped = true;
+      if (!(await press(() => swipe(from, to, y)))) return;
     } else if (step === "format-times") {
-      assert.deepEqual(formatKeyWidths, [320, 820]);
+      assert.deepEqual(formatKeys, formatKeyCases);
+      assert.equal(tableSwiped, swipeAndroid !== undefined);
       const data = JSON.parse(url.searchParams.get("case") ?? "null");
       assert.ok(Array.isArray(data));
       assert.deepEqual(
@@ -1588,7 +1606,9 @@ export function webviewServers(
         assert.ok(Number.isFinite(row.unchanged) && row.unchanged >= 0);
       }
       formattingTimes = data;
-      console.log("Verified native code-block scrolling at both widths.");
+      console.log(
+        "Verified native code-block and table scrolling at both widths.",
+      );
     } else if (step === "release-history") {
       refresh.release();
     } else if (step === "release-submission") {
@@ -1632,9 +1652,11 @@ export function webviewServers(
     },
     onAndroidInputReady(
       send: SendAndroidKey,
+      swipe: SwipeAndroid,
       runClipboardStep: ClipboardPolicyStep,
     ) {
       clipboard = runClipboardStep;
+      swipeAndroid = swipe;
       prepareKeyboard = () => send("KEYCODE_TAB");
       pressWorkspaceBack = () => send("KEYCODE_BACK");
       sendRight = () => send("KEYCODE_DPAD_RIGHT");
