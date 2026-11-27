@@ -8,10 +8,14 @@ export type SearchCondition = {
   end: number;
 };
 
+function queryWords(terms: string) {
+  return terms.matchAll(/-?"[^"]*"?|[^\s"]+/gu);
+}
+
 // Mattermost splits quoted phrases before reading flags. Keep the original
 // spans so removing a condition never edits quoted text or another occurrence.
 export function searchConditions(terms: string): SearchCondition[] {
-  const words = Array.from(terms.matchAll(/-?"[^"]*"?|[^\s"]+/g));
+  const words = Array.from(queryWords(terms));
   const items: SearchCondition[] = [];
   for (let index = 0; index < words.length; index++) {
     const word = words[index];
@@ -41,6 +45,11 @@ export function searchConditions(terms: string): SearchCondition[] {
     }
   }
   return items;
+}
+
+export function positiveSearchWords(terms: string) {
+  const query = removeSearchConditions(terms, searchConditions(terms));
+  return Array.from(queryWords(query), ([word]) => word.replace(/^"|"$/gu, ""));
 }
 
 export function removeSearchConditions(

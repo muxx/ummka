@@ -277,6 +277,9 @@ impl AccountHistory {
             let changed = tx.execute("UPDATE sidebar_team SET pending = NULL, published = 1 WHERE team_id = ?1 AND pending = ?2",params![load.team,load.id])?;
             if changed == 0 { return Ok(false); }
             data.replace(tx,&load.team)?;
+            // A lagging replica can still list a channel after this account confirmed its departure.
+            tx.execute("DELETE FROM sidebar_channel WHERE team_id=?1 AND channel_id IN
+                (SELECT channel_id FROM channel_membership_change WHERE team_id=?1 AND departed=1)", [&load.team])?;
             tx.execute("UPDATE sidebar_team SET selected_channel = NULL WHERE team_id = ?1 AND selected_channel IS NOT NULL
                 AND NOT EXISTS(SELECT 1 FROM sidebar_channel WHERE team_id = ?1 AND channel_id = sidebar_team.selected_channel)",[load.team])?;
             Ok(true)

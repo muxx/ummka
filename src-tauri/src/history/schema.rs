@@ -632,10 +632,37 @@ pub(super) const MIGRATIONS: &[Migration] = &[
             POST_ATTACHMENT
         ),
     },
+    Migration {
+        statements: &[
+            CHANNEL_MEMBERSHIP_CHANGE,
+            DEPARTED_BY_TEAM,
+            POSTS_BY_CHANNEL,
+            WINDOWS_BY_CHANNEL,
+        ],
+        objects: &directory_objects!(
+            JOINED_TEAM_V19,
+            SIDEBAR_CHANNEL_V19,
+            COMPOSER_DRAFT_V21,
+            TEAM_SEARCH,
+            TEAM_SEARCH_ORDER,
+            THREAD_SUMMARY,
+            POST_ATTACHMENT,
+            CHANNEL_MEMBERSHIP_CHANGE,
+            DEPARTED_BY_TEAM,
+            POSTS_BY_CHANNEL,
+            WINDOWS_BY_CHANNEL
+        ),
+    },
 ];
 
 const THREAD_SUMMARY: &str = include_str!("migrations/0024_thread_summary.sql");
 
+const CHANNEL_MEMBERSHIP_CHANGE: &str =
+    include_str!("migrations/0028_channel_membership_change.sql");
+const DEPARTED_BY_TEAM: &str = "CREATE INDEX departed_by_team ON channel_membership_change(team_id,channel_id) WHERE departed=1";
+const POSTS_BY_CHANNEL: &str = "CREATE INDEX history_post_by_channel ON history_post(channel_id)";
+const WINDOWS_BY_CHANNEL: &str =
+    "CREATE INDEX history_window_by_channel ON history_window(channel_id)";
 const POST_ATTACHMENT: &str = include_str!("migrations/0027_post_attachment.sql");
 
 const THREAD_OBJECTS: &[&str] = &directory_objects!(

@@ -124,6 +124,18 @@ impl PostChange {
     }
 }
 
+pub(super) fn advance_deletion_revision(
+    tx: &Transaction<'_>,
+    channel: &str,
+) -> rusqlite::Result<()> {
+    tx.execute(
+        "INSERT INTO history_channel_deletion (channel_id, revision) VALUES (?1, 1)
+         ON CONFLICT(channel_id) DO UPDATE SET revision = revision + 1",
+        [channel],
+    )?;
+    Ok(())
+}
+
 fn deletion_revision(tx: &Transaction<'_>, channel: &str) -> rusqlite::Result<i64> {
     tx.prepare("SELECT revision FROM history_channel_deletion WHERE channel_id = ?1")?
         .query_row([channel], |row| row.get(0))
@@ -193,7 +205,9 @@ impl AccountHistory {
         }
         self.database
             .access(&self.owner, TransactionBehavior::Immediate, |tx| {
-                if deletion_revision(tx, &load.channel_id)? != load.revision {
+                if deletion_revision(tx, &load.channel_id)? != load.revision
+                    || super::departure::is_departed(tx, &load.channel_id)?
+                {
                     return Ok(PageWrite::Superseded);
                 }
                 let removed = write_changes(
@@ -304,11 +318,7 @@ fn write_changes(
             remove.execute(params![channel, id])?;
             super::confirmation::remove_confirmed(tx, channel, id)?;
         }
-        tx.execute(
-            "INSERT INTO history_channel_deletion (channel_id, revision) VALUES (?1, 1)
-            ON CONFLICT(channel_id) DO UPDATE SET revision = revision + 1",
-            [channel],
-        )?;
+        advance_deletion_revision(tx, channel)?;
     }
     Ok(removed)
 }

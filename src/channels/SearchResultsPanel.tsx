@@ -2,6 +2,7 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -10,9 +11,11 @@ import { ResponseError } from "../../vendor/mattermost/index.js";
 import type { EntryLanguage } from "../entry/language.ts";
 import type { JoinedTeam } from "../mattermost/joined-teams.ts";
 import { PaneSizeToggle } from "./PaneWidthControls.tsx";
+import { SearchFileResult, SearchPostResult } from "./SearchResultRow.tsx";
 import { SearchScopeNote, SearchScopeSelect } from "./SearchScopeSelect.tsx";
 import { type SearchCondition, searchConditions } from "./search-conditions.ts";
 import { searchCopy } from "./search-copy.ts";
+import { searchResultPatterns } from "./search-result-text.ts";
 import type { openSearchResults } from "./search-results-session.ts";
 
 export type SearchSession = ReturnType<typeof openSearchResults>;
@@ -155,22 +158,7 @@ export function SearchResultsPanel({
       summary.current?.focus({ preventScroll: true });
     setRetrying(false);
   }, [issue, pending, retrying]);
-  const rows =
-    selected === "posts"
-      ? state?.posts.items.map((row) => ({
-          id: row.id,
-          jump: true,
-          title: row.message || text.attachment,
-          name: row.userId && authorName(row.userId),
-          channel: channelName(row.channelId),
-        }))
-      : state?.files.items.map((row) => ({
-          id: row.id,
-          jump: Boolean(row.postId),
-          title: row.name || text.unnamed,
-          name: row.userId && authorName(row.userId),
-          channel: channelName(row.channelId),
-        }));
+  const patterns = useMemo(() => searchResultPatterns(terms), [terms]);
   const conditions = searchConditions(terms);
   return (
     <aside className="search-results-pane" aria-labelledby={id}>
@@ -258,47 +246,56 @@ export function SearchResultsPanel({
       >
         {!online && <p role="status">{text.offline}</p>}
         {tab && tab.retentionTime > 0 && <p>{text.retention}</p>}
-        {!denied && rows && rows.length > 0 && (
+        {!denied && tab && tab.items.length > 0 && (
           <ul>
-            {rows.map((row) => (
-              <li key={row.id}>
-                {(row.channel || row.name) && (
-                  <small>
-                    {[row.channel, row.name].filter(Boolean).join(" · ")}
-                  </small>
-                )}
-                {selected === "files" && <p>{row.title}</p>}
-                {row.jump && (
-                  <button
-                    type="button"
-                    className="search-open-result"
-                    data-search-result={row.id}
-                    aria-disabled={!online}
-                    onClick={(event) => {
-                      if (online)
-                        activate(
-                          {
-                            kind: selected === "posts" ? "post" : "file",
-                            id: row.id,
-                          },
-                          event.currentTarget,
-                          list.current?.scrollTop ?? 0,
-                        );
-                    }}
-                  >
-                    {selected === "posts"
-                      ? row.title
-                      : text.filePost(row.title)}
-                  </button>
-                )}
-              </li>
-            ))}
+            {selected === "posts"
+              ? state?.posts.items.map((row) => (
+                  <SearchPostResult
+                    key={row.id}
+                    row={row}
+                    author={row.userId ? authorName(row.userId) : undefined}
+                    channel={channelName(row.channelId)}
+                    language={language}
+                    pattern={patterns.post}
+                    matches={state.posts.matches?.[row.id]}
+                    online={online}
+                    restored={restore?.id === row.id}
+                    open={(button) =>
+                      activate(
+                        { kind: "post", id: row.id },
+                        button,
+                        list.current?.scrollTop ?? 0,
+                      )
+                    }
+                  />
+                ))
+              : state?.files.items.map((row) => (
+                  <SearchFileResult
+                    key={row.id}
+                    row={row}
+                    author={row.userId ? authorName(row.userId) : undefined}
+                    channel={channelName(row.channelId)}
+                    language={language}
+                    pattern={patterns.file}
+                    online={online}
+                    restored={restore?.id === row.id}
+                    open={(button) =>
+                      activate(
+                        { kind: "file", id: row.id },
+                        button,
+                        list.current?.scrollTop ?? 0,
+                      )
+                    }
+                  />
+                ))}
           </ul>
         )}
         {(pending || tab?.status === "loading") && (
           <p role="status">{text.loading}</p>
         )}
-        {tab?.status === "ready" && rows?.length === 0 && <p>{text.empty}</p>}
+        {tab?.status === "ready" && tab.items.length === 0 && (
+          <p>{text.empty}</p>
+        )}
         {!terms && <p>{text.emptyQuery}</p>}
         {(issue || retrying) && online && (
           <>

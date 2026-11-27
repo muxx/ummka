@@ -53,10 +53,24 @@ pub(super) fn draft(
     channel: &str,
     root: &str,
 ) -> rusqlite::Result<ComposerDraft> {
+    if let Some(stored) = tx.query_row(READ, [channel, root], read_row).optional()? {
+        return Ok(stored);
+    }
+    Ok(ComposerDraft {
+        revision: empty_revision(tx, channel)?,
+        ..ComposerDraft::default()
+    })
+}
+
+fn empty_revision(tx: &Transaction<'_>, channel: &str) -> rusqlite::Result<Option<String>> {
     Ok(tx
-        .query_row(READ, [channel, root], read_row)
+        .query_row(
+            "SELECT empty_revision FROM channel_membership_change WHERE channel_id=?1",
+            [channel],
+            |row| row.get(0),
+        )
         .optional()?
-        .unwrap_or_default())
+        .flatten())
 }
 
 pub(super) fn root_key<'a>(channel: &str, root: Option<&'a str>) -> Result<&'a str, HistoryError> {
@@ -159,7 +173,17 @@ impl AccountHistory {
         // An immediate transaction serializes the comparison and update across app windows.
         self.write(|tx| {
             let current = draft(tx, channel, root)?;
+            if super::departure::is_departed(tx, channel)? {
+                return Ok(DraftSave::Conflict(current));
+            }
             if current.revision.is_some() && current.message == message {
+                // This empty revision is the new starting point after rejoining, not a saved edit.
+                if message.is_empty()
+                    && current.revision.as_deref() != expected_revision
+                    && current.revision == empty_revision(tx, channel)?
+                {
+                    return Ok(DraftSave::Conflict(current));
+                }
                 return Ok(DraftSave::Saved(current));
             }
             if current.revision.as_deref() != expected_revision {

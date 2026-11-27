@@ -26,6 +26,7 @@ import catalog from "../../contracts/mattermost/operations.json" with {
   type: "json",
 };
 import { correctAuthentication } from "./authentication-corrections.ts";
+import { correctBookmarkWrite } from "./bookmark-write.ts";
 import {
   correctChannelStats,
   correctChannelStatsQuery,
@@ -1169,6 +1170,12 @@ test("retains the catalog operations, security and transitive models", () => {
     let expected = source;
     if (source.operationId === "ListChannelBookmarksForChannel")
       expected = object(at(read("bookmarks-12.1.0.yaml"), key), path);
+    else if (file === "bookmarks.yaml")
+      expected = correctBookmarkWrite(
+        String(source.operationId),
+        source,
+        object(at(read("bookmarks-12.1.0.yaml"), key), path),
+      );
     if (
       source.operationId === "UpdateThreadReadForUser" ||
       source.operationId === "UpdateThreadsReadForUser" ||
@@ -1399,6 +1406,7 @@ test("retains the catalog operations, security and transitive models", () => {
       "Team",
       "TeamMember",
       "Timezone",
+      "UpdateChannelBookmarkResponse",
       "User",
       "UserNotifyProps",
       "UserThread",

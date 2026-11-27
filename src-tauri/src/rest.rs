@@ -40,9 +40,8 @@ impl Operation<'_> {
             };
             let matched = match expected {
                 "{user_id}" => actual == "me" || (!self.self_only && is_mattermost_id(actual)),
-                "{team_id}" | "{channel_id}" | "{post_id}" | "{thread_id}" | "{file_id}" => {
-                    is_mattermost_id(actual)
-                }
+                "{team_id}" | "{channel_id}" | "{post_id}" | "{thread_id}" | "{file_id}"
+                | "{bookmark_id}" => is_mattermost_id(actual),
                 "{name}" | "{team_name}" | "{channel_name}" => {
                     (1..=64).contains(&actual.len())
                         && actual
@@ -412,6 +411,28 @@ mod tests {
             let permits = |m| OPERATIONS.iter().any(|op| op.allows(m, &path));
             assert_eq!(permits(&reqwest::Method::GET), allowed);
             assert!(!permits(&reqwest::Method::POST));
+        }
+    }
+
+    #[test]
+    fn bookmark_writes_match_the_method_and_concrete_identifiers() {
+        use reqwest::Method;
+
+        let collection = format!("/api/v4/channels/{}/bookmarks", "c".repeat(26));
+        let item = format!("{collection}/{}", "b".repeat(26));
+        let matches = |method, path: &str| OPERATIONS.iter().any(|op| op.allows(&method, path));
+        assert!(matches(Method::POST, &collection));
+        assert!(matches(Method::PATCH, &item));
+        assert!(matches(Method::DELETE, &item));
+        assert!(matches(Method::POST, &format!("{item}/sort_order")));
+        assert!(!matches(Method::POST, &item));
+        assert!(!matches(Method::DELETE, &collection));
+        for bad in ["me", "sort_order", "short", &"_".repeat(26)] {
+            assert!(!matches(Method::PATCH, &format!("{collection}/{bad}")));
+            assert!(!matches(
+                Method::POST,
+                &format!("{collection}/{bad}/sort_order")
+            ));
         }
     }
 
