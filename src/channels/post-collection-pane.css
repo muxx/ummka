@@ -12,7 +12,6 @@
   background: var(--canvas);
 }
 .collection-open,
-.collection-channel-trigger,
 .collection-channel-action,
 .collection-page-action {
   border: 0;
@@ -21,25 +20,6 @@
   text-align: start;
   cursor: pointer;
   min-height: 44px;
-}
-.collection-channel-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  min-width: 0;
-  max-width: 100%;
-  padding: 0;
-}
-.collection-channel-trigger span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.collection-channel-trigger svg {
-  flex: none;
-}
-.collection-channel-menu {
-  position: relative;
-  min-width: 0;
 }
 .collection-channel-actions {
   position: absolute;

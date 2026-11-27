@@ -76,6 +76,8 @@ export function fixture({
   direct = false,
   archivedHome = false,
   homeKind = "O",
+  homeHeader = "",
+  homeName = "Home",
   initialTeam = winter,
   launch,
 }: {
@@ -84,6 +86,8 @@ export function fixture({
   direct?: boolean;
   archivedHome?: boolean;
   homeKind?: "O" | "P" | "D" | "G";
+  homeHeader?: string;
+  homeName?: string;
   initialTeam?: string | null;
   launch?: typeof getDeviceLaunchContext;
 } = {}) {
@@ -127,8 +131,13 @@ export function fixture({
         channel: {
           id,
           name:
-            direct && id === design ? [user, "z".repeat(26)].join("__") : name,
+            id === home
+              ? homeName
+              : direct && id === design
+                ? [user, "z".repeat(26)].join("__")
+                : name,
           displayName: direct && id === design ? "" : name,
+          header: id === home ? homeHeader : "",
           type: id === home ? homeKind : direct && id === design ? "D" : "O",
           deleteAt: archivedHome && id === home ? 1 : 0,
         },

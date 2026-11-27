@@ -8,6 +8,7 @@ import {
 import type { EntryLanguage } from "../entry/language.ts";
 import { notificationCopy } from "./channel-notification-copy.ts";
 import { collectionCopy } from "./collection-copy.ts";
+import "./conversation-heading.css";
 
 // These Tabler icons are shared with the interactive channel menu prototype.
 const sheetIconPaths = {
@@ -54,6 +55,7 @@ export function CollectionChannelMenu({
   headingId,
   headingRef,
   title,
+  description,
   kind,
   archived,
   language,
@@ -67,6 +69,7 @@ export function CollectionChannelMenu({
   headingId: string;
   headingRef: RefObject<HTMLHeadingElement | null>;
   title: string;
+  description: string;
   kind: string;
   archived: boolean;
   language: EntryLanguage;
@@ -79,7 +82,12 @@ export function CollectionChannelMenu({
 }) {
   const text = collectionCopy[language],
     id = useId();
-  const wrapper = useRef<HTMLDivElement>(null);
+  const mark = archived
+    ? "archive"
+    : kind === "P" || kind === "D" || kind === "G"
+      ? channelKindIcons[kind]
+      : "hash";
+  const actionList = useRef<HTMLDivElement>(null);
   const sheet = useRef<HTMLDialogElement>(null);
   const pins = useRef<HTMLButtonElement>(null);
   const notifications = useRef<HTMLButtonElement>(null);
@@ -97,7 +105,8 @@ export function CollectionChannelMenu({
     function outside(event: Event) {
       if (
         event.target instanceof Node &&
-        !wrapper.current?.contains(event.target)
+        !trigger.current?.contains(event.target) &&
+        !actionList.current?.contains(event.target)
       )
         setOpen(false);
     }
@@ -107,7 +116,7 @@ export function CollectionChannelMenu({
       document.removeEventListener("pointerdown", outside);
       document.removeEventListener("focusin", outside);
     };
-  }, [compact, open, setOpen]);
+  }, [compact, open, setOpen, trigger]);
   function dismissSheet() {
     sheet.current?.close();
     setOpen(false);
@@ -115,6 +124,7 @@ export function CollectionChannelMenu({
   }
   const actions = open && (
     <div
+      ref={actionList}
       id={id}
       role="menu"
       aria-label={text.menu}
@@ -173,14 +183,24 @@ export function CollectionChannelMenu({
       )}
     </div>
   );
+  const topic = (
+    <span
+      className="conversation-heading-description"
+      id={`${id}-description`}
+      title={description}
+    >
+      <bdi>{description}</bdi>
+    </span>
+  );
   return (
-    <div ref={wrapper} className="collection-channel-menu">
+    <div className="collection-channel-menu">
       <h1 id={headingId} ref={headingRef} tabIndex={-1} aria-label={title}>
         <button
           type="button"
           ref={trigger}
           className="collection-channel-trigger"
           aria-label={`${text.menu}, ${title}`}
+          aria-describedby={`${id}-description`}
           aria-controls={open ? (compact ? `${id}-sheet` : id) : undefined}
           aria-expanded={open}
           aria-haspopup={compact ? "dialog" : "menu"}
@@ -190,20 +210,26 @@ export function CollectionChannelMenu({
             setOpen(!open);
           }}
         >
-          <span>{title}</span>
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            aria-hidden="true"
-          >
-            <path d="m6 9 6 6 6-6" />
-          </svg>
+          <span className="conversation-heading-title">
+            <SheetIcon className="conversation-heading-mark" name={mark} />
+            <bdi>{title}</bdi>
+            <svg
+              className="conversation-heading-chevron"
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </span>
+          {compact && topic}
         </button>
       </h1>
+      {!compact && topic}
       {open && compact ? (
         // biome-ignore lint/a11y/useKeyWithClickEvents: The backdrop uses the completed tap. Escape and the close button dismiss from the keyboard.
         <dialog
@@ -230,16 +256,7 @@ export function CollectionChannelMenu({
           }}
         >
           <header>
-            <SheetIcon
-              className="collection-sheet-mark"
-              name={
-                archived
-                  ? "archive"
-                  : kind === "P" || kind === "D" || kind === "G"
-                    ? channelKindIcons[kind]
-                    : "hash"
-              }
-            />
+            <SheetIcon className="collection-sheet-mark" name={mark} />
             <h2 id={`${id}-heading`}>{title}</h2>
             <button
               type="button"
