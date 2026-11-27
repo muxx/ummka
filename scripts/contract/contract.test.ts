@@ -111,7 +111,17 @@ const sources = process.env.UMMKA_CONTRACT_SOURCES;
 const work = process.env.UMMKA_CONTRACT_WORK;
 if (!sources || !work)
   throw new Error("Run make check-contract to prepare the test inputs");
-const read = readSource.bind(null, sources);
+const readPinned = readSource.bind(null, sources);
+const parsed = new Map<string, Fields>();
+function read(file: string): Fields {
+  let source = parsed.get(file);
+  if (!source) {
+    source = readPinned(file);
+    parsed.set(file, source);
+  }
+  // Correction tests may mutate a nested property of their own copy.
+  return structuredClone(source);
+}
 const serialized = readFileSync(join(work, "openapi.json"), "utf8");
 const contract = object(JSON.parse(serialized), "contract");
 const nativeContract = JSON.parse(
@@ -140,6 +150,16 @@ function at(document: unknown, path: string[]) {
   }
   return value;
 }
+
+test("isolates each read of the pinned documents from nested test mutations", () => {
+  const path = ["/api/v4/channels/{channel_id}", "get"];
+  const changed = object(at(read("channels.yaml"), path), "channel lookup");
+  changed.operationId = "ChangedInOneTest";
+  assert.equal(
+    object(at(read("channels.yaml"), path), "channel lookup").operationId,
+    "GetChannel",
+  );
+});
 
 test("keeps native authentication outside the WebView and describes the actual wire contract", () => {
   const auth = nativeContract;
