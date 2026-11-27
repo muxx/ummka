@@ -61,6 +61,7 @@ export async function checkPublishedPostDocument(
                 { kind: "text", text: "Read the " },
                 {
                   kind: "linkLabel",
+                  target: { kind: "web", href: "https://example.test/notes" },
                   children: [{ kind: "text", text: "notes" }],
                 },
               ],
@@ -73,7 +74,11 @@ export async function checkPublishedPostDocument(
       kind: "paragraph",
       children: [
         { kind: "text", text: "Cost € " },
-        { kind: "imageDescription", text: "price &copy;" },
+        {
+          kind: "imageDescription",
+          text: "price &copy;",
+          target: { kind: "web", href: proxy.href },
+        },
       ],
     },
   ]);

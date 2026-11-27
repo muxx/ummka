@@ -65,7 +65,7 @@ export function respondToHistory(
     id: root,
     channel_id: channelId,
     message:
-      "Release **notes**\n\n- ![Chart](https://example.test/figure)\n- `:wave:`",
+      "[Release **notes**](/chat/team/channels/design)\n\n- ![Chart](https://example.test/figure)\n- `:wave:`",
     reply_count: 1,
     last_reply_at: 2200,
     participants: prefix ? [{ id: userId, username: "fixture" }] : null,

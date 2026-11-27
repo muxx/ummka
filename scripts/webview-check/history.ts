@@ -38,14 +38,19 @@ export async function checkChannelHistory(
     page.firstInaccessiblePostTime !== 0
   )
     throw Error("generated channel history");
+  if (typeof thread.message !== "string")
+    throw Error("Missing signed post body");
+  const document = publishedPostDocument({ message: thread.message });
+  const paragraph = document[0];
+  const link =
+    paragraph?.kind === "paragraph" ? paragraph.children[0] : undefined;
   if (
-    typeof thread.message !== "string" ||
-    publishedPostExcerpt(publishedPostDocument({ message: thread.message })) !==
-      "Release notes Chart :wave:"
+    link?.kind !== "linkLabel" ||
+    link.target?.kind !== "sitePath" ||
+    link.target.href !== "/chat/team/channels/design" ||
+    publishedPostExcerpt(document) !== "Release notes Chart :wave:"
   )
-    throw Error(
-      "Signed channel history did not yield the expected post excerpt",
-    );
+    throw Error("The signed post lost its link destination or visible excerpt");
 
   const collapsed = await new PostsApi(prefixed).getPostsForChannel({
     channelId,

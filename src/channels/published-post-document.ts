@@ -2,11 +2,16 @@ import { decodeHTMLStrict } from "entities/decode";
 import type { MarkedToken, Token, Tokens } from "marked";
 import { lexPostMarkdown } from "../mattermost/post-markdown-lexer.ts";
 
+import { publishedLinkTarget } from "./published-link-target.ts";
+
+type Destination = ReturnType<typeof publishedLinkTarget>;
 type Inline =
-  | { kind: "text" | "code" | "imageDescription"; text: string }
+  | { kind: "text" | "code"; text: string }
+  | { kind: "imageDescription"; text: string; target: Destination }
+  | { kind: "linkLabel"; children: Inline[]; target: Destination }
   | { kind: "lineBreak" }
   | {
-      kind: "emphasis" | "strong" | "strike" | "linkLabel";
+      kind: "emphasis" | "strong" | "strike";
       children: Inline[];
     };
 
@@ -47,7 +52,7 @@ function plainText(nodes: Inline[]): string {
 }
 
 // Marked also types optional extension nodes. Our shared lexer uses only its built-in grammar.
-function inline(tokens: Token[]): Inline[] {
+function inline(tokens: Token[], insideLink = false): Inline[] {
   const nodes: Inline[] = [];
   for (const token of tokens as MarkedToken[]) {
     switch (token.type) {
@@ -74,18 +79,24 @@ function inline(tokens: Token[]): Inline[] {
       case "del": {
         nodes.push({
           kind: emphasisKinds[token.type],
-          children: inline(token.tokens),
+          children: inline(token.tokens, insideLink),
         });
         break;
       }
       case "link":
-        if (token.autolink) appendText(nodes, token.text);
-        else nodes.push({ kind: "linkLabel", children: inline(token.tokens) });
+        nodes.push({
+          kind: "linkLabel",
+          target: insideLink ? null : publishedLinkTarget(token.href),
+          children: token.autolink
+            ? [{ kind: "text", text: token.text }]
+            : inline(token.tokens, true),
+        });
         break;
       case "image":
         nodes.push({
           kind: "imageDescription",
-          text: plainText(inline(token.tokens)),
+          target: insideLink ? null : publishedLinkTarget(token.href),
+          text: plainText(inline(token.tokens, true)),
         });
         break;
       case "checkbox":

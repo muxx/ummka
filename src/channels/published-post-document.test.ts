@@ -94,34 +94,56 @@ test("decodes each complete character reference once, including HTML replacement
   ]);
 });
 
-test("flattens formatted image descriptions to their visible text without link destinations", () => {
+test("retains only the outer destination for an image description", () => {
   const message =
     "![a \\* b and \\&copy;](https://example.test/escaped) " +
     "![**bold** ~~old~~ and `literal &amp;` ![inner](https://example.test/nested) [&#128;](https://example.test/link)](https://example.test/outer)";
   expect(doc(message)).toEqual([
     paragraph(
-      { kind: "imageDescription", text: "a * b and &copy;" },
+      {
+        kind: "imageDescription",
+        text: "a * b and &copy;",
+        target: { kind: "web", href: "https://example.test/escaped" },
+      },
       text(" "),
-      { kind: "imageDescription", text: "bold old and literal &amp; inner €" },
+      {
+        kind: "imageDescription",
+        text: "bold old and literal &amp; inner €",
+        target: { kind: "web", href: "https://example.test/outer" },
+      },
     ),
   ]);
 });
 
-test("exposes only formatted link labels and image descriptions; automatic addresses stay visible text", () => {
+test("preserves reference destinations, image descriptions and the author’s automatic link label", () => {
   const body =
     "[**guide**][ref] ![sky &amp; sea](https://images.example.test/file) ![](https://images.example.test/empty)\ncustom://room https://example.test/a?x=1&amp;y=2\n\n[ref]: https://example.test/hidden";
   expect(doc(body)).toEqual([
     paragraph(
       {
         kind: "linkLabel",
+        target: { kind: "web", href: "https://example.test/hidden" },
         children: [{ kind: "strong", children: [text("guide")] }],
       },
       text(" "),
-      { kind: "imageDescription", text: "sky & sea" },
+      {
+        kind: "imageDescription",
+        text: "sky & sea",
+        target: { kind: "web", href: "https://images.example.test/file" },
+      },
       text(" "),
-      { kind: "imageDescription", text: "" },
+      {
+        kind: "imageDescription",
+        text: "",
+        target: { kind: "web", href: "https://images.example.test/empty" },
+      },
       { kind: "lineBreak" },
-      text("custom://room https://example.test/a?x=1&amp;y=2"),
+      text("custom://room "),
+      {
+        kind: "linkLabel",
+        target: { kind: "web", href: "https://example.test/a?x=1&y=2" },
+        children: [text("https://example.test/a?x=1&amp;y=2")],
+      },
     ),
   ]);
 });
@@ -178,4 +200,79 @@ test("lexes once per projection and skips parsing outgoing text without a mentio
   lex.mockClear();
   doc(message);
   expect(lex).toHaveBeenCalledExactlyOnceWith(message);
+});
+
+test.each([
+  [
+    "[here](/chat/team/pl/post?x=1&amp;y=2#reply)",
+    "sitePath",
+    "/chat/team/pl/post?x=1&y=2#reply",
+    "here",
+  ],
+  ["<a@example.test>", "mail", "mailto:a@example.test", "a@example.test"],
+  ["www.example.test", "web", "http://www.example.test/", "www.example.test"],
+  [
+    "[a](HTTPS://EXAMPLE.TEST/путь%2Fu?note=&amp;amp;#x)",
+    "web",
+    "https://example.test/%D0%BF%D1%83%D1%82%D1%8C%2Fu?note=&amp;#x",
+    "a",
+  ],
+  [
+    "[write](mailto:a@example.test?subject=Release)",
+    "mail",
+    "mailto:a@example.test?subject=Release",
+    "write",
+  ],
+])("retains the destination and label of %s", (source, kind, href, label) => {
+  expect(doc(source)).toEqual([
+    paragraph({
+      kind: "linkLabel",
+      target: { kind, href },
+      children: [text(label)],
+    }),
+  ]);
+});
+
+test.each([
+  "java&#x73;cript:run",
+  "data:text/plain,hi",
+  "custom://room",
+  "file:///tmp/map",
+  "https://user:pass@host.test/x",
+  "https://@host.test/a",
+  "//host.test/x",
+  "https:///extra.test",
+  "room/name",
+  "http:/host.test",
+  "https://[bad",
+  "https://host.test/a&#10;b",
+  "/&#92;host.test/path",
+  "mailto://host.test",
+  "mailto:/notes",
+  "",
+])("keeps the readable label for a rejected destination %s", (href) => {
+  expect(doc(`[**read**](${href})`)).toEqual([
+    paragraph({
+      kind: "linkLabel",
+      target: null,
+      children: [{ kind: "strong", children: [text("read")] }],
+    }),
+  ]);
+});
+
+test("a linked image, even inside emphasis, has only the outer destination", () => {
+  expect(
+    doc("[**![map](https://img.test/map)**](/chat/team/channels/maps)"),
+  ).toEqual([
+    paragraph({
+      kind: "linkLabel",
+      target: { kind: "sitePath", href: "/chat/team/channels/maps" },
+      children: [
+        {
+          kind: "strong",
+          children: [{ kind: "imageDescription", text: "map", target: null }],
+        },
+      ],
+    }),
+  ]);
 });
