@@ -18,6 +18,8 @@ import { canonicalServerUrl } from "../mattermost/server-url.ts";
 const postActionText = {
   en: {
     actions: "Message actions",
+    reply: "Reply in thread",
+    openThread: "Open thread",
     copy: "Copy link",
     copied: "Message link copied.",
     failed: "Couldn’t copy the link.",
@@ -25,6 +27,8 @@ const postActionText = {
   },
   ru: {
     actions: "Действия с сообщением",
+    reply: "Ответить в треде",
+    openThread: "Открыть тред",
     copy: "Скопировать ссылку",
     copied: "Ссылка на сообщение скопирована.",
     failed: "Не удалось скопировать ссылку.",
@@ -47,6 +51,7 @@ export function usePostActionScope(
   teamName: string,
   userId: string,
   locale: EntryLanguage,
+  canReply: boolean,
 ) {
   const presentation = useMemo(() => ({ route }), [route]);
   const [allowed, setAllowed] = useState(!isAndroid);
@@ -77,7 +82,7 @@ export function usePostActionScope(
       }),
     [],
   );
-  if (menu && (!allowed || menu.presentation !== presentation)) setMenu(null);
+  if (menu && menu.presentation !== presentation) setMenu(null);
   if (notice && notice.presentation !== presentation) setNotice(null);
   const ownsRoute = useCallback(
     () => active.current === presentation,
@@ -97,6 +102,7 @@ export function usePostActionScope(
   }, [notice]);
   return {
     allowed,
+    canReply,
     anchor: menu?.anchor,
     open: (anchor: HTMLButtonElement) => setMenu({ anchor, presentation }),
     close,

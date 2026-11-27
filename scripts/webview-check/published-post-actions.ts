@@ -16,6 +16,18 @@ const labels = {
   },
 };
 
+export function openThreadFromMessageMenu(origin: HTMLElement) {
+  flushSync(() => fireEvent.click(origin));
+  const menu = within(document.body).getByRole("dialog", {
+    name: "Message actions",
+  });
+  const reply = within(menu).getByRole("button", { name: "Reply in thread" });
+  if (document.activeElement !== reply)
+    throw Error("The message menu did not focus its first action");
+  flushSync(() => fireEvent.click(reply));
+  if (menu.isConnected) throw Error("Opening the thread left its menu open");
+}
+
 export async function checkRowPermalink(
   row: HTMLElement,
   expected: string,
@@ -44,8 +56,11 @@ export async function checkRowPermalink(
       name: title,
     });
     const action = within(menu).getByRole("button", { name: option });
-    if (document.activeElement !== action)
-      throw Error("No focus on the permalink action");
+    if (
+      document.activeElement !==
+      menu.querySelector(".post-actions-options button")
+    )
+      throw Error("The message menu did not focus its first action");
     flushSync(() => fireEvent.click(action));
     await within(document.body).findByText(deny ? denied : copied);
     await waitFor(() => {

@@ -12,7 +12,10 @@ import {
   verifyAttachmentReturn,
   verifySearchAttachment,
 } from "./published-attachments.ts";
-import { checkRowPermalink } from "./published-post-actions.ts";
+import {
+  checkRowPermalink,
+  openThreadFromMessageMenu,
+} from "./published-post-actions.ts";
 
 export function inspectChannelTable(table: ReturnType<typeof within>) {
   const score = table.getByRole("columnheader", { name: "Score" });
@@ -119,6 +122,8 @@ export async function verifyWorkspaceBack(
       const menu = within(document.body).getByRole("dialog", {
         name: "Message actions",
       });
+      if (within(menu).queryByRole("button", { name: /thread/i }))
+        throw Error("Replies inside a thread offered another thread action");
       await press("post-actions");
       await waitFor(() => {
         if (
@@ -276,7 +281,7 @@ export async function verifyWorkspaceBack(
           "Leaving the thread lost the invoking post or channel draft",
         );
     });
-    flushSync(() => fireEvent.click(opener));
+    openThreadFromMessageMenu(opener);
     const { pane: reopened, field: reopenedField } =
       await findThreadDraft(host);
     await waitFor(() => {
@@ -425,14 +430,14 @@ export async function checkDesktopBack(port: string, server: string) {
       name: "Message #Town Square…",
     }),
   );
-  const opener = within(town).getByRole("button", { name: /Open thread/ });
+  const opener = within(town).getByRole("button", { name: "Message actions" });
   await fixtureStep("open-desktop-thread", () => {
     flushSync(() =>
       fireEvent.input(channel, {
         target: { value: "Unsent desktop channel draft" },
       }),
     );
-    flushSync(() => fireEvent.click(opener));
+    openThreadFromMessageMenu(opener);
   });
   await fixtureStep("copy-desktop-reply-permalink", async () => {
     const { thread } = await findThreadDraft(host);

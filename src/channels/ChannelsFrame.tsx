@@ -195,7 +195,8 @@ export function ChannelsFrame({
         page === "conversation" &&
         channelId === old.channelId
       ) {
-        if (opener?.isConnected) opener.focus();
+        // The timeline restores its reading position after fitting the wider pane.
+        if (opener?.isConnected) opener.focus({ preventScroll: true });
         if (!opener?.isConnected || document.activeElement !== opener)
           heading.current?.focus();
       } else focusVisiblePane();
@@ -299,14 +300,17 @@ export function ChannelsFrame({
           data-surface="message"
           aria-labelledby={headingId}
           onFocusCapture={(event) => {
-            lastConversationControl.current = event.target;
+            if (event.currentTarget.contains(event.target))
+              lastConversationControl.current = event.target;
           }}
           onClickCapture={(event) => {
             if (event.target instanceof Element) {
               const control = event.target.closest<HTMLElement>(
                 "button, a[href], [tabindex]",
               );
-              if (control) lastConversationControl.current = control;
+              // A dialog portaled from the feed bubbles here in React.
+              if (control && event.currentTarget.contains(control))
+                lastConversationControl.current = control;
             }
           }}
         >

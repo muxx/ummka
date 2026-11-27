@@ -1200,6 +1200,82 @@ async function rowActions(
   return within(row).getByRole("button", { name: "Message actions" });
 }
 
+test.each([
+  [true, root.message, root.id],
+  [false, reply.message, root.id],
+])(
+  "opens the selected channel row's root through its message menu",
+  async (collapsed, message, rootId) => {
+    const account = mount(collapsed);
+    const draft = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+      name: "Message #General…",
+    });
+    fireEvent.change(draft, { target: { value: "Keep this draft" } });
+    const opener = await rowActions(message);
+    const back = () =>
+      androidBack ? act(() => androidBack?.()) : handleEscape();
+    fireEvent.click(opener);
+    back();
+    await waitFor(() => expect(document.activeElement).toBe(opener));
+    expect(account.readThreadPage).not.toHaveBeenCalled();
+
+    fireEvent.click(opener);
+    const menu = screen.getByRole("dialog", { name: "Message actions" });
+    const open = within(menu).getByRole("button", { name: "Reply in thread" });
+    expect(document.activeElement).toBe(open);
+    act(() => {
+      open.click();
+      open.click();
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    const pane = await screen.findByRole("complementary", { name: "Thread" });
+    const displayedReply = await within(pane).findByText(reply.message);
+    expect(document.activeElement).toBe(
+      collapsed
+        ? within(pane).getByRole("heading")
+        : displayedReply.closest("article"),
+    );
+    expect(
+      account.readThreadPage.mock.calls.map(([query]) => query.rootId),
+    ).toEqual(collapsed ? [rootId] : [rootId, rootId]);
+
+    fireEvent.click(await rowActions(reply.message, pane));
+    const actions = within(
+      screen.getByRole("dialog", { name: "Message actions" }),
+    );
+    expect(actions.getByRole("button", { name: "Copy link" })).toBe(
+      document.activeElement,
+    );
+    expect(actions.queryByRole("button", { name: /thread/i })).toBeNull();
+    back();
+    expect(pane.isConnected).toBe(true);
+    const restoreFocus = vi.spyOn(opener, "focus");
+    back();
+    expect(pane.isConnected).toBe(false);
+    expect(document.activeElement).toBe(opener);
+    expect(restoreFocus).toHaveBeenLastCalledWith({ preventScroll: true });
+    expect(draft.value).toBe("Keep this draft");
+  },
+);
+
+test("a read-only member can open a root with no replies through its message menu", async () => {
+  const account = mount(true, true, { second: true, writable: false });
+  await screen.findByText("This channel is read-only.");
+  fireEvent.click(await rowActions(secondRoot.message));
+  const menu = within(screen.getByRole("dialog", { name: "Message actions" }));
+  expect(menu.queryByRole("button", { name: "Reply in thread" })).toBeNull();
+  fireEvent.click(menu.getByRole("button", { name: "Open thread" }));
+  const pane = within(
+    await screen.findByRole("complementary", { name: "Thread" }),
+  );
+  expect(await pane.findByText(secondRoot.message)).toBeTruthy();
+  expect(pane.queryByRole("textbox")).toBeNull();
+  expect(pane.getByText("This channel is read-only.")).toBeTruthy();
+  expect(account.readThreadPage).toHaveBeenCalledTimes(1);
+  expect(account.readThreadPage.mock.calls[0]?.[0].rootId).toBe(secondRoot.id);
+  expect(account.submitDraft).not.toHaveBeenCalled();
+});
+
 test("copies each published message's own permalink in Channels and in a thread, and returns keyboard focus", async () => {
   const write = fixtureClipboard();
   const account = mount(true);
@@ -1211,7 +1287,9 @@ test("copies each published message's own permalink in Channels and in a thread,
   fireEvent.click(rootActions);
   const menu = screen.getByRole("dialog", { name: "Message actions" });
   const copy = within(menu).getByRole("button", { name: "Copy link" });
-  expect(document.activeElement).toBe(copy);
+  expect(document.activeElement).toBe(
+    within(menu).getByRole("button", { name: "Reply in thread" }),
+  );
   fireEvent.click(copy);
   await screen.findByText("Message link copied.");
   expect(write.mock.calls).toEqual([
@@ -1285,9 +1363,7 @@ test.runIf(isAndroid)(
     const origin = await rowActions(root.message);
     fireEvent.click(origin);
     fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
-    fireEvent.click(
-      screen.getByRole("button", { name: /Open thread, 1 reply/ }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Reply in thread" }));
     const thread = await screen.findByRole("complementary", { name: "Thread" });
     fireEvent.click(
       within(thread).getByRole("button", { name: "Close thread" }),
@@ -1364,7 +1440,9 @@ test.runIf(isAndroid)(
     expect(
       screen.queryByText(/Message link copied|Couldn’t copy the link/),
     ).toBeNull();
-    expect(document.activeElement).toBe(action);
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Reply in thread" }),
+    );
     fireEvent.click(action);
     await screen.findByText("Message link copied.");
     expect(write).toHaveBeenCalledExactlyOnceWith(
@@ -1428,13 +1506,22 @@ test.each([
     mount(true, true, { type: String(type), rootAuthor: String(rootAuthor) });
     const row = (await screen.findByText(root.message)).closest("article");
     if (!row) throw Error("Missing message");
-    expect(
-      Boolean(within(row).queryByRole("button", { name: "Message actions" })),
-    ).toBe(visible);
+    const trigger = within(row).queryByRole("button", {
+      name: "Message actions",
+    });
+    expect(Boolean(trigger)).toBe(visible);
+    if (trigger) {
+      fireEvent.click(trigger);
+      const menu = within(
+        screen.getByRole("dialog", { name: "Message actions" }),
+      );
+      expect(menu.getByRole("button", { name: "Copy link" })).toBeTruthy();
+      expect(menu.queryByRole("button", { name: /thread/i })).toBeNull();
+    }
   },
 );
 
-test("a device policy change closes the open menu and hides both explicit copy actions", async () => {
+test("a device policy change hides both copy actions while the channel thread action stays usable", async () => {
   let change!: (allowed: boolean) => void;
   const policy = vi
     .spyOn(clipboardPolicy, "observeClipboardAllowed")
@@ -1455,16 +1542,31 @@ test("a device policy change closes the open menu and hides both explicit copy a
       within(pending).queryByRole("button", { name: "Message actions" }),
     ).toBeNull();
     fireEvent.click(await rowActions(root.message));
+    const menu = screen.getByRole("dialog", { name: "Message actions" });
+    const actions = within(menu);
+    actions.getByRole("button", { name: "Copy link" }).focus();
+    act(() => change(false));
+    expect(menu.isConnected).toBe(true);
+    expect(actions.queryByRole("button", { name: "Copy link" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Copy text" })).toBeNull();
+    expect(write).not.toHaveBeenCalled();
+    const open = actions.getByRole("button", { name: "Reply in thread" });
+    expect(document.activeElement).toBe(open);
+    fireEvent.click(open);
+    const pane = await screen.findByRole("complementary", { name: "Thread" });
+    expect(await within(pane).findByText(reply.message)).toBeTruthy();
+    expect(
+      within(pane).queryByRole("button", { name: "Message actions" }),
+    ).toBeNull();
+    expect(clipboardPolicy.readClipboardAllowed).not.toHaveBeenCalled();
+    act(() => change(true));
+    fireEvent.click(await rowActions(reply.message, pane));
     expect(
       screen.getByRole("dialog", { name: "Message actions" }),
     ).toBeTruthy();
     act(() => change(false));
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(
-      screen.queryByRole("button", { name: "Message actions" }),
-    ).toBeNull();
-    expect(screen.queryByRole("button", { name: "Copy text" })).toBeNull();
-    expect(write).not.toHaveBeenCalled();
+    handleEscape();
     act(() => change(true));
     expect(await rowActions(root.message)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Copy text" }));
