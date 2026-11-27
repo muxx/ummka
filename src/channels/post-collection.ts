@@ -3,6 +3,7 @@ import {
   type accountPostCollections,
   savedPageSize,
 } from "../mattermost/account-post-collections.ts";
+import { isMattermostId } from "../mattermost/model-fields.ts";
 import type { accountCollectionActions } from "../mattermost/post-collection-actions.ts";
 import { mayKeepCache, workspaceFailure } from "./workspace-data.ts";
 
@@ -103,7 +104,13 @@ export function openPostCollection(account: Account, source: Source) {
     if (signal.aborted) return;
     let next: ReadState;
     try {
-      const [value, flags] =
+      if (
+        scope.kind !== "pins" &&
+        returnedPostId !== undefined &&
+        !isMattermostId(returnedPostId)
+      )
+        throw new TypeError("Invalid Mattermost saved post ID.");
+      const [value, membership] =
         scope.kind === "pins"
           ? ([
               await account.readPinnedChannelPosts(scope.channelId, signal),
@@ -111,23 +118,25 @@ export function openPostCollection(account: Account, source: Source) {
             ] as const)
           : await Promise.all([
               account.readSavedPosts(scope, 0, signal),
-              account.readSavedPostPreferences(signal, returnedPostId),
+              account.readSavedPostPreferences(signal),
             ]);
       if (signal.aborted) return;
       // Concurrent removals might already be absent from the preference response.
       // Keep its upper bound and overlap their raw positions on the next read.
-      cursor = flags && {
+      cursor = membership && {
         offset: Math.max(0, savedPageSize - removed.size),
-        limit: flags.upperBound,
+        limit: membership.upperBound,
       };
       // A write confirmed after this read started takes precedence over its snapshot.
       next = {
         status: "ready",
         ...(returnedPostId &&
-          flags?.returnedPostSaved !== undefined && {
+          membership && {
             returnedPost: {
               id: returnedPostId,
-              saved: !removed.has(returnedPostId) && flags.returnedPostSaved,
+              saved:
+                !removed.has(returnedPostId) &&
+                membership.ids.has(returnedPostId),
             },
           }),
         value: removed.size

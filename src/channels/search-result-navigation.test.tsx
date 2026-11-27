@@ -972,7 +972,10 @@ test("labels empty published bodies and attachments in saved rows", async () => 
 test("a hidden saved page remains traversable, preserves the previous rows on retry, and discards a revoked response", async () => {
   const { account } = fixture();
   const trigger = await screen.findByRole("button", { name: "Saved messages" });
-  account.readSavedPostPreferences.mockResolvedValue({ upperBound: 121 });
+  account.readSavedPostPreferences.mockResolvedValue({
+    ids: new Set([root.id, reply.id, bookmark]),
+    upperBound: 121,
+  });
   account.readSavedPostsAtOffset
     .mockResolvedValueOnce({ items: [], firstInaccessiblePostTime: 0 })
     .mockRejectedValueOnce(new TypeError("offline"))
