@@ -232,8 +232,14 @@ async function checkWidth(account: Account, width: number) {
       ]);
       await until(
         () => article(preceding.id)?.textContent?.includes(lastLine) === true,
-        "preceding text edit",
-      );
+        `preceding text edit at ${width}px, revision ${450 + count}`,
+      ).catch(async (error: Error) => {
+        const stored = await account.readSavedPost(channelId, preceding.id);
+        const row = article(preceding.id);
+        throw Error(
+          `${error.message}; stored revision ${stored?.updateAt ?? "missing"}; preceding row ${row ? "present" : "missing"}; visible rows ${measureTimeline(pane).anchors.length}`,
+        );
+      });
       const newHeight =
         article(preceding.id)?.getBoundingClientRect().height ?? 0;
       const after = offset(id(63));
