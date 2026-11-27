@@ -108,6 +108,7 @@
   background: #ffffff1c;
 }
 .channels-panes {
+  position: relative;
   display: flex;
   flex: 1;
   min-height: 0;
@@ -187,6 +188,45 @@
 .channels-thread {
   flex: 0 0 var(--right-choice, 400px);
   border-inline-start: 1px solid var(--divider);
+}
+.pane-resizer {
+  position: absolute;
+  z-index: 3;
+  inset-block: 0;
+  width: 10px;
+  margin: 0 -5px;
+  border: 0;
+  cursor: col-resize;
+  touch-action: none;
+  outline: 0;
+}
+.pane-resizer[data-pane-width-control="navigation"] {
+  inset-inline-start: var(--sidebar-width);
+}
+.pane-resizer[data-pane-width-control="right"] {
+  inset-inline-end: var(--right-choice);
+}
+.pane-resizer::after {
+  content: "";
+  position: absolute;
+  inset: 0 4px;
+  pointer-events: none;
+}
+.pane-resizer:is(:hover, :focus-visible, [data-dragging])::after {
+  background: var(--focus);
+}
+.channels-panes:has(.pane-resizer[data-dragging]) {
+  cursor: col-resize;
+  user-select: none;
+}
+@media (forced-colors: active) {
+  .pane-resizer:focus-visible {
+    outline: 2px solid Highlight;
+  }
+}
+.channels-pane-head .pane-size-toggle {
+  width: 32px;
+  height: 32px;
 }
 .pane-width-notice {
   position: absolute;

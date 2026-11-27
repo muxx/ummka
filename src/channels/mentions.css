@@ -9,9 +9,6 @@
   background: var(--canvas);
   color: var(--text);
 }
-.mentions-pane[data-wide] {
-  flex-basis: var(--expanded-choice, 60cqi);
-}
 .channels-panes:has(.mentions-pane[data-standalone]) .channels-conversation {
   display: none;
 }
@@ -149,8 +146,7 @@
   white-space: nowrap;
 }
 @container (width <= 740px) {
-  .mentions-pane,
-  .mentions-pane[data-wide] {
+  .mentions-pane {
     flex: 1;
     border: 0;
     padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
