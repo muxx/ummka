@@ -116,7 +116,7 @@ async function checkThreadReply(
   townDraft: HTMLTextAreaElement,
 ) {
   const ui = within(host);
-  flushSync(() => fireEvent.click(opener));
+  openThreadFromMessageMenu(opener);
   const { pane, thread, field } = await findThreadDraft(host);
   if (document.activeElement === field || field.value)
     throw Error("Opening the compact thread focused or populated its editor");
@@ -303,7 +303,7 @@ async function checkBrowserWorkspace(
       "fixture-author · # Town Square",
     );
   const townActions = await within(town).findByRole("button", {
-    name: "Message actions",
+    name: /^Message actions(?: · .+)?$/,
   });
   flushSync(() => fireEvent.click(townActions));
   const actions = within(
@@ -328,7 +328,13 @@ async function checkBrowserWorkspace(
     fireEvent.click(actions.getByRole("button", { name: "Close" })),
   );
   await checkRowPermalink(town, `${server}/browser/pl/${systemRoot}`);
-  const direct = within(town).getByRole("button", { name: "Open thread" });
+  if (
+    town.querySelector(".timeline-thread-count") ||
+    within(town).queryByRole("button", { name: "Open thread" })
+  )
+    throw Error(
+      "A compact conversation with no replies must open its thread from the message menu",
+    );
   openThreadFromMessageMenu(townActions);
   const thread = await ui.findByRole("complementary", { name: "Thread" });
   const reply = await within(thread).findByText(
@@ -356,7 +362,7 @@ async function checkBrowserWorkspace(
   if (town.getClientRects().length || document.activeElement === townDraft)
     throw Error("The compact thread did not take over the conversation");
   await verifyWorkspaceBack(host, controlPort, townActions, townDraft);
-  await checkThreadReply(host, direct, townDraft);
+  await checkThreadReply(host, townActions, townDraft);
   return townDraft;
 }
 

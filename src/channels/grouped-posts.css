@@ -1,0 +1,255 @@
+.channel-timeline .timeline-post {
+  grid-template-columns: 34px minmax(0, 1fr);
+  padding-inline: clamp(12px, min(2.1vw, 5%), 34px);
+}
+.channel-timeline .timeline-post > .timeline-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+}
+.thread-feed .timeline-post {
+  grid-template-columns: 29px minmax(0, 1fr);
+  column-gap: 8px;
+  padding-inline: 15px;
+}
+.thread-feed .timeline-post > .timeline-avatar {
+  width: 29px;
+  height: 29px;
+  border-radius: 8px;
+}
+.timeline-post[data-continuation] {
+  padding-block: 1px 3px;
+}
+.timeline-post[data-continuation]:focus-within:not([data-post-arrival]) {
+  background: var(--message-hover);
+}
+.timeline-continuation-time {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: start;
+  padding-block-start: 0.31rem;
+  color: var(--muted);
+  font-size: 0.61rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  opacity: 0;
+}
+:root[data-keyboard-navigation]
+  .timeline-post:focus-within
+  > .timeline-continuation-time {
+  opacity: 1;
+}
+@media (hover: hover) {
+  .timeline-post:is(:hover, :focus-within) > .timeline-continuation-time {
+    opacity: 1;
+  }
+}
+.timeline-continuation-author {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.timeline-post[data-continuation] > .timeline-post-body {
+  grid-column: 2;
+  grid-row: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: start;
+}
+.timeline-post[data-continuation] > .timeline-post-body > header {
+  grid-column: 2;
+  grid-row: 1;
+  flex-wrap: nowrap;
+  column-gap: 2px;
+}
+.timeline-post[data-continuation] > .timeline-post-body > :not(header) {
+  grid-column: 1 / -1;
+}
+.timeline-post[data-continuation] > .timeline-post-body > header + * {
+  grid-column: 1;
+}
+.timeline-post[data-continuation] .timeline-thread-count {
+  justify-self: start;
+}
+.timeline-post[data-continuation]
+  .post-body-disclosure-content
+  > .published-post {
+  margin-block-start: 0;
+}
+.timeline-post[data-continuation]
+  :is(.timeline-post-actions, .timeline-open-thread) {
+  padding-block: 1px;
+}
+.timeline-bot {
+  color: var(--muted);
+  padding-inline: 4px;
+  border: 1px solid var(--divider);
+  border-radius: 3px;
+  font-size: 0.55rem;
+  font-weight: 700;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+.timeline-priority {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-block: 2px 3px;
+  color: var(--link);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+.timeline-priority svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.timeline-post-tools {
+  display: flex;
+  margin-inline-start: auto;
+}
+.timeline-post-tools:empty {
+  display: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .timeline-post-tools:not(:empty) {
+    position: absolute;
+    inset-inline-end: 13px;
+    inset-block-start: -7px;
+    z-index: 1;
+    align-items: center;
+    gap: 1px;
+    padding: 1px 3px;
+    border: 1px solid var(--divider);
+    border-radius: 7px;
+    background: var(--canvas);
+    box-shadow: 0 2px 7px rgb(6 24 57 / 8%);
+    opacity: 0;
+    pointer-events: none;
+  }
+  .timeline-post:is(
+      :hover,
+      :focus-within,
+      :has(.timeline-post-actions[aria-expanded="true"])
+    )
+    .timeline-post-tools {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .timeline-post
+    > .timeline-post-body
+    > header
+    .timeline-post-tools:not(:empty)
+    > button {
+    box-sizing: border-box;
+    width: 27px;
+    height: 25px;
+    margin: 0;
+    padding: 0;
+    opacity: 1;
+  }
+  .timeline-post-tools > button > svg {
+    width: 15px;
+    height: 15px;
+  }
+  .timeline-post:has(.timeline-post-tools > button) {
+    --timeline-tools-space: 48px;
+  }
+  .timeline-post:has(.timeline-post-tools > button + button) {
+    --timeline-tools-space: 76px;
+  }
+  .timeline-post:has(.timeline-post-tools > button + button + button) {
+    --timeline-tools-space: 104px;
+  }
+  .timeline-post > .timeline-post-body > header,
+  .timeline-post[data-continuation]
+    > .timeline-post-body
+    > .post-body-disclosure {
+    padding-inline-end: var(--timeline-tools-space, 0);
+  }
+  .timeline-post > .timeline-post-body > header {
+    min-block-size: 21px;
+  }
+  .timeline-post[data-continuation] > .timeline-post-body > header {
+    min-block-size: 0;
+    padding-inline-end: 0;
+  }
+}
+
+@media (max-width: 740px) {
+  .channel-timeline .timeline-post {
+    grid-template-columns: 30px minmax(0, 1fr);
+    column-gap: 8px;
+    padding-inline: 12px;
+  }
+  .channel-timeline .timeline-post > .timeline-avatar {
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+  }
+}
+
+.post-actions-heading:has(time) {
+  padding-block: 15px 9px;
+  padding-inline: 18px;
+}
+.post-actions-heading:has(time) > div {
+  flex: 1;
+  min-inline-size: 0;
+}
+.post-actions-heading:has(time) h2 {
+  line-height: 1.35;
+}
+.post-actions-heading:has(time) small {
+  margin-block-start: 2px;
+}
+.post-actions-excerpt {
+  display: -webkit-box;
+  margin: 3px 0 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+@media (max-width: 740px) and (pointer: coarse) {
+  .timeline-post[data-continuation] {
+    box-sizing: border-box;
+    min-block-size: 32px;
+  }
+  .timeline-post:has(.timeline-post-actions) {
+    padding-inline-end: 44px;
+  }
+  .timeline-post[data-continuation] > .timeline-post-body {
+    display: block;
+  }
+  .timeline-post:has(.timeline-post-actions) .timeline-post-tools {
+    display: contents;
+  }
+  .timeline-post:has(.timeline-post-actions)
+    :is(.timeline-open-thread, .timeline-post-save) {
+    display: none;
+  }
+  .timeline-post .timeline-post-actions {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-end: 0;
+    align-self: stretch;
+    inline-size: 44px;
+    min-block-size: 0;
+    margin: 0;
+    align-items: flex-start;
+    padding-block-start: 3px;
+  }
+  .timeline-post .timeline-post-actions > svg {
+    width: 24px;
+    height: 24px;
+  }
+}

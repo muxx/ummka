@@ -1,19 +1,68 @@
 import { type ReactNode, useMemo } from "react";
+import { isAndroid } from "../build-platform.ts";
+import type { LocalPost } from "../mattermost/local-history.ts";
 import type { TimelineMessage } from "./conversation-rows.ts";
+import type { TimelineAuthor } from "./TimelinePost.tsx";
 
 type Props = {
   messages: readonly TimelineMessage[];
   locale: string;
   timeZone?: string;
+  author: TimelineAuthor;
   boundary?: { index: number; node: ReactNode };
   unknownDate: string;
-  children: (post: TimelineMessage) => ReactNode;
+  children: (post: TimelineMessage, continuation: boolean) => ReactNode;
 };
+
+function separatesGroup(post: LocalPost) {
+  return (
+    post.fromWebhook !== false ||
+    post.type.startsWith("system_") ||
+    post.type === "burn_on_read"
+  );
+}
+
+function continues(
+  previous: TimelineMessage | undefined,
+  post: TimelineMessage,
+  author: TimelineAuthor,
+) {
+  if (
+    !previous ||
+    previous.outgoing ||
+    post.outgoing ||
+    previous.channelId !== post.channelId ||
+    previous.rootId !== post.rootId ||
+    previous.userId !== post.userId ||
+    post.createAt < previous.createAt ||
+    post.createAt - previous.createAt >= 300_000 ||
+    post.editAt > 0 ||
+    post.displayPriority !== "standard" ||
+    previous.displayPriority === undefined ||
+    separatesGroup(previous) ||
+    separatesGroup(post)
+  )
+    return false;
+  const before = previous.aiAttribution;
+  const current = post.aiAttribution;
+  if (
+    !before ||
+    !current ||
+    (isAndroid && author(post.userId)?.isBot !== false)
+  )
+    return false;
+  return current.kind === "none"
+    ? before.kind === "none"
+    : !current.hasUsername &&
+        before.kind === "source" &&
+        before.userId === current.userId;
+}
 
 export function TimelineDays({
   messages,
   locale,
   timeZone,
+  author,
   boundary,
   unknownDate,
   children,
@@ -47,12 +96,17 @@ export function TimelineDays({
   const days: Day[] = [];
   const occurrences = new Map<string, number>();
   let day: Day | undefined;
+  let previous: TimelineMessage | undefined;
   for (const [index, post] of messages.entries()) {
-    if (day && index === boundary?.index) day.rows.push(boundary.node);
+    if (index === boundary?.index) {
+      day?.rows.push(boundary.node);
+      previous = undefined;
+    }
     const date = new Date(post.createAt);
     const valid = Number.isFinite(date.getTime());
     const calendar = valid ? formats.key.format(date) : "unknown";
     if (day?.calendar !== calendar) {
+      previous = undefined;
       const full = valid ? formats.full.format(date) : unknownDate;
       const occurrence = occurrences.get(calendar) ?? 0;
       occurrences.set(calendar, occurrence + 1);
@@ -66,7 +120,8 @@ export function TimelineDays({
       };
       days.push(day);
     }
-    day.rows.push(children(post));
+    day.rows.push(children(post, continues(previous, post, author)));
+    previous = valid ? post : undefined;
   }
   return (
     <>

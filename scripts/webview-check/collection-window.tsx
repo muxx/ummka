@@ -286,7 +286,7 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
     );
     if (!timeline) throw Error("Missing published Town post");
     const actions = within(timeline).getByRole("button", {
-      name: "Message actions",
+      name: /^Message actions(?: · .+)?$/,
     });
     async function toggleBookmark(name: string, notice: string) {
       click(actions);

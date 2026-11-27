@@ -16,6 +16,7 @@ import * as clipboardPolicy from "../device/clipboard-policy.ts";
 import type { TeamWorkspace } from "../entry/AccountTeamWindow.tsx";
 import type { PendingPost } from "../mattermost/account-delivery.ts";
 import { createChannelHistoryChanges } from "../mattermost/channel-history-changes.ts";
+import { channelProfile } from "../mattermost/channel-profiles.ts";
 import type { LocalPost } from "../mattermost/local-history.ts";
 import type {
   ComposerDraft,
@@ -734,6 +735,16 @@ test.each([0, 86400000])(
   "a confirmed own reply across a gap of %i ms keeps its day, row and focus",
   async (dayOffset) => {
     const connection = mount(true);
+    connection.readSavedProfiles.mockResolvedValue({
+      profiles: {
+        [userId]: channelProfile({
+          id: userId,
+          username: "ada",
+          firstName: "Ada",
+        }),
+      },
+      usernames: { ada: userId },
+    });
     const canonical = {
       ...reply,
       id: "n".repeat(26),
@@ -771,6 +782,10 @@ test.each([0, 86400000])(
       "article",
     );
     if (!own) throw new Error("Missing own outgoing row");
+    expect(first.closest("article")?.hasAttribute("data-continuation")).toBe(
+      false,
+    );
+    expect(own.hasAttribute("data-continuation")).toBe(false);
     expect(
       within(own).queryByRole("button", { name: "Message actions" }),
     ).toBeNull();
@@ -805,6 +820,7 @@ test.each([0, 86400000])(
     expect(document.activeElement).toBe(own);
     expect(own.dataset.postId).toBe(canonical.id);
     expect(own.dataset.localId).toBe(pending.pendingId);
+    expect(own.hasAttribute("data-continuation")).toBe(dayOffset === 0);
     expect(within(pane).queryByText(pending.message)).toBeNull();
     expect(within(pane).queryByText(/between these messages/)).toBeNull();
     expect(connection.retireDeliveredPosts).toHaveBeenCalledWith([

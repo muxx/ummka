@@ -7,6 +7,7 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -17,13 +18,18 @@ import type { LocalPost } from "../mattermost/local-history.ts";
 import { isMattermostId } from "../mattermost/model-fields.ts";
 import { CollectionMark } from "./PostCollectionPane.tsx";
 import { copyToClipboard, PostActionScope } from "./post-action-scope.ts";
+import { publishedPostDocument } from "./published-post-document.ts";
+import { publishedPostExcerpt } from "./published-post-excerpt.ts";
 
 type Scope = NonNullable<ContextType<typeof PostActionScope>>;
+type PostTime = { label: string; dateTime: string; dayLabel: string };
 type PublishedActions = {
   post: LocalPost;
   author: string;
   avatar: ReactNode;
   openThread?: () => void;
+  postTime?: PostTime;
+  editedLabel?: string;
 };
 
 function guardButtonActivation(
@@ -56,6 +62,8 @@ function AvailableActions({
   author,
   avatar,
   openThread,
+  postTime,
+  editedLabel,
   scope,
 }: PublishedActions & { scope: Scope }) {
   const id = useId();
@@ -84,7 +92,11 @@ function AvailableActions({
         aria-haspopup="dialog"
         aria-controls={anchor ? `${id}-menu` : undefined}
         aria-expanded={Boolean(anchor)}
-        aria-label={scope.text.actions}
+        aria-label={
+          postTime
+            ? `${scope.text.actions} · ${author}, ${postTime.label}`
+            : scope.text.actions
+        }
         title={scope.text.actions}
         onKeyDown={guardButtonActivation}
         onClick={(e) => {
@@ -114,6 +126,9 @@ function AvailableActions({
             scope={scope}
             openThread={thread}
             bookmark={bookmark}
+            postTime={postTime}
+            editedLabel={editedLabel}
+            preview={postTime ? post.message : undefined}
           />,
           document.body,
         )}
@@ -198,6 +213,9 @@ function ActionDialog({
   scope,
   openThread,
   bookmark,
+  postTime,
+  editedLabel,
+  preview,
 }: {
   anchor: HTMLButtonElement;
   author: string;
@@ -206,6 +224,9 @@ function ActionDialog({
   scope: Scope;
   openThread?: () => void;
   bookmark: ReturnType<typeof savePresentation>;
+  postTime?: PostTime;
+  editedLabel?: string;
+  preview?: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const action = useRef<HTMLButtonElement>(null);
@@ -215,6 +236,12 @@ function ActionDialog({
   const dismissed = useRef(false);
   const copying = useRef(false);
   const title = useId();
+  const excerpt = useMemo(
+    () =>
+      preview &&
+      publishedPostExcerpt(publishedPostDocument({ message: preview })),
+    [preview],
+  );
   const { close, ownsRoute, text } = scope;
   useLayoutEffect(() => {
     const modal = dialog.current;
@@ -337,8 +364,10 @@ function ActionDialog({
           event.clientX > bounds.right ||
           event.clientY < bounds.top ||
           event.clientY > bounds.bottom
-        )
+        ) {
+          event.preventDefault();
           dismiss();
+        }
       }}
     >
       <div className="post-actions-heading">
@@ -350,7 +379,23 @@ function ActionDialog({
         </span>
         <div>
           <h2 id={title}>{text.actions}</h2>
-          <small>{author}</small>
+          <small>
+            {author}
+            {postTime && (
+              <>
+                {" · "}
+                <time dateTime={postTime.dateTime}>
+                  {postTime.dayLabel}, {postTime.label}
+                </time>
+                {editedLabel && ` · ${editedLabel}`}
+              </>
+            )}
+          </small>
+          {excerpt && (
+            <p className="post-actions-excerpt" dir="auto">
+              {excerpt}
+            </p>
+          )}
         </div>
         <button type="button" aria-label={text.close} onClick={dismiss}>
           <svg

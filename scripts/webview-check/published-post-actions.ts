@@ -50,7 +50,9 @@ export async function checkRowPermalink(
     },
   });
   try {
-    const origin = within(row).getByRole("button", { name: title });
+    const origin = within(row).getByRole("button", {
+      name: new RegExp(`^${title}(?: · .+)?$`),
+    });
     flushSync(() => fireEvent.click(origin));
     const menu = await within(document.body).findByRole("dialog", {
       name: title,

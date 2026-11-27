@@ -145,6 +145,63 @@ test("renders oldest first, preserves tie order, local calendar days and escaped
   expect(screen.getByRole("region").tabIndex).toBe(0);
 });
 
+test("reveals priority and regrouping within the same post when history changes", () => {
+  const at = Date.UTC(2026, 10, 25, 10);
+  const known = {
+    fromWebhook: false,
+    displayPriority: "standard",
+    aiAttribution: { kind: "none" },
+  } as const;
+  const author = () => ({ name: "Ada Lovelace", isBot: false });
+  const first = { ...post("first", at), ...known };
+  const second = { ...post("second", at + 60_000), ...known, isPinned: true };
+  const urgent = {
+    ...post("urgent-body", at + 120_000),
+    ...known,
+    displayPriority: "urgent",
+  } as const;
+  const important = {
+    ...post("important-body", at + 180_000),
+    ...known,
+    displayPriority: "important",
+  } as const;
+  const renderPage = (...posts: LocalChannelWindow["posts"]) => (
+    <ChannelTimeline {...base} author={author} page={page(...posts)} />
+  );
+  const { rerender } = render(renderPage(important, urgent, second));
+  const row = screen.getByText("second").closest("article");
+  if (!row) throw Error("Missing post");
+  expect(row.hasAttribute("data-continuation")).toBe(false);
+
+  rerender(renderPage(important, urgent, second, first));
+  expect(screen.getByText("second").closest("article")).toBe(row);
+  expect(row.hasAttribute("data-continuation")).toBe(true);
+  expect(within(row).getByText("Ada Lovelace").className).toBe(
+    "timeline-continuation-author",
+  );
+  expect(within(row).getByText("Pinned")).toBeTruthy();
+  expect(row.querySelector(".timeline-avatar")).toBeNull();
+  expect(row.querySelector("time")?.dateTime).toBe(
+    new Date(second.createAt).toISOString(),
+  );
+  const [urgentRow, importantRow] = screen.getAllByRole("article").slice(-2);
+  expect(within(urgentRow).getByText("Urgent")).toBeTruthy();
+  expect(within(urgentRow).getByText("Ada Lovelace")).toBeTruthy();
+  expect(within(importantRow).getByText("Important")).toBeTruthy();
+  expect(within(importantRow).getByText("Ada Lovelace")).toBeTruthy();
+
+  const intervening = {
+    ...post("different author", at + 1000, "different"),
+    ...known,
+  };
+  rerender(renderPage(important, urgent, second, intervening, first));
+  expect(row.hasAttribute("data-continuation")).toBe(false);
+  rerender(renderPage(important, urgent, second, first));
+  expect(row.hasAttribute("data-continuation")).toBe(true);
+  rerender(renderPage(important, urgent, second));
+  expect(row.hasAttribute("data-continuation")).toBe(false);
+});
+
 test("keeps different years separate when their compact labels match", () => {
   const pageAcrossYears = page(
     post("new", Date.UTC(2026, 6, 1)),

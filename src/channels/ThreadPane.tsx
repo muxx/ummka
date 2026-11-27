@@ -22,8 +22,10 @@ import {
   formatReplyCount,
   type TimelineAuthor,
   TimelinePost,
+  useTimelinePostFormat,
 } from "./TimelinePost.tsx";
 import { openThreadReplyWindow } from "./thread-reply-window.ts";
+import { createTimelinePostTouch } from "./timeline-post-touch.ts";
 import { useConversationOutgoing } from "./use-conversation-outgoing.tsx";
 import { useWorkspaceProfiles } from "./use-workspace-profiles.ts";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
@@ -214,16 +216,15 @@ function ThreadContent({
   );
   function resolve(id: string) {
     const person = profiles.profiles[id];
-    return author(id) ?? (person && { name: teammateName(person, nameFormat) });
+    return (
+      author(id) ??
+      (person && {
+        name: teammateName(person, nameFormat),
+        isBot: person.isBot,
+      })
+    );
   }
-  const time = useMemo(
-    () =>
-      new Intl.DateTimeFormat(locale, {
-        hour: "numeric",
-        minute: "2-digit",
-      }),
-    [locale],
-  );
+  const time = useTimelinePostFormat(locale);
   if (inaccessible)
     return (
       <p className="timeline-empty" role="alert">
@@ -232,16 +233,18 @@ function ThreadContent({
     );
   const summary =
     collapsedThreads && (post.rootId ? savedRoot : post)?.threadSummary;
-  function renderReply(row: TimelineMessage) {
+  function renderReply(row: TimelineMessage, continuation: boolean) {
     return (
       <div key={row.localId ?? row.id} className="thread-reply">
         <TimelinePost
           post={row}
+          continuation={continuation}
           addressed={row.id === post.id}
           focusable
           inThread
           locale={locale}
-          time={time}
+          time={time.clock}
+          menuDate={time}
           author={resolve}
           ownName={outgoing.ownName}
         >
@@ -269,7 +272,8 @@ function ThreadContent({
               post={root}
               inThread
               locale={locale}
-              time={time}
+              time={time.clock}
+              menuDate={time}
               author={resolve}
             />
           </div>
@@ -295,6 +299,7 @@ function ThreadContent({
         <TimelineDays
           messages={[...outgoing.messages, ...outgoing.afterGap]}
           locale={locale}
+          author={resolve}
           unknownDate={text.unknownDate}
           boundary={{
             index: outgoing.messages.length,
@@ -410,6 +415,7 @@ type Place = { top: number; id?: string; offset?: number; edge?: Direction };
 
 class ThreadFeed extends Component<FeedProps> {
   private readonly frame = createRef<HTMLDivElement>();
+  private readonly postTouch = createTimelinePostTouch();
   private resize?: ResizeObserver;
   private readonly pane = createRef<HTMLElement>();
   private clearArrival?: () => void;
@@ -581,6 +587,7 @@ class ThreadFeed extends Component<FeedProps> {
           // biome-ignore lint/a11y/noNoninteractiveTabindex: Keyboard users can page through this independently scrollable thread.
           tabIndex={0}
           className="timeline-scroll thread-feed"
+          {...this.postTouch}
           aria-label={this.props.label}
         >
           {this.props.children}
