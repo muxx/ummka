@@ -109,6 +109,140 @@
   cursor: pointer;
 }
 
+.entry-card:has(> .entry-link-identity) {
+  --entry-link-inset: 26px;
+  padding-block-start: 20px;
+}
+.entry-window[data-mobile] .entry-card:has(> .entry-link-identity) {
+  --entry-link-inset: 16px;
+  padding-block: 18px 28px;
+}
+.entry-link-identity {
+  margin-inline: calc(-1 * var(--entry-link-inset));
+  padding-inline: var(--entry-link-inset);
+}
+.entry-link-server {
+  font-size: 1.04rem;
+}
+.entry-link-identity .entry-address strong {
+  color: var(--text);
+}
+.entry-link-lock {
+  width: 13px;
+  height: 13px;
+  margin-inline-end: 4px;
+  vertical-align: -2px;
+  color: var(--accent);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+}
+.entry-card .entry-link-title {
+  margin-block-start: 22px;
+  font-size: 1.3rem;
+  letter-spacing: -0.02em;
+}
+.entry-link-title:focus {
+  outline: none;
+}
+.entry-link-lead {
+  margin-block: 6px 18px;
+  font-size: 0.9rem;
+}
+.entry-link-status {
+  margin: 16px 0 0;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.875rem;
+}
+.entry-link-provider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-sizing: border-box;
+  min-height: 64px;
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--divider);
+  border-radius: 12px;
+  color: var(--text);
+  background: var(--canvas);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.entry-link-provider:hover,
+.entry-decline-link:hover {
+  background: var(--row-hover);
+}
+.entry-link-provider::after {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-inline-start: auto;
+  border: solid var(--muted);
+  border-width: 1px 1px 0 0;
+  transform: rotate(45deg);
+}
+.entry-link-provider:dir(rtl)::after {
+  transform: rotate(-135deg);
+}
+.entry-gitlab-mark {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  color: var(--accent);
+  fill: none;
+  stroke: currentColor;
+  stroke-linejoin: round;
+  stroke-width: 1.75;
+}
+.entry-link-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: auto;
+  padding-inline: 24px;
+  font-weight: 400;
+}
+.entry-link-primary .entry-gitlab-mark {
+  width: 16px;
+  height: 16px;
+  color: currentColor;
+}
+.entry-window[data-mobile] .entry-link-primary {
+  width: 100%;
+  min-height: 48px;
+}
+.entry-link-hint {
+  margin-block: 4px 6px;
+}
+.entry-window[data-mobile] .entry-link-hint {
+  margin-block: 11px 6px;
+}
+.entry-link-method {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  font-size: 0.95rem;
+}
+.entry-link-method small {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+.entry-decline-link {
+  margin-block-start: 10px;
+  padding-inline: 18px;
+}
+.entry-window[data-mobile] .entry-decline-link {
+  width: 100%;
+  min-height: 48px;
+}
+
 .entry-session-actions {
   display: flex;
   flex-wrap: wrap;

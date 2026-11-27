@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { isMobile } from "../build-platform";
 import {
   cancelBrowserSignIn,
   signInWithBrowser,
@@ -11,6 +12,7 @@ import { sessionText } from "./session-text";
 type Profile = Awaited<ReturnType<typeof inspectInstallation>>;
 type Provider = Profile["ssoProviders"][number];
 type Attempt = { id?: string; cancelling: boolean };
+export type SignInLink = { deliveryId: string; dismiss: () => void };
 type Text = (typeof sessionText)[EntryLanguage];
 const providerNames = {
   gitlab: "GitLab",
@@ -50,17 +52,26 @@ function explain(error: unknown, text: Text): string {
 export function SignInMethods({
   profile,
   language,
+  link,
   onBack,
   onAccountChanged,
 }: {
   profile: Profile;
   language: EntryLanguage;
+  link?: SignInLink;
   onBack: () => void;
   onAccountChanged: () => void;
 }) {
   const text = entryText[language];
   const labels = sessionText[language];
-  const name = profile.siteName.trim() || new URL(profile.serverUrl).host;
+  const address = new URL(profile.serverUrl);
+  const name = profile.siteName.trim() || address.host;
+  const gitlabOnly =
+    !!link &&
+    profile.ssoProviders.length === 1 &&
+    profile.ssoProviders[0] === "gitlab" &&
+    !profile.passwordIdentifiers.length &&
+    !profile.guestMagicLink;
   const operation = useRef<Attempt | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const buttons = useRef<HTMLUListElement>(null);
@@ -68,15 +79,23 @@ export function SignInMethods({
   const [waiting, setWaiting] = useState<Provider | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [message, setMessage] = useState("");
+  const [cancelledDelivery, setCancelledDelivery] = useState<string>();
+  const delivery = link?.deliveryId;
+  const previousDelivery = useRef(delivery);
+  const providerDescription = useId();
   useLayoutEffect(() => {
+    const linked =
+      delivery !== undefined || previousDelivery.current !== undefined;
+    previousDelivery.current = delivery;
+    const provider = returnTo.current;
     const button =
-      !waiting && returnTo.current
+      !waiting && (provider || linked) && (!linked || !isMobile)
         ? buttons.current?.querySelector<HTMLButtonElement>(
-            `button[data-provider="${returnTo.current}"]`,
+            provider ? `button[data-provider="${provider}"]` : "button",
           )
         : null;
-    (button ?? heading.current)?.focus();
-  }, [waiting]);
+    (button ?? heading.current)?.focus({ preventScroll: linked && isMobile });
+  }, [delivery, waiting]);
   useEffect(
     () => () => {
       const request = operation.current;
@@ -107,6 +126,7 @@ export function SignInMethods({
     operation.current = request;
     returnTo.current = provider;
     setMessage("");
+    setCancelledDelivery(undefined);
     setCancelling(false);
     setWaiting(provider);
     try {
@@ -127,7 +147,9 @@ export function SignInMethods({
       ) {
         onAccountChanged();
       } else {
-        setMessage(explain(error, labels));
+        const detail = explain(error, labels);
+        setMessage(detail);
+        if (!detail) setCancelledDelivery(previousDelivery.current);
         setWaiting(null);
       }
       return;
@@ -144,29 +166,63 @@ export function SignInMethods({
   }
   return (
     <EntryWindow
-      back={{
-        label: waiting ? labels.cancel : text.back,
-        activate: waiting ? cancelCurrent : onBack,
-      }}
+      back={
+        waiting
+          ? { label: labels.cancel, activate: cancelCurrent }
+          : link
+            ? undefined
+            : { label: text.back, activate: onBack }
+      }
     >
-      <div className="entry-identity">
+      <div
+        className={
+          link ? "entry-identity entry-link-identity" : "entry-identity"
+        }
+      >
         <span className="entry-monogram" aria-hidden="true">
           {Array.from(name)[0]}
         </span>
         <div>
-          <h1 ref={waiting ? undefined : heading} tabIndex={-1}>
-            {name}
-          </h1>
+          {link ? (
+            <strong className="entry-link-server">{name}</strong>
+          ) : (
+            <h1 ref={waiting ? undefined : heading} tabIndex={-1}>
+              {name}
+            </h1>
+          )}
           <p className="entry-address" dir="ltr">
-            {profile.serverUrl}
+            {link ? (
+              <>
+                <svg
+                  className="entry-link-lock"
+                  viewBox="0 0 16 16"
+                  aria-hidden="true"
+                >
+                  <rect x="4" y="7" width="8" height="6" rx="1" />
+                  <path d="M6 7V5a2 2 0 0 1 4 0v2" />
+                </svg>
+                {address.host}
+                <strong>
+                  {profile.serverUrl.slice(address.origin.length)}
+                </strong>
+              </>
+            ) : (
+              profile.serverUrl
+            )}
           </p>
         </div>
       </div>
       {waiting ? (
         <>
-          <h2 tabIndex={-1} ref={heading}>
-            {labels.waiting}
-          </h2>
+          {link ? (
+            <h1 className="entry-link-title" tabIndex={-1} ref={heading}>
+              {labels.waiting}
+            </h1>
+          ) : (
+            <h2 tabIndex={-1} ref={heading}>
+              {labels.waiting}
+            </h2>
+          )}
           <p role="status">
             {cancelling ? labels.cancelling : providerNames[waiting]}
           </p>
@@ -181,7 +237,21 @@ export function SignInMethods({
         </>
       ) : (
         <>
-          <h2>{text.methods}</h2>
+          {link ? (
+            <>
+              {cancelledDelivery === delivery && (
+                <p className="entry-link-status" role="status">
+                  {text.linkCancelled}
+                </p>
+              )}
+              <h1 className="entry-link-title" ref={heading} tabIndex={-1}>
+                {text.linkTitle}
+              </h1>
+              <p className="entry-lead entry-link-lead">{text.linkLead}</p>
+            </>
+          ) : (
+            <h2>{text.methods}</h2>
+          )}
           {profile.passwordIdentifiers.length > 0 ||
           profile.ssoProviders.length > 0 ||
           profile.guestMagicLink ? (
@@ -192,12 +262,48 @@ export function SignInMethods({
               {profile.ssoProviders.map((provider) => (
                 <li key={provider}>
                   <button
-                    className="entry-primary"
+                    className={
+                      gitlabOnly
+                        ? "entry-primary entry-link-primary"
+                        : link
+                          ? "entry-link-provider"
+                          : "entry-primary"
+                    }
                     type="button"
                     data-provider={provider}
+                    aria-label={
+                      link && !gitlabOnly ? providerNames[provider] : undefined
+                    }
+                    aria-describedby={
+                      gitlabOnly
+                        ? providerDescription
+                        : link
+                          ? providerDescription + provider
+                          : undefined
+                    }
                     onClick={() => void start(provider)}
                   >
-                    {providerNames[provider]}
+                    {link && provider === "gitlab" && (
+                      <svg
+                        className="entry-gitlab-mark"
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                      >
+                        <path d="M21 14l-9 7l-9-7l3-11l3 7h6l3-7z" />
+                      </svg>
+                    )}
+                    {gitlabOnly ? (
+                      text.gitlabSignIn
+                    ) : link ? (
+                      <span className="entry-link-method">
+                        <strong>{providerNames[provider]}</strong>
+                        <small id={providerDescription + provider}>
+                          {text.browserMethod}
+                        </small>
+                      </span>
+                    ) : (
+                      providerNames[provider]
+                    )}
                   </button>
                 </li>
               ))}
@@ -205,6 +311,20 @@ export function SignInMethods({
             </ul>
           ) : (
             <p>{text.none}</p>
+          )}
+          {gitlabOnly && (
+            <p id={providerDescription} className="entry-hint entry-link-hint">
+              {text.browserHint}
+            </p>
+          )}
+          {link && (
+            <button
+              className="entry-secondary entry-decline-link"
+              type="button"
+              onClick={link.dismiss}
+            >
+              {text.declineLink}
+            </button>
           )}
         </>
       )}

@@ -7,7 +7,7 @@ import {
 } from "../mattermost/inspect-installation";
 import { EntryWindow } from "./EntryWindow";
 import { type EntryLanguage, entryText } from "./language";
-import { SignInMethods } from "./SignInMethods";
+import { type SignInLink, SignInMethods } from "./SignInMethods";
 import { sessionText } from "./session-text";
 import "./connect.css";
 
@@ -25,11 +25,13 @@ type Step =
 export function ServerSignIn({
   language,
   savedServer,
+  link,
   connect,
   onAccountChanged,
 }: {
   language: EntryLanguage;
   savedServer?: string;
+  link?: SignInLink;
   connect: (serverUrl: string, signal: AbortSignal) => Promise<void>;
   onAccountChanged: () => void;
 }) {
@@ -103,6 +105,7 @@ export function ServerSignIn({
       <SignInMethods
         profile={step.profile}
         language={language}
+        link={step.profile.serverUrl === savedServer ? link : undefined}
         onAccountChanged={onAccountChanged}
         onBack={() => {
           returnToField.current = true;
@@ -118,7 +121,7 @@ export function ServerSignIn({
   return (
     <EntryWindow
       back={
-        step.name === "checking" && step.restoring
+        step.name === "checking" && step.restoring && !link
           ? {
               label: text.back,
               activate: () => {
@@ -185,6 +188,15 @@ export function ServerSignIn({
           {busy ? text.busy : text.go}
         </button>
       </form>
+      {link && (
+        <button
+          className="entry-secondary entry-decline-link"
+          type="button"
+          onClick={link.dismiss}
+        >
+          {text.declineLink}
+        </button>
+      )}
     </EntryWindow>
   );
 }

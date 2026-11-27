@@ -9,7 +9,11 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ResponseError } from "../../vendor/mattermost/index.js";
-import { signInWithBrowser } from "../mattermost/browser-sign-in.ts";
+import { isMobile } from "../build-platform.ts";
+import {
+  cancelBrowserSignIn,
+  signInWithBrowser,
+} from "../mattermost/browser-sign-in.ts";
 import { inspectInstallation } from "../mattermost/inspect-installation.ts";
 import {
   getCurrentAccountId,
@@ -63,6 +67,7 @@ vi.mock("../mattermost/inspect-installation.ts", async (original) => ({
 }));
 vi.mock("../mattermost/browser-sign-in.ts", async (original) => ({
   ...(await original<typeof import("../mattermost/browser-sign-in.ts")>()),
+  cancelBrowserSignIn: vi.fn(),
   signInWithBrowser: vi.fn(),
 }));
 
@@ -410,6 +415,78 @@ test("skipping a pending server read suppresses its late result and lets the nex
   await act(async () => release(targetInfo));
   expect(account.readPostAnchor).toHaveBeenCalledTimes(1);
   expect(acks.map((x) => x.id)).toEqual(["1", "2"]);
+});
+test("a saved server with a pending link keeps sign-in and dismissal in the same card", async () => {
+  saved = [base];
+  sessions.delete(base);
+  queue.push({ id: "1", href: href(root.id) });
+  vi.mocked(inspectInstallation).mockResolvedValueOnce({
+    serverUrl: base,
+    siteName: "Winter",
+    version: "10.10.1",
+    passwordIdentifiers: [],
+    ssoProviders: ["gitlab"],
+    guestMagicLink: false,
+  });
+  let cancelBrowser!: (error: unknown) => void;
+  vi.mocked(signInWithBrowser).mockImplementationOnce(
+    (_url, _provider, started) =>
+      new Promise((_resolve, reject) => {
+        cancelBrowser = reject;
+        started("browser-fixture");
+      }),
+  );
+  vi.mocked(cancelBrowserSignIn).mockImplementationOnce(async () => {
+    cancelBrowser({ kind: "browser", cause: "cancelled" });
+    return true;
+  });
+  const { account } = boot();
+  const linkTitle = await screen.findByRole("heading", {
+    name: "Sign in to open the message",
+  });
+  const form = within(screen.getByRole("main"));
+  const linkedProvider = () =>
+    form.getByRole("button", { name: "Sign in with GitLab" });
+  expect(form.getByText(new URL(base).host)).toBeTruthy();
+  expect(screen.queryByRole("complementary")).toBeNull();
+  expect(
+    screen.queryByRole("button", { name: "Change server address" }),
+  ).toBeNull();
+  expect(document.activeElement).toBe(isMobile ? linkTitle : linkedProvider());
+
+  fireEvent.click(linkedProvider());
+  expect(signInWithBrowser).toHaveBeenCalledWith(
+    base,
+    "gitlab",
+    expect.any(Function),
+  );
+  expect(document.activeElement).toBe(
+    form.getByRole("heading", { name: "Continue in your browser" }),
+  );
+  fireEvent.click(form.getByRole("button", { name: "Cancel sign-in" }));
+  await form.findByText("The message will still open when you sign in.");
+  expect(cancelBrowserSignIn).toHaveBeenCalledWith("browser-fixture");
+  expect(acks).toEqual([]);
+  expect(account.readPostDestination).not.toHaveBeenCalled();
+  expect(document.activeElement).toBe(
+    isMobile
+      ? form.getByRole("heading", { name: "Sign in to open the message" })
+      : linkedProvider(),
+  );
+
+  fireEvent.click(form.getByRole("button", { name: "Don’t open this link" }));
+  await waitFor(() => expect(acks.map((entry) => entry.id)).toEqual(["1"]));
+  const regularHeading = form.getByRole("heading", { name: "Winter" });
+  expect(document.activeElement).toBe(
+    isMobile ? regularHeading : form.getByRole("button", { name: "GitLab" }),
+  );
+  expect(
+    screen.getByRole("button", { name: "Change server address" }),
+  ).toBeTruthy();
+  expect(
+    form.queryByText("The message will still open when you sign in."),
+  ).toBeNull();
+  expect(selected).toBe(base);
 });
 test("cancelled SSO keeps the head until authentication on that installation", async () => {
   sessions.delete(nested);

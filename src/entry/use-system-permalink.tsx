@@ -16,6 +16,7 @@ type Stop = "paused" | "unavailable" | "archived" | "failed";
 export type SystemPostRequest = {
   deliveryId: string;
   target: Target;
+  hasOtherInstallations: boolean;
   signal: AbortSignal;
   matchesUser: (userId: string) => boolean;
   shown: (postId: string) => void;
@@ -170,6 +171,9 @@ export function useSystemPermalink(
         const request: SystemPostRequest = {
           deliveryId: gate.link.id,
           target,
+          hasOtherInstallations: installations.some(
+            (installation) => installation !== target.serverUrl,
+          ),
           signal,
           matchesUser: (id) => {
             userId ??= id;
