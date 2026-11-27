@@ -36,6 +36,7 @@ import { respondToWorkspace } from "./workspace.ts";
 export function webviewServers(
   trusted: https.ServerOptions,
   untrusted: https.ServerOptions,
+  externalReceipt?: Promise<boolean>,
 ) {
   const pendingProfileImages = new Map([
     ["97", "profile-image-cancel"],
@@ -1688,6 +1689,7 @@ export function webviewServers(
           "release-history",
           "release-submission",
           "disconnect",
+          "external-handoff",
         ].includes(step));
     const name = url.searchParams.get("case") ?? "";
     const marker =
@@ -1710,7 +1712,16 @@ export function webviewServers(
         return false;
       }
     }
-    if (step === "before") {
+    if (step === "external-handoff") {
+      if (!externalReceipt) {
+        res.writeHead(404).end();
+        return;
+      }
+      if (!(await externalReceipt)) {
+        res.writeHead(503).end();
+        return;
+      }
+    } else if (step === "before") {
       assert.equal(
         connections,
         0,

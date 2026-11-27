@@ -95,16 +95,32 @@ async function checkResources() {
   }
   if (scenario === "workspace-back") {
     await checkBrowserAction(ports[0], ports[1]);
-    if (import.meta.env.VITE_UMMKA_CHECK_WORKSPACE_BACK !== true) {
+    if (import.meta.env.VITE_UMMKA_CHECK_WORKSPACE_BACK !== true)
       await fixtureStep("seed-offline-registry", seedRegistry);
-      // LaunchServices activates the default browser after the last Back test.
-      const browserHref = import.meta.env.VITE_UMMKA_CHECK_EXTERNAL_HREF;
-      if (browserHref)
-        await fixtureStep("open-external-link", () =>
-          openExternalPostLink(browserHref),
-        );
-    }
     location.replace("/ipc-result.html?workspace-back");
+    return;
+  }
+  if (scenario === "external-handoff") {
+    await fixtureStep("open-external-link", async () => {
+      const browserHref = import.meta.env.VITE_UMMKA_CHECK_EXTERNAL_HREF;
+      if (!browserHref) throw Error("Missing external-link receiver");
+      await openExternalPostLink(browserHref);
+    });
+    await fixtureStep("wait-for-external-link-receipt", async () => {
+      const control = await openNativeRestConnection(
+        `https://127.0.0.1:${ports[1]}`,
+      );
+      try {
+        const response = await control.fetchApi(
+          `${control.basePath}/api/v4/system/ping?step=external-handoff`,
+        );
+        if (response.status !== 204)
+          throw Error("The default macOS handler did not acknowledge the link");
+      } finally {
+        await control.close();
+      }
+    });
+    location.replace("/ipc-result.html?external-handoff");
     return;
   }
   if (scenario !== null) throw Error("Unknown native fixture scenario");

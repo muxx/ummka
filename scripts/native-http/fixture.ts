@@ -120,7 +120,10 @@ const probeSteps = new Set([
   "two",
 ]);
 
-export async function startFixture(dir: string) {
+export async function startFixture(
+  dir: string,
+  externalReceipt?: Promise<boolean>,
+) {
   let lastNativeProbe = "none";
   let probeCount = 0;
   function observe(kind: string, path?: string) {
@@ -331,7 +334,11 @@ export async function startFixture(dir: string) {
     });
   }
   const native = [tls, unknown, wrong, h2, plain, selected, other];
-  const webview = webviewServers(certs.trusted, certs.untrusted);
+  const webview = webviewServers(
+    certs.trusted,
+    certs.untrusted,
+    externalReceipt,
+  );
   const servers: Server[] = [...native, ...webview.servers];
   const close = () => {
     for (const server of servers) server.close();

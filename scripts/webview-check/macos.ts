@@ -168,7 +168,13 @@ export async function checkMacWebview(
   dir: string,
   config: string,
   fixture: InteractiveFixture,
-  workspaceBackOnly = false,
+  {
+    workspaceBackOnly,
+    externalHandoff,
+  }: {
+    workspaceBackOnly: boolean;
+    externalHandoff: boolean;
+  },
 ) {
   const keychain = join(dir, "sessions.keychain-db");
   const env = {
@@ -304,6 +310,13 @@ export async function checkMacWebview(
     await launch("registry-unsupported", env);
     assert.deepEqual(await readFile(file), before);
     assert.equal(query("SELECT value FROM other"), "kept");
+    // The default browser may take the foreground after its launch request returns.
+    // Wait for its HTTP receipt after every check that needs the fixture window.
+    if (externalHandoff)
+      await launch("external-handoff", {
+        ...env,
+        UMMKA_CHECK_SCENARIO: "external-handoff",
+      });
   } finally {
     security("delete-keychain", keychain);
     assert(
