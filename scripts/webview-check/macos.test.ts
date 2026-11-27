@@ -84,7 +84,7 @@ test("a driver failure closes the control request without recording a completed 
   const reported = t.mock.method(console, "error", () => {});
   fixture.onMacInputReady(
     async (key) => {
-      assert.equal(key, "right");
+      assert.equal(key, "right-down");
       throw failure;
     },
     () => assert.fail("a failed key counted as fixture progress"),

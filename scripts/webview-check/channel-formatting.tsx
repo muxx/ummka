@@ -13,6 +13,7 @@ import {
 } from "../../src/channels/PublishedReaderWindow.tsx";
 import { useWorkspaceBack } from "../../src/channels/use-workspace-back.ts";
 import type { LocalChannelWindow } from "../../src/mattermost/local-history.ts";
+import { fixtureDeadline } from "./fixture-step.ts";
 
 const longCode = `  const summary = "${"a".repeat(320)}";`;
 const extraCell = "wide".repeat(70);
@@ -102,13 +103,29 @@ async function checkArrowRight(
   element: HTMLElement,
   target: string,
   pressRight: () => Promise<void>,
+  releaseRight?: () => Promise<void>,
 ) {
   element.scrollIntoView({ block: "center" });
   element.focus();
   if (document.activeElement !== element || element.scrollLeft !== 0)
     throw Error("Scrollable block did not receive initial focus");
-  const phases = new Set<string>();
   const observed: string[] = [];
+  let keydown: KeyboardEvent | undefined;
+  let keyup = false;
+  let defaultActionObserved!: () => void;
+  let bothPhasesObserved!: () => void;
+  const readyToRelease = new Promise<void>((resolve) => {
+    defaultActionObserved = resolve;
+  });
+  const completed = new Promise<void>((resolve) => {
+    bothPhasesObserved = resolve;
+  });
+  const acknowledgeDefaultAction = () => {
+    if (!keydown || (!keydown.defaultPrevented && element.scrollLeft === 0))
+      return;
+    defaultActionObserved();
+    if (keyup) bothPhasesObserved();
+  };
   const observeRight = (event: KeyboardEvent) => {
     const tag =
       event.target instanceof Element ? event.target.tagName : "window";
@@ -117,25 +134,53 @@ async function checkArrowRight(
       event.key === "ArrowRight" &&
       event.isTrusted &&
       event.target === element
-    )
-      phases.add(event.type);
+    ) {
+      if (event.type === "keydown") keydown = event;
+      else if (keydown) keyup = true;
+      acknowledgeDefaultAction();
+    }
   };
-  const moved = () => phases.size === 2 && element.scrollLeft > 0;
   window.addEventListener("keydown", observeRight, true);
   window.addEventListener("keyup", observeRight, true);
+  element.addEventListener("scroll", acknowledgeDefaultAction);
+  window.addEventListener("keydown", acknowledgeDefaultAction);
   try {
     await pressRight();
-    // Keep the block mounted until the complete physical key press arrives.
     const deadline = performance.now() + 2500;
-    while (!moved() && performance.now() < deadline)
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    if (!moved() || document.activeElement !== element)
-      throw Error(
-        `${target} after native ArrowRight: events=${observed.join(",")} scroll=${element.scrollLeft} focus=${document.activeElement === element}`,
-      );
+    if (releaseRight) {
+      // AppKit can acknowledge keydown while WebContent is still running its
+      // handlers. A timed release can reach WebContent before it scrolls a frame.
+      try {
+        await fixtureDeadline(
+          `${target} keyboard scroll`,
+          () => readyToRelease,
+          2500,
+        );
+      } finally {
+        await releaseRight();
+      }
+    }
+    await fixtureDeadline(
+      `${target} keyboard completion`,
+      () => completed,
+      Math.max(0, deadline - performance.now()),
+    );
+    if (
+      element.scrollLeft <= 0 ||
+      keydown?.defaultPrevented ||
+      document.activeElement !== element
+    )
+      throw Error("The trusted key press did not scroll the focused element");
+  } catch (cause) {
+    throw Error(
+      `${target} after native ArrowRight: events=${observed.join(",")} scroll=${element.scrollLeft} focus=${document.activeElement === element} prevented=${keydown?.defaultPrevented} overflow=${element.clientWidth}/${element.scrollWidth} visibility=${document.visibilityState}. ${String(cause)}`,
+      { cause },
+    );
   } finally {
     window.removeEventListener("keydown", observeRight, true);
     window.removeEventListener("keyup", observeRight, true);
+    element.removeEventListener("scroll", acknowledgeDefaultAction);
+    window.removeEventListener("keydown", acknowledgeDefaultAction);
   }
 }
 
@@ -677,7 +722,11 @@ async function checkMobileCode(
 }
 
 export async function checkChannelFormatting(
-  pressRight: (kind: "code" | "table", width: number) => Promise<void>,
+  pressRight: (
+    kind: "code" | "table",
+    width: number,
+    phase?: "up",
+  ) => Promise<void>,
   mobile?: NonNullable<Parameters<typeof checkMobileTable>[4]> & CodeInput,
 ) {
   const author = () => ({ name: "Ada" });
@@ -817,8 +866,11 @@ export async function checkChannelFormatting(
           short.hasAttribute("role")
         )
           throw Error("Wrong desktop code keyboard targets");
-        await checkArrowRight(pre, `code-${width}`, () =>
-          pressRight("code", width),
+        await checkArrowRight(
+          pre,
+          `code-${width}`,
+          () => pressRight("code", width),
+          () => pressRight("code", width, "up"),
         );
         const code = pre.closest<HTMLElement>(".post-code-desktop");
         if (!code) throw Error("Missing desktop code copy");
@@ -915,8 +967,11 @@ export async function checkChannelFormatting(
             `The neighboring edit moved the table at ${width}px from ${offset} to ${table.scrollLeft}`,
           );
         table.scrollLeft = 0;
-        await checkArrowRight(table, `table-${width}`, () =>
-          pressRight("table", width),
+        await checkArrowRight(
+          table,
+          `table-${width}`,
+          () => pressRight("table", width),
+          () => pressRight("table", width, "up"),
         );
         const { range, selection } = checkEmphasisSelection(label);
         range.selectNodeContents(row[3]);
