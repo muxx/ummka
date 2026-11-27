@@ -8,7 +8,10 @@ import {
   openAccountRestConnection,
   openNativeRestConnection,
 } from "../../src/mattermost/native-rest.ts";
-import { openChannelNavigation } from "./account-team-window.tsx";
+import {
+  checkFirstTeamChoice,
+  openChannelNavigation,
+} from "./account-team-window.tsx";
 import { checkAvailableDirectoryWindow } from "./available-directory-window.ts";
 import { systemReply, systemRoot } from "./link-examples.ts";
 import { checkModalScroll } from "./modal-scroll.ts";
@@ -174,8 +177,8 @@ export async function checkBrowserApp(server: string, controlPort: string) {
       !ui.queryByTitle(server)
     )
       throw Error("browser wait lost the chosen installation");
-    await ui.findByText("Town fixture message", {}, { timeout: 20_000 });
     await waitForAppForeground();
+    await checkFirstTeamChoice(host, server, "Browser fixture");
     await ui.findByText("fixture-author");
     const fixture = await openAccountRestConnection(server, "f".repeat(26));
     const localMessage = "Earlier Design attempt";

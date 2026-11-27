@@ -5,6 +5,7 @@ import { AccountTeamWindow } from "./entry/AccountTeamWindow";
 import { EntryWindow } from "./entry/EntryWindow";
 import type { EntryLanguage } from "./entry/language";
 import { ServerSignIn } from "./entry/ServerSignIn";
+import type { SignedInPresentation } from "./entry/SignInMethods";
 import { sessionText } from "./entry/session-text";
 import { useSystemPermalink } from "./entry/use-system-permalink";
 import { getDeviceLaunchContext } from "./mattermost/device-launch";
@@ -12,8 +13,13 @@ import "./entry/system-post-notice.css";
 
 type Launch = Awaited<ReturnType<typeof getDeviceLaunchContext>>;
 export function App({ language }: { language: EntryLanguage }) {
-  const [attempt, setAttempt] = useState(0);
-  const reopen = useCallback(() => setAttempt((previous) => previous + 1), []);
+  const [entry, setEntry] = useState<{
+    attempt: number;
+    signedIn?: SignedInPresentation;
+  }>({ attempt: 0 });
+  const reopen = useCallback((signedIn?: SignedInPresentation) => {
+    setEntry(({ attempt }) => ({ attempt: attempt + 1, signedIn }));
+  }, []);
   const inbox = useSystemPermalink(language, reopen);
   if (!inbox.ready)
     return (
@@ -26,10 +32,11 @@ export function App({ language }: { language: EntryLanguage }) {
     );
   return (
     <EntryRoute
-      key={attempt}
+      key={entry.attempt}
       language={language}
       reopen={reopen}
       inbox={inbox}
+      signedIn={entry.signedIn}
     />
   );
 }
@@ -37,10 +44,12 @@ function EntryRoute({
   language,
   reopen,
   inbox,
+  signedIn,
 }: {
   language: EntryLanguage;
-  reopen: () => void;
+  reopen: (signedIn?: SignedInPresentation) => void;
   inbox: ReturnType<typeof useSystemPermalink>;
+  signedIn?: SignedInPresentation;
 }) {
   const [launch, setLaunch] = useState<Launch | "reading" | "failed">(
     "reading",
@@ -94,12 +103,21 @@ function EntryRoute({
       return (
         <EntryWindow>
           <p role="alert">{text.storage}</p>
-          <button className="entry-primary" type="button" onClick={reopen}>
+          <button
+            className="entry-primary"
+            type="button"
+            onClick={() => reopen()}
+          >
             {text.retry}
           </button>
         </EntryWindow>
       );
-    if (launch.status === "ready")
+    if (launch.status === "ready") {
+      const identity =
+        signedIn?.serverUrl === launch.serverUrl &&
+        signedIn.userId === launch.userId
+          ? signedIn
+          : undefined;
       return (
         <AccountTeamWindow
           serverUrl={launch.serverUrl}
@@ -107,6 +125,7 @@ function EntryRoute({
           language={language}
           onSessionEnded={reopen}
           systemPost={request}
+          siteName={identity?.siteName}
         >
           {(workspace) => (
             <PublishedLinkNavigation.Provider value={links}>
@@ -122,6 +141,7 @@ function EntryRoute({
           )}
         </AccountTeamWindow>
       );
+    }
     return (
       <ServerSignIn
         connect={inbox.connect}

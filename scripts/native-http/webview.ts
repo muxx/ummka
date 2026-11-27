@@ -682,14 +682,9 @@ export function webviewServers(
         (await respondToWorkspace(req, res, url, userId, false, {
           systemLinks: true,
         })) ??
-        respondToAccount(
-          req,
-          res,
-          url,
-          userId,
-          (name) => events.emit(name),
-          "fixture-system-post",
-        );
+        respondToAccount(req, res, url, userId, (name) => events.emit(name), {
+          browserToken: "fixture-system-post",
+        });
       assert(seen, "Unexpected system permalink fixture request");
       systemPostReads.add(seen);
       return;
@@ -1210,8 +1205,13 @@ export function webviewServers(
       visits.push(workspace);
       return;
     }
-    const account = respondToAccount(req, res, url, userId, (name) =>
-      events.emit(name),
+    const account = respondToAccount(
+      req,
+      res,
+      url,
+      userId,
+      (name) => events.emit(name),
+      { multipleBrowserTeams: true },
     );
     if (account) {
       visits.push(account);

@@ -7,7 +7,10 @@ export function respondToAccount(
   url: URL,
   firstId: string,
   event: (name: string) => void,
-  browserToken = "fixture-browser-action",
+  {
+    browserToken = "fixture-browser-action",
+    multipleBrowserTeams = false,
+  }: { browserToken?: string; multipleBrowserTeams?: boolean } = {},
 ): string | undefined {
   if (url.pathname === "/browser-action-check/api/v4/users/me") {
     assert.equal(request.method, "GET");
@@ -40,6 +43,7 @@ export function respondToAccount(
   if (url.pathname.startsWith(prefix)) {
     const path = url.pathname.slice(prefix.length);
     const teamId = "Team0123456789012345678901";
+    const secondTeam = "b".repeat(26);
     const userId = "f".repeat(26);
     const replies: Record<string, unknown> = {
       "config/client": {
@@ -56,9 +60,29 @@ export function respondToAccount(
           display_name: "Browser team",
           delete_at: 0,
         },
+        ...(multipleBrowserTeams
+          ? [
+              {
+                id: secondTeam,
+                name: "release",
+                display_name: "Release team",
+                delete_at: 0,
+              },
+            ]
+          : []),
       ],
       "users/me/teams/members": [
         { team_id: teamId, user_id: userId, roles: "team_user", delete_at: 0 },
+        ...(multipleBrowserTeams
+          ? [
+              {
+                team_id: secondTeam,
+                user_id: userId,
+                roles: "team_user",
+                delete_at: 0,
+              },
+            ]
+          : []),
       ],
       "users/me/preferences": null,
     };

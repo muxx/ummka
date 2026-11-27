@@ -31,3 +31,43 @@ export const teamText = {
     retry: "Try again",
   },
 } as const;
+
+export const firstTeamText = {
+  ru: {
+    signedIn: "Вход выполнен.",
+    signedInAs: "Вы вошли как",
+    loading: "Загружаем команды…",
+    readFailed: "Команды не загрузились",
+    refused: "Сервер отказал в доступе к списку команд.",
+    empty: "Команд пока нет",
+    emptyDetail:
+      "Вас ещё не добавили ни в одну команду на этом сервере. Когда администратор пригласит вас, проверьте снова.",
+    checkAgain: "Проверить снова",
+    opening: "Открываем…",
+    saving: (team: string) => `Сохраняем выбор команды «${team}»…`,
+    saveFailed: (team: string) => `Не открыли «${team}»`,
+    saveDetail: "Выбор не сохранился на этом устройстве. Команда не выбрана.",
+    unavailable: "Команда больше недоступна.",
+    retry: "Повторить",
+    retryTeam: (team: string) => `Повторить: открыть «${team}»`,
+  },
+  en: {
+    signedIn: "You’re signed in.",
+    signedInAs: "You’re signed in as",
+    loading: "Loading teams…",
+    readFailed: "Teams couldn’t load",
+    refused: "The server denied access to your team list.",
+    empty: "No teams yet",
+    emptyDetail:
+      "You haven’t been added to any teams on this server. Check again after an administrator invites you.",
+    checkAgain: "Check again",
+    opening: "Opening…",
+    saving: (team: string) => `Saving your selection of “${team}”…`,
+    saveFailed: (team: string) => `Couldn’t open “${team}”`,
+    saveDetail:
+      "Your selection couldn’t be saved on this device. No team was selected.",
+    unavailable: "This team is no longer available.",
+    retry: "Retry",
+    retryTeam: (team: string) => `Retry opening “${team}”`,
+  },
+} as const;

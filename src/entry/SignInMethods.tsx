@@ -16,6 +16,11 @@ type Profile = Awaited<ReturnType<typeof inspectInstallation>>;
 type Provider = Profile["ssoProviders"][number];
 type Attempt = { id?: string; cancelling: boolean };
 export type SignInLink = { deliveryId: string; dismiss: () => void };
+export type SignedInPresentation = {
+  serverUrl: string;
+  userId: string;
+  siteName: string;
+};
 type Text = (typeof sessionText)[EntryLanguage];
 const providerNames = {
   gitlab: "GitLab",
@@ -71,7 +76,7 @@ export function SignInMethods({
   onOtherServer?: () => void;
   returnFromPicker?: boolean;
   onBack?: () => void;
-  onAccountChanged: () => void;
+  onAccountChanged: (signedIn?: SignedInPresentation) => void;
 }) {
   const text = entryText[language];
   const labels = sessionText[language];
@@ -155,8 +160,9 @@ export function SignInMethods({
     setCancelled(undefined);
     setCancelling(false);
     setWaiting(provider);
+    let userId: string;
     try {
-      await signInWithBrowser(profile.serverUrl, provider, (id) => {
+      userId = await signInWithBrowser(profile.serverUrl, provider, (id) => {
         request.id = id;
         if (operation.current !== request)
           void cancelBrowserSignIn(id).catch(() => {});
@@ -183,7 +189,11 @@ export function SignInMethods({
     }
     if (operation.current === request) {
       operation.current = null;
-      onAccountChanged();
+      onAccountChanged({
+        userId,
+        serverUrl: profile.serverUrl,
+        siteName: profile.siteName.trim(),
+      });
     }
   }
 

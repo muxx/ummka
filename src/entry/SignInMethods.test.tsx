@@ -53,7 +53,13 @@ test("opens a server-advertised provider and rereads the account after success",
     "gitlab",
     expect.any(Function),
   );
-  await waitFor(() => expect(changed).toHaveBeenCalledOnce());
+  await waitFor(() =>
+    expect(changed).toHaveBeenCalledExactlyOnceWith({
+      serverUrl: profile.serverUrl,
+      siteName: profile.siteName,
+      userId: "a".repeat(26),
+    }),
+  );
 });
 test("cancels once after receiving the native request ID and restores keyboard focus", async () => {
   let reject!: (reason: unknown) => void;

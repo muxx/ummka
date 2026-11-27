@@ -11,7 +11,11 @@ import { EntryLinkOutcome } from "./EntryLinkOutcome";
 import { EntryWindow } from "./EntryWindow";
 import { type EntryLanguage, entryText } from "./language";
 import { SavedServerPicker } from "./SavedServerPicker";
-import { type SignInLink, SignInMethods } from "./SignInMethods";
+import {
+  type SignedInPresentation,
+  type SignInLink,
+  SignInMethods,
+} from "./SignInMethods";
 import { sessionText } from "./session-text";
 import type { EntryLinkResult } from "./use-system-permalink";
 import "./connect.css";
@@ -58,7 +62,7 @@ export function ServerSignIn({
   installations?: readonly string[];
   selectSaved?: (serverUrl: string) => Promise<void>;
   connect: (serverUrl: string, signal: AbortSignal) => Promise<void>;
-  onAccountChanged: () => void;
+  onAccountChanged: (signedIn?: SignedInPresentation) => void;
 }) {
   const text = entryText[language];
   const [address, setAddress] = useState(savedServer ?? "");
@@ -95,6 +99,17 @@ export function ServerSignIn({
           const context = await getDeviceLaunchContext();
           if (request.signal.aborted) return;
           if (context.status !== "first_launch") closeShownOutcome.current?.();
+          if (
+            context.status === "ready" &&
+            context.serverUrl === profile.serverUrl
+          ) {
+            onAccountChanged({
+              serverUrl: context.serverUrl,
+              userId: context.userId,
+              siteName: profile.siteName.trim(),
+            });
+            return;
+          }
           if (
             context.status !== "sign_in_required" ||
             context.serverUrl !== profile.serverUrl
@@ -232,9 +247,9 @@ export function ServerSignIn({
                 })
             : undefined
         }
-        onAccountChanged={() => {
+        onAccountChanged={(signedIn) => {
           closeShownOutcome.current?.();
-          onAccountChanged();
+          onAccountChanged(signedIn);
         }}
         onBack={
           step.restored

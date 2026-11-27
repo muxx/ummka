@@ -13,6 +13,7 @@ import { App } from "./App";
 import { isMobile } from "./build-platform";
 import { ServerSignIn } from "./entry/ServerSignIn";
 import type { PendingPost } from "./mattermost/account-delivery.ts";
+import { signInWithBrowser } from "./mattermost/browser-sign-in";
 import { getDeviceLaunchContext } from "./mattermost/device-launch";
 import { inspectInstallation } from "./mattermost/inspect-installation";
 import {
@@ -31,6 +32,10 @@ vi.mock("./mattermost/installation-registry", () => ({
 }));
 vi.mock("./mattermost/native-rest", () => ({
   openAccountRestConnection: vi.fn(),
+}));
+vi.mock("./mattermost/browser-sign-in", () => ({
+  signInWithBrowser: vi.fn(),
+  cancelBrowserSignIn: vi.fn(),
 }));
 vi.mock("./mattermost/inspect-installation", async (original) => ({
   ...(await original<typeof import("./mattermost/inspect-installation")>()),
@@ -55,6 +60,49 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
+test.each([true, false])(
+  "only carries a known installation name into the verified signed route (%s)",
+  async (sameAccount) => {
+    const current = sameAccount ? user : "x".repeat(26);
+    launch
+      .mockResolvedValueOnce({
+        status: "sign_in_required",
+        serverUrl: origin,
+        installations: [origin],
+      })
+      .mockResolvedValue({
+        status: "ready",
+        serverUrl: origin,
+        userId: current,
+      });
+    inspect.mockResolvedValue(profile);
+    const signed = vi.mocked(signInWithBrowser).mockResolvedValue(user);
+    const open = vi.mocked(openAccountRestConnection);
+    open.mockResolvedValue({
+      readJoinedTeams: async () => ({ teams: [], selectedTeam: null }),
+      refreshJoinedTeams: async () => true,
+      readSavedProfiles: async () => ({ profiles: {}, usernames: {} }),
+      readWorkspaceSettings: async () => ({ preferences: null, server: null }),
+      refreshWorkspaceServerPolicy: async () => false,
+      close: async () => {},
+    } as unknown as Awaited<ReturnType<typeof openAccountRestConnection>>);
+    render(<App language="en" />);
+    fireEvent.click(await screen.findByRole("button", { name: /GitLab/ }));
+    await screen.findByRole("heading", { name: "No teams yet" });
+    expect(signed).toHaveBeenCalledExactlyOnceWith(
+      origin,
+      "gitlab",
+      expect.any(Function),
+    );
+    expect(open).toHaveBeenCalledExactlyOnceWith(origin, current);
+    expect(screen.getByTitle(origin).textContent).toBe(
+      "chat.example.test/Work",
+    );
+    expect(Boolean(screen.queryByText("Winter"))).toBe(sameAccount);
+    expect(screen.getByText("You’re signed in.")).toBeTruthy();
+    expect(inspect).toHaveBeenCalledOnce();
+  },
+);
 test("retries a failed protected-store read before offering an empty address", async () => {
   launch
     .mockRejectedValueOnce("credential_storage_unavailable")

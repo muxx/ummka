@@ -23,6 +23,7 @@ import {
 } from "../mattermost/joined-teams";
 import { openAccountRestConnection } from "../mattermost/native-rest";
 import { EntryWindow } from "./EntryWindow";
+import { FirstTeamChoice, type FirstTeamSelection } from "./FirstTeamChoice";
 import type { EntryLanguage } from "./language";
 import { teamText } from "./team-text";
 import {
@@ -63,6 +64,7 @@ export type TeamWorkspace = {
 type Props = {
   serverUrl: string;
   userId: string;
+  siteName?: string;
   language: EntryLanguage;
   onSessionEnded: () => void;
   systemPost?: SystemPostRequest;
@@ -86,6 +88,7 @@ type Issue = Problem["issue"] | "offline" | "noCache" | "chooseFailed";
 type Notice = Issue | Problem | null;
 type TeamChoiceRequest =
   | { kind: "workspace"; onAccepted: () => void }
+  | { kind: "first"; onAccepted: () => void }
   | {
       kind: "message";
       directory: JoinedTeams;
@@ -99,6 +102,7 @@ function issueOf(notice: Notice) {
 function AccountWindow({
   serverUrl,
   userId,
+  siteName,
   language,
   onSessionEnded,
   children,
@@ -112,6 +116,11 @@ function AccountWindow({
   const directoryCode = typeof report === "object" ? report?.code : undefined;
   const [picker, setPicker] = useState(false);
   const [choosing, setChoosing] = useState(false);
+  const [firstChoice, setFirstChoice] = useState<FirstTeamSelection | null>(
+    null,
+  );
+  const [loading, setLoading] = useState(true);
+  const [accountName, setAccountName] = useState("");
   const [needsTeam, setNeedsTeam] = useState<SystemPostRequest | null>(null);
   const connection = useRef<Connection | null>(null);
   const exiting = useRef<"working" | "cleanup" | null>(null);
@@ -142,6 +151,7 @@ function AccountWindow({
   const readVersion = useRef(0);
   const retryRemoval = useRef<(() => void) | null>(null);
   const ended = useEffectEvent(onSessionEnded);
+  const ordinaryChoice = useEffectEvent(() => !systemPost);
   const read = useCallback(
     async (current: Connection, isCurrent: () => boolean = () => true) => {
       const version = ++readVersion.current;
@@ -181,6 +191,9 @@ function AccountWindow({
       connection.current = null;
       readVersion.current++;
       setChoosing(false);
+      setFirstChoice(null);
+      setLoading(true);
+      setAccountName("");
       setDirectory(null);
       setNotice(null);
     }
@@ -194,6 +207,7 @@ function AccountWindow({
         if (!signal.aborted) {
           retryRemoval.current = () => void removeRejectedSession(current);
           setNotice("storage");
+          setLoading(false);
         }
       }
     }
@@ -221,11 +235,40 @@ function AccountWindow({
         if (problem === "session" || problem === "unauthorized") {
           withdraw();
           ended();
-        } else setNotice({ issue: "storage", code: problem.code });
+        } else {
+          setNotice({ issue: "storage", code: problem.code });
+          setLoading(false);
+        }
         return;
       }
       if (signal.aborted) return;
+      if (!initial?.selectedTeam && ordinaryChoice())
+        void readAccountName(acquired);
       await refresh();
+    }
+    async function readAccountName(current: Connection) {
+      try {
+        const saved = await current.readSavedProfiles({
+          ids: [userId],
+          usernames: [],
+        });
+        const profile = saved.profiles[userId];
+        if (
+          !signal.aborted &&
+          connection.current === current &&
+          profile?.id === userId
+        )
+          setAccountName(
+            [profile.firstName.trim(), profile.lastName.trim()]
+              .filter(Boolean)
+              .join(" "),
+          );
+      } catch (cause) {
+        if (!signal.aborted && connection.current === current) {
+          const problem = directoryProblem(cause);
+          if (typeof problem === "string") invalidation.current?.(problem);
+        }
+      }
     }
     async function refresh() {
       if (!acquired || signal.aborted || invalidated || exiting.current) return;
@@ -237,8 +280,18 @@ function AccountWindow({
         version === refreshVersion;
       if (!navigator.onLine) {
         setNotice(initial ? "offline" : "noCache");
+        setLoading(false);
         return;
       }
+      setLoading(true);
+      try {
+        await refreshOnline(active);
+      } finally {
+        if (active()) setLoading(false);
+      }
+    }
+    async function refreshOnline(active: () => boolean) {
+      if (!acquired) return;
       try {
         await acquired.refreshJoinedTeams(signal);
       } catch (error) {
@@ -258,6 +311,7 @@ function AccountWindow({
         try {
           const published = await read(acquired, active);
           if (active() && published !== undefined) {
+            initial = published;
             if (published === null)
               setNotice({ issue: "failed", code: "snapshot.unpublished" });
             else
@@ -330,7 +384,8 @@ function AccountWindow({
   ): Promise<boolean> {
     const message = request?.kind === "message" ? request : undefined;
     const signal = message?.signal;
-    const reportFailure = request?.kind !== "workspace";
+    const first = request?.kind === "first";
+    const reportFailure = !first && request?.kind !== "workspace";
     const current = connection.current;
     if (!current || (!signal && selection.current) || signal?.aborted)
       return false;
@@ -338,6 +393,9 @@ function AccountWindow({
       selection.current = true;
       setChoosing(true);
     }
+    const choice = { id: team.id, name: team.displayName.trim() || team.name };
+    let failure: FirstTeamSelection | null = null;
+    if (first) setFirstChoice({ ...choice, kind: "saving" });
     try {
       return await enqueue(async () => {
         if (connection.current !== current || signal?.aborted) return false;
@@ -346,7 +404,9 @@ function AccountWindow({
         if (connection.current !== current || signal?.aborted) return false;
         const accepted =
           selected?.selectedTeam === team.id ||
-          (await current.selectJoinedTeam(team.id));
+          (await (first
+            ? atDirectoryStep("select", () => current.selectJoinedTeam(team.id))
+            : current.selectJoinedTeam(team.id)));
         if (connection.current !== current || signal?.aborted) return false;
         if (accepted) {
           // Resolve the previous navigation before the next queued write can run.
@@ -361,26 +421,45 @@ function AccountWindow({
           setNotice((previous) =>
             previous === "chooseFailed" ? null : previous,
           );
+        } else if (first) {
+          failure = { ...choice, kind: "failed", unavailable: true };
         } else if (reportFailure) {
           setNotice("chooseFailed");
         }
-        if (!accepted && !reportFailure) return false;
+        if (!accepted && !reportFailure && !first) return false;
         try {
           await read(current);
-        } catch {
-          if (connection.current === current && !signal?.aborted)
-            setNotice("storage");
+        } catch (cause) {
+          if (connection.current === current && !signal?.aborted) {
+            if (first) {
+              const problem = directoryProblem(cause);
+              if (typeof problem === "string") {
+                sessionIssue(problem);
+                return false;
+              }
+              setNotice({ issue: "storage", code: problem.code });
+            } else setNotice("storage");
+          }
         }
         return accepted;
       });
-    } catch {
-      if (reportFailure && connection.current === current && !signal?.aborted)
+    } catch (cause) {
+      if (connection.current !== current || signal?.aborted) return false;
+      if (first) {
+        const problem = directoryProblem(cause);
+        if (typeof problem === "string") sessionIssue(problem);
+        else failure = { ...choice, kind: "failed", code: problem.code };
+      } else if (reportFailure) {
         setNotice("chooseFailed");
+      }
       return false;
     } finally {
       if (!signal) {
         selection.current = false;
-        if (connection.current === current) setChoosing(false);
+        if (connection.current === current) {
+          setChoosing(false);
+          if (first) setFirstChoice(failure);
+        }
       }
     }
   }
@@ -480,6 +559,29 @@ function AccountWindow({
         })}
         {messageDialog}
       </>
+    );
+  }
+  if (!systemPost && !picker) {
+    return (
+      <FirstTeamChoice
+        language={language}
+        serverUrl={serverUrl}
+        siteName={siteName}
+        accountName={accountName}
+        teams={orderJoinedTeams(teams, language)}
+        loading={loading}
+        hasDirectory={directory !== null}
+        notice={notice}
+        directoryCode={directoryCode}
+        choice={firstChoice}
+        reload={() => (retryRemoval.current ?? retry)()}
+        select={(team) =>
+          void choose(team, {
+            kind: "first",
+            onAccepted: captureTeamChange(),
+          })
+        }
+      />
     );
   }
   return (
