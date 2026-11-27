@@ -1860,6 +1860,8 @@ export function webviewServers(
         "team-channels",
         "directory-channels",
         "directory-channel-members",
+        "directory-channel-members",
+        "directory-channel-members",
         "directory-channels",
         "directory-channel-members",
         "sidebar-categories",

@@ -69,6 +69,7 @@ import { isMattermostId } from "./model-fields.ts";
 import { nativeFetch } from "./native-fetch.ts";
 import { loadAccountDirectory, loadTeamDirectory } from "./navigation-data.ts";
 import { refreshNavigation } from "./navigation-refresh.ts";
+import { readOwnChannelMembership } from "./own-channel-membership.ts";
 import {
   changeOwnMembership,
   type MembershipChange,
@@ -347,6 +348,17 @@ export async function openAccountRestConnection(
     },
     readCustomEmoji(emojiName: string, signal?: AbortSignal) {
       return readWhileOpen(() => readCustomEmoji(config, emojiName, signal));
+    },
+    readOwnChannelMembership(
+      teamId: string,
+      channelId: string,
+      signal?: AbortSignal,
+    ) {
+      return readWhileOpen(
+        () =>
+          readOwnChannelMembership(config, userId, teamId, channelId, signal),
+        signal,
+      );
     },
     changeOwnMembership(target: MembershipTarget, change: MembershipChange) {
       return readWhileOpen(() =>

@@ -253,6 +253,50 @@ test.each(["close", "signOut", "signOutOnDevice"] as const)(
 );
 
 test.each(["close", "abort"])(
+  "discards a late own channel membership list after %s",
+  async (action) => {
+    const userId = "u".repeat(26),
+      teamId = "t".repeat(26),
+      channelId = "c".repeat(26);
+    ipc.mockResolvedValueOnce(41);
+    const account = await openAccountRestConnection(
+      "https://chat.example.test",
+      userId,
+    );
+    const controller = new AbortController();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const read = vi
+      .spyOn(ChannelsApi.prototype, "getChannelMembersForUserRaw")
+      .mockImplementation(async () => {
+        await gate;
+        return { raw: Response.json([]), value: async () => [] };
+      });
+    try {
+      const result = account.readOwnChannelMembership(
+        teamId,
+        channelId,
+        controller.signal,
+      );
+      if (action === "close") await account.close();
+      else controller.abort();
+      release();
+      if (action === "close") {
+        await expect(result).rejects.toBe("cancelled");
+        await expect(
+          account.readOwnChannelMembership(teamId, channelId),
+        ).rejects.toBe("unknown_connection");
+      } else await expect(result).rejects.toMatchObject({ name: "AbortError" });
+      expect(read).toHaveBeenCalledOnce();
+    } finally {
+      read.mockRestore();
+    }
+  },
+);
+
+test.each(["close", "abort"])(
   "discards collection responses after %s",
   async (action) => {
     ipc.mockResolvedValueOnce(41);
@@ -592,6 +636,7 @@ test("opens a native account by installation and user ID", async () => {
     "readFollowedThreads",
     "readJoinedTeams",
     "readMentionGroupCounts",
+    "readOwnChannelMembership",
     "readPendingPosts",
     "readPinnedChannelPosts",
     "readPostAnchor",
