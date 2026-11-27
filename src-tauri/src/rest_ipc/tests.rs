@@ -46,6 +46,14 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
             ("sign_out_account", json!({"rid": 0})),
             ("sign_out_on_device", json!({"rid": 0})),
             (
+                "begin_cached_post_observation",
+                json!({"rid":0,"postId":"p".repeat(26)}),
+            ),
+            (
+                "finish_cached_post_observation",
+                json!({"rid":0,"load":0,"observation":null}),
+            ),
+            (
                 "begin_channel_history_load",
                 json!({"rid":0,"channelId":"c".repeat(26)}),
             ),
@@ -257,6 +265,16 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
                 "begin_channel_history_load",
                 LOCAL,
                 json!({"rid":rid,"channelId":"c".repeat(26)})
+            )
+            .unwrap_err(),
+            expected
+        );
+        assert_eq!(
+            invoke(
+                main,
+                "begin_cached_post_observation",
+                LOCAL,
+                json!({"rid":rid,"postId":"p".repeat(26)})
             )
             .unwrap_err(),
             expected

@@ -78,6 +78,7 @@ import { checkMentionLimit } from "./mention-limit.ts";
 import { checkMentionText } from "./mention-text.ts";
 import { checkMobileFilePolicy } from "./mobile-file-policy.ts";
 import { checkNamedRoutes } from "./named-channel.ts";
+import { checkPostAttributionPriority } from "./post-attribution-priority.ts";
 import {
   checkPostCollections,
   checkSavedPageBoundary,
@@ -1518,6 +1519,19 @@ await checkPostWebhookOrigin(
   posts,
   webhookRoom.id,
   user.id,
+  version,
+);
+await create(
+  `channels/${webhookRoom.id}/members`,
+  { user_id: reader.id },
+  token,
+);
+await checkPostAttributionPriority(
+  base,
+  token,
+  readerPosts,
+  webhookRoom.id,
+  reader.id,
   version,
 );
 

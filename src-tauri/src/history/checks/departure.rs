@@ -6,6 +6,7 @@ use super::{
 use crate::history::{
     AccountHistory, ChannelHistoryPage, DeliveryPost, DeliverySource, DirectoryTeam, DraftSave,
     HistoryError, PageWrite, PostChange, RetryPost, SidebarData, StagePost, WindowSource,
+    posts::DisplayPriority,
 };
 use serde_json::json;
 use std::path::Path;
@@ -129,6 +130,14 @@ fn check_departing_data(
     for id in [ROOT, REPLY] {
         assert_eq!(view.read_post(id)?.is_some(), present);
     }
+    if present {
+        let post = view.read_post(ROOT)?.unwrap();
+        assert_eq!(post.display_priority, Some(DisplayPriority::Important));
+        assert_eq!(
+            serde_json::to_value(post.ai_attribution).unwrap(),
+            json!({"kind":"source","userId":BOB,"hasUsername":true})
+        );
+    }
     for collapsed in [true, false] {
         assert_eq!(
             view.read_latest_window(CHANNEL, collapsed, 5)?.is_some(),
@@ -185,6 +194,12 @@ fn seed_history(view: &mut AccountHistory) -> Result<ChannelHistoryPage, History
         unreachable!()
     };
     reply.root_id = Some(ROOT.into());
+    let PostChange::Save(root) = &mut plain.changes[1] else {
+        unreachable!()
+    };
+    root.display_priority = Some(DisplayPriority::Important);
+    root.ai_attribution =
+        serde_json::from_value(json!({"kind":"source","userId":BOB,"hasUsername":true})).unwrap();
     assert_eq!(apply(view, &plain)?, PageWrite::Applied);
     let mut collapsed = page(WindowSource::Latest, &[(ROOT, 1)]);
     collapsed.collapsed_threads = true;

@@ -49,6 +49,8 @@ fn main() {
         "cancel_team_role_load",
         "read_saved_post",
         "read_channel_window",
+        "begin_cached_post_observation",
+        "finish_cached_post_observation",
         "begin_channel_history_load",
         "store_channel_history_page",
         "cancel_channel_history_load",

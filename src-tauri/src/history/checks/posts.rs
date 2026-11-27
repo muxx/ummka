@@ -22,7 +22,7 @@ pub(crate) fn fixture() -> Vec<PostChange> {
 }
 
 fn save(id: &str, channel: &str, root: Option<&str>, version: i64, text: &str) -> PostChange {
-    PostChange::Save(StoredPost {
+    PostChange::Save(Box::new(StoredPost {
         id: id.into(),
         channel_id: channel.into(),
         user_id: ALICE.into(),
@@ -36,9 +36,11 @@ fn save(id: &str, channel: &str, root: Option<&str>, version: i64, text: &str) -
         hashtags: String::new(),
         is_pinned: false,
         from_webhook: None,
+        display_priority: None,
+        ai_attribution: None,
         thread_summary: None,
         attachments: None,
-    })
+    }))
 }
 
 fn remove(id: &str) -> PostChange {
@@ -88,7 +90,10 @@ pub(crate) fn round_trip(root: &Path) -> Result<(), HistoryError> {
     let mut first = AccountHistory::open(&root, &alice)?;
     for change in &changes {
         if let PostChange::Save(expected) = change {
-            assert_eq!(first.read_post(&expected.id)?.as_ref(), Some(expected));
+            assert_eq!(
+                first.read_post(&expected.id)?.as_ref(),
+                Some(expected.as_ref())
+            );
         }
     }
     apply(&mut first, CHANNEL, &[])?;

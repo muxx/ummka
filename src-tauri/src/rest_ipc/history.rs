@@ -1,8 +1,8 @@
 use super::exchange::{ExchangeError, Session};
 use crate::{
     history::{
-        AccountHistory, ChannelHistoryPage, ChannelPostLoad, HistoryError, PageWrite, StoredPost,
-        WindowSlice,
+        AccountHistory, CachedPostObservation, ChannelHistoryPage, ChannelPostLoad, HistoryError,
+        PageWrite, PostObservation, StoredPost, WindowSlice,
     },
     rest::TransportError,
     sessions::AccountSessions,
@@ -175,6 +175,50 @@ impl Session {
 
 struct PendingLoad(ChannelPostLoad);
 impl Resource for PendingLoad {}
+
+struct PendingCachedPostObservation(CachedPostObservation);
+impl Resource for PendingCachedPostObservation {}
+
+#[tauri::command]
+pub(crate) async fn begin_cached_post_observation<R: Runtime>(
+    webview: Webview<R>,
+    rid: ResourceId,
+    post_id: String,
+) -> Result<Option<ResourceId>, ExchangeError> {
+    let session = super::session(&webview, rid)?;
+    let ticket = session
+        .with_history(&webview.state::<AccountSessions>(), move |view| {
+            view.begin_cached_post_observation(post_id)
+        })
+        .await?;
+    ticket
+        .map(|ticket| {
+            Ok(session
+                .open_resources()?
+                .add(PendingCachedPostObservation(ticket)))
+        })
+        .transpose()
+}
+
+#[tauri::command]
+pub(crate) async fn finish_cached_post_observation<R: Runtime>(
+    webview: Webview<R>,
+    rid: ResourceId,
+    load: ResourceId,
+    observation: Option<PostObservation>,
+) -> Result<bool, ExchangeError> {
+    let session = super::session(&webview, rid)?;
+    let ticket = session
+        .take_pending::<PendingCachedPostObservation>(load, ExchangeError::UnknownHistoryLoad)?;
+    let Some(observation) = observation else {
+        return Ok(false);
+    };
+    session
+        .with_history(&webview.state::<AccountSessions>(), move |view| {
+            view.observe_cached_post(ticket.0, observation)
+        })
+        .await
+}
 
 #[tauri::command]
 pub(crate) async fn begin_channel_history_load<R: Runtime>(

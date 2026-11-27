@@ -13,7 +13,13 @@
     "messageSource": "![sky](https://images.example.test/sky.png)",
     "hashtags": "",
     "isPinned": true,
-    "fromWebhook": true
+    "fromWebhook": true,
+    "displayPriority": "important",
+    "aiAttribution": {
+      "kind": "source",
+      "userId": "bbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "hasUsername": true
+    }
   },
   {
     "kind": "save",
@@ -29,7 +35,8 @@
     "messageSource": null,
     "hashtags": "#sky",
     "isPinned": false,
-    "fromWebhook": false
+    "fromWebhook": false,
+    "aiAttribution": { "kind": "none" }
   },
   {
     "kind": "remove",

@@ -162,13 +162,22 @@ test("focus combines versioned observations before submitting a single history w
   const removed = "d".repeat(26);
   const webhook = { from_webhook: "true" };
   const invalid = { from_webhook: "unexpected" };
+  const ai = {
+    ai_generated_by: "u".repeat(26),
+    ai_generated_by_username: "fixture",
+  };
   const { api, writer } = setup(async (input) => {
     const url = new URL(String(input));
     if (url.pathname.endsWith("/thread")) {
       return Response.json({
         order: [id, reply],
         posts: {
-          [id]: { ...wire(id, webhook), update_at: 30, message: "latest root" },
+          [id]: {
+            ...wire(id, { ...webhook, ...ai }),
+            update_at: 30,
+            message: "latest root",
+            metadata: { priority: { priority: "important" } },
+          },
           [reply]: { ...wire(reply, webhook), root_id: id, update_at: 20 },
           [confirmed]: wire(confirmed, webhook),
           [malformed]: wire(malformed, webhook),
@@ -188,7 +197,11 @@ test("focus combines versioned observations before submitting a single history w
     return Response.json({
       order: [removed],
       posts: {
-        [id]: wire(id),
+        [id]: {
+          ...wire(id, { ai_generated_by_username: "incomplete" }),
+          update_at: 30,
+          message: "latest root",
+        },
         [reply]: { ...wire(reply), root_id: id, update_at: 17 },
         [confirmed]: wire(confirmed),
         [malformed]: { ...wire(malformed, invalid), update_at: 11 },
@@ -226,6 +239,12 @@ test("focus combines versioned observations before submitting a single history w
           updateAt: 30,
           message: "latest root",
           fromWebhook: true,
+          displayPriority: "important",
+          aiAttribution: {
+            kind: "source",
+            userId: ai.ai_generated_by,
+            hasUsername: true,
+          },
         }),
         expect.objectContaining({
           kind: "save",

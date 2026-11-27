@@ -48,6 +48,8 @@
     "allow-cancel-team-role-load",
     "allow-read-saved-post",
     "allow-read-channel-window",
+    "allow-begin-cached-post-observation",
+    "allow-finish-cached-post-observation",
     "allow-begin-channel-history-load",
     "allow-store-channel-history-page",
     "allow-cancel-channel-history-load",
