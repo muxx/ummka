@@ -96,6 +96,7 @@ export function webviewServers(
   let selectionStep = 0;
   let controlProgress = "not started";
   let windowReceivedSocket: Socket | undefined;
+  let windowDataProgress = "not started";
   let onMacStep: ((stage: string) => void) | undefined;
   let controlRequests = 0;
   let sendRight: (() => Promise<void>) | undefined;
@@ -500,7 +501,11 @@ export function webviewServers(
     ],
   ]);
   function hold(name: string, req: IncomingMessage, res: ServerResponse) {
-    req.socket.once("close", () => events.emit(`${name}-closed`));
+    if (name === "window") windowDataProgress = "held";
+    req.socket.once("close", () => {
+      if (name === "window") windowDataProgress = "closed";
+      events.emit(`${name}-closed`);
+    });
     events.emit(`${name}-received`);
     if (name === "body" || name.endsWith("-body"))
       res.writeHead(200, { "Content-Length": "100" }).write("A");
@@ -1718,7 +1723,7 @@ export function webviewServers(
   return {
     servers: [data, control, foreign],
     progress: () =>
-      `control=${controlProgress}, data visits=${visits.length} [${visits.slice(-6).join(", ")}], completed Back steps=${stepIndex}`,
+      `control=${controlProgress}, window data=${windowDataProgress}, data visits=${visits.length} [${visits.slice(-6).join(", ")}], completed Back steps=${stepIndex}`,
     onMacInputReady(send: SendMacKey, completed: (stage: string) => void) {
       onMacStep = completed;
       pressWorkspaceBack = () => send("escape");

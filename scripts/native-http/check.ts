@@ -62,12 +62,10 @@ try {
       );
       assert.match(result.stdout, /1 passed/);
       try {
-        await checkMacWebview(
-          fixture.webviewPorts,
-          dir,
-          config,
-          fixture.onMacInputReady,
-        );
+        await checkMacWebview(fixture.webviewPorts, dir, config, {
+          registerKey: fixture.onMacInputReady,
+          progress: fixture.webviewProgress,
+        });
       } catch (error) {
         console.error("macOS WebView fixture:", fixture.webviewProgress());
         throw error;

@@ -4,7 +4,15 @@ use crate::{device_document::SelectedDocument, draft_files};
 use objc2_foundation::NSURL;
 use reqwest::{Method, Request, StatusCode};
 use std::{future::ready, num::NonZeroU64, sync::Arc, time::Duration};
-use tauri::{Manager, Runtime, Webview, WebviewUrl, WebviewWindowBuilder};
+use tauri::{
+    Manager, Runtime, Webview, WebviewUrl, WebviewWindowBuilder, WindowEvent,
+    webview::PageLoadEvent,
+};
+use tokio::sync::Notify;
+
+fn stage(name: &str) {
+    println!("UMMKA_WEBVIEW_STEP started window-lifetime-{name}");
+}
 
 pub(super) fn run<R: Runtime>(main: &Webview<R>) {
     let app = main.app_handle().clone();
@@ -17,6 +25,7 @@ pub(super) fn run<R: Runtime>(main: &Webview<R>) {
         if let Err(error) = &result {
             eprintln!("Window destruction check stopped at {error}");
         }
+        stage("exit-app");
         app.exit(i32::from(result.is_err()));
     });
 }
@@ -29,16 +38,36 @@ async fn check<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<(), String> {
         ports.next().ok_or("data port")?
     );
     let control_base = format!("https://127.0.0.1:{}", ports.next().ok_or("control port")?);
+    stage("create-window");
+    let loaded = Arc::new(Notify::new());
+    let page = loaded.clone();
     let window = WebviewWindowBuilder::new(
         app,
         "window-lifetime-check",
         WebviewUrl::App("ipc-result.html".into()),
     )
+    .on_page_load(move |_, load| {
+        if load.event() == PageLoadEvent::Finished {
+            page.notify_one();
+        }
+    })
     .visible(false)
     .build()
     .map_err(|_| "test window")?;
+    stage("wait-page");
+    // Navigation clears owner resources too. Let the fixture document finish
+    // loading before arming the resources that destruction must retire.
+    loaded.notified().await;
     let owner: &Webview<R> = window.as_ref();
     watch_window(owner);
+    let destroyed = Arc::new(Notify::new());
+    let event = destroyed.clone();
+    window.on_window_event(move |kind| {
+        if matches!(kind, WindowEvent::Destroyed) {
+            event.notify_one();
+        }
+    });
+    stage("attach-draft-source");
     let signed = draft_files::fixture_connection(owner).await?;
     let workspace = draft_files::open(owner, signed).map_err(|_| "workspace")?;
     let draft = draft_files::DraftAddress::new("c".repeat(26), None).map_err(|_| "draft")?;
@@ -62,11 +91,13 @@ async fn check<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<(), String> {
     if !matches!(selected.as_slice(), [draft_files::AddResult::Added(_)]) {
         return Err("draft source was not attached".into());
     }
+    stage("start-exchange");
     let connection = open_rest_connection(owner.clone(), base.clone(), None)
         .await
         .map_err(|_| "open")?;
     let pending = session(owner, connection).map_err(|_| "connection")?;
     let id = pending.prepare().map_err(|_| "prepare")?;
+    let lifetime = pending.lifetime.clone();
     let task = tauri::async_runtime::spawn(async move {
         pending
             .send(
@@ -78,17 +109,28 @@ async fn check<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<(), String> {
             )
             .await
     });
+    stage("read-first-receipt");
     observe(&control_base, "received").await?;
+    if lifetime.is_cancelled() {
+        return Err("exchange was cancelled before destroy".into());
+    }
+    stage("queue-destroy");
     window.destroy().map_err(|_| "destroy")?;
+    stage("wait-destroyed");
+    destroyed.notified().await;
+    stage("wait-exchange-cancel");
     if !matches!(task.await, Ok(Err(ExchangeError::Cancelled))) {
         return Err("active exchange survived".into());
     }
+    stage("check-rest-owner");
     if session(owner, connection).is_ok() {
         return Err("connection still registered".into());
     }
+    stage("check-draft-owner");
     if draft_files::list(owner, signed, workspace, &draft).is_ok() {
         return Err("draft workspace survived window destruction".into());
     }
+    stage("wait-source-release");
     tokio::time::timeout(Duration::from_secs(1), async {
         while retained.upgrade().is_some() {
             tokio::task::yield_now().await;
@@ -96,6 +138,7 @@ async fn check<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<(), String> {
     })
     .await
     .map_err(|_| "draft source retained after window destruction")?;
+    stage("read-closed-receipt");
     observe(&control_base, "closed").await
 }
 
