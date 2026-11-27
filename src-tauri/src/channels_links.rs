@@ -69,6 +69,13 @@ pub(crate) fn receive<R: Runtime>(_app: &AppHandle<R>, _event: RunEvent) {
             }
         }
         if accepted {
+            #[cfg(target_os = "macos")]
+            if let Some(window) = _app.get_webview_window("main")
+                && matches!(window.is_minimized(), Ok(true))
+            {
+                // LaunchServices can activate the application and leave the window in the Dock.
+                let _ = window.unminimize().and_then(|()| window.show());
+            }
             // The destination may still be starting. Reading the head on subscription covers this case.
             let _ = _app.emit_to(EventTarget::webview("main"), "channels-link-available", ());
         }

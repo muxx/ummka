@@ -11,10 +11,26 @@ import {
   openAccountRestConnection,
   openNativeRestConnection,
 } from "../../src/mattermost/native-rest.ts";
-import { systemReply, systemRoot } from "./link-examples.ts";
+import {
+  type SystemPostWindowMode,
+  systemReply,
+  systemRoot,
+} from "./link-examples.ts";
 
 const originalChannel = { channelId: "d".repeat(26) };
 const draft = "Draft in the original installation";
+type LinkWindowObservation = {
+  number: number;
+  active: boolean;
+  hidden: boolean;
+  minimized: boolean;
+  visible: boolean;
+  onscreen: boolean;
+  key: boolean;
+};
+const observeWindow = (prepare: boolean) =>
+  invoke<LinkWindowObservation>("check_system_post_window", { prepare });
+
 export async function preserveSourceDraft(source: string, seed: boolean) {
   const account = await openAccountRestConnection(
     source,
@@ -42,6 +58,7 @@ export async function checkSystemPostApp(
   server: string,
   source: string,
   restore: string,
+  windowMode?: SystemPostWindowMode,
 ) {
   const host = document.createElement("div");
   host.id = "root";
@@ -63,36 +80,52 @@ export async function checkSystemPostApp(
       `system-post-flow expected=${seen.length === 0 ? "root" : "reply"} seen=${seen.length} focused=${active === post} active=${active?.tagName} workspace=${Boolean(host.querySelector(".workspace-window"))} pane=${host.querySelector<HTMLElement>(".channels-panes")?.dataset.page} notice=${Boolean(host.querySelector(".system-post-notice"))} page=${document.visibilityState} windowFocus=${document.hasFocus()} row=${bounds(post)} feed=${bounds(post?.closest(".timeline-scroll"))}`,
     );
   }
-  function inspect() {
-    if (document.visibilityState !== "visible" || !document.hasFocus()) return;
+  function focusedTarget(id: string) {
+    if (document.visibilityState !== "visible" || !document.hasFocus())
+      return false;
     const row = document.activeElement;
-    if (!(row instanceof HTMLElement) || !host.contains(row)) return;
-    const id = row.dataset.postId;
-    const expected = seen.length === 0 ? systemRoot : systemReply;
     if (
-      id !== expected ||
+      !(row instanceof HTMLElement) ||
+      !host.contains(row) ||
+      row.dataset.postId !== id ||
       Boolean(row.closest(".thread-feed")) !== (id === systemReply)
     )
-      return;
+      return false;
     const box = row.getBoundingClientRect(),
       feed = row.closest(".timeline-scroll")?.getBoundingClientRect();
-    if (
-      feed?.height &&
-      feed.width &&
-      box.height &&
-      box.width &&
-      feed.right > box.left &&
-      box.right > feed.left &&
-      box.bottom > feed.top &&
-      box.top < feed.bottom &&
-      seen.at(-1) !== id
-    )
-      seen.push(id);
+    return (
+      !!feed &&
+      Math.min(feed.right, box.right, window.innerWidth) >
+        Math.max(feed.left, box.left, 0) &&
+      Math.min(feed.bottom, box.bottom, window.innerHeight) >
+        Math.max(feed.top, box.top, 0)
+    );
+  }
+  function inspect() {
+    const expected = seen.length === 0 ? systemRoot : systemReply;
+    if (seen.at(-1) !== expected && focusedTarget(expected))
+      seen.push(expected);
   }
   host.addEventListener("focusin", inspect);
   host.addEventListener("scroll", inspect, true);
   try {
     root.render(<App language="en" />);
+    let initialWindow: LinkWindowObservation | undefined;
+    if (windowMode) {
+      await preserveSourceDraft(source, false);
+      await waitFor(
+        async () => {
+          if (
+            (await invoke("pending_channels_link")) ||
+            !focusedTarget(systemRoot)
+          )
+            throw diagnostic();
+        },
+        { timeout: 40_000, interval: 25, onTimeout: diagnostic },
+      );
+      inspect();
+      initialWindow = await observeWindow(true);
+    }
     await waitFor(
       () => {
         inspect();
@@ -126,18 +159,48 @@ export async function checkSystemPostApp(
       if (await invoke("pending_channels_link"))
         throw Error("The reply is still pending in the native queue");
     });
-    try {
-      await checkPublishedLinks(host, server);
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      throw Error(`system-post-flow published links: ${detail}`, {
-        cause: error,
-      });
+    if (!windowMode) {
+      try {
+        await checkPublishedLinks(host, server);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        throw Error(`system-post-flow published links: ${detail}`, {
+          cause: error,
+        });
+      }
     }
     await preserveSourceDraft(source, false);
+    if (initialWindow) {
+      const finalWindow = await observeWindow(false);
+      if (
+        !focusedTarget(systemReply) ||
+        finalWindow.number !== initialWindow.number ||
+        !finalWindow.active ||
+        finalWindow.hidden ||
+        finalWindow.minimized ||
+        !finalWindow.visible ||
+        !finalWindow.onscreen ||
+        !finalWindow.key
+      )
+        throw Error(
+          `reply or window changed after arrival, AppKit=${JSON.stringify(finalWindow)}`,
+        );
+    }
     await selectInstallation(restore);
     await forgetInstallation(server);
     location.replace("/ipc-result.html?system-posts-shown");
+  } catch (error) {
+    if (!windowMode) throw error;
+    const native = await observeWindow(false).catch((reason: unknown) =>
+      String(reason),
+    );
+    const detail = error instanceof Error ? error.message : String(error);
+    throw Error(
+      `system-post-flow ${windowMode} ${detail} AppKit=${JSON.stringify(native)}`,
+      {
+        cause: error,
+      },
+    );
   } finally {
     root.unmount();
     host.removeEventListener("focusin", inspect);

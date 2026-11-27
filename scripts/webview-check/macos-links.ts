@@ -12,7 +12,12 @@ import {
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
-import { coldLink, type postLinks, warmLink } from "./link-examples.ts";
+import {
+  coldLink,
+  type postLinks,
+  type SystemPostWindowMode,
+  warmLink,
+} from "./link-examples.ts";
 
 const exec = promisify(execFile);
 
@@ -56,11 +61,18 @@ export async function checkMacSystemLinks(
   dir: string,
   env: NodeJS.ProcessEnv,
   posts?: ReturnType<typeof postLinks>,
+  windowMode?: SystemPostWindowMode,
+  rejectInvalid = false,
 ) {
   // LaunchServices reports /private/var even when TMPDIR starts with /var.
+  const scenario = rejectInvalid ? "invalid-link" : windowMode;
   const bundle = join(
     await realpath(dir),
-    posts ? "Post link check.app" : "Link check.app",
+    scenario
+      ? `Post link ${scenario} check.app`
+      : posts
+        ? "Post link check.app"
+        : "Link check.app",
   );
   const contents = join(bundle, "Contents");
   const bin = join(contents, "MacOS", "ummka-link-check");
@@ -77,8 +89,9 @@ export async function checkMacSystemLinks(
 <key>LSUIElement</key>${posts ? "<false/>" : "<true/>"}
 </dict></plist>`,
   );
-  const output = join(dir, "link-launch.stdout");
-  const stderr = join(dir, "link-launch.stderr");
+  const log = scenario ? `link-launch-${scenario}` : "link-launch";
+  const output = join(dir, `${log}.stdout`);
+  const stderr = join(dir, `${log}.stderr`);
   await writeFile(output, "");
   const variables = [
     "UMMKA_WEBVIEW_CHECK_PORTS",
@@ -90,6 +103,10 @@ export async function checkMacSystemLinks(
     return ["--env", `${key}=${env[key]}`];
   });
   if (posts) extra.push("--env", "UMMKA_CHECK_SYSTEM_POST_WINDOW=1");
+  if (windowMode) {
+    assert(posts);
+    extra.push("--env", `UMMKA_CHECK_SCENARIO=system-post-${windowMode}`);
+  }
   const background = posts ? [] : ["-g"];
   const interrupted = new AbortController();
   const interrupt = () => interrupted.abort();
@@ -137,6 +154,31 @@ export async function checkMacSystemLinks(
       posts?.cold ?? coldLink,
     ]);
     pid = await acknowledged(1);
+    if (windowMode) {
+      const initial = await trace(/^UMMKA_LINK_WINDOW initial (\d+) .+$/mu);
+      const prepared = await trace(/^UMMKA_LINK_WINDOW prepared (\d+) .+$/mu);
+      assert.equal(Number(initial[1]), pid);
+      assert.equal(Number(prepared[1]), pid);
+      console.log(`${windowMode} ${initial[0]}\n${windowMode} ${prepared[0]}`);
+    }
+    if (rejectInvalid) {
+      assert(posts && windowMode === "minimized");
+      await exec("/usr/bin/open", [
+        "-a",
+        bundle,
+        `${posts.warm}?fixture-rejected-link`,
+      ]);
+      const rejected = await trace(
+        /^UMMKA_LINK_WINDOW rejected (\d+) (true|false) .+$/mu,
+      );
+      console.log(rejected[0]);
+      assert.equal(Number(rejected[1]), pid);
+      assert.equal(
+        rejected[2],
+        "true",
+        "an invalid link restored the minimized window",
+      );
+    }
     await exec("/usr/bin/open", [
       ...background,
       "-a",
@@ -145,6 +187,11 @@ export async function checkMacSystemLinks(
     ]);
     assert.equal(await acknowledged(2), pid);
     if (posts) await trace(/^UMMKA_WEBVIEW_CHECK system-posts-shown$/mu);
+    if (windowMode) {
+      const presented = await trace(/^UMMKA_LINK_WINDOW presented (\d+) .+$/mu);
+      assert.equal(Number(presented[1]), pid);
+      console.log(`${windowMode} ${presented[0]}`);
+    }
     console.log(
       "LaunchServices delivered both HTTPS links to one WKWebView process.",
     );
@@ -155,5 +202,16 @@ export async function checkMacSystemLinks(
       process.off("SIGTERM", interrupt);
       process.off("SIGINT", interrupt);
     }
+  }
+  if (windowMode) {
+    const text = await readFile(output, "utf8");
+    assert.deepEqual(
+      text.match(/^UMMKA_LINK_ACK .*$/gmu),
+      [`UMMKA_LINK_ACK 1 ${pid}`, `UMMKA_LINK_ACK 2 ${pid}`],
+      `unexpected acknowledgements for the ${windowMode} window`,
+    );
+    console.log(
+      `LaunchServices restored the ${windowMode} window to the focused reply and preserved the draft.`,
+    );
   }
 }

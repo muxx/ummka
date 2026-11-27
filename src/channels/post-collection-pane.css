@@ -136,7 +136,7 @@
   --sheet-action-icon: var(--accent);
 }
 .collection-rows {
-  padding: 0.35rem 0.8rem 0.8rem;
+  padding: 13px 14px;
 }
 .collection-return-status {
   position: sticky;
@@ -182,7 +182,7 @@
 }
 .collection-open {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
+  grid-template-columns: 29px minmax(0, 1fr) auto;
   align-items: start;
   gap: 10px;
   width: 100%;
@@ -205,21 +205,36 @@
 .collection-open[aria-current="true"] {
   background: var(--row-selected);
 }
-.collection-author {
+.collection-avatar {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  background: var(--accent-tint);
+  color: var(--accent);
+  font-size: 0.7rem;
+  font-weight: 680;
+}
+.collection-avatar:empty {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--strong-divider);
+}
+.collection-author,
+.collection-meta {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.collection-author {
   font-size: 0.87rem;
   font-weight: 620;
 }
 .collection-meta,
-.collection-badges,
 .collection-date {
   color: var(--muted);
 }
-.collection-meta,
-.collection-badges {
-  overflow-wrap: anywhere;
+.collection-meta {
+  margin-block-start: 1px;
   font-size: 0.72rem;
 }
 .collection-date {
@@ -232,6 +247,7 @@
   -webkit-line-clamp: 3;
   overflow: hidden;
   overflow-wrap: anywhere;
+  margin-block-start: 2px;
   font-size: 0.76rem;
   line-height: 1.42;
 }
@@ -239,8 +255,11 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-block-start: 4px;
+  margin-block: 4px 3px;
+  margin-inline-end: 8px;
+  overflow-wrap: anywhere;
   color: var(--accent);
+  font-size: 0.72rem;
   font-weight: 650;
 }
 .collection-badges svg {
@@ -342,7 +361,6 @@
 .collection-content {
   display: grid;
   min-width: 0;
-  gap: 2px;
 }
 
 .collection-announcement {

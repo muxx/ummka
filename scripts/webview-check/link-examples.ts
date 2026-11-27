@@ -8,6 +8,7 @@ export const warmLink = signInLinkServer + "/team/channels/town-square";
 export const deniedPost = "x".repeat(26);
 export const systemRoot = "v".repeat(26);
 export const systemReply = "w".repeat(26);
+export type SystemPostWindowMode = "hidden" | "minimized";
 export function postLinks(port: string | number) {
   const server = `https://127.0.0.1:${port}/system-post-check`;
   return {

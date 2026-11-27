@@ -16,7 +16,11 @@ import { checkDesktopFormatting, checkGeneratedRequests } from "./generated.ts";
 import { checkNotificationSoundAssets } from "./notification-sounds.ts";
 import { checkPaletteSurfaces } from "./palette.ts";
 
-import { resumeRegistryCheck, seedRegistry } from "./registry.ts";
+import {
+  checkSystemPostWindowRestore,
+  resumeRegistryCheck,
+  seedRegistry,
+} from "./registry.ts";
 
 const fetch = window.fetch.bind(window);
 let direct = 0;
@@ -121,6 +125,16 @@ async function checkResources() {
       }
     });
     location.replace("/ipc-result.html?external-handoff");
+    return;
+  }
+  if (
+    scenario === "system-post-hidden" ||
+    scenario === "system-post-minimized"
+  ) {
+    await checkSystemPostWindowRestore(
+      ports[0],
+      scenario === "system-post-hidden" ? "hidden" : "minimized",
+    );
     return;
   }
   if (scenario !== null) throw Error("Unknown native fixture scenario");

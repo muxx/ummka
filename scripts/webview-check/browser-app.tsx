@@ -22,7 +22,10 @@ import { systemReply, systemRoot } from "./link-examples.ts";
 import { checkModalScroll } from "./modal-scroll.ts";
 import { checkPendingCommandActions } from "./pending-command-actions.ts";
 import { verifySearchAttachment } from "./published-attachments.ts";
-import { checkRowPermalink } from "./published-post-actions.ts";
+import {
+  checkRowPermalink,
+  openThreadFromMessageMenu,
+} from "./published-post-actions.ts";
 import {
   findThreadDraft,
   inspectChannelTable,
@@ -303,22 +306,30 @@ async function checkBrowserWorkspace(
     name: "Message actions",
   });
   flushSync(() => fireEvent.click(townActions));
-  within(document.body).getByRole("dialog", { name: "Message actions" });
+  const actions = within(
+    within(document.body).getByRole("dialog", { name: "Message actions" }),
+  );
+  const copy = actions.getByRole("button", { name: "Copy link" });
+  copy.focus();
   await workspaceFixtureStep(controlPort, "copy-true");
   await waitFor(() => {
     if (
-      document.querySelector(".post-actions-dialog[open]") ||
-      townActions.isConnected ||
+      actions.queryByRole("button", { name: "Copy link" }) ||
+      document.activeElement !==
+        actions.getByRole("button", { name: "Reply in thread" }) ||
+      !townActions.isConnected ||
       townDraft.value !== "Draft from the channel window"
     )
-      throw Error("Android device policy did not dismiss the open action");
+      throw Error("Android device policy changed the thread action or draft");
   });
   await workspaceFixtureStep(controlPort, "copy-false");
-  await within(town).findByRole("button", { name: "Message actions" });
+  await actions.findByRole("button", { name: "Copy link" });
+  flushSync(() =>
+    fireEvent.click(actions.getByRole("button", { name: "Close" })),
+  );
   await checkRowPermalink(town, `${server}/browser/pl/${systemRoot}`);
-  const opener = within(town).getByRole("button", { name: "Open thread" });
-  opener.focus();
-  flushSync(() => fireEvent.click(opener));
+  const direct = within(town).getByRole("button", { name: "Open thread" });
+  openThreadFromMessageMenu(townActions);
   const thread = await ui.findByRole("complementary", { name: "Thread" });
   const reply = await within(thread).findByText(
     "Reply visible only inside Town’s thread",
@@ -344,8 +355,8 @@ async function checkBrowserWorkspace(
   await workspaceFixtureStep(controlPort, "copy-unset");
   if (town.getClientRects().length || document.activeElement === townDraft)
     throw Error("The compact thread did not take over the conversation");
-  await verifyWorkspaceBack(host, controlPort, opener, townDraft);
-  await checkThreadReply(host, opener, townDraft);
+  await verifyWorkspaceBack(host, controlPort, townActions, townDraft);
+  await checkThreadReply(host, direct, townDraft);
   return townDraft;
 }
 

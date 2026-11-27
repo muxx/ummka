@@ -428,6 +428,8 @@ test("removes one condition with the keyboard, preserves literal phrases and res
   fireEvent.change(input, { target: { value: initial } });
   fireEvent.click(within(form).getByRole("button", { name: "Найти" }));
   await screen.findByRole("button", { name: "Готово к выпуску" });
+  const heading = screen.getByRole("heading", { name: "Результаты поиска" });
+  await waitFor(() => expect(document.activeElement).toBe(heading));
   const author = screen.getByRole("button", { name: "Убрать фильтр от Анна" });
   const second =
     deferred<Awaited<ReturnType<typeof account.readPostSearchPage>>>();
