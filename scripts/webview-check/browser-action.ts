@@ -51,7 +51,7 @@ export async function checkBrowserAction(port: string, controlPort: string) {
     );
     // A failed run exits the disposable process. Do not defer its result
     // behind more account IPC against that process.
-    await checkDesktopBack(controlPort);
+    await checkDesktopBack(controlPort, server);
     await fixtureStep("remove-desktop-account", () =>
       forgetLocalAccount(server, "f".repeat(26)),
     );

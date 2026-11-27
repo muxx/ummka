@@ -4,6 +4,7 @@ import type { LocalPost } from "../mattermost/local-history.ts";
 import type { TimelineMessage } from "./conversation-rows.ts";
 import { PostBodyDisclosure } from "./PostBodyDisclosure.tsx";
 import { PublishedAttachments } from "./PublishedAttachments.tsx";
+import { PublishedPostActions } from "./PublishedPostActions.tsx";
 import { PublishedPostBody } from "./PublishedPostBody.tsx";
 import { initials } from "./profile-initials.ts";
 
@@ -141,6 +142,9 @@ export function TimelinePost({
   const text = copy[locale];
   const person = author(post.userId);
   const name = person?.name || (post.outgoing && ownName) || text.unknown;
+  const avatar =
+    person?.avatar ??
+    (person?.name || (post.outgoing && ownName) ? initials(name) : "•");
   const when = new Date(post.createAt);
   const open =
     !post.outgoing && onOpenThread ? () => onOpenThread(post) : undefined;
@@ -165,8 +169,7 @@ export function TimelinePost({
       tabIndex={focusable || post.outgoing || hasAttachments ? -1 : undefined}
     >
       <div className="timeline-avatar" aria-hidden="true">
-        {person?.avatar ??
-          (person?.name || (post.outgoing && ownName) ? initials(name) : "•")}
+        {avatar}
       </div>
       <div className="timeline-post-body">
         <header>
@@ -202,6 +205,9 @@ export function TimelinePost({
                 />
               </svg>
             </button>
+          )}
+          {!post.outgoing && (
+            <PublishedPostActions post={post} author={name} avatar={avatar} />
           )}
         </header>
         {post.outgoing ? (
