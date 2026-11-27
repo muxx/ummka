@@ -1,12 +1,15 @@
 import {
   type KeyboardEvent,
+  useContext,
   useId,
   useLayoutEffect,
   useRef,
   useState,
 } from "react";
+import { isAndroid } from "../build-platform.ts";
 import type { PendingPost } from "../mattermost/account-delivery.ts";
 import { outgoingCopy } from "./outgoing-copy.ts";
+import { copyToClipboard, PostActionScope } from "./post-action-scope.ts";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
 import { workspaceFailure } from "./workspace-data.ts";
 
@@ -32,6 +35,8 @@ export function OutgoingRowActions({
   notify,
   sessionIssue,
 }: Props) {
+  const scope = useContext(PostActionScope);
+  const allowed = scope?.allowed ?? !isAndroid;
   const active = useRef(false);
   const [busy, setBusy] = useState(false);
   const [asking, setAsking] = useState(false);
@@ -122,7 +127,7 @@ export function OutgoingRowActions({
       </>
     );
   if (
-    !state.actions.copy &&
+    !(state.actions.copy && allowed) &&
     !state.actions.dismiss &&
     state.actions.retry === undefined
   )
@@ -134,10 +139,15 @@ export function OutgoingRowActions({
     setBusy(true);
     const pane = button.closest<HTMLElement>(".timeline-scroll");
     const hadFocus = document.activeElement === button;
+    const isCurrent = () =>
+      scope ? scope.isCurrent(button) : button.isConnected;
     try {
       if (action === "copy") {
-        await navigator.clipboard.writeText(post.message);
-        if (button.isConnected) notify(copy.copied);
+        const copied = await copyToClipboard(
+          post.message,
+          scope?.copyGuard(button) ?? isCurrent,
+        );
+        if (copied && isCurrent()) notify(copy.copied);
       } else {
         const removed = await dismiss({
           pendingId: post.pendingId,
@@ -163,7 +173,7 @@ export function OutgoingRowActions({
           pane.focus({ preventScroll: true });
       }
     } catch (error) {
-      if (!pane?.isConnected) return;
+      if (action === "copy" ? !isCurrent() : !pane?.isConnected) return;
       const failure = workspaceFailure(error, "storage");
       if (
         action === "dismiss" &&
@@ -191,7 +201,7 @@ export function OutgoingRowActions({
           {copy.sendAgain}
         </button>
       )}
-      {state.actions.copy && (
+      {state.actions.copy && allowed && (
         <button
           type="button"
           aria-disabled={busy}

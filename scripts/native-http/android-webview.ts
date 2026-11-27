@@ -51,6 +51,7 @@ export async function launchWebview(
   activity: string,
   expected: string,
   onAndroidInputReady?: OnAndroidInputReady,
+  webviewProgress?: () => string,
 ) {
   const send: SendAndroidKey = async (key) => {
     if (key === "KEYCODE_BACK") {
@@ -184,7 +185,13 @@ export async function launchWebview(
   );
   const pid = (await adb("shell", "pidof", "-s", app)).trim();
   assert.match(pid, /^\d+$/);
-  const deadline = Date.now() + 65_000;
+  const launched = Date.now();
+  const deadline = launched + 65_000;
+  let browserStage = "no browser stage reported";
+  const progress = () =>
+    [`after ${Date.now() - launched} ms`, browserStage, webviewProgress?.()]
+      .filter(Boolean)
+      .join("; ");
   while (true) {
     const output = await adb(
       "logcat",
@@ -196,15 +203,27 @@ export async function launchWebview(
     );
     // Chromium's native fatal log can precede both the Android exception and our result marker.
     assert.doesNotMatch(output, /FATAL EXCEPTION|\[[^\]\r\n]*\bFATAL:/u);
+    const step = [
+      ...output.matchAll(
+        /\bUMMKA_WEBVIEW_STEP (started|completed) ([a-z-]+)\b/gu,
+      ),
+    ].at(-1);
+    if (step) {
+      const current = `${step[1]} ${step[2]}`;
+      if (browserStage !== current) {
+        browserStage = current;
+        console.log(`Android WebView process ${pid}: ${progress()}.`);
+      }
+    }
     const result = /UMMKA_WEBVIEW_CHECK ([\w-]+)/u.exec(output);
     if (result) {
-      assert.equal(result[1], expected, output);
+      assert.equal(result[1], expected, `${progress()}\n${output}`);
       console.log(`Android WebView process ${pid} verified ${expected}.`);
       return pid;
     }
     assert(
       Date.now() < deadline,
-      `Android WebView check timed out.\n${output}`,
+      `Android WebView check timed out ${progress()}.\n${output}`,
     );
     await delay(500);
   }
@@ -292,6 +311,7 @@ export async function checkWebviewProcesses(
   component: string,
   onAndroidInputReady: OnAndroidInputReady,
   dataPort: number,
+  webviewProgress: () => string,
 ) {
   const activity = `${component}MainActivity`;
   await adb(
@@ -339,6 +359,7 @@ export async function checkWebviewProcesses(
     activity,
     "browser-checked",
     onAndroidInputReady,
+    webviewProgress,
   );
   await checkDocumentPicker(adb, component, seeded);
   const external = await adb(

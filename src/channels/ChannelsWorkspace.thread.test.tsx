@@ -10,6 +10,8 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ResponseError } from "../../vendor/mattermost/index.js";
+import { isAndroid } from "../build-platform.ts";
+import * as clipboardPolicy from "../device/clipboard-policy.ts";
 import type { TeamWorkspace } from "../entry/AccountTeamWindow.tsx";
 import type { PendingPost } from "../mattermost/account-delivery.ts";
 import { createChannelHistoryChanges } from "../mattermost/channel-history-changes.ts";
@@ -48,8 +50,18 @@ beforeEach(() => {
       disconnect() {}
     },
   );
+  vi.spyOn(clipboardPolicy, "observeClipboardAllowed").mockImplementation(
+    (report) => {
+      report(true);
+      return () => {};
+    },
+  );
+  vi.spyOn(clipboardPolicy, "readClipboardAllowed").mockResolvedValue(true);
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 type Connection = TeamWorkspace["connection"];
 const userId = "u".repeat(26);
 const team = {
@@ -91,6 +103,9 @@ function mount(
   online = true,
   options: {
     archived?: boolean;
+    direct?: "D" | "G";
+    rootAuthor?: string;
+    pending?: PendingPost;
     writable?: boolean;
     type?: string;
     second?: boolean;
@@ -105,9 +120,12 @@ function mount(
     ].map(([id, name]) => ({
       channel: {
         id,
-        name,
+        name:
+          options.direct && id === general
+            ? [userId, "v".repeat(26)].join("__")
+            : name,
         displayName: name,
-        type: "O",
+        type: id === general ? (options.direct ?? "O") : "O",
         deleteAt: options.archived && id === general ? 300 : 0,
       },
       membership: { channelId: id, userId, roles: "writer" },
@@ -127,6 +145,7 @@ function mount(
   const rows: LocalPost[] = [
     {
       ...root,
+      userId: options.rootAuthor ?? userId,
       type: options.type ?? root.type,
       rootId: null,
       messageSource: null,
@@ -224,9 +243,13 @@ function mount(
       selectedTeam: team.id,
     })),
     submitDraft: vi.fn(),
-    readPendingPosts: vi
-      .fn<Connection["readPendingPosts"]>()
-      .mockResolvedValue([]),
+    readPendingPosts: vi.fn<Connection["readPendingPosts"]>(async (where) =>
+      options.pending &&
+      where.channelId === options.pending.channelId &&
+      (where.rootId ?? null) === options.pending.rootId
+        ? [options.pending]
+        : [],
+    ),
     retireDeliveredPosts: vi.fn().mockResolvedValue(0),
     getOutgoingPostState: (post: PendingPost) =>
       outgoingRowState(post, false, true),
@@ -241,7 +264,7 @@ function mount(
       enqueue: (work) => work(),
     },
     connection: connection as unknown as Connection,
-    serverUrl: "https://chat.example.test",
+    serverUrl: "https://chat.example.test/team/chat",
     userId,
     team,
     online,
@@ -717,6 +740,9 @@ test.each([0, 86400000])(
       "article",
     );
     if (!own) throw new Error("Missing own outgoing row");
+    expect(
+      within(own).queryByRole("button", { name: "Message actions" }),
+    ).toBeNull();
     const boundary = within(pane).getByRole("button", {
       name: /between these messages.*Show replies/,
     });
@@ -756,6 +782,15 @@ test.each([0, 86400000])(
     expect(
       within(screen.getByRole("main")).queryByText(canonical.message),
     ).toBeNull();
+    const write = fixtureClipboard();
+    fireEvent.click(
+      within(own).getByRole("button", { name: "Message actions" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+    await screen.findByText("Message link copied.");
+    expect(write.mock.calls).toEqual([
+      [`https://chat.example.test/team/chat/winter/pl/${canonical.id}`],
+    ]);
   },
 );
 
@@ -1109,4 +1144,322 @@ test("global search returns to the same directory filter before leaving the cata
     draft,
   );
   expect(draft.value).toBe("My pending message");
+});
+
+function fixtureClipboard() {
+  const writeText = vi
+    .fn<(text: string) => Promise<void>>()
+    .mockResolvedValue(undefined);
+  vi.stubGlobal(
+    "navigator",
+    Object.create(navigator, { clipboard: { value: { writeText } } }),
+  );
+  return writeText;
+}
+
+const pendingCopyPost: PendingPost = {
+  pendingId: "local-device-id",
+  channelId: general,
+  rootId: null,
+  sequence: 1,
+  createdAt: 300,
+  previousLogin: true,
+  attempt: 1,
+  refusal: null,
+  confirmedPostId: null,
+  message: "Previous local attempt",
+};
+
+function holdClipboardRead() {
+  let resolve!: (allowed: boolean) => void;
+  vi.mocked(clipboardPolicy.readClipboardAllowed).mockReturnValueOnce(
+    new Promise((complete) => {
+      resolve = complete;
+    }),
+  );
+  return resolve;
+}
+
+async function rowActions(
+  label: string,
+  container: HTMLElement = document.body,
+) {
+  const row = (await within(container).findByText(label)).closest("article");
+  if (!row) throw Error("Missing published row");
+  return within(row).getByRole("button", { name: "Message actions" });
+}
+
+test("copies each published message's own permalink in Channels and in a thread, and returns keyboard focus", async () => {
+  const write = fixtureClipboard();
+  const account = mount(true);
+  const draft = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Message #General…",
+  });
+  fireEvent.change(draft, { target: { value: "Keep this draft" } });
+  const rootActions = await rowActions(root.message);
+  fireEvent.click(rootActions);
+  const menu = screen.getByRole("dialog", { name: "Message actions" });
+  const copy = within(menu).getByRole("button", { name: "Copy link" });
+  expect(document.activeElement).toBe(copy);
+  fireEvent.click(copy);
+  await screen.findByText("Message link copied.");
+  expect(write.mock.calls).toEqual([
+    [`https://chat.example.test/team/chat/winter/pl/${root.id}`],
+  ]);
+  expect(document.activeElement).toBe(rootActions);
+  fireEvent.click(screen.getByRole("button", { name: /Open thread, 1 reply/ }));
+  const thread = await screen.findByRole("complementary", { name: "Thread" });
+  const replyActions = await rowActions(reply.message, thread);
+  fireEvent.click(replyActions);
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  await waitFor(() => expect(document.activeElement).toBe(replyActions));
+  write.mockRejectedValueOnce(Error("Clipboard denied"));
+  fireEvent.click(replyActions);
+  fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+  await screen.findByText("Couldn’t copy the link.");
+  expect(document.activeElement).toBe(replyActions);
+  fireEvent.click(replyActions);
+  fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+  await screen.findByText("Message link copied.");
+  expect(write.mock.calls.slice(1)).toEqual(
+    Array(2).fill([
+      `https://chat.example.test/team/chat/winter/pl/${reply.id}`,
+    ]),
+  );
+  expect(account.selectSidebarChannel).not.toHaveBeenCalled();
+  expect(draft.value).toBe("Keep this draft");
+});
+
+test("a removed published row closes its open action", async () => {
+  const account = mount(true);
+  const origin = await rowActions(root.message);
+  const pane = screen.getByRole("region", { name: "Channel messages" });
+  Object.defineProperty(pane, "clientHeight", { value: 100 });
+  fireEvent.click(origin);
+  expect(screen.getByRole("dialog", { name: "Message actions" })).toBeTruthy();
+  account.readChannelWindow.mockResolvedValueOnce({
+    posts: [],
+    older: { kind: "end" },
+    newer: { kind: "end" },
+    firstInaccessiblePostTime: 0,
+  });
+  await act(async () => account.notifyChannelHistoryChanged(general));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(origin.isConnected).toBe(false);
+  expect(screen.queryByRole("button", { name: "Message actions" })).toBeNull();
+});
+
+test.runIf(isAndroid)(
+  "reads the device again for an explicit Android copy",
+  async () => {
+    const write = fixtureClipboard();
+    vi.mocked(clipboardPolicy.readClipboardAllowed).mockResolvedValueOnce(
+      false,
+    );
+    mount(true);
+    fireEvent.click(await rowActions(root.message));
+    fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+    await screen.findByText("Couldn’t copy the link.");
+    expect(write).not.toHaveBeenCalled();
+  },
+);
+
+test.runIf(isAndroid)(
+  "a late policy read cannot resume a copy from an earlier visit",
+  async () => {
+    const write = fixtureClipboard();
+    const allow = holdClipboardRead();
+    mount(true);
+    const origin = await rowActions(root.message);
+    fireEvent.click(origin);
+    fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Open thread, 1 reply/ }),
+    );
+    const thread = await screen.findByRole("complementary", { name: "Thread" });
+    fireEvent.click(
+      within(thread).getByRole("button", { name: "Close thread" }),
+    );
+    expect(origin.isConnected).toBe(true);
+    await act(async () => allow(true));
+    expect(write).not.toHaveBeenCalled();
+    expect(screen.queryByText("Message link copied.")).toBeNull();
+  },
+);
+
+test.runIf(isAndroid).each([
+  [
+    "Copy link",
+    "Message link copied.",
+    `https://chat.example.test/team/chat/winter/pl/${root.id}`,
+  ],
+  ["Copy text", "Text copied.", pendingCopyPost.message],
+])(
+  "a batched revoke and grant invalidates the pending %s",
+  async (action, success, value) => {
+    let report!: (allowed: boolean) => void;
+    vi.mocked(clipboardPolicy.observeClipboardAllowed).mockImplementation(
+      (changed) => {
+        report = changed;
+        changed(true);
+        return () => {};
+      },
+    );
+    const write = fixtureClipboard();
+    const allow = holdClipboardRead();
+    mount(true, true, { pending: pendingCopyPost });
+    const origin =
+      action === "Copy link"
+        ? await rowActions(root.message)
+        : await screen.findByRole("button", { name: action });
+    if (action === "Copy link") fireEvent.click(origin);
+    fireEvent.click(screen.getByRole("button", { name: action }));
+    expect(clipboardPolicy.readClipboardAllowed).toHaveBeenCalledTimes(1);
+    act(() => {
+      report(false);
+      report(true);
+    });
+    expect(origin.isConnected).toBe(true);
+    await act(async () => allow(true));
+    expect(write).not.toHaveBeenCalled();
+    expect(screen.queryByText(success)).toBeNull();
+    const allowNext = holdClipboardRead();
+    fireEvent.click(screen.getByRole("button", { name: action }));
+    act(() => report(true));
+    await act(async () => allowNext(true));
+    await screen.findByText(success);
+    expect(write).toHaveBeenCalledExactlyOnceWith(value);
+  },
+);
+
+test.runIf(isAndroid)(
+  "closing and reopening a message menu abandons its pending clipboard check",
+  async () => {
+    const write = fixtureClipboard();
+    const allow = holdClipboardRead();
+    mount(true);
+    const origin = await rowActions(root.message);
+    fireEvent.click(origin);
+    fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+    expect(clipboardPolicy.readClipboardAllowed).toHaveBeenCalledTimes(1);
+    handleEscape();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(origin));
+    fireEvent.click(origin);
+    const action = screen.getByRole("button", { name: "Copy link" });
+    await act(async () => allow(true));
+    expect(write).not.toHaveBeenCalled();
+    expect(
+      screen.queryByText(/Message link copied|Couldn’t copy the link/),
+    ).toBeNull();
+    expect(document.activeElement).toBe(action);
+    fireEvent.click(action);
+    await screen.findByText("Message link copied.");
+    expect(write).toHaveBeenCalledExactlyOnceWith(
+      `https://chat.example.test/team/chat/winter/pl/${root.id}`,
+    );
+  },
+);
+
+test("closing a message menu after its write starts leaves the write and focus alone", async () => {
+  const write = fixtureClipboard();
+  let finish!: () => void;
+  write.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  mount(true);
+  const origin = await rowActions(root.message);
+  fireEvent.click(origin);
+  fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+  await waitFor(() =>
+    expect(write).toHaveBeenCalledExactlyOnceWith(
+      `https://chat.example.test/team/chat/winter/pl/${root.id}`,
+    ),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  const draft = screen.getByRole("textbox", { name: "Message #General…" });
+  draft.focus();
+  await act(async () => finish());
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.queryByText("Message link copied.")).toBeNull();
+  expect(document.activeElement).toBe(draft);
+  expect(write).toHaveBeenCalledTimes(1);
+});
+
+test.each([
+  { archived: true, writable: false },
+  { direct: "D" },
+  { direct: "G" },
+] as const)(
+  "copies a saved row offline within the open team: %o",
+  async (options) => {
+    const write = fixtureClipboard();
+    mount(true, false, options);
+    fireEvent.click(await rowActions(root.message));
+    fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+    await screen.findByText("Message link copied.");
+    expect(write).toHaveBeenCalledWith(
+      `https://chat.example.test/team/chat/winter/pl/${root.id}`,
+    );
+  },
+);
+
+test.each([
+  ["system_join_channel", userId, false],
+  ["burn_on_read", "z".repeat(26), false],
+  ["burn_on_read", userId, true],
+])(
+  "filters the published menu for %s and its author",
+  async (type, rootAuthor, visible) => {
+    mount(true, true, { type: String(type), rootAuthor: String(rootAuthor) });
+    const row = (await screen.findByText(root.message)).closest("article");
+    if (!row) throw Error("Missing message");
+    expect(
+      Boolean(within(row).queryByRole("button", { name: "Message actions" })),
+    ).toBe(visible);
+  },
+);
+
+test("a device policy change closes the open menu and hides both explicit copy actions", async () => {
+  let change!: (allowed: boolean) => void;
+  const policy = vi
+    .spyOn(clipboardPolicy, "observeClipboardAllowed")
+    .mockImplementation((report) => {
+      change = report;
+      report(true);
+      return () => {};
+    });
+  const write = fixtureClipboard();
+  try {
+    mount(true, true, { pending: pendingCopyPost });
+    await screen.findByRole("button", { name: "Copy text" });
+    const pending = screen
+      .getByText("Previous local attempt")
+      .closest("article");
+    if (!pending) throw Error("No pending row");
+    expect(
+      within(pending).queryByRole("button", { name: "Message actions" }),
+    ).toBeNull();
+    fireEvent.click(await rowActions(root.message));
+    expect(
+      screen.getByRole("dialog", { name: "Message actions" }),
+    ).toBeTruthy();
+    act(() => change(false));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Message actions" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Copy text" })).toBeNull();
+    expect(write).not.toHaveBeenCalled();
+    act(() => change(true));
+    expect(await rowActions(root.message)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Copy text" }));
+    await screen.findByText("Text copied.");
+    expect(write.mock.calls).toEqual([["Previous local attempt"]]);
+  } finally {
+    policy.mockRestore();
+  }
 });

@@ -6,11 +6,37 @@ import { openNativeRestConnection } from "../../src/mattermost/native-rest.ts";
 import { checkAvailableDirectoryWindow } from "./available-directory-window.ts";
 import { checkChannelNotificationsWindow } from "./channel-notifications-window.ts";
 import { fixtureStep } from "./fixture-step.ts";
-import { systemReply } from "./link-examples.ts";
+import { systemReply, systemRoot } from "./link-examples.ts";
 import {
   verifyAttachmentReturn,
   verifySearchAttachment,
 } from "./published-attachments.ts";
+import { checkRowPermalink } from "./published-post-actions.ts";
+
+export function inspectChannelTable(table: ReturnType<typeof within>) {
+  const score = table.getByRole("columnheader", { name: "Score" });
+  if (
+    score.getAttribute("scope") !== "col" ||
+    getComputedStyle(score).textAlign !== "right"
+  )
+    throw Error(
+      "Timeline table lost its accessible column header or alignment",
+    );
+}
+
+export function inspectReplyTable(table: ReturnType<typeof within>) {
+  const extraCell = table.getByRole("cell", { name: "Exact overflow cell" });
+  if (!extraCell.querySelector("strong"))
+    throw Error("Thread table lost the formatting of an extra cell");
+  table.getByRole("columnheader", { name: "Reply col" });
+}
+
+function desktopTable(row: HTMLElement) {
+  const content = within(row);
+  if (content.queryByRole("button", { name: /^Open table:/ }))
+    throw Error("Desktop replaced its inline table with a mobile preview");
+  return within(content.getByRole("table"));
+}
 
 export function findThreadDraft(host: HTMLElement) {
   // Observe the workspace, not unrelated mutations elsewhere in the test
@@ -74,15 +100,36 @@ export async function verifyWorkspaceBack(
       );
   }
   try {
-    const { field: reply, thread } = await fixtureStep(
-      "wait-for-thread-draft",
-      () => findThreadDraft(host),
-    );
+    const {
+      field: reply,
+      pane,
+      thread,
+    } = await fixtureStep("wait-for-thread-draft", () => findThreadDraft(host));
     flushSync(() => fireEvent.input(reply, { target: { value: threadText } }));
     const replyRow = thread
       .getByText("Reply visible only inside Town’s thread")
       .closest("article");
     if (!replyRow) throw Error("Missing thread attachment row");
+    await fixtureStep("return-from-reply-message-actions", async () => {
+      const trigger = within(replyRow).getByRole("button", {
+        name: "Message actions",
+      });
+      flushSync(() => fireEvent.click(trigger));
+      const menu = within(document.body).getByRole("dialog", {
+        name: "Message actions",
+      });
+      await press("post-actions");
+      await waitFor(() => {
+        if (
+          menu.isConnected ||
+          document.activeElement !== trigger ||
+          !pane.isConnected ||
+          reply.value !== threadText ||
+          channel.value !== channelText
+        )
+          throw Error("Returning from message actions lost focus or a draft");
+      });
+    });
     await fixtureStep("return-from-reply-attachment", () =>
       verifyAttachmentReturn(replyRow, "reply-photo.png", "0 B", () =>
         press("attachment-reply"),
@@ -254,7 +301,7 @@ export async function verifyWorkspaceBack(
   await fixtureStep("close-workspace-back-driver", control.close);
 }
 
-export async function checkDesktopBack(port: string) {
+export async function checkDesktopBack(port: string, server: string) {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -269,6 +316,10 @@ export async function checkDesktopBack(port: string) {
   ).closest("article");
   if (!town)
     throw Error("The desktop channel did not render the fixture message");
+  await fixtureStep("copy-desktop-channel-permalink", () => {
+    inspectChannelTable(desktopTable(town));
+    return checkRowPermalink(town, `${server}/browser/pl/${systemRoot}`);
+  });
   const channel = await fixtureStep("wait-for-town-draft", () =>
     ui.findByRole<HTMLTextAreaElement>("textbox", {
       name: "Message #Town Square…",
@@ -282,6 +333,15 @@ export async function checkDesktopBack(port: string) {
       }),
     );
     flushSync(() => fireEvent.click(opener));
+  });
+  await fixtureStep("copy-desktop-reply-permalink", async () => {
+    const { thread } = await findThreadDraft(host);
+    const reply = thread
+      .getByText("Reply visible only inside Town’s thread")
+      .closest("article");
+    if (!reply) throw Error("The desktop reply is outside its published row");
+    inspectReplyTable(desktopTable(reply));
+    await checkRowPermalink(reply, `${server}/browser/pl/${systemReply}`, true);
   });
   await verifyWorkspaceBack(host, port, opener, channel);
   flushSync(() => fireEvent.click(ui.getByRole("button", { name: "Search" })));

@@ -23,7 +23,6 @@ export async function fixtureStep<T>(
   step: string,
   operation: () => Promise<T> | T,
 ) {
-  if (navigator.userAgent.includes("Android")) return operation();
   try {
     return await fixtureDeadline(step, async () => {
       await invoke("trace_webview_check", { step, finished: false });
@@ -35,4 +34,13 @@ export async function fixtureStep<T>(
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(`${step}: ${detail}`, { cause: error });
   }
+}
+
+export function androidFixtureStep<T>(
+  step: string,
+  operation: () => Promise<T> | T,
+) {
+  return navigator.userAgent.includes("Android")
+    ? fixtureStep(step, operation)
+    : operation();
 }
