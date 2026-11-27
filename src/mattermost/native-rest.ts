@@ -6,6 +6,7 @@ import {
   Configuration,
   FilesApi,
   PostsApi,
+  UsersApi,
 } from "../../vendor/mattermost/index.js";
 import { isAndroid } from "../build-platform.ts";
 import { accountChannelReadState } from "./account-channel-read-state.ts";
@@ -59,6 +60,10 @@ import {
 } from "./execute-saved-command.ts";
 import { type JoinedTeams, projectJoinedTeams } from "./joined-teams.ts";
 import { reopenKnownConversation } from "./known-conversation-visibility.ts";
+import {
+  type ConversationRecipientTarget,
+  readConversationRecipient,
+} from "./link-recipient.ts";
 import type {
   ChannelWindowQuery,
   LocalChannelWindow,
@@ -74,6 +79,7 @@ import { isMattermostId } from "./model-fields.ts";
 import { nativeFetch } from "./native-fetch.ts";
 import { loadAccountDirectory, loadTeamDirectory } from "./navigation-data.ts";
 import { refreshNavigation } from "./navigation-refresh.ts";
+import { readOwnChannelMembership } from "./own-channel-membership.ts";
 import {
   changeOwnMembership,
   type MembershipChange,
@@ -175,6 +181,7 @@ export async function openAccountRestConnection(
   const files = new FilesApi(config);
   const activity = createPostActivity();
   const historyChanges = createChannelHistoryChanges();
+  const recipientLifetime = new AbortController();
   let retired:
     | "unknown_connection"
     | "cancelled"
@@ -182,6 +189,7 @@ export async function openAccountRestConnection(
     | undefined;
   function retire(reason: NonNullable<typeof retired>) {
     retired = reason;
+    recipientLifetime.abort("cancelled");
     activity.close();
     historyChanges.close();
   }
@@ -204,6 +212,11 @@ export async function openAccountRestConnection(
   const search = accountSearch(config, readWhileOpen);
   let latestPolicyRead: symbol | undefined;
   let liveFileUpload: ServerPolicy["fileUpload"];
+  function readSavedProfiles(query: VisibleProfileQuery) {
+    return readWhileOpen(() =>
+      invoke<SavedProfiles>("read_saved_profiles", { rid, query }),
+    );
+  }
   return {
     ...connection,
     resolveConversationIdentifier(
@@ -337,9 +350,22 @@ export async function openAccountRestConnection(
       );
     },
     ...accountMentionGroups(config, readWhileOpen),
-    readSavedProfiles(query: VisibleProfileQuery) {
-      return readWhileOpen(() =>
-        invoke<SavedProfiles>("read_saved_profiles", { rid, query }),
+    readSavedProfiles,
+    readConversationRecipient(
+      target: ConversationRecipientTarget,
+      signal?: AbortSignal,
+    ) {
+      return readWhileOpen(
+        () =>
+          readConversationRecipient(
+            new UsersApi(config),
+            target,
+            readSavedProfiles,
+            signal
+              ? AbortSignal.any([signal, recipientLifetime.signal])
+              : recipientLifetime.signal,
+          ),
+        signal,
       );
     },
     refreshSavedProfiles(query: VisibleProfileQuery, signal?: AbortSignal) {
@@ -363,6 +389,17 @@ export async function openAccountRestConnection(
     },
     readCustomEmoji(emojiName: string, signal?: AbortSignal) {
       return readWhileOpen(() => readCustomEmoji(config, emojiName, signal));
+    },
+    readOwnChannelMembership(
+      teamId: string,
+      channelId: string,
+      signal?: AbortSignal,
+    ) {
+      return readWhileOpen(
+        () =>
+          readOwnChannelMembership(config, userId, teamId, channelId, signal),
+        signal,
+      );
     },
     changeOwnMembership(target: MembershipTarget, change: MembershipChange) {
       return readWhileOpen(() =>

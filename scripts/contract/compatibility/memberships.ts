@@ -12,6 +12,7 @@ import {
   loadAccountDirectory,
   loadTeamDirectory,
 } from "../../../src/mattermost/navigation-data.ts";
+import { readOwnChannelMembership } from "../../../src/mattermost/own-channel-membership.ts";
 import { changeOwnMembership } from "../../../src/mattermost/own-membership.ts";
 import { projectTeamSidebar } from "../../../src/mattermost/team-sidebar.ts";
 import {
@@ -243,6 +244,13 @@ export async function checkNavigationMemberships(
     [userId, "channel_user", "", false, true, false],
   );
 
+  const leftTeamChannel = (
+    await new ChannelsApi(session).getChannelsForTeamForUser({
+      ...own,
+      teamId: leaveTeamId,
+    })
+  ).find((row) => row.name === "town-square");
+  assert.ok(leftTeamChannel?.id);
   const leave = await teams.removeTeamMemberRaw(target);
   assert.equal(leave.raw.status, 200);
   assert.equal((await leave.value()).status, "OK");
@@ -259,6 +267,10 @@ export async function checkNavigationMemberships(
   assert.ok(!remaining.teams.some(({ team }) => team.id === leaveTeamId));
   await assert.rejects(
     loadTeamDirectory(session, userId, leaveTeamId),
+    (e: unknown) => e instanceof ResponseError && e.response.status === 403,
+  );
+  await assert.rejects(
+    readOwnChannelMembership(session, userId, leaveTeamId, leftTeamChannel.id),
     (e: unknown) => e instanceof ResponseError && e.response.status === 403,
   );
   assert.ok(
@@ -348,32 +360,28 @@ export async function checkOwnMembershipChanges(
   channel: string,
 ) {
   const teams = new TeamsApi(config);
-  const channels = new ChannelsApi(config);
-  const hasTeam = async () =>
+  const readTeam = async () =>
     (await teams.getTeamsForUser({ userId: "me" })).some(
       (row) => row.id === team,
-    );
-  const hasChannel = async () =>
-    (
-      await channels.getChannelMembersForUser({
-        userId: "me",
-        teamId: workspace,
-      })
-    ).some((row) => row.channelId === channel);
+    )
+      ? "member"
+      : "absent";
+  const readChannel = () =>
+    readOwnChannelMembership(config, userId, workspace, channel);
   for (const [target, read] of [
-    [{ kind: "team", id: team }, hasTeam],
-    [{ kind: "channel", id: channel }, hasChannel],
+    [{ kind: "team", id: team }, readTeam],
+    [{ kind: "channel", id: channel }, readChannel],
   ] as const) {
-    assert.equal(await read(), false);
+    assert.equal(await read(), "absent");
     assert.deepEqual(
       await changeOwnMembership(config, userId, target, "join"),
       { kind: "applied" },
     );
-    assert.equal(await read(), true);
+    assert.equal(await read(), "member");
     assert.deepEqual(
       await changeOwnMembership(config, userId, target, "leave"),
       { kind: "applied" },
     );
-    assert.equal(await read(), false);
+    assert.equal(await read(), "absent");
   }
 }
