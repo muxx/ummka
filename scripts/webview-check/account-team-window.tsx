@@ -197,7 +197,11 @@ export async function checkSavedTeamWindow(
       opener.focus();
       flushSync(() => fireEvent.click(opener));
       const thread = await ui.findByRole("complementary", {
-        name: "Обсуждение",
+        name: "Тред",
+      });
+      within(thread).getByRole("heading", {
+        name: "Тред",
+        description: "# Town Square",
       });
       await within(thread).findByText(
         "Saved fixture room message",

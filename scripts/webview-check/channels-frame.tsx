@@ -74,6 +74,7 @@ export async function checkChannelsFrame() {
               ? {
                   id: thread,
                   title: "Replies",
+                  subtitle: "# General",
                   content: <textarea ref={replyRef} aria-label="Reply" />,
                   replyRef,
                   close: () => {
@@ -287,6 +288,22 @@ export async function checkChannelsFrame() {
         open.focus();
         open.click();
         const aside = control("aside");
+        within(aside).getByRole("heading", {
+          name: "Replies",
+          description: "# General",
+        });
+        const threadHead = control(
+          ".channels-thread-head",
+        ).getBoundingClientRect();
+        const closeThread = within(aside).getByRole("button", {
+          name: labels.closeThread,
+        });
+        const closeBounds = closeThread.getBoundingClientRect();
+        if (
+          threadHead.height !== (narrow ? 53 : 70) ||
+          (narrow && (closeBounds.width !== 44 || closeBounds.height !== 44))
+        )
+          throw Error(`frame-thread-header-${mode}-${width}`);
         if (
           getComputedStyle(aside).borderRadius !== "0px" ||
           getComputedStyle(main).borderStartStartRadius !== radius
@@ -319,7 +336,7 @@ export async function checkChannelsFrame() {
           if (document.activeElement !== draft)
             throw Error("frame-conversation-during-thread");
         }
-        within(aside).getByRole("button", { name: labels.closeThread }).click();
+        closeThread.click();
         if (
           document.activeElement !== (narrow ? open : second) ||
           draft !== control("input")

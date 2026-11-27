@@ -89,11 +89,14 @@ export async function checkChannelNotificationsWindow(
     name: /Nothing/,
   });
   click(nothing);
-  click(reopened.getByRole("button", { name: "Save" }));
+  const save = reopened.getByRole("button", { name: "Save" });
+  click(save);
   await reopened.findByRole("alert");
-  if (!nothing.checked)
-    throw Error("Server rejection discarded notification edits");
-  click(reopened.getByRole("button", { name: "Save" }));
+  if (!nothing.checked || document.activeElement !== save)
+    throw Error(
+      "Server rejection discarded the notification edits or submit focus",
+    );
+  click(save);
   await waitFor(() => {
     if (ui.queryByRole("dialog") || document.activeElement !== title)
       throw Error("Saving did not restore the channel title");
@@ -112,6 +115,14 @@ export async function checkChannelNotificationsWindow(
   )
     throw Error("Confirmed setting was missing after reopening");
   click(confirmed.getByRole("button", { name: "Cancel" }));
+  const canceled = await ui.findByRole("menuitem", { name: "Notifications" });
+  if (document.activeElement !== canceled)
+    throw Error("Cancel did not restore the notification menu item");
+  flushSync(() => fireEvent.keyDown(window, { key: "Escape" }));
+  await waitFor(() => {
+    if (canceled.isConnected || document.activeElement !== title)
+      throw Error("Leaving the menu did not restore the channel title");
+  });
   if (!draft.isConnected || draft.value !== originalDraft)
     throw Error("Editing notifications discarded the channel draft");
 }
