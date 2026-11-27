@@ -5,8 +5,8 @@ import { createSavedPostState } from "../mattermost/saved-post-state.ts";
 import { openPostCollection } from "./post-collection.ts";
 
 const channelId = "c".repeat(26);
-const first = { id: "a".repeat(26), channelId, message: "Older" };
-const last = { id: "z".repeat(26), channelId, message: "Newer" };
+const first = { id: "a".repeat(26), channelId, message: "Older", cards: [] };
+const last = { id: "z".repeat(26), channelId, message: "Newer", cards: [] };
 const page = { items: [first, last], firstInaccessiblePostTime: 42 };
 const empty = { items: [], firstInaccessiblePostTime: 0 };
 

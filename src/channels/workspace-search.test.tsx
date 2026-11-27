@@ -49,6 +49,7 @@ function fixture() {
             channelId: channel,
             userId: "u".repeat(26),
             message: "Готово к выпуску",
+            cards: [],
           },
         ],
         isEnd: false,
@@ -158,9 +159,10 @@ test("marks only the displayed result's words and exposes thread context without
         rootId: "r".repeat(26),
         createAt: at,
         message: 'Первый **экрана** <img src="https://example.test/test.png">',
+        cards: [],
       },
-      { id: noMatch, channelId: channel, message: "Второй экран" },
-      { id: missing, channelId: channel, message: "Третий экран" },
+      { id: noMatch, channelId: channel, message: "Второй экран", cards: [] },
+      { id: missing, channelId: channel, message: "Третий экран", cards: [] },
     ],
     matches: { [post]: ["экрана"], [noMatch]: [] },
     isEnd: true,
@@ -504,7 +506,14 @@ test("the latest scope owns the results, and a late reply cannot close a newly o
   fireEvent.change(edit, { target: { value: "другой запрос" } });
   await act(async () => {
     pendingSouth.resolve({
-      items: [{ id: post, channelId: channel, message: "Устаревшая строка" }],
+      items: [
+        {
+          id: post,
+          channelId: channel,
+          message: "Устаревшая строка",
+          cards: [],
+        },
+      ],
       isEnd: true,
       matches: null,
       firstInaccessiblePostTime: 0,

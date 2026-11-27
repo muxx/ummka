@@ -6,6 +6,7 @@ const row = (id: string, message: string) => ({
   id,
   channelId: "c".repeat(26),
   message,
+  cards: [],
 });
 const page = (
   items: ReturnType<typeof row>[],

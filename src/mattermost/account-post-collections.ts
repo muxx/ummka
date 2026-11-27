@@ -5,6 +5,7 @@ import {
   PostsApi,
   PreferencesApi,
 } from "../../vendor/mattermost/index.js";
+import { postWithIntegrationCards } from "./integration-cards.ts";
 import { isMattermostId, isMattermostTime } from "./model-fields.ts";
 import { orderedItems } from "./ordered-items.ts";
 import {
@@ -40,7 +41,10 @@ function collection(list: PostList, channelId?: string) {
       throw new TypeError("Invalid Mattermost collection membership.");
     seen.add(row.id);
   }
-  return { items, firstInaccessiblePostTime };
+  return {
+    items: items.map(postWithIntegrationCards),
+    firstInaccessiblePostTime,
+  };
 }
 
 export function accountPostCollections(

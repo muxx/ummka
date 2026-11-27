@@ -1655,6 +1655,7 @@ test("cross-team saved reply returns to the same ID in a fresh list and keeps th
         channelId: design,
         rootId: root.id,
         message: "Fresh saved reply",
+        cards: [],
         createAt: 123,
       },
     ],
@@ -1666,7 +1667,9 @@ test("cross-team saved reply returns to the same ID in a fresh list and keeps th
       new Promise((resolve) => {
         fresh = () =>
           resolve({
-            items: [{ id: root.id, channelId: design, createAt: 999 }],
+            items: [
+              { id: root.id, channelId: design, createAt: 999, cards: [] },
+            ],
             firstInaccessiblePostTime: 0,
           });
       }),
@@ -2092,8 +2095,15 @@ test("stepping from a local saved post opens the cross-team reply and does not s
         channelId: home,
         createAt: 999,
         message: "Local saved post",
+        cards: [],
       },
-      { id: reply.id, channelId: design, rootId: root.id, createAt: 123 },
+      {
+        id: reply.id,
+        channelId: design,
+        rootId: root.id,
+        createAt: 123,
+        cards: [],
+      },
     ],
     firstInaccessiblePostTime: 0,
   });
@@ -2125,7 +2135,12 @@ test("stepping from a local saved post opens the cross-team reply and does not s
   expect(account.readPostAnchor).toHaveBeenCalledTimes(2);
   account.readSavedPosts.mockResolvedValueOnce({
     items: [
-      { id: local.id, channelId: home, message: "Remaining local saved post" },
+      {
+        id: local.id,
+        channelId: home,
+        message: "Remaining local saved post",
+        cards: [],
+      },
     ],
     firstInaccessiblePostTime: 0,
   });
@@ -2168,6 +2183,7 @@ test("stepping from a local saved post opens the cross-team reply and does not s
         id: local.id,
         channelId: home,
         message: "Another client saved it again",
+        cards: [],
       },
     ],
     firstInaccessiblePostTime: 0,
@@ -2188,12 +2204,14 @@ test("returning after removal focuses the fresh row at the old index after the f
     id: root.id,
     channelId: design,
     message: "Older saved post",
+    cards: [],
     createAt: 123,
   };
   const newer = {
     id: "n".repeat(26),
     channelId: home,
     message: "Newer saved post",
+    cards: [],
     createAt: 999,
   };
   account.readSavedPosts.mockResolvedValueOnce({
@@ -2204,6 +2222,7 @@ test("returning after removal focuses the fresh row at the old index after the f
         channelId: design,
         rootId: root.id,
         message: "Saved reply preview",
+        cards: [],
         createAt: 345,
       },
       older,
@@ -2267,7 +2286,12 @@ test("a still-flagged but inaccessible post does not report a removed bookmark",
   });
   account.readSavedPosts.mockResolvedValueOnce({
     items: [
-      { id: root.id, channelId: design, message: "Only visible saved post" },
+      {
+        id: root.id,
+        channelId: design,
+        message: "Only visible saved post",
+        cards: [],
+      },
     ],
     firstInaccessiblePostTime: 0,
   });

@@ -3,6 +3,7 @@ import {
   FilesApi,
   PostsApi,
 } from "../../vendor/mattermost/index.js";
+import { postWithIntegrationCards } from "./integration-cards.ts";
 import { isMattermostId, isMattermostTime } from "./model-fields.ts";
 
 import { orderedItems } from "./ordered-items.ts";
@@ -65,7 +66,9 @@ export function accountSearch(
                 { signal },
               );
         signal?.throwIfAborted();
-        const items = orderedItems(result.order, result.posts);
+        const items = orderedItems(result.order, result.posts).map(
+          postWithIntegrationCards,
+        );
         const { matches } = result;
         if (
           matches !== null &&
