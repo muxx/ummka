@@ -170,6 +170,18 @@ export function webviewServers(
       },
     ],
     [
+      `/team/chat/api/v4/channels/${"z".repeat(26)}`,
+      {
+        name: "signed-link-identifier",
+        body: {
+          id: "z".repeat(26),
+          name: "release",
+          team_id: teamId,
+          type: "O",
+        },
+      },
+    ],
+    [
       `/team/chat/api/v4/channels/${"j".repeat(26)}`,
       {
         name: "signed-single-channel",
@@ -1750,6 +1762,7 @@ export function webviewServers(
       assert.equal(entrySettings.size, 2);
       assert.equal(untrustedRequests, 0);
       const expected = [
+        "signed-link-identifier",
         ...collectionBackSteps,
         "signed-single-channel",
         "signed-named-channel",

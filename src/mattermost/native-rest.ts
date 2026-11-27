@@ -47,6 +47,11 @@ import {
   type TeamRoleSnapshot,
 } from "./channel-permissions.ts";
 import type { ChannelProfile } from "./channel-profiles.ts";
+import type { ChannelsTarget } from "./channels-link.ts";
+import {
+  type KnownChannelName,
+  resolveConversationIdentifier,
+} from "./conversation-link-identifier.ts";
 import { executeAccountCommand } from "./execute-account-command.ts";
 import {
   type CommandIntent,
@@ -201,6 +206,17 @@ export async function openAccountRestConnection(
   let liveFileUpload: ServerPolicy["fileUpload"];
   return {
     ...connection,
+    resolveConversationIdentifier(
+      target: Extract<ChannelsTarget, { kind: "conversation" }>,
+      known?: KnownChannelName,
+      signal?: AbortSignal,
+    ) {
+      return readWhileOpen(
+        () =>
+          resolveConversationIdentifier(config, userId, target, known, signal),
+        signal,
+      );
+    },
     ...accountFollowedThreads(config, readWhileOpen),
     ...accountPostCollections(config, userId, readWhileOpen),
     ...accountCollectionActions(config, userId, readWhileOpen),

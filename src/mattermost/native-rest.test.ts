@@ -625,6 +625,7 @@ test("opens a native account by installation and user ID", async () => {
     "removeOwnReaction",
     "reopenKnownConversation",
     "resendPost",
+    "resolveConversationIdentifier",
     "retireDeliveredPosts",
     "retryPendingPost",
     "rid",
@@ -1643,6 +1644,68 @@ test("discard an old profile picture even if its reader finishes after the accou
     expect(read).toHaveBeenCalledTimes(2);
     await next.close();
   } finally {
+    read.mockRestore();
+  }
+});
+
+test("a signed channel link cannot finish in a replacement account", async () => {
+  const userId = "u".repeat(26);
+  const channelId = "c".repeat(26);
+  ipc.mockResolvedValueOnce(73);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test",
+    userId,
+  );
+  let finish!: () => void;
+  const hold = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const read = vi
+    .spyOn(ChannelsApi.prototype, "getChannelRaw")
+    .mockImplementation(async () => {
+      await hold;
+      return {
+        raw: Response.json({}),
+        value: async () => ({
+          id: channelId,
+          teamId: "t".repeat(26),
+          name: "release",
+          type: "O",
+        }),
+      };
+    });
+  try {
+    const resolved = account.resolveConversationIdentifier({
+      serverUrl: account.basePath,
+      team: "team",
+      kind: "conversation",
+      route: "channels",
+      identifier: channelId,
+      postId: null,
+    });
+    expect(read).toHaveBeenCalledTimes(1);
+    await account.close();
+    ipc.mockResolvedValueOnce(74);
+    const replacement = await openAccountRestConnection(
+      account.basePath,
+      "v".repeat(26),
+    );
+    await expect(
+      replacement.resolveConversationIdentifier({
+        serverUrl: replacement.basePath,
+        team: "team",
+        kind: "conversation",
+        route: "channels",
+        identifier: "replacement-room",
+        postId: null,
+      }),
+    ).resolves.toEqual({ kind: "channel-name", name: "replacement-room" });
+    finish();
+    await expect(resolved).rejects.toBe("cancelled");
+    expect(read).toHaveBeenCalledTimes(1);
+    await replacement.close();
+  } finally {
+    finish();
     read.mockRestore();
   }
 });
