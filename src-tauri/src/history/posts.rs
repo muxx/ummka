@@ -23,6 +23,9 @@ pub struct StoredPost {
     pub message_source: Option<String>,
     pub hashtags: String,
     pub is_pinned: bool,
+    /// None is a legacy row or a read that did not confirm either origin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_webhook: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_summary: Option<Box<ThreadSummary>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -67,19 +70,22 @@ pub enum PageWrite {
 pub(super) const READ: &str =
      "SELECT p.id, p.channel_id, p.user_id, p.root_id, p.create_at, p.update_at, p.edit_at,
               p.type, p.message, p.message_source, p.hashtags, p.is_pinned,
-              s.reply_count, s.last_reply_at, s.participant_ids, a.payload
+              s.reply_count, s.last_reply_at, s.participant_ids, a.payload, p.from_webhook
        FROM history_post p LEFT JOIN history_thread_summary s ON s.post_id=p.id AND p.root_id IS NULL
        LEFT JOIN history_post_attachment a ON a.post_id=p.id
        WHERE p.id=?1";
 pub(super) const REMOVE: &str =
     "DELETE FROM history_post WHERE channel_id = ?1 AND (id = ?2 OR root_id = ?2)";
 const SAVE: &str = "INSERT INTO history_post
-    (id, channel_id, user_id, root_id, create_at, update_at, edit_at, type, message, message_source, hashtags, is_pinned)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+    (id, channel_id, user_id, root_id, create_at, update_at, edit_at, type, message, message_source, hashtags, is_pinned, from_webhook)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
     ON CONFLICT(id) DO UPDATE SET user_id=excluded.user_id, root_id=excluded.root_id,
     create_at=excluded.create_at, update_at=excluded.update_at, edit_at=excluded.edit_at,
     type=excluded.type, message=excluded.message, message_source=excluded.message_source,
-    hashtags=excluded.hashtags, is_pinned=excluded.is_pinned";
+    hashtags=excluded.hashtags, is_pinned=excluded.is_pinned,
+    from_webhook=COALESCE(excluded.from_webhook,history_post.from_webhook)";
+const CONFIRM_ORIGIN: &str =
+    "UPDATE history_post SET from_webhook=?2 WHERE id=?1 AND from_webhook IS NULL";
 
 impl StoredPost {
     pub(super) fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
@@ -96,6 +102,7 @@ impl StoredPost {
             message_source: row.get(9)?,
             hashtags: row.get(10)?,
             is_pinned: row.get(11)?,
+            from_webhook: row.get(16)?,
             thread_summary: ThreadSummary::from_row(row)?.map(Box::new),
             attachments: PostAttachments::from_row(row)?,
         })
@@ -233,7 +240,7 @@ fn write_changes(
 ) -> Result<HashSet<String>, HistoryError> {
     let channel = load.channel_id.as_str();
     let mut previous = tx.prepare_cached(
-        "SELECT channel_id, update_at, create_at FROM history_post WHERE id = ?1",
+        "SELECT channel_id, update_at, create_at, from_webhook FROM history_post WHERE id = ?1",
     )?;
     let mut save = tx.prepare_cached(SAVE)?;
     let mut ids = HashSet::with_capacity(changes.len());
@@ -249,12 +256,13 @@ fn write_changes(
                     r.get::<_, String>(0)?,
                     r.get::<_, i64>(1)?,
                     r.get::<_, i64>(2)?,
+                    r.get::<_, Option<bool>>(3)?,
                 ))
             })
             .optional()?;
         if stored
             .as_ref()
-            .is_some_and(|(old_channel, _, _)| old_channel != channel)
+            .is_some_and(|(old_channel, ..)| old_channel != channel)
         {
             return Err(HistoryError::InvalidPost);
         }
@@ -269,12 +277,15 @@ fn write_changes(
                 if let Some(attachments) = &p.attachments {
                     attachments.validate()?;
                 }
-                let old_version = stored.as_ref().map(|(_, version, _)| *version);
+                let old_version = stored.as_ref().map(|(_, version, _, _)| *version);
                 if old_version.is_some_and(|version| version > p.update_at) {
                     continue;
                 }
                 if old_version != Some(p.update_at) {
-                    if stored.is_some_and(|(_, _, created)| created != p.create_at) {
+                    if stored
+                        .as_ref()
+                        .is_some_and(|(_, _, created, _)| *created != p.create_at)
+                    {
                         windows::move_post_time(tx, id, p.create_at)?;
                     }
                     save.execute(params![
@@ -289,8 +300,16 @@ fn write_changes(
                         p.message,
                         p.message_source,
                         p.hashtags,
-                        p.is_pinned
+                        p.is_pinned,
+                        p.from_webhook
                     ])?;
+                } else if let Some(origin) = p.from_webhook
+                    && stored.is_some_and(|(_, _, _, origin)| origin.is_none())
+                {
+                    // Equal versions may confirm an origin on a migrated row.
+                    // Other fields and an already confirmed origin keep the stored observation.
+                    tx.prepare_cached(CONFIRM_ORIGIN)?
+                        .execute(params![id, origin])?;
                 }
                 attachments::store(tx, p, load.observed_attachments)?;
                 if let Some(summary) = &p.thread_summary {

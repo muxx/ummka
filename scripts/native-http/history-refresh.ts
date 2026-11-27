@@ -34,6 +34,7 @@ export function historyRefreshFixture(userId: string, onHold: () => void) {
     },
     [root]: {
       ...record(root, 200),
+      props: { from_webhook: "true" },
       file_ids: ["b".repeat(26), "a".repeat(26)],
       metadata: {
         files: [{ id: "a".repeat(26), name: "offline.txt", size: 0 }],

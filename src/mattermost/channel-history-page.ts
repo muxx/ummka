@@ -2,7 +2,10 @@ import type {
   GetPostsForChannelRequest,
   PostList,
 } from "../../vendor/mattermost/index.js";
-import { channelPostChanges } from "./channel-post-records.ts";
+import {
+  type ChannelPostChange,
+  channelPostChanges,
+} from "./channel-post-records.ts";
 import { isMattermostId, isMattermostTime } from "./model-fields.ts";
 
 interface FocusedRead {
@@ -44,15 +47,26 @@ export function channelHistoryPage(
   request: GetPostsForChannelRequest | FocusedRead,
   page: PostList,
 ) {
+  return describeChannelHistoryPage(
+    request,
+    page,
+    channelPostChanges(request.channelId, page, request.collapsedThreads),
+  );
+}
+
+export function describeChannelHistoryPage(
+  request: GetPostsForChannelRequest | FocusedRead,
+  page: Omit<PostList, "posts">,
+  changes: ChannelPostChange[],
+) {
   const source = channelReadSource(request);
   const collapsedThreads = request.collapsedThreads ?? false;
-  const { order, posts, prevPostId, nextPostId, firstInaccessiblePostTime } =
-    page;
+  const { order, prevPostId, nextPostId, firstInaccessiblePostTime } = page;
+  const ids = new Set(changes.map((change) => change.id));
   if (
     typeof collapsedThreads !== "boolean" ||
-    !posts ||
     !Array.isArray(order) ||
-    order.some((id) => typeof id !== "string" || !Object.hasOwn(posts, id))
+    order.some((id) => !ids.has(id))
   ) {
     throw new TypeError("Invalid visible channel post order.");
   }
@@ -75,7 +89,6 @@ export function channelHistoryPage(
       "The focused message is missing from its visible page.",
     );
   }
-  const changes = channelPostChanges(request.channelId, page, collapsedThreads);
   return {
     channelId: request.channelId,
     collapsedThreads,

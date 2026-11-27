@@ -1,4 +1,10 @@
 import type { PostList, PostsApi } from "../../vendor/mattermost/index.js";
+import { describeChannelHistoryPage } from "./channel-history-page.ts";
+import {
+  type ChannelPostChange,
+  channelPostChanges,
+  mergePostObservation,
+} from "./channel-post-records.ts";
 
 interface FocusedNeighborsRequest {
   channelId: string;
@@ -47,6 +53,8 @@ export async function readFocusedNeighbors(
 }
 
 interface FocusedHistoryParts {
+  channelId: string;
+  collapsedThreads: boolean;
   anchorId: string;
   after: PostList;
   thread: PostList;
@@ -55,36 +63,60 @@ interface FocusedHistoryParts {
 
 /** Build the channel timeline around a post, keeping extra thread replies available by ID. */
 export function assembleFocusedHistory({
+  channelId,
+  collapsedThreads,
   anchorId,
   after,
   thread,
   before,
-}: FocusedHistoryParts): PostList {
+}: FocusedHistoryParts) {
+  const request = { channelId, collapsedThreads, focusedPostId: anchorId };
   const threadBoundary = thread.firstInaccessiblePostTime ?? 0;
   if (!thread.posts || !Object.hasOwn(thread.posts, anchorId)) {
     if (thread.order?.length === 0 && threadBoundary > 0) {
-      return {
-        order: [],
-        posts: {},
-        nextPostId: "",
-        prevPostId: "",
-        firstInaccessiblePostTime: threadBoundary,
-      };
+      return describeChannelHistoryPage(
+        request,
+        {
+          order: [],
+          nextPostId: "",
+          prevPostId: "",
+          firstInaccessiblePostTime: threadBoundary,
+        },
+        [],
+      );
     }
     throw new Error("The focused post is missing from its thread.");
   }
   if (!after.order || !after.posts || !before.order || !before.posts) {
     throw new Error("A channel page is missing its order or posts.");
   }
-  return {
-    order: [...after.order, anchorId, ...before.order],
-    posts: { ...after.posts, ...thread.posts, ...before.posts },
-    nextPostId: after.nextPostId,
-    prevPostId: before.prevPostId,
-    firstInaccessiblePostTime: Math.max(
-      after.firstInaccessiblePostTime ?? 0,
-      threadBoundary,
-      before.firstInaccessiblePostTime ?? 0,
-    ),
-  };
+  const changes = new Map<string, ChannelPostChange>();
+  for (const page of [after, thread, before]) {
+    for (const row of channelPostChanges(channelId, page, collapsedThreads)) {
+      const previous = changes.get(row.id);
+      if (previous?.kind === "remove") continue;
+      // Deletions are unversioned in the writer protocol, so a stale visible
+      // copy must not mask a removal from another response.
+      changes.set(
+        row.id,
+        row.kind === "remove"
+          ? row
+          : mergePostObservation(previous, row, "refresh"),
+      );
+    }
+  }
+  return describeChannelHistoryPage(
+    request,
+    {
+      order: [...after.order, anchorId, ...before.order],
+      nextPostId: after.nextPostId,
+      prevPostId: before.prevPostId,
+      firstInaccessiblePostTime: Math.max(
+        after.firstInaccessiblePostTime ?? 0,
+        threadBoundary,
+        before.firstInaccessiblePostTime ?? 0,
+      ),
+    },
+    [...changes.values()],
+  );
 }

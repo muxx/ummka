@@ -89,6 +89,7 @@ import {
   checkPreviouslyAcceptedPost,
 } from "./post-mutations.ts";
 import { checkPostSearch } from "./post-search.ts";
+import { checkPostWebhookOrigin } from "./post-webhook-origin.ts";
 import { checkPresencePolicy } from "./presence-policy.ts";
 import { checkProfileImage } from "./profile-image.ts";
 import { checkProfileReads } from "./profile-reads.ts";
@@ -634,6 +635,8 @@ for (const collapsedThreads of [false, true]) {
   });
   assert.equal(queries.length - start, 3);
   const focused = assembleFocusedHistory({
+    channelId,
+    collapsedThreads,
     anchorId: root.id,
     after,
     thread,
@@ -644,10 +647,16 @@ for (const collapsedThreads of [false, true]) {
     root.id,
     image.id,
   ]);
-  assert.equal(focused.posts?.[reply.id]?.rootId, root.id);
-  assert.equal(focused.posts?.[lastReply.id]?.message, "Second reply");
   assert.ok(
-    channelPostChanges(channelId, focused).some(
+    focused.changes.some(
+      (entry) =>
+        entry.kind === "save" &&
+        entry.id === reply.id &&
+        entry.rootId === root.id,
+    ),
+  );
+  assert.ok(
+    focused.changes.some(
       (entry) =>
         entry.kind === "save" &&
         entry.id === lastReply.id &&
@@ -658,12 +667,7 @@ for (const collapsedThreads of [false, true]) {
   assert.equal(focused.nextPostId, after.nextPostId);
   assert.equal(focused.prevPostId, before.prevPostId);
   assert.equal(focused.firstInaccessiblePostTime, 0);
-  const focusedPage = channelHistoryPage(
-    { channelId, collapsedThreads, focusedPostId: root.id },
-    focused,
-  );
-  assert.deepEqual(focusedPage.source, { kind: "focused", postId: root.id });
-  assert.deepEqual(focusedPage.order, focused.order);
+  assert.deepEqual(focused.source, { kind: "focused", postId: root.id });
   for (const direction of ["before", "after"] as const) {
     const request = {
       ...page,
@@ -1496,6 +1500,27 @@ await checkProfileReads(
 );
 
 await checkPostMutations(base, posts, readerPosts, channelId, user.id, version);
+const webhookRoom = await (
+  await create(
+    "channels",
+    {
+      team_id: team.id,
+      name: "webhook-origin",
+      display_name: "Webhook origin",
+      type: "O",
+    },
+    token,
+  )
+).json();
+await checkPostWebhookOrigin(
+  base,
+  token,
+  posts,
+  webhookRoom.id,
+  user.id,
+  version,
+);
+
 await checkCommands(session, team.id, channelId, version);
 // A self-join avoids the membership notification produced when somebody adds the reader.
 const mentionRoom = await (

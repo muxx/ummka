@@ -169,6 +169,7 @@ test("one account read returns the published post with its address; files identi
         messageSource: null,
         hashtags: "#release",
         isPinned: true,
+        fromWebhook: false,
       },
     });
     expect(post).toHaveBeenCalledExactlyOnceWith(

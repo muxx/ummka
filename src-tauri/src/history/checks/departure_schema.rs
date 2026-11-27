@@ -100,7 +100,7 @@ pub(super) fn check(root: &Path) -> Result<(), HistoryError> {
     };
     reopened.read(&owner, preserved)?;
     reopened.read(&owner, |tx| check_plans(tx, false))?;
-    let mut current = HistoryDatabase::open(root, URL)?;
+    let mut current = HistoryDatabase::open_with(root, URL, &MIGRATIONS[..28])?;
     assert!(current.restore(&identity)? == owner);
     current.read(&owner, preserved)?;
     assert!(matches!(

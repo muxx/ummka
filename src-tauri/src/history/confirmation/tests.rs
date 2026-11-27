@@ -60,6 +60,7 @@ fn saved(post: DeliveryPost) -> PostChange {
         message_source: None,
         hashtags: String::new(),
         is_pinned: false,
+        from_webhook: None,
         thread_summary: None,
         attachments: None,
     })

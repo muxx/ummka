@@ -12,7 +12,8 @@
     "message": "![sky](https://chat.example.test/api/v4/image?url=sky)",
     "messageSource": "![sky](https://images.example.test/sky.png)",
     "hashtags": "",
-    "isPinned": true
+    "isPinned": true,
+    "fromWebhook": true
   },
   {
     "kind": "save",
@@ -27,7 +28,8 @@
     "message": "Reply #sky",
     "messageSource": null,
     "hashtags": "#sky",
-    "isPinned": false
+    "isPinned": false,
+    "fromWebhook": false
   },
   {
     "kind": "remove",

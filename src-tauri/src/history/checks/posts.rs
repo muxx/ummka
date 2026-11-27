@@ -35,6 +35,7 @@ fn save(id: &str, channel: &str, root: Option<&str>, version: i64, text: &str) -
         message_source: None,
         hashtags: String::new(),
         is_pinned: false,
+        from_webhook: None,
         thread_summary: None,
         attachments: None,
     })
@@ -67,6 +68,8 @@ fn check_plans(view: &mut AccountHistory) -> Result<(), HistoryError> {
         let mut read = tx.prepare(&format!("EXPLAIN QUERY PLAN {READ}"))?;
         let lookup: String = read.query_row([ROOT], |r| r.get(3))?;
         assert!(lookup.contains("USING PRIMARY KEY"), "{lookup}");
+        #[cfg(test)]
+        println!("SQLite history post lookup: {lookup}");
         let mut remove = tx.prepare(&format!("EXPLAIN QUERY PLAN {REMOVE}"))?;
         let steps = remove.query_map([CHANNEL, ROOT], |r| r.get::<_, String>(3))?
             .collect::<Result<Vec<_>, _>>()?.join(" ");
@@ -106,6 +109,7 @@ pub(crate) fn round_trip(root: &Path) -> Result<(), HistoryError> {
     let edited = first.read_post(ROOT)?.unwrap();
     assert_eq!(edited.message, "edited");
     assert_eq!(edited.message_source, None);
+    assert_eq!(edited.from_webhook, Some(true));
 
     let mut second = AccountHistory::open(&root, &alice)?;
     let earlier = first.begin_channel_load(CHANNEL)?;
@@ -201,4 +205,141 @@ pub(crate) fn round_trip(root: &Path) -> Result<(), HistoryError> {
 #[test]
 fn keeps_offline_posts_and_rejects_late_pages() {
     round_trip(tempfile::tempdir().unwrap().path()).unwrap();
+}
+
+#[cfg(test)]
+#[test]
+fn upgrades_populated_history_and_refreshes_only_confirmed_origin() -> Result<(), HistoryError> {
+    use super::windows::{apply as apply_window, page};
+    use crate::history::{
+        WindowSource,
+        schema::{MIGRATIONS, Migration},
+    };
+
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    let alice = account(URL, ALICE);
+    let prior = &MIGRATIONS[..28];
+    let mut old = HistoryDatabase::open_with(root, URL, prior)?;
+    let owner = old.restore(&alice)?;
+    old.write(&owner, |tx| {
+        tx.execute(
+            "INSERT INTO history_post(id,channel_id,user_id,create_at,update_at,edit_at,type,message,hashtags,is_pinned)
+             VALUES (?1,?3,?4,150,150,0,'','legacy webhook','',0),
+                    (?2,?3,?4,100,100,0,'','legacy regular','',0)",
+            params![ROOT, OTHER, CHANNEL, ALICE],
+        )?;
+        tx.execute("INSERT INTO history_window(id,channel_id,collapsed,recent) VALUES(1,?1,0,1)", [CHANNEL])?;
+        tx.execute("INSERT INTO history_window_post SELECT id,0,1,create_at,0 FROM history_post", [])?;
+        tx.execute("INSERT INTO history_post_attachment(post_id,payload) VALUES(?1,'{\"fileIds\":[]}')", [OTHER])?;
+        Ok(())
+    })?;
+    drop(old);
+
+    let mut migrations: Vec<_> = prior
+        .iter()
+        .map(|m| Migration {
+            statements: m.statements,
+            objects: m.objects,
+        })
+        .collect();
+    const INTERRUPTED: &[&str] = &[
+        MIGRATIONS[28].statements[0],
+        "CREATE INDEX interrupted ON missing(id)",
+    ];
+    migrations.push(Migration {
+        statements: INTERRUPTED,
+        objects: MIGRATIONS[28].objects,
+    });
+    assert!(matches!(
+        HistoryDatabase::open_with(root, URL, &migrations),
+        Err(HistoryError::Storage)
+    ));
+    let mut reopened = HistoryDatabase::open_with(root, URL, prior)?;
+    reopened.read(&owner, |tx| {
+        let count: u32 = tx.query_row("SELECT count(*) FROM history_post", [], |row| row.get(0))?;
+        assert_eq!(count, 2);
+        Ok(())
+    })?;
+    drop(reopened);
+
+    let mut view = AccountHistory::open(root, &alice)?;
+    let latest = view.read_latest_window(CHANNEL, false, 8)?.unwrap();
+    let [webhook, regular] = &latest.posts[..] else {
+        panic!("migrated two posts")
+    };
+    assert_eq!(webhook.id, ROOT);
+    assert_eq!(regular.id, OTHER);
+    for post in [webhook, regular] {
+        assert_eq!(post.from_webhook, None);
+        assert!(
+            serde_json::to_value(post)
+                .unwrap()
+                .get("fromWebhook")
+                .is_none()
+        );
+    }
+    assert_eq!(
+        serde_json::to_value(regular.attachments.as_ref().unwrap()).unwrap(),
+        serde_json::json!({"fileIds": []})
+    );
+    view.read(|tx| {
+        assert!(!tx.prepare("PRAGMA foreign_key_check")?.exists([])?);
+        Ok(())
+    })?;
+
+    let observed = |id: &str, version: i64, from_webhook| {
+        let PostChange::Save(mut post) = save(id, CHANNEL, None, version, "fresh text") else {
+            unreachable!();
+        };
+        post.create_at = if id == ROOT { 150 } else { 100 };
+        post.from_webhook = from_webhook;
+        PostChange::Save(post)
+    };
+    let mut refreshed = page(WindowSource::Latest, &[(ROOT, 150), (OTHER, 100)]);
+    refreshed.changes = vec![
+        observed(ROOT, 150, Some(true)),
+        observed(OTHER, 100, Some(false)),
+    ];
+    assert_eq!(apply_window(&mut view, &refreshed)?, PageWrite::Applied);
+    drop(view);
+    let mut view = AccountHistory::open(root, &alice)?;
+    let around = view
+        .read_window_around(CHANNEL, false, ROOT, 0, 1)?
+        .unwrap();
+    let [webhook, regular] = &around.posts[..] else {
+        panic!("refreshed two posts")
+    };
+    assert_eq!(webhook.message, "legacy webhook");
+    assert_eq!(webhook.from_webhook, Some(true));
+    assert_eq!(regular.from_webhook, Some(false));
+
+    let mut peer = AccountHistory::open(root, &alice)?;
+    let late = peer.begin_channel_load(CHANNEL)?;
+    apply(&mut view, CHANNEL, &[observed(ROOT, 152, None)])?;
+    assert_eq!(view.read_post(ROOT)?.unwrap().from_webhook, Some(true));
+    assert_eq!(
+        peer.apply_channel_page(late, &[observed(ROOT, 151, Some(false))])?,
+        PageWrite::Applied
+    );
+    apply(&mut view, CHANNEL, &[observed(ROOT, 152, Some(false))])?;
+    assert_eq!(peer.read_post(ROOT)?.unwrap().from_webhook, Some(true));
+    apply(&mut view, CHANNEL, &[observed(ROOT, 153, Some(false))])?;
+    assert_eq!(peer.read_post(ROOT)?.unwrap().from_webhook, Some(false));
+
+    let late = peer.begin_channel_load(CHANNEL)?;
+    apply(&mut view, CHANNEL, &[remove(ROOT)])?;
+    assert_eq!(
+        peer.apply_channel_page(late, &refreshed.changes)?,
+        PageWrite::Superseded
+    );
+    assert_eq!(view.read_post(ROOT)?, None);
+    HistoryDatabase::purge_account(root, &alice)?;
+    let mut bob = AccountHistory::open(root, &account(URL, BOB))?;
+    assert!(bob.read_latest_window(CHANNEL, false, 8)?.is_none());
+    assert_eq!(bob.read_post(OTHER)?, None);
+    println!(
+        "SQLite rejected the interrupted v29 migration, then kept v28 history and attachment positions, refreshed both origins, and rejected a late observation after deletion."
+    );
+    Ok(())
 }
