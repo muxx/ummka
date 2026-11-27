@@ -386,8 +386,21 @@ export function ChannelsWorkspace({
   const search = useWorkspaceSearch(
     workspace,
     language,
-    (id) => resultRooms.get(id)?.title,
-    (id) => author(id)?.name,
+    {
+      channel: (id) => resultRooms.get(id)?.title,
+      author: (id) => author(id)?.name,
+      condition: (kind, value) => {
+        if (kind === "channel") {
+          return snapshot?.data.channels.find(
+            (room) => room.name.toLowerCase() === value.toLowerCase(),
+          )?.displayName;
+        }
+        const user = profiles.byUsername.get(value.toLowerCase());
+        return user && settings
+          ? teammateName(user, settings.nameFormat)
+          : undefined;
+      },
+    },
     {
       channelId: chosen,
       clear: workspace.messages.clear,
