@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 type Head = { status: number; headers: [string, string][]; hasBody: boolean };
+export type NativeRequestInit = RequestInit & { onNativeSend?: () => void };
 const errors = new Set([
   "unknown_connection",
   "unknown_exchange",
@@ -66,7 +67,7 @@ async function readJsonBody(
 export async function nativeFetch(
   connection: number,
   input: RequestInfo | URL,
-  init?: RequestInit,
+  init?: NativeRequestInit,
 ): Promise<Response> {
   let request: Request;
   try {
@@ -127,6 +128,7 @@ export async function nativeFetch(
     const head = await new Promise<Head>((resolve, reject) => {
       interrupt = reject;
       signal.addEventListener("abort", onAbort);
+      init?.onNativeSend?.();
       invoke<Head>("send_rest_request", {
         ...ids,
         method: request.method,

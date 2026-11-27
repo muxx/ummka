@@ -102,6 +102,11 @@ import { readPostEditHistory } from "./post-edit-history.ts";
 import { openRecentMentions } from "./recent-mentions.ts";
 import { openRecipientConversation } from "./recipient-conversation.ts";
 import { createRestTransport } from "./rest-transport.ts";
+import {
+  createSavedPostState,
+  projectSavedPostMembership,
+  type SavedPostMembership,
+} from "./saved-post-state.ts";
 import { readSearchTimezone } from "./search-timezone.ts";
 import { canonicalServerUrl } from "./server-url.ts";
 import { projectTeamSidebar, type TeamSidebar } from "./team-sidebar.ts";
@@ -186,6 +191,7 @@ export async function openAccountRestConnection(
   const files = new FilesApi(config);
   const activity = createPostActivity();
   const historyChanges = createChannelHistoryChanges();
+  const savedPosts = createSavedPostState();
   const recipientLifetime = new AbortController();
   let retired:
     | "unknown_connection"
@@ -197,6 +203,7 @@ export async function openAccountRestConnection(
     recipientLifetime.abort("cancelled");
     activity.close();
     historyChanges.close();
+    savedPosts.close();
   }
   async function readWhileOpen<T>(
     read: () => Promise<T>,
@@ -245,8 +252,11 @@ export async function openAccountRestConnection(
       );
     },
     ...accountFollowedThreads(config, readWhileOpen),
-    ...accountPostCollections(config, userId, readWhileOpen),
-    ...accountCollectionActions(config, userId, readWhileOpen),
+    ...accountPostCollections(config, userId, readWhileOpen, savedPosts),
+    ...accountCollectionActions(config, userId, readWhileOpen, savedPosts),
+    getSavedPostPresentation: savedPosts.getPresentation,
+    isSavedPostPending: savedPosts.isPending,
+    subscribeToSavedPostState: savedPosts.subscribe,
     ...accountPostReactions(config, userId, readWhileOpen),
     ...search,
     openRecentMentions(includeDeletedChannels: boolean, signal?: AbortSignal) {
@@ -431,8 +441,26 @@ export async function openAccountRestConnection(
     readPostDestination(postId: string, signal?: AbortSignal) {
       return readWhileOpen(() => readPostDestination(posts, postId, signal));
     },
-    readAccountDirectory(signal?: AbortSignal) {
-      return readWhileOpen(() => loadAccountDirectory(config, userId, signal));
+    async readAccountDirectory(signal?: AbortSignal) {
+      signal?.throwIfAborted();
+      const ticket = savedPosts.beginRead();
+      try {
+        const directory = await readWhileOpen(
+          () => loadAccountDirectory(config, userId, signal),
+          signal,
+        );
+        if (!signal?.aborted)
+          savedPosts.publish(
+            ticket,
+            projectSavedPostMembership(userId, directory.preferences),
+          );
+        return directory;
+      } catch (error) {
+        if (!signal?.aborted) savedPosts.finishRead(ticket, error);
+        throw error;
+      } finally {
+        savedPosts.finishRead(ticket);
+      }
     },
     readJoinedTeams() {
       return readWhileOpen(() =>
@@ -459,35 +487,53 @@ export async function openAccountRestConnection(
         invoke<boolean>("select_joined_team", { rid, teamId }),
       );
     },
-    refreshJoinedTeams(signal?: AbortSignal) {
-      return readWhileOpen(() =>
-        refreshNavigation(
-          signal,
-          () =>
-            atDirectoryStep("begin", () =>
-              invoke<number>("begin_team_directory_load", { rid }),
-            ),
-          async () => {
-            const directory = await loadAccountDirectory(
-              config,
-              userId,
-              signal,
-              atDirectoryStep,
-            );
-            return {
-              teams: projectJoinedTeams(directory),
-              preferences: await atDirectoryStep("sidebar", () =>
-                sidebarPreferences(userId, directory.preferences),
+    async refreshJoinedTeams(signal?: AbortSignal) {
+      let ticket: number | undefined;
+      let membership: SavedPostMembership | undefined;
+      try {
+        const accepted = await readWhileOpen(() =>
+          refreshNavigation(
+            signal,
+            () =>
+              atDirectoryStep("begin", () =>
+                invoke<number>("begin_team_directory_load", { rid }),
               ),
-            };
-          },
-          (load, data) =>
-            atDirectoryStep("publish", () =>
-              invoke<boolean>("store_team_directory", { rid, load, ...data }),
-            ),
-          (load) => invoke<void>("cancel_team_directory_load", { rid, load }),
-        ),
-      );
+            async () => {
+              ticket = savedPosts.beginRead();
+              const directory = await loadAccountDirectory(
+                config,
+                userId,
+                signal,
+                atDirectoryStep,
+              );
+              membership = projectSavedPostMembership(
+                userId,
+                directory.preferences,
+              );
+              return {
+                teams: projectJoinedTeams(directory),
+                preferences: await atDirectoryStep("sidebar", () =>
+                  sidebarPreferences(userId, directory.preferences),
+                ),
+              };
+            },
+            (load, data) =>
+              atDirectoryStep("publish", () =>
+                invoke<boolean>("store_team_directory", { rid, load, ...data }),
+              ),
+            (load) => invoke<void>("cancel_team_directory_load", { rid, load }),
+          ),
+        );
+        if (accepted && ticket !== undefined && membership && !signal?.aborted)
+          savedPosts.publish(ticket, membership);
+        return accepted;
+      } catch (error) {
+        if (ticket !== undefined && !signal?.aborted)
+          savedPosts.finishRead(ticket, error);
+        throw error;
+      } finally {
+        if (ticket !== undefined) savedPosts.finishRead(ticket);
+      }
     },
     ...delivery,
     submitDraftCommand(

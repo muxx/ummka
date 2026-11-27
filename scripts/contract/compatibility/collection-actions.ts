@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { openPostCollection } from "../../../src/channels/post-collection.ts";
 import { accountPostCollections } from "../../../src/mattermost/account-post-collections.ts";
 import { accountCollectionActions } from "../../../src/mattermost/post-collection-actions.ts";
+import { createSavedPostState } from "../../../src/mattermost/saved-post-state.ts";
 import {
   ChannelsApi,
   type Configuration,
@@ -70,8 +71,13 @@ export async function checkCollectionActions(
   await assert.rejects(preferences.updatePreferences(foreign), denied);
   await assert.rejects(preferences.deletePreferences(foreign), denied);
   assert.deepEqual(await saved(observerPosts), []);
-  const actions = accountCollectionActions(reader, readerId, (change) =>
-    change(),
+  const readerSavedState = createSavedPostState();
+  const observerSavedState = createSavedPostState();
+  const actions = accountCollectionActions(
+    reader,
+    readerId,
+    (change) => change(),
+    readerSavedState,
   );
   await actions.setPostSaved(postId, true);
   assert.deepEqual(await saved(posts), [postId]);
@@ -85,12 +91,27 @@ export async function checkCollectionActions(
   assert.deepEqual(await pinned(), [postId]);
   await assert.rejects(actions.setPostPinned(privatePostId, true), denied);
   const readerLists = {
-    ...accountPostCollections(reader, readerId, (read) => read()),
+    ...accountPostCollections(
+      reader,
+      readerId,
+      (read) => read(),
+      readerSavedState,
+    ),
     ...actions,
   };
   const observerLists = {
-    ...accountPostCollections(observer, observerId, (read) => read()),
-    ...accountCollectionActions(observer, observerId, (write) => write()),
+    ...accountPostCollections(
+      observer,
+      observerId,
+      (read) => read(),
+      observerSavedState,
+    ),
+    ...accountCollectionActions(
+      observer,
+      observerId,
+      (write) => write(),
+      observerSavedState,
+    ),
   };
   const readerPins = openPostCollection(readerLists, {
     kind: "pins",

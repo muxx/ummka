@@ -5,19 +5,15 @@ import {
   PostsApi,
   PreferencesApi,
 } from "../../vendor/mattermost/index.js";
-import {
-  assertAccountPreference,
-  isMattermostId,
-  isMattermostTime,
-} from "./model-fields.ts";
+import { isMattermostId, isMattermostTime } from "./model-fields.ts";
 import { orderedItems } from "./ordered-items.ts";
+import {
+  createSavedPostState,
+  projectSavedPostMembership,
+  type SavedPostMembership,
+} from "./saved-post-state.ts";
 
 export const savedPageSize = 60;
-
-type SavedPostMembership = {
-  readonly ids: ReadonlySet<string>;
-  readonly upperBound: number;
-};
 
 type SavedScope =
   | { kind: "all" }
@@ -51,6 +47,7 @@ export function accountPostCollections(
   config: Configuration,
   userId: string,
   whileOpen: <T>(read: () => Promise<T>, signal?: AbortSignal) => Promise<T>,
+  savedState = createSavedPostState(),
 ) {
   const channels = new ChannelsApi(config);
   const posts = new PostsApi(config);
@@ -71,6 +68,8 @@ export function accountPostCollections(
     return collection(result, filter.channelId);
   }
   return {
+    getSavedPostState: savedState.get,
+    getSavedPostUpperBound: savedState.getUpperBound,
     readPinnedChannelPosts(channelId: string, signal?: AbortSignal) {
       return whileOpen(async () => {
         signal?.throwIfAborted();
@@ -95,26 +94,27 @@ export function accountPostCollections(
     ) {
       return whileOpen(() => savedWindow(scope, offset, signal), signal);
     },
-    readSavedPostPreferences(
+    async readSavedPostPreferences(
       signal?: AbortSignal,
     ): Promise<SavedPostMembership> {
-      return whileOpen(async () => {
-        signal?.throwIfAborted();
-        const rows = await preferences.getPreferences(
-          { userId: "me" },
-          { signal },
-        );
-        // A missing list is the server representation of an account with no preferences.
-        const ids = new Set<string>();
-        let upperBound = 0;
-        for (const row of rows ?? []) {
-          assertAccountPreference(row, userId);
-          if (row.category !== "flagged_post") continue;
-          upperBound++;
-          if (isMattermostId(row.name)) ids.add(row.name);
-        }
-        return { ids, upperBound };
-      }, signal);
+      signal?.throwIfAborted();
+      const ticket = savedState.beginRead();
+      try {
+        const membership = await whileOpen(async () => {
+          const rows = await preferences.getPreferences(
+            { userId: "me" },
+            { signal },
+          );
+          return projectSavedPostMembership(userId, rows);
+        }, signal);
+        if (!signal?.aborted) savedState.publish(ticket, membership);
+        return membership;
+      } catch (error) {
+        if (!signal?.aborted) savedState.finishRead(ticket, error);
+        throw error;
+      } finally {
+        savedState.finishRead(ticket);
+      }
     },
   };
 }
