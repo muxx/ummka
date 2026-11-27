@@ -34,7 +34,6 @@ type Selection = {
   fileId: string;
   button: HTMLButtonElement;
   scope: string;
-  input: "keyboard" | "pointer";
 };
 
 export function useAttachmentWindow(
@@ -65,13 +64,8 @@ export function useAttachmentWindow(
       selected,
       activeScope,
       close,
-      open(
-        row: string,
-        fileId: string,
-        button: HTMLButtonElement,
-        input: Selection["input"],
-      ) {
-        setSelected({ row, fileId, button, scope, input });
+      open(row: string, fileId: string, button: HTMLButtonElement) {
+        setSelected({ row, fileId, button, scope });
       },
     }),
     [connection, roomTitle, online, sessionIssue, selected, close, scope],
@@ -107,7 +101,6 @@ function FileDetails({
   const dialog = useRef<HTMLDialogElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
   const heading = useId();
-  const [input, setInput] = useState(selection.input);
   const [attempt, setAttempt] = useState(window.online ? 1 : 0);
   const [state, setState] = useState<DetailState>({ kind: "loading" });
   const { connection, online, activeScope } = window;
@@ -208,9 +201,6 @@ function FileDetails({
       ref={dialog}
       className="attachment-details modal-layout"
       aria-labelledby={heading}
-      data-input={input}
-      onKeyDownCapture={() => setInput("keyboard")}
-      onPointerDownCapture={() => setInput("pointer")}
       onCancel={(e) => {
         e.preventDefault();
         window.close(selection.row);
@@ -391,12 +381,7 @@ export function PublishedAttachments({
                   .filter(Boolean)
                   .join(", ")}
                 onClick={(event) =>
-                  window.open(
-                    row,
-                    item.id,
-                    event.currentTarget,
-                    event.detail ? "pointer" : "keyboard",
-                  )
+                  window.open(row, item.id, event.currentTarget)
                 }
               >
                 <svg

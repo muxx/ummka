@@ -42,10 +42,20 @@ a:any-link {
   text-decoration: underline;
 }
 
-:where(input, textarea, select):focus,
-:focus-visible {
+:where(:focus-visible) {
+  outline: none;
+}
+
+:where(:root[data-keyboard-navigation])
+  :focus-visible:not(:where(:is(h1, h2, h3, h4, h5, h6)[tabindex="-1"])) {
   outline: 2px solid var(--keyboard-focus);
   outline-offset: var(--focus-offset);
+}
+
+@media (forced-colors: active) {
+  :where(:root[data-keyboard-navigation]) :focus-visible {
+    outline-color: Highlight;
+  }
 }
 
 .modal-layout[open],
