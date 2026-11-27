@@ -1364,7 +1364,7 @@ test("cross-team saved reply returns to the same ID in a fresh list and keeps th
   expect(screen.queryByRole("button", { name: "Next in list" })).toBeNull();
   expect(screen.getByText("Team “Winter”")).toBeTruthy();
   const before = account.readSavedPosts.mock.calls.length;
-  account.readSavedPostUpperBound.mockResolvedValueOnce(61);
+  account.readSavedPostPreferences.mockResolvedValueOnce({ upperBound: 61 });
   account.readSavedPostsAtOffset.mockResolvedValueOnce({
     items: [
       {
@@ -1438,9 +1438,7 @@ test("manual channel and team changes abandon the particular row and reopen the 
   expect(account.readSavedPosts).toHaveBeenCalledTimes(2);
 });
 
-test("a revoked source team cannot reopen the saved list or the old channel", async () => {
-  const { account } = boot({ cross: true });
-  await visitSavedReply();
+function revokeWinter(account: ReturnType<typeof fixture>["account"]) {
   const joined = account.readJoinedTeams.getMockImplementation();
   account.readJoinedTeams.mockImplementation(async () => {
     const directory = await joined?.();
@@ -1450,14 +1448,36 @@ test("a revoked source team cannot reopen the saved list or the old channel", as
       teams: directory.teams.filter(({ id }) => id !== winter),
     };
   });
-  fireEvent.click(await savedReturn());
-  await screen.findByText(/server refused access/i);
-  expect(account.selectJoinedTeam.mock.calls).toEqual([[summer]]);
-  expect(account.readSavedPosts).toHaveBeenCalledTimes(1);
-  expect(
-    screen.queryByRole("button", { name: /back to saved messages/i }),
-  ).toBeNull();
-});
+}
+
+test.each(["activated", "return bar", "draft"] as const)(
+  "a revoked source team removes return and announces it with focus at %s",
+  async (focused) => {
+    const { account } = boot({ cross: true });
+    await visitSavedReply();
+    const post = document.activeElement as HTMLElement;
+    vi.spyOn(post, "getClientRects").mockReturnValue([
+      post.getBoundingClientRect(),
+    ] as unknown as DOMRectList);
+    const back = await savedReturn();
+    const draft = screen.getByDisplayValue("Unfinished reply");
+    (focused === "draft" ? draft : back).focus();
+    revokeWinter(account);
+    if (focused === "activated") fireEvent.click(back);
+    else act(() => window.dispatchEvent(new Event("online")));
+    const notice = await screen.findByText(
+      "You were removed from team “Winter”. You can’t return to saved messages.",
+    );
+    expect(notice.closest("[role=status]")).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(account.selectJoinedTeam.mock.calls).toEqual([[summer]]);
+    expect(account.readSavedPosts).toHaveBeenCalledTimes(1);
+    expect(screen.getByDisplayValue("Unfinished reply")).toBe(draft);
+    expect(screen.getByText(reply.message).closest("article")).toBe(post);
+    expect(back.isConnected).toBe(false);
+    expect(document.activeElement).toBe(focused === "draft" ? draft : post);
+  },
+);
 
 test("a refused destination team leaves its previous channel untouched", async () => {
   const { account } = boot({ cross: true });
@@ -1826,13 +1846,245 @@ test("stepping from a local saved post opens the cross-team reply and does not s
     ],
     firstInaccessiblePostTime: 0,
   });
+  account.readSavedPostPreferences.mockResolvedValueOnce({
+    upperBound: 1,
+    returnedPostSaved: false,
+  });
   fireEvent.click(await savedReturn());
   const pane = await savedPanel();
-  await within(pane).findByRole("button", {
+  const previous = await within(pane).findByRole("button", {
     name: /Remaining local saved post/,
   });
   expect(pane.querySelector("[aria-current]")).toBeNull();
-  expect(document.activeElement).toBe(within(pane).getByRole("heading"));
+  expect(document.activeElement).toBe(previous);
+  expect(
+    within(pane)
+      .getByText("This message is no longer saved")
+      .getAttribute("role"),
+  ).toBe("status");
+  let completeRemoval: (() => void) | undefined;
+  account.setPostSaved.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        completeRemoval = resolve;
+      }),
+  );
+  fireEvent.click(
+    within(pane).getByRole("button", { name: "Remove from saved" }),
+  );
+  await within(pane).findByText("Removing from saved…");
+  expect(
+    within(pane).queryByText("This message is no longer saved"),
+  ).toBeNull();
+  await act(async () => completeRemoval?.());
+  await waitFor(() => expect(previous.isConnected).toBe(false));
+
+  account.readSavedPosts.mockResolvedValueOnce({
+    items: [
+      {
+        id: local.id,
+        channelId: home,
+        message: "Another client saved it again",
+      },
+    ],
+    firstInaccessiblePostTime: 0,
+  });
+  fireEvent.click(within(pane).getByRole("button", { name: "Refresh" }));
+  await within(pane).findByText("Saved messages updated");
+  await within(pane).findByRole("button", {
+    name: /Another client saved it again/,
+  });
+  expect(
+    within(pane).queryByText("This message is no longer saved"),
+  ).toBeNull();
+});
+
+test("returning after removal focuses the fresh row at the old index after the full list is known", async () => {
+  const { account } = boot({ cross: true });
+  const older = {
+    id: root.id,
+    channelId: design,
+    message: "Older saved post",
+    createAt: 123,
+  };
+  const newer = {
+    id: "n".repeat(26),
+    channelId: home,
+    message: "Newer saved post",
+    createAt: 999,
+  };
+  account.readSavedPosts.mockResolvedValueOnce({
+    items: [
+      newer,
+      {
+        id: reply.id,
+        channelId: design,
+        rootId: root.id,
+        message: "Saved reply preview",
+        createAt: 345,
+      },
+      older,
+    ],
+    firstInaccessiblePostTime: 0,
+  });
+  await visitSavedReply();
+  account.readSavedPostPreferences.mockResolvedValueOnce({
+    upperBound: 1201,
+    returnedPostSaved: false,
+  });
+  account.readSavedPosts.mockResolvedValueOnce({
+    items: [newer],
+    firstInaccessiblePostTime: 0,
+  });
+  let finish: (() => void) | undefined;
+  account.readSavedPostsAtOffset
+    .mockRejectedValueOnce(new TypeError("Fixture unavailable page"))
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = () =>
+            resolve({ items: [older], firstInaccessiblePostTime: 0 });
+        }),
+    );
+  fireEvent.click(await savedReturn());
+  const pane = await savedPanel();
+  const retry = await within(pane).findByRole("button", {
+    name: "Retry loading earlier saved messages",
+  });
+  expect(
+    within(pane).queryByText("This message is no longer saved"),
+  ).toBeNull();
+  retry.focus();
+  fireEvent.click(retry);
+  await waitFor(() => expect(finish).toBeTypeOf("function"));
+  expect(
+    within(pane).queryByText("This message is no longer saved"),
+  ).toBeNull();
+  await act(async () => finish?.());
+  const next = within(pane).getByRole("button", { name: /Older saved post/ });
+  expect(document.activeElement).toBe(next);
+  expect(pane.querySelector("[aria-current]")).toBeNull();
+  expect(
+    within(pane).getByText("This message is no longer saved"),
+  ).toBeTruthy();
+  expect(
+    account.readSavedPostsAtOffset.mock.calls.map(([, offset]) => offset),
+  ).toEqual([60, 60]);
+  expect(account.readSavedPostPreferences).toHaveBeenLastCalledWith(
+    expect.any(AbortSignal),
+    reply.id,
+  );
+});
+
+test("a still-flagged but inaccessible post does not report a removed bookmark", async () => {
+  const { account } = boot({ cross: true });
+  await visitSavedReply();
+  account.readSavedPostPreferences.mockResolvedValueOnce({
+    upperBound: 2,
+    returnedPostSaved: true,
+  });
+  account.readSavedPosts.mockResolvedValueOnce({
+    items: [
+      { id: root.id, channelId: design, message: "Only visible saved post" },
+    ],
+    firstInaccessiblePostTime: 0,
+  });
+  fireEvent.click(await savedReturn());
+  const pane = await savedPanel();
+  await within(pane).findByRole("button", { name: /Only visible saved post/ });
+  expect(
+    within(pane).queryByText("This message is no longer saved"),
+  ).toBeNull();
+  expect(document.activeElement).toBe(
+    within(pane).getByRole("heading", { name: "Saved messages" }),
+  );
+  expect(pane.querySelector("[aria-current]")).toBeNull();
+});
+
+test("a concurrently returned saved row takes precedence over an absent flag snapshot", async () => {
+  const { account } = boot({ cross: true });
+  await visitSavedReply();
+  account.readSavedPostPreferences.mockResolvedValueOnce({
+    upperBound: 1201,
+    returnedPostSaved: false,
+  });
+  fireEvent.click(await savedReturn());
+  const pane = await savedPanel();
+  const exact = await within(pane).findByRole("button", {
+    name: /Saved reply preview/,
+  });
+  expect(document.activeElement).toBe(exact);
+  expect(exact.getAttribute("aria-current")).toBe("true");
+  expect(
+    within(pane).queryByText("This message is no longer saved"),
+  ).toBeNull();
+  expect(account.readSavedPostsAtOffset).not.toHaveBeenCalled();
+});
+
+test("manual reopening clears the previous return target and the next cross-team visit checks its own ID", async () => {
+  const { account } = boot({ cross: true });
+  await visitSavedReply();
+  fireEvent.click(await savedReturn());
+  const firstReturn = await savedPanel();
+  const replyRow = await within(firstReturn).findByRole("button", {
+    name: /Saved reply preview/,
+  });
+  expect(replyRow.getAttribute("aria-current")).toBe("true");
+  expect(account.readSavedPostPreferences).toHaveBeenLastCalledWith(
+    expect.any(AbortSignal),
+    reply.id,
+  );
+
+  pressBack();
+  expect(firstReturn.isConnected).toBe(false);
+  const before = account.readSavedPostPreferences.mock.calls.length;
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Saved messages" }),
+  );
+  const reopened = await savedPanel();
+  const rootLink = await within(reopened).findByRole("button", {
+    name: /Saved root preview/,
+  });
+  expect(reopened.querySelector("[aria-current]")).toBeNull();
+  await waitFor(() =>
+    expect(account.readSavedPostPreferences).toHaveBeenCalledTimes(before + 1),
+  );
+  expect(account.readSavedPostPreferences).toHaveBeenLastCalledWith(
+    expect.any(AbortSignal),
+    undefined,
+  );
+
+  fireEvent.click(rootLink);
+  await screen.findByText(root.message);
+  fireEvent.click(await savedReturn());
+  const secondReturn = await savedPanel();
+  const rootRow = await within(secondReturn).findByRole("button", {
+    name: /Saved root preview/,
+  });
+  expect(rootRow.getAttribute("aria-current")).toBe("true");
+  expect(secondReturn).not.toBe(firstReturn);
+  expect(account.readSavedPostPreferences).toHaveBeenLastCalledWith(
+    expect.any(AbortSignal),
+    root.id,
+  );
+});
+
+test("returning after removal of the only saved item focuses the empty heading", async () => {
+  const { account } = boot({ cross: true });
+  await visitSavedReply();
+  account.readSavedPosts.mockResolvedValueOnce({
+    items: [],
+    firstInaccessiblePostTime: 0,
+  });
+  account.readSavedPostPreferences.mockResolvedValueOnce({
+    upperBound: 0,
+    returnedPostSaved: false,
+  });
+  fireEvent.click(await savedReturn());
+  const pane = within(await savedPanel());
+  const empty = await pane.findByRole("heading", { name: "No saved messages" });
+  expect(document.activeElement).toBe(empty);
+  expect(pane.queryByText("This message is no longer saved")).toBeNull();
 });
 
 test("published links share signed post navigation without consuming any system delivery", async () => {

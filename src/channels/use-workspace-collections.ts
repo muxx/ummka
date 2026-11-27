@@ -6,12 +6,17 @@ import {
   useSyncExternalStore,
 } from "react";
 import { openMentionList } from "./mention-list.ts";
-import { openPostCollection } from "./post-collection.ts";
+import { openPostCollection, returnedPostRemoved } from "./post-collection.ts";
 import type { measureTimeline } from "./timeline-viewport.ts";
 
 type CollectionsAccount = Parameters<typeof openPostCollection>[0] &
   Parameters<typeof openMentionList>[0];
-type RestoredRow = { id: string; scroll: number; offset?: number };
+type RestoredRow = {
+  id: string;
+  scroll: number;
+  offset?: number;
+  index?: number;
+};
 type Source =
   | { kind: "all"; returnRow?: RestoredRow }
   | { kind: "pins"; channelId: string };
@@ -97,23 +102,22 @@ export function useWorkspaceCollections(
       return;
     }
     const { model, returnRow } = view;
-    const request = new AbortController();
-    async function restoreRow() {
-      await model.refresh();
-      while (!request.signal.aborted && owned.current === view) {
-        const snapshot = model.getSnapshot();
-        if (
-          snapshot.status !== "ready" ||
-          (snapshot.continuation !== "available" &&
-            snapshot.continuation !== "loading") ||
-          snapshot.value?.items.some(({ id }) => id === returnRow?.id)
-        )
-          return;
-        await model.loadMore();
+    const stop = model.subscribe(() => {
+      if (owned.current !== view) return;
+      const snapshot = model.getSnapshot();
+      if (snapshot.status !== "ready") return;
+      if (
+        snapshot.value?.items.some(({ id }) => id === returnRow.id) ||
+        returnedPostRemoved(snapshot, returnRow.id, returnRow.index) ||
+        snapshot.continuation === "none"
+      ) {
+        stop();
+      } else if (snapshot.continuation === "available") {
+        void model.loadMore();
       }
-    }
-    void restoreRow();
-    return () => request.abort();
+    });
+    void model.refresh(returnRow.id);
+    return stop;
   }, [view, online]);
   useLayoutEffect(
     () => () => {

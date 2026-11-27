@@ -90,20 +90,29 @@ export function accountPostCollections(
     ) {
       return whileOpen(() => savedWindow(scope, offset, signal), signal);
     },
-    readSavedPostUpperBound(signal?: AbortSignal) {
+    readSavedPostPreferences(signal?: AbortSignal, returnedPostId?: string) {
       return whileOpen(async () => {
         signal?.throwIfAborted();
+        if (returnedPostId !== undefined && !isMattermostId(returnedPostId))
+          throw new TypeError("Invalid Mattermost saved post ID.");
         const rows = await preferences.getPreferences(
           { userId: "me" },
           { signal },
         );
         // A missing list is the server representation of an account with no preferences.
-        let count = 0;
+        let upperBound = 0;
+        let returnedPostSaved = false;
         for (const row of rows ?? []) {
           assertAccountPreference(row, userId);
-          if (row.category === "flagged_post") count++;
+          if (row.category === "flagged_post") {
+            upperBound++;
+            returnedPostSaved ||= row.name === returnedPostId;
+          }
         }
-        return count;
+        return {
+          upperBound,
+          ...(returnedPostId !== undefined && { returnedPostSaved }),
+        };
       }, signal);
     },
   };

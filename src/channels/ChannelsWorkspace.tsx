@@ -352,14 +352,15 @@ export function ChannelsWorkspace({
   // publication from the team's existing observer, including loss of access.
   const published = directory.state.value;
   const status = directory.state.status;
-  const [handoff, setHandoff] = useState({ position, published, status });
-  if (position !== handoff.position) {
-    setHandoff({ position, published, status });
-    if (position) setDirectoryOpen(false);
+  const focusRequest = position?.request;
+  const [handoff, setHandoff] = useState({ focusRequest, published, status });
+  if (focusRequest !== handoff.focusRequest) {
+    setHandoff({ focusRequest, published, status });
+    if (focusRequest) setDirectoryOpen(false);
   }
   const snapshot =
     position &&
-    (position !== handoff.position ||
+    (focusRequest !== handoff.focusRequest ||
       (handoff.published === published && handoff.status === status)) &&
     !["forbidden", "unauthorized", "session"].includes(status)
       ? position.sidebar
@@ -803,9 +804,31 @@ export function ChannelsWorkspace({
       ? collectionOrigin.ids.indexOf(position.request.post.id)
       : -1;
   const collectionDestination = collectionIndex >= 0 ? collections.view : null;
-  const savedSource =
-    position?.saved &&
-    workspace.teamChoice.teams.find(({ id }) => id === position.saved?.teamId);
+  const savedSource = position?.saved;
+  const savedRevoked = position?.savedRevoked;
+  const [readRevocation, setReadRevocation] = useState<typeof savedRevoked>();
+  const revocationActive = savedRevoked && savedRevoked !== readRevocation;
+  useEffect(() => {
+    if (!savedRevoked) return;
+    const timeout = window.setTimeout(
+      () => setReadRevocation(savedRevoked),
+      2600,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [savedRevoked]);
+  const revocationFocused = useRef<typeof savedRevoked>(undefined);
+  useLayoutEffect(() => {
+    if (
+      !savedRevoked?.focusPost ||
+      revocationFocused.current === savedRevoked ||
+      !focusRequest
+    )
+      return;
+    const post = visibleResult(focusRequest.post.id);
+    if (!post) return;
+    revocationFocused.current = savedRevoked;
+    post.focus({ preventScroll: true });
+  });
   function restoreConversation(
     channelId: string | null,
     reading: TimelinePlace | null,
@@ -850,7 +873,9 @@ export function ChannelsWorkspace({
       collections.view?.kind === "all" && from
         ? {
             teamId: team.id,
+            teamName: team.displayName || team.name,
             channelId: from.channelId,
+            index: from.ids.indexOf(id),
             scroll: from.scroll,
             offset: from.offset,
             reading: from.reading,
@@ -867,20 +892,22 @@ export function ChannelsWorkspace({
     void workspace.messages.returnToSaved(control ?? null);
   }
   function endCollection(control: HTMLButtonElement) {
-    const id = position?.request.post.id;
-    const posts = id
-      ? host.current?.querySelectorAll<HTMLElement>(
-          `[data-post-id="${CSS.escape(id)}"]`,
-        )
-      : undefined;
-    const visible =
-      posts && Array.from(posts).find((row) => row.getClientRects().length);
+    const visible = visibleResult(position?.request.post.id);
     const heading = control
       .closest(".channels-conversation, .channels-thread")
       ?.querySelector<HTMLElement>(".channels-pane-head :is(h1, h2)");
     collections.close(false);
     if (savedSource) workspace.messages.endSaved();
     (visible ?? heading)?.focus({ preventScroll: true });
+  }
+  function visibleResult(id?: string) {
+    if (!id) return;
+    const posts = host.current?.querySelectorAll<HTMLElement>(
+      `[data-post-id="${CSS.escape(id)}"]`,
+    );
+    return (
+      posts && Array.from(posts).find((row) => row.getClientRects().length)
+    );
   }
 
   const notice = (message: string, retry?: () => void, alert = false) => (
@@ -1475,7 +1502,7 @@ export function ChannelsWorkspace({
                   icon={<CollectionMark kind="all" />}
                   backLabel={collectionLabels.savedBack}
                   language={language}
-                  sourceTeam={savedSource.displayName || savedSource.name}
+                  sourceTeam={savedSource.teamName}
                   blocked={!online || workspace.messages.dialogOpen}
                   back={returnToSaved}
                   end={endCollection}
@@ -1789,9 +1816,18 @@ export function ChannelsWorkspace({
           onClose={closeTeamChoice}
         />
       )}
-      {actions.notice && (
+      {actions.notice && !revocationActive && (
         <div className="post-action-notice" role="status">
           {actions.notice.message}
+        </div>
+      )}
+      {(savedSource || savedRevoked) && (
+        <div role="status">
+          {revocationActive && (
+            <span className="post-action-notice saved-return-notice">
+              {collectionLabels.revokedSource(savedRevoked.name)}
+            </span>
+          )}
         </div>
       )}
     </div>

@@ -27,7 +27,9 @@ type Outcome = Awaited<
 >["target"];
 export type SavedCollectionOrigin = {
   teamId: string;
+  teamName: string;
   channelId: string | null;
+  index: number;
   scroll: number;
   offset?: number;
   reading: TimelinePlace | null;
@@ -35,7 +37,7 @@ export type SavedCollectionOrigin = {
 type SavedCollectionReturn = {
   rid: number;
   teamId: string;
-  place?: Omit<SavedCollectionOrigin, "teamId"> & { id: string };
+  place?: Omit<SavedCollectionOrigin, "teamId" | "teamName"> & { id: string };
   unavailableChannel?: string;
 };
 type Selection = {
@@ -48,6 +50,7 @@ type Position = {
   membership: string;
   system?: SystemPostRequest;
   saved?: SavedCollectionOrigin;
+  savedRevoked?: { name: string; focusPost: boolean };
   choosingChannel?: boolean;
 };
 type Queue = <T>(work: () => Promise<T>) => Promise<T>;
@@ -316,21 +319,45 @@ export function useMessageNavigation(
       savedSurfaces.current.clear();
     };
   }, [connection]);
+  const revokeSaved = useCallback(
+    (currentPosition: Position, activated: boolean) => {
+      const saved = currentPosition.saved;
+      if (!saved) return;
+      const returning = current.current?.kind === "return";
+      const inReturnBar = Boolean(
+        document.activeElement?.closest(
+          ".collection-result-steps[data-cross-team]",
+        ),
+      );
+      if (returning) {
+        current.current?.controller.abort();
+        current.current = null;
+      }
+      savedSurfaces.current.delete(saved.teamId);
+      setPosition((visible) => {
+        if (visible?.request !== currentPosition.request || !visible.saved)
+          return visible;
+        const { saved: _saved, ...destination } = visible;
+        return {
+          ...destination,
+          savedRevoked: {
+            name: saved.teamName,
+            focusPost: activated || returning || inReturnBar,
+          },
+        };
+      });
+    },
+    [],
+  );
   useLayoutEffect(() => {
     if (!directory) return;
     for (const id of savedSurfaces.current)
       if (!directory.teams.some((team) => team.id === id))
         savedSurfaces.current.delete(id);
-    setPosition((visible) => {
-      if (
-        !visible?.saved ||
-        directory.teams.some(({ id }) => id === visible.saved?.teamId)
-      )
-        return visible;
-      const { saved: _saved, ...destination } = visible;
-      return destination;
-    });
-  }, [directory]);
+    const source = position?.saved;
+    if (source && !directory.teams.some(({ id }) => id === source.teamId))
+      revokeSaved(position, false);
+  }, [directory, position, revokeSaved]);
   useEffect(() => {
     if (online || !current.current) return;
     if (current.current.kind === "return") {
@@ -551,11 +578,7 @@ export function useMessageNavigation(
     const text = copy[language];
     const fromTeam = position.request.teamId;
     const sourceTeam = saved.teamId;
-    function fail(message: string, unavailable = false) {
-      if (unavailable) {
-        savedSurfaces.current.delete(sourceTeam);
-        endSaved();
-      }
+    function fail(message: string) {
       setModal({
         kind: "error",
         text: message,
@@ -589,7 +612,7 @@ export function useMessageNavigation(
       }
       const team = teams.teams.find(({ id }) => id === sourceTeam);
       if (!team) {
-        fail(text.forbidden, true);
+        revokeSaved(position, true);
         return;
       }
       if (teams.selectedTeam !== fromTeam) return;
@@ -633,6 +656,7 @@ export function useMessageNavigation(
               scroll: saved.scroll,
               offset: saved.offset,
               id: position.request.post.id,
+              index: saved.index,
             },
           });
           setPosition(null);
@@ -646,10 +670,8 @@ export function useMessageNavigation(
         const revoked =
           currentTeams &&
           !currentTeams.teams.some(({ id }) => id === sourceTeam);
-        fail(
-          revoked ? text.forbidden : text.savedReturnFailed,
-          Boolean(revoked),
-        );
+        if (revoked) revokeSaved(position, true);
+        else fail(text.savedReturnFailed);
       }
     } catch (cause) {
       if (signal.aborted) return;

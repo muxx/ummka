@@ -20,6 +20,7 @@ type ReadState = {
     | "closed"
     | ReturnType<typeof workspaceFailure>;
   value: Collection | null;
+  returnedPost?: { id: string; saved: boolean };
 };
 type Removal =
   | "removed"
@@ -29,16 +30,30 @@ type Removal =
   | "storage"
   | "unauthorized"
   | "session";
+type Continuation = "none" | "available" | "loading" | "network" | "storage";
 
 export function newestCollectionItems(items: Collection["items"]) {
   return [...items].sort((a, b) => (b.createAt ?? 0) - (a.createAt ?? 0));
+}
+
+export function returnedPostRemoved(
+  state: ReadState & { continuation: Continuation },
+  id: string,
+  index: number | undefined,
+) {
+  return (
+    index !== undefined &&
+    state.status === "ready" &&
+    state.returnedPost?.id === id &&
+    !state.returnedPost.saved &&
+    (state.continuation === "none" || (state.value?.items.length ?? 0) > index)
+  );
 }
 
 export function openPostCollection(account: Account, source: Source) {
   const scope = { ...source };
   const listeners = new Set<() => void>();
   const removals = new Map<string, Promise<Removal>>();
-  type Continuation = "none" | "available" | "loading" | "network" | "storage";
   let cursor: { offset: number; limit: number } | undefined;
   let nextPage:
     | { controller: AbortController; result: Promise<void> }
@@ -80,30 +95,41 @@ export function openPostCollection(account: Account, source: Source) {
     removals.clear();
   }
 
-  async function read(signal: AbortSignal, removed: Set<string>) {
+  async function read(
+    signal: AbortSignal,
+    removed: Set<string>,
+    returnedPostId: string | undefined,
+  ) {
     if (signal.aborted) return;
     let next: ReadState;
     try {
-      const [value, limit] =
+      const [value, flags] =
         scope.kind === "pins"
           ? ([
               await account.readPinnedChannelPosts(scope.channelId, signal),
-              0,
+              undefined,
             ] as const)
           : await Promise.all([
               account.readSavedPosts(scope, 0, signal),
-              account.readSavedPostUpperBound(signal),
+              account.readSavedPostPreferences(signal, returnedPostId),
             ]);
       if (signal.aborted) return;
       // Concurrent removals might already be absent from the preference response.
       // Keep its upper bound and overlap their raw positions on the next read.
-      cursor =
-        scope.kind === "pins"
-          ? undefined
-          : { offset: Math.max(0, savedPageSize - removed.size), limit };
+      cursor = flags && {
+        offset: Math.max(0, savedPageSize - removed.size),
+        limit: flags.upperBound,
+      };
       // A write confirmed after this read started takes precedence over its snapshot.
       next = {
         status: "ready",
+        ...(returnedPostId &&
+          flags?.returnedPostSaved !== undefined && {
+            returnedPost: {
+              id: returnedPostId,
+              saved: !removed.has(returnedPostId) && flags.returnedPostSaved,
+            },
+          }),
         value: removed.size
           ? {
               ...value,
@@ -143,6 +169,7 @@ export function openPostCollection(account: Account, source: Source) {
       pageIssue = undefined;
       publish({
         status: "ready",
+        returnedPost: state.returnedPost,
         value: {
           items,
           firstInaccessiblePostTime: Math.max(
@@ -198,6 +225,10 @@ export function openPostCollection(account: Account, source: Source) {
     const value = state.value;
     publish({
       status: state.status,
+      returnedPost:
+        state.returnedPost?.id === postId
+          ? { id: postId, saved: false }
+          : state.returnedPost,
       value: value && {
         ...value,
         items: value.items.filter((row) => row.id !== postId),
@@ -214,13 +245,15 @@ export function openPostCollection(account: Account, source: Source) {
         listeners.delete(listener);
       };
     },
-    refresh() {
+    refresh(returnedPostId?: string) {
       if (state.status === "closed") return Promise.resolve();
       if (pending) return pending.result;
       cancelNextPage();
       const { signal } = requests;
       const removed = new Set<string>();
-      const result = Promise.resolve().then(() => read(signal, removed));
+      const result = Promise.resolve().then(() =>
+        read(signal, removed, returnedPostId),
+      );
       pending = { result, removed };
       publish({
         status: state.value ? "refreshing" : "loading",

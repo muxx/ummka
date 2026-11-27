@@ -46,6 +46,10 @@ export const collectionCopy = {
     next: "Loading more messages…",
     refresh: "Refresh",
     emptySaved: "No saved messages.",
+    emptyReturnedSaved: "No saved messages",
+    removedOnReturn: "This message is no longer saved",
+    revokedSource: (name: string) =>
+      `You were removed from team “${name}”. You can’t return to saved messages.`,
     emptyPins: "No pinned messages in this channel.",
     network: "Couldn’t load messages. Check your connection.",
     storage: "Couldn’t read the collection on this device.",
@@ -115,6 +119,10 @@ export const collectionCopy = {
     next: "Загружаем ещё сообщения…",
     refresh: "Обновить",
     emptySaved: "Сохранённых сообщений нет.",
+    emptyReturnedSaved: "Сохранённых сообщений нет",
+    removedOnReturn: "Сообщения больше нет в сохранённых",
+    revokedSource: (name: string) =>
+      `Вас убрали из команды «${name}». Вернуться к сохранённым нельзя`,
     emptyPins: "В этом канале пока нет закреплённых сообщений.",
     network: "Не удалось загрузить сообщения. Проверьте соединение.",
     storage: "Не удалось прочитать подборку на устройстве.",

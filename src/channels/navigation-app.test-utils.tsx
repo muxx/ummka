@@ -266,9 +266,9 @@ export function fixture({
       firstInaccessiblePostTime: 0,
     }),
     readSavedPostsAtOffset: vi.fn<Account["readSavedPostsAtOffset"]>(),
-    readSavedPostUpperBound: vi
-      .fn<Account["readSavedPostUpperBound"]>()
-      .mockResolvedValue(2),
+    readSavedPostPreferences: vi
+      .fn<Account["readSavedPostPreferences"]>()
+      .mockResolvedValue({ upperBound: 2 }),
     readPinnedChannelPosts: vi
       .fn<Account["readPinnedChannelPosts"]>()
       .mockResolvedValue({
