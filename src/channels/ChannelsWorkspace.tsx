@@ -1122,9 +1122,9 @@ export function ChannelsWorkspace({
           chooseTeam: text.switchTeam,
           closeThread: text.closeThread,
         }}
+        searchTrigger={search.trigger}
         toolbar={
           <>
-            {search.trigger}
             <button
               type="button"
               className="channels-icon-action mentions-trigger"

@@ -279,7 +279,6 @@
 }
 .collection-saved-trigger {
   position: relative;
-  margin-inline-start: auto;
 }
 .collection-saved-trigger:hover {
   background: #ffffff1c;
