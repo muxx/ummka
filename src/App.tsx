@@ -111,7 +111,6 @@ function EntryRoute({
               ])}
               workspace={workspace}
               language={language}
-              onEnded={reopen}
             />
           )}
         </AccountTeamWindow>

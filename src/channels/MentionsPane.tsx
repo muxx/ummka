@@ -9,7 +9,8 @@ import {
   useState,
 } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
-import { CollectionScroll } from "./CollectionScroll.tsx";
+import { CollectionReadNotice } from "./CollectionReadNotice.tsx";
+import { CollectionScroll, restoreCollectionRow } from "./CollectionScroll.tsx";
 import { collectionCopy } from "./collection-copy.ts";
 import type { openMentionList } from "./mention-list.ts";
 import { publishedPostDocument } from "./published-post-document.ts";
@@ -99,7 +100,6 @@ export function MentionsPane({
   openRow,
   restore,
   close,
-  sessionIssue,
 }: {
   state: Snapshot;
   model: Model;
@@ -112,7 +112,6 @@ export function MentionsPane({
   openRow: (id: string, trigger: HTMLButtonElement, scroll: number) => void;
   restore: { id: string; scroll: number } | null;
   close: () => void;
-  sessionIssue: (issue: "session" | "unauthorized") => void;
 }) {
   const text = mentionCopy[language],
     common = collectionCopy[language];
@@ -129,7 +128,7 @@ export function MentionsPane({
   }, [model, state.items.length]);
   useLayoutEffect(() => {
     const index = focusedPage.current;
-    if (index === null || state.status === "loading") return;
+    if (index === null || state.edge === "loading") return;
     focusedPage.current = null;
     if (
       document.activeElement !== document.body &&
@@ -146,25 +145,14 @@ export function MentionsPane({
   }, [state]);
   const initial = useRef(restore);
   useLayoutEffect(() => {
-    const row = initial.current;
-    const target =
-      row &&
-      list.current?.querySelector<HTMLElement>(
-        `[data-collection-post="${CSS.escape(row.id)}"]`,
-      );
-    if (row && list.current && target) {
-      list.current.scrollTop = row.scroll;
-      target.focus({ preventScroll: true });
-    } else heading.current?.focus();
+    if (!restoreCollectionRow(list.current, initial.current))
+      heading.current?.focus();
   }, []);
-  useEffect(() => {
-    if (state.status === "session" || state.status === "unauthorized")
-      sessionIssue(state.status);
-  }, [sessionIssue, state.status]);
   useEffect(() => {
     if (
       !online ||
       state.status !== "ready" ||
+      state.edge !== "idle" ||
       state.nextPage === null ||
       !edge.current
     )
@@ -182,12 +170,12 @@ export function MentionsPane({
     );
     observer.observe(edge.current);
     return () => observer.disconnect();
-  }, [online, readNext, state.status, state.nextPage]);
+  }, [online, readNext, state.status, state.nextPage, state.edge]);
   const date = useMemo(
     () => new Intl.DateTimeFormat(language, { day: "numeric", month: "long" }),
     [language],
   );
-  const failed = state.status === "network" || state.status === "storage";
+  const edgeFailed = state.edge === "network" || state.edge === "storage";
   return (
     <aside
       className="mentions-pane"
@@ -241,6 +229,16 @@ export function MentionsPane({
         </button>
       </header>
       <CollectionScroll pane={list}>
+        <CollectionReadNotice
+          kind="mentions"
+          status={state.status}
+          hasResponse={state.hasResponse}
+          online={online}
+          language={language}
+          list={list}
+          heading={heading}
+          refresh={() => void model.refresh()}
+        />
         {state.items.map((post) => {
           const name =
             (post.userId && authorName(post.userId)) || common.member;
@@ -251,6 +249,7 @@ export function MentionsPane({
               key={post.id}
               aria-disabled={!online || undefined}
               data-collection-post={post.id}
+              aria-current={restore?.id === post.id || undefined}
               onClick={(e) => {
                 if (online)
                   openRow(
@@ -266,6 +265,8 @@ export function MentionsPane({
               <span className="mention-result-copy">
                 <strong>
                   {name} · {channelName(post.channelId) || common.conversation}
+                  {post.rootId &&
+                    ` · ${common.reply.toLocaleLowerCase(language)}`}
                 </strong>
                 <MentionExcerpt message={post.message || ""} />
               </span>
@@ -286,16 +287,14 @@ export function MentionsPane({
               <p>{text.detail}</p>
             </div>
           )}
-        {!online && <p role="status">{common.offline}</p>}
-        {online && (state.status === "loading" || state.status === "idle") && (
-          <p role="status">{common.loading}</p>
-        )}
+        {!online && state.hasResponse && <p role="status">{common.offline}</p>}
         {state.status === "forbidden" && (
           <p role="alert">{common.unavailable}</p>
         )}
-        {failed && (
+        {state.edge === "loading" && <p role="status">{common.next}</p>}
+        {edgeFailed && (
           <p role="alert">
-            {state.status === "storage" ? common.storage : common.network}
+            {state.edge === "storage" ? common.storage : common.network}
           </p>
         )}
         {state.firstInaccessiblePostTime > 0 && (
@@ -303,14 +302,15 @@ export function MentionsPane({
         )}
         {online &&
           state.nextPage !== null &&
-          (state.status === "ready" || failed) && (
+          state.status === "ready" &&
+          state.edge !== "loading" && (
             <button
               ref={edge}
               className="collection-page-action"
               type="button"
               onClick={readNext}
             >
-              {failed ? common.retry : text.more}
+              {edgeFailed ? common.retry : text.more}
             </button>
           )}
       </CollectionScroll>
