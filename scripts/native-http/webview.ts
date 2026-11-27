@@ -8,7 +8,11 @@ import { json, text } from "node:stream/consumers";
 import { deniedPost } from "../webview-check/link-examples.ts";
 import type { SendMacKey } from "../webview-check/macos.ts";
 import { respondToAccount } from "./account.ts";
-import type { SendAndroidKey } from "./android-webview.ts";
+import {
+  type ClipboardPolicyStep,
+  clipboardPolicySteps,
+  type SendAndroidKey,
+} from "./android-webview.ts";
 import { respondToChannelMembers } from "./channel-members.ts";
 import { respondToChannelView } from "./channel-view.ts";
 import { collectionWindowFixture } from "./collection-window.ts";
@@ -93,6 +97,7 @@ export function webviewServers(
   ];
   let stepIndex = 0;
   let pressWorkspaceBack: (() => Promise<void>) | undefined;
+  let clipboard: ClipboardPolicyStep | undefined;
   let disconnect: Socket | undefined;
   let pingSocket: Socket | undefined;
   const settings = new Map<string, ServerResponse>();
@@ -1505,6 +1510,13 @@ export function webviewServers(
     } else if (step === "allow-design-posts") {
       assert(visits.includes("live-roles") && !visits.includes(step));
       visits.push(step);
+    } else if (step?.startsWith("copy-")) {
+      const action = clipboardPolicySteps.find(
+        (action) => step === `copy-${action}`,
+      );
+      assert(clipboard && action);
+      await clipboard(action);
+      visits.push(step);
     } else if (step === "search-result-back") {
       const marker = "android-" + step;
       assert(
@@ -1581,7 +1593,11 @@ export function webviewServers(
       pressWorkspaceBack = () => send("escape");
       sendRight = () => send("right");
     },
-    onAndroidInputReady(send: SendAndroidKey) {
+    onAndroidInputReady(
+      send: SendAndroidKey,
+      runClipboardStep: ClipboardPolicyStep,
+    ) {
+      clipboard = runClipboardStep;
       prepareKeyboard = () => send("KEYCODE_TAB");
       pressWorkspaceBack = () => send("KEYCODE_BACK");
       sendRight = () => send("KEYCODE_DPAD_RIGHT");
@@ -1863,6 +1879,7 @@ export function webviewServers(
           "live-categories",
           "live-window-send",
           "live-window-thread",
+          ...clipboardPolicySteps.map((action) => `copy-${action}`),
           "android-search-result-back",
           "browser-action-confirmed",
           "live-search-posts",

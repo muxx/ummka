@@ -8,6 +8,7 @@ import { checkAttachmentWidth } from "./attachment-width.tsx";
 import { checkBrowserAction } from "./browser-action.ts";
 import { checkChannelTimeline } from "./channel-timeline.tsx";
 import { checkChannelsFrame } from "./channels-frame.tsx";
+import { checkClipboardPolicy } from "./clipboard-policy.ts";
 import { checkEntryWindow } from "./entry-window.tsx";
 import { beginExchanges, finishExchangesAfterReload } from "./exchanges.ts";
 import { checkGeneratedRequests } from "./generated.ts";
@@ -94,6 +95,7 @@ async function checkResources() {
     await checkChannelTimeline();
     await checkAttachmentWidth();
     const ports = String(import.meta.env.VITE_UMMKA_CHECK_PORTS).split(",");
+    await checkClipboardPolicy(ports[1]);
     await checkGeneratedRequests(ports);
     const invalid = await openExternalPostLink("/relative").catch(
       (reason: unknown) => reason,

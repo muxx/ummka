@@ -1,0 +1,12 @@
+{
+  "identifier": "android-clipboard-policy",
+  "description": "The local main WebView can observe the Android work profile's clipboard policy.",
+  "local": true,
+  "webviews": ["main"],
+  "platforms": ["android"],
+  "permissions": [
+    "clipboard-policy:allow-read-allowed",
+    "clipboard-policy:allow-register-listener",
+    "clipboard-policy:allow-remove-listener"
+  ]
+}

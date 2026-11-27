@@ -32,6 +32,15 @@ fn context<R: Runtime>() -> Context<R> {
 }
 
 fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<App<R>> {
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(
+        tauri::plugin::Builder::<R>::new("clipboard-policy")
+            .setup(|_, api| {
+                api.register_android_plugin("io.github.muxx.ummka.dev", "ClipboardPolicyPlugin")?;
+                Ok(())
+            })
+            .build(),
+    );
     let sessions = sessions::AccountSessions::for_application(context.config().identifier.clone());
     builder
         .plugin(

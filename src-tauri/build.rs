@@ -61,6 +61,17 @@ fn main() {
         "remember_installation",
         "forget_installation",
     ]);
-    tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
-        .expect("could not build the Tauri application manifest");
+    tauri_build::try_build(
+        tauri_build::Attributes::new()
+            .app_manifest(manifest)
+            .plugin(
+                "clipboard-policy",
+                tauri_build::InlinedPlugin::new().commands(&[
+                    "read_allowed",
+                    "register_listener",
+                    "remove_listener",
+                ]),
+            ),
+    )
+    .expect("could not build the Tauri application manifest");
 }

@@ -16,6 +16,8 @@
                 <data android:scheme="mailto" android:ssp="probe@ummka.invalid" />
             </intent-filter>
         </activity>
+        <receiver android:name=".ClipboardPolicyCheckReceiver" android:exported="true"
+            android:permission="android.permission.DUMP" />
         <service android:name=".BrowserCheckService" android:exported="true">
             <intent-filter>
                 <action android:name="android.support.customtabs.action.CustomTabsService" />
