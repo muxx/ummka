@@ -56,6 +56,7 @@ type FrameProps = {
   composer?: ReactNode;
   draftRef?: RefObject<HTMLElement | null>;
   focusConversation?: () => boolean;
+  focusChannelChange?: boolean;
   inboxPlaceholder?: { title: string; message: string };
   thread?: {
     id: string;
@@ -133,6 +134,7 @@ export function ChannelsFrame({
   composer,
   draftRef,
   focusConversation,
+  focusChannelChange = true,
   thread,
   inboxPlaceholder,
 }: FrameProps) {
@@ -260,7 +262,8 @@ export function ChannelsFrame({
     if (
       openThread !== old.openThread ||
       page !== old.page ||
-      channelId !== old.channelId
+      (channelId !== old.channelId &&
+        (focusChannelChange || document.activeElement === document.body))
     ) {
       const opener = threadOpener.current;
       if (!openThread) threadOpener.current = null;
@@ -304,6 +307,7 @@ export function ChannelsFrame({
     openThread,
     draftRef,
     focusConversation,
+    focusChannelChange,
     replyRef,
     showingPanel,
     retainOpener,

@@ -3345,8 +3345,14 @@ test("a second warm return keeps the confirmed timeline while refresh is still p
   ).toHaveLength(3);
 });
 
-test.each(["directory", "sidebar", "other channel"])(
-  "a delayed local selection from %s keeps the newer team picker and its Back target",
+test.each([
+  "directory",
+  "sidebar",
+  "other channel",
+  "team picker Back before acknowledgement",
+  "search Back before acknowledgement",
+])(
+  "a delayed local selection preserves newer navigation and focus from %s",
   async (source) => {
     const account = mount(true);
     await screen.findByText(root.message);
@@ -3362,7 +3368,10 @@ test.each(["directory", "sidebar", "other channel"])(
     if (!panes) throw Error("Missing workspace panes");
     const text = "Draft stays with the current channel";
     fireEvent.change(draft, { target: { value: text } });
-    if (source === "other channel") {
+    const switchingChannel = source !== "directory" && source !== "sidebar";
+    const backFirst = source.endsWith("before acknowledgement");
+    const search = source.startsWith("search");
+    if (switchingChannel) {
       fireEvent.click(screen.getByRole("button", { name: "Design" }));
       await screen.findByRole("heading", { name: "Design" });
       await waitFor(() =>
@@ -3388,20 +3397,31 @@ test.each(["directory", "sidebar", "other channel"])(
         general,
       ),
     );
-    if (panes.getAttribute("data-page") === "conversation") navigate();
-    const opener = screen.getByRole("button", { name: /^Switch team,/ });
+    if (!search && panes.getAttribute("data-page") === "conversation")
+      navigate();
+    const opener = screen.getByRole("button", {
+      name: search ? "Search" : /^Switch team,/,
+    });
+    const dialog = {
+      name: search ? "What are you looking for?" : "Teams and servers",
+    };
     fireEvent.click(opener);
-    await screen.findByRole("dialog", { name: "Teams and servers" });
+    await screen.findByRole("dialog", dialog);
+    async function back() {
+      fireEvent.keyDown(window, { key: "Escape" });
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog", dialog)).toBeNull(),
+      );
+      expect(document.activeElement).toBe(opener);
+    }
+    if (backFirst) await back();
     await act(async () => selected.resolve(true));
-    expect(panes.getAttribute("data-page")).toBe("navigation");
-    fireEvent.keyDown(window, { key: "Escape" });
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("dialog", { name: "Teams and servers" }),
-      ).toBeNull(),
+    expect(panes.getAttribute("data-page")).toBe(
+      search ? "conversation" : "navigation",
     );
+    if (!backFirst) await back();
     expect(document.activeElement).toBe(opener);
-    if (source !== "other channel") {
+    if (!switchingChannel) {
       expect(draft.isConnected).toBe(true);
       expect(draft.value).toBe(text);
       expect(pane.isConnected).toBe(true);

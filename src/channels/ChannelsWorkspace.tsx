@@ -374,7 +374,11 @@ export function ChannelsWorkspace({
   const [page, setPage] = useState<"navigation" | "conversation">(
     "conversation",
   );
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<{
+    id: string;
+    focus: boolean;
+  } | null>(null);
+  const selectedChannelId = selected?.id;
   const [thread, setThread] = useState<LocalPost | null>(null);
   const requestedPosition =
     workspace.messages.position?.request.teamId === team.id &&
@@ -502,10 +506,18 @@ export function ChannelsWorkspace({
       : snapshot;
     return (
       sidebar.data.channels.find(
-        (c) => c.id === (readingInbox ? readingInbox.channelId : selected),
+        (c) =>
+          c.id === (readingInbox ? readingInbox.channelId : selectedChannelId),
       ) ?? openingChannel(sidebar, language)
     );
-  }, [snapshot, selected, language, position, excludedChannel, readingInbox]);
+  }, [
+    snapshot,
+    selectedChannelId,
+    language,
+    position,
+    excludedChannel,
+    readingInbox,
+  ]);
   const chosen = channel?.id ?? null;
   const recent = useRef(new Set<string>());
   useEffect(() => {
@@ -936,35 +948,43 @@ export function ChannelsWorkspace({
     workspace.messages.clear();
     if (switchingChannel) closeThread();
     if (retained) {
-      chooseChannel(id, (accepted) => {
-        const window = retainedChannels.get(id);
-        retainedChannels.delete(id);
-        if (!accepted) return;
-        setRestoredChannel(
-          window
-            ? {
-                channelId: id,
-                request: {
-                  kind: "return",
-                  requestId: ++restoreVersion.current,
-                  rid: historyWindowScope.account.connection.rid,
-                  teamId: historyWindowScope.account.teamId,
-                  collapsedThreads,
-                  window,
-                },
-                place: window.place,
-                composerHeight: window.composerHeight,
-                owner: retainedChannels,
-              }
-            : null,
-        );
-      });
+      chooseChannel(
+        id,
+        (accepted) => {
+          const window = retainedChannels.get(id);
+          retainedChannels.delete(id);
+          if (!accepted) return;
+          setRestoredChannel(
+            window
+              ? {
+                  channelId: id,
+                  request: {
+                    kind: "return",
+                    requestId: ++restoreVersion.current,
+                    rid: historyWindowScope.account.connection.rid,
+                    teamId: historyWindowScope.account.teamId,
+                    collapsedThreads,
+                    window,
+                  },
+                  place: window.place,
+                  composerHeight: window.composerHeight,
+                  owner: retainedChannels,
+                }
+              : null,
+          );
+        },
+        false,
+      );
     } else chooseChannel(id);
   }
-  function chooseChannel(id: string, outcome?: (accepted: boolean) => void) {
+  function chooseChannel(
+    id: string,
+    outcome?: (accepted: boolean) => void,
+    focusOnCommit = true,
+  ) {
     const version = ++choice.current;
     const owner = active.current;
-    if (!outcome) setSelected(id);
+    if (!outcome) setSelected({ id, focus: true });
     setPage("conversation");
     setChoiceFailed(null);
     void workspace.messages.enqueue(async () => {
@@ -981,7 +1001,7 @@ export function ChannelsWorkspace({
           setSelected(null);
           setChoiceFailed(outcome ? { exclude: id } : {});
           if (outcome) directory.retry();
-        } else if (outcome) setSelected(id);
+        } else if (outcome) setSelected({ id, focus: focusOnCommit });
         outcome?.(accepted);
       }
       return accepted;
@@ -2386,6 +2406,9 @@ export function ChannelsWorkspace({
         accountRef={accountButton}
         draftRef={inbox.visible || directoryOpen ? undefined : draftField}
         focusConversation={directoryOpen ? focusDirectory : undefined}
+        focusChannelChange={
+          selected?.id !== chosen || selected?.focus !== false
+        }
         accountName={accountName}
         accountDescription={
           accountName ? undefined : teamChoiceText[language].profilePending
