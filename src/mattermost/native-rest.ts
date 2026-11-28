@@ -88,6 +88,7 @@ import {
   readPostAnchor,
 } from "./message-anchors.ts";
 import { isMattermostId } from "./model-fields.ts";
+import { readNamedChannelDestination } from "./named-channel-destination.ts";
 import { nativeFetch } from "./native-fetch.ts";
 import { loadAccountDirectory, loadTeamDirectory } from "./navigation-data.ts";
 import { refreshNavigation } from "./navigation-refresh.ts";
@@ -601,6 +602,23 @@ export async function openAccountRestConnection(
     changeOwnMembership(target: MembershipTarget, change: MembershipChange) {
       return readWhileOpen(() =>
         changeOwnMembership(config, userId, target, change),
+      );
+    },
+    readNamedChannelDestination(
+      teamName: string,
+      channelName: string,
+      signal?: AbortSignal,
+    ) {
+      return withAccountLifetime(
+        (active) =>
+          readNamedChannelDestination(
+            config,
+            userId,
+            teamName,
+            channelName,
+            active,
+          ),
+        signal,
       );
     },
     readPostDestination(postId: string, signal?: AbortSignal) {

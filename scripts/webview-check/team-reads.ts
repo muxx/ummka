@@ -125,6 +125,20 @@ export async function checkTeamReads(
     named.type !== "O"
   )
     throw Error("generated signed channel by team and channel names");
+  const destination = await prefixedAccount.readNamedChannelDestination(
+    "fixture-team",
+    "old_room",
+  );
+  if (
+    destination.kind !== "channel" ||
+    destination.team.id !== teamId ||
+    destination.team.displayName !== "Fixture Team" ||
+    destination.channel.id !== named.id ||
+    destination.channel.displayName !== "Old room" ||
+    !destination.channel.archived ||
+    destination.channel.membership !== "member"
+  )
+    throw Error("signed named channel destination");
   const location = "j".repeat(26);
   const inspected = await prefixedAccount.readChannelIdentity(location);
   if (
