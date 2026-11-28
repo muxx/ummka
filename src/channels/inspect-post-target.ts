@@ -7,7 +7,14 @@ type Account = Pick<
   Awaited<ReturnType<typeof openAccountRestConnection>>,
   "readFileAnchor" | "readPostAnchor" | "readPostDestination"
 >;
-type Source = { kind: "post" | "file"; id: string };
+type ChannelScope = { teamId: string; channelId: string; kind: "O" | "P" };
+type Source =
+  | { kind: "post" | "file"; id: string }
+  | {
+      kind: "named-channel-post";
+      id: string;
+      readChannelScope: (signal?: AbortSignal) => Promise<ChannelScope | null>;
+    };
 
 export async function inspectPostTarget(
   account: Account,
@@ -19,7 +26,9 @@ export async function inspectPostTarget(
   try {
     signal?.throwIfAborted();
     if (
-      (source.kind !== "post" && source.kind !== "file") ||
+      (source.kind !== "post" &&
+        source.kind !== "file" &&
+        source.kind !== "named-channel-post") ||
       !isMattermostId(source.id) ||
       (selectedTeamId !== null && !isMattermostId(selectedTeamId))
     )
@@ -34,6 +43,12 @@ export async function inspectPostTarget(
       postId = file.postId;
       fileChannelId = file.channelId;
     }
+    const namedChannel =
+      source.kind === "named-channel-post"
+        ? await source.readChannelScope(signal)
+        : undefined;
+    signal?.throwIfAborted();
+    if (namedChannel === null) return { kind: "unavailable" } as const;
     retentionHeader = undefined;
     const destination = await account.readPostDestination(postId, signal);
     signal?.throwIfAborted();
@@ -41,6 +56,15 @@ export async function inspectPostTarget(
       throw new TypeError(
         "File and post belong to different Mattermost channels.",
       );
+    if (
+      namedChannel &&
+      (destination.team?.id !== namedChannel.teamId ||
+        !destination.team.joined ||
+        destination.channel.id !== namedChannel.channelId ||
+        destination.channel.kind !== namedChannel.kind ||
+        !destination.channel.joined)
+    )
+      return { kind: "unavailable" } as const;
     const step = nextPostDestinationStep(destination, selectedTeamId);
     if (step.kind === "joinTeam")
       return { ...step, channel: destination.channel };

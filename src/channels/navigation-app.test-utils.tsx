@@ -395,6 +395,10 @@ export function fixture({
       postId: root.id,
       channelId: design,
     })),
+    resolveConversationIdentifier:
+      vi.fn<Account["resolveConversationIdentifier"]>(),
+    readNamedChannelDestination:
+      vi.fn<Account["readNamedChannelDestination"]>(),
     readPostDestination: vi.fn<Account["readPostDestination"]>(
       async (postId) => ({ ...targetInfo, postId }),
     ),

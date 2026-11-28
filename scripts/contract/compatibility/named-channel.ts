@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readNamedChannelDestination } from "../../../src/mattermost/named-channel-destination.ts";
 import {
   ChannelsApi,
   type Configuration,
@@ -56,6 +57,20 @@ export async function checkNamedRoutes(
   assert.equal(open.teamId, team.id);
   assert.equal(open.type, "O");
   assert.equal(open.deleteAt, 0);
+  const inspect = (teamName: string, channelName: string) =>
+    readNamedChannelDestination(viewer, viewerId, teamName, channelName);
+  const outside = await inspect(otherTeam.name, "town-square");
+  assert.ok(outside.kind === "join-team" && outside.team.id === otherTeam.id);
+  assert.deepEqual(await inspect(closedTeam.name, "town-square"), {
+    kind: "unavailable",
+  });
+  const destination = await inspect(team.name, publicRoom.name);
+  assert.ok(
+    destination.kind === "channel" &&
+      destination.team.id === team.id &&
+      destination.channel.id === publicRoom.id &&
+      destination.channel.membership === "absent",
+  );
   const otherRoom = await new ChannelsApi(owner).getChannelByNameForTeamName({
     teamName: otherTeam.name,
     channelName: "town-square",
@@ -75,6 +90,12 @@ export async function checkNamedRoutes(
   ).json();
   await assert.rejects(read(privateRoom.name, true), missing);
   await assert.rejects(read("missing-named-route", true), missing);
+  assert.deepEqual(await inspect(team.name, privateRoom.name), {
+    kind: "unavailable",
+  });
+  assert.deepEqual(await inspect(team.name, "missing-named-route"), {
+    kind: "unavailable",
+  });
   await create(`channels/${privateRoom.id}/members`, { user_id: viewerId });
   const joined = await read(privateRoom.name, true);
   assert.equal(joined.id, privateRoom.id);
@@ -86,5 +107,17 @@ export async function checkNamedRoutes(
   const archived = await read(privateRoom.name, true);
   assert.equal(archived.id, privateRoom.id);
   assert.ok(archived.deleteAt && archived.deleteAt > 0);
+  const retired = await inspect(team.name, privateRoom.name);
+  assert.ok(
+    retired.kind === "channel" &&
+      retired.channel.id === privateRoom.id &&
+      retired.channel.archived &&
+      retired.channel.membership === "member",
+  );
+  assert.ok(
+    !(await teams.getTeamsForUser({ userId: "me" })).some(
+      (row) => row.id === otherTeam.id,
+    ),
+  );
   await assert.rejects(read(privateRoom.name, false), missing);
 }

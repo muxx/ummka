@@ -188,6 +188,20 @@ test("bookmark links share signed navigation and board destinations always open 
   expect(dismissInbox).not.toHaveBeenCalled();
 });
 
+test("a published post URL with a channel starts signed post navigation", async () => {
+  const user = userEvent.setup();
+  render(
+    <Window body={`[Scoped post](/mm/team/channels/town-square/${post})`} />,
+  );
+  await user.click(screen.getByRole("link", { name: "Scoped post" }));
+  expect(
+    await screen.findByRole("button", { name: "Show target" }),
+  ).toBeTruthy();
+  expect(getCurrentAccountId).toHaveBeenCalledExactlyOnceWith(server);
+  expect(openExternalPostLink).not.toHaveBeenCalled();
+  expect(dismissInbox).not.toHaveBeenCalled();
+});
+
 test("an OS delivery waits for the source link and is acknowledged only by its own action", async () => {
   render(<Window />);
   fireEvent.click(screen.getByRole("link", { name: "post" }));
@@ -259,6 +273,7 @@ test("an inbox read failure survives opening and dismissing a post link", async 
 test.each([
   "/mm/team/channels/design",
   "/mm/team/messages/@alice",
+  `/mm/team/messages/@alice/${post}`,
   "/mm/team/threads",
 ])(
   "a recognized route %s stays inside the app even while its destination is unsupported",
