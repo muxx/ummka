@@ -325,10 +325,18 @@
     border-start-start-radius: 12px;
   }
   .channels-panes[data-inbox-single] .channels-thread-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: minmax(32px, auto) auto auto;
+    row-gap: 0;
     border-start-start-radius: inherit;
+    padding-block: 10px;
   }
-  .channels-panes[data-inbox-single] .thread-close {
-    order: -1;
+  .channels-panes[data-inbox-single] .channels-thread-head > .thread-close {
+    grid-column: 1;
+    grid-row: 3;
+    justify-items: start;
+    color: var(--muted);
   }
   .channels-panes[data-inbox-single] .thread-close-icon {
     display: none;

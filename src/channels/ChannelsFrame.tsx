@@ -490,7 +490,23 @@ export function ChannelsFrame({
                   onClick={thread.close}
                 >
                   <span className="thread-back-icon">
-                    <Chevron direction="back" />
+                    {inboxSingle ? (
+                      <svg
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.65"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M5 12h14M5 12l6 6m-6-6 6-6" />
+                      </svg>
+                    ) : (
+                      <Chevron direction="back" />
+                    )}
                   </span>
                   <svg
                     className="thread-close-icon"
