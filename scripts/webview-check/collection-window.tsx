@@ -456,11 +456,21 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
       },
       { timeout: 10000 },
     );
+    const pinsHeading = (pane: typeof ui) =>
+      pane.getByRole("heading", {
+        name: "Pinned messages",
+        description: "# Town Square · visible to all members",
+      });
     click(about.getByRole("button", { name: "Pinned messages" }));
     let infoPins = await findPane("Pinned messages");
-    click(
-      await infoPins.findByRole("button", { name: /Town fixture message/ }),
-    );
+    if (document.activeElement !== pinsHeading(infoPins))
+      throw Error("The first Pins opening did not focus its heading");
+    const infoPin = await infoPins.findByRole("button", {
+      name: /Town fixture message/,
+    });
+    if (document.activeElement !== pinsHeading(infoPins))
+      throw Error("The first Pins response moved focus from its heading");
+    click(infoPin);
     await ui.findByRole("button", { name: "Back to pinned messages" });
     await back("info-row");
     infoPins = await findPane("Pinned messages");
@@ -489,16 +499,13 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
     click(menu);
     click(ui.getByRole("menuitem", { name: "Pinned messages" }));
     let pins = await findPane("Pinned messages");
-    const pinsHeading = () =>
-      pins.getByRole("heading", {
-        name: "Pinned messages",
-        description: "# Town Square · visible to all members",
-      });
-    if (document.activeElement !== pinsHeading())
-      throw Error("Pinned results did not focus their own heading");
-    const pin = await pins.findByRole("button", {
+    pinsHeading(pins);
+    // Both entry points share the confirmed list and its reading place.
+    const pin = pins.getByRole("button", {
       name: /Town fixture message/,
     });
+    if (document.activeElement !== pin)
+      throw Error("Reopening Pins did not focus the remembered pinned row");
     // An open Pins view rereads the same list when connectivity returns.
     const previousOnline = Object.getOwnPropertyDescriptor(navigator, "onLine");
     Object.defineProperty(navigator, "onLine", {
@@ -523,6 +530,8 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
     );
     if (!pin.isConnected || pins.queryByText(/no connection/i))
       throw Error("A failed update lost the confirmed pin or reported offline");
+    if (document.activeElement !== pin)
+      throw Error("A failed Pins update moved focus from the remembered row");
     click(pins.getByRole("button", { name: "Retry update: Pinned messages" }));
     await pins.findByText("Pinned messages updated");
     if (document.activeElement !== pin)
@@ -533,7 +542,7 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
     await ui.findByRole("button", { name: "Back to pinned messages" });
     await back("pinned-root");
     pins = await findPane("Pinned messages");
-    pinsHeading();
+    pinsHeading(pins);
     await waitFor(() => {
       if (
         document.activeElement !==
@@ -543,7 +552,7 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
     });
     click(pins.getByRole("button", { name: "Unpin for everyone" }));
     await pins.findByText("No pinned messages in this channel.");
-    pinsHeading();
+    pinsHeading(pins);
     await back("pinned-list");
     await waitFor(() => {
       if (document.activeElement !== menu)
