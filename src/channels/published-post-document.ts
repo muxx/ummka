@@ -6,7 +6,7 @@ import { publishedLinkTarget } from "./published-link-target.ts";
 
 type Destination = ReturnType<typeof publishedLinkTarget>;
 type Inline =
-  | { kind: "text" | "code"; text: string }
+  | { kind: "text" | "code" | "emojiText"; text: string }
   | { kind: "imageDescription"; text: string; target: Destination }
   | { kind: "linkLabel"; children: Inline[]; target: Destination }
   | { kind: "lineBreak" }
@@ -35,6 +35,9 @@ type Block =
       items: { checked: boolean | null; blocks: Block[] }[];
     };
 
+// WebApp 12 applies ASCII word boundaries to each Markdown text token.
+export const publishedEmojiPattern = /(?<!\w):([\w+-]+):(?!\w)/gu;
+
 const emphasisKinds = {
   strong: "strong",
   em: "emphasis",
@@ -57,15 +60,25 @@ function plainText(nodes: Inline[]): string {
     .join("");
 }
 
+type InlineOptions = { inlineEmoji?: boolean; insideLink?: boolean };
+
 // Marked also types optional extension nodes. Our shared lexer uses only its built-in grammar.
-function inline(tokens: Token[], insideLink = false): Inline[] {
+function inline(tokens: Token[], options: InlineOptions): Inline[] {
+  const { inlineEmoji, insideLink } = options;
   const nodes: Inline[] = [];
   for (const token of tokens as MarkedToken[]) {
     switch (token.type) {
       case "text": {
+        if (
+          inlineEmoji &&
+          !token.escaped &&
+          token.raw.search(publishedEmojiPattern) >= 0
+        ) {
+          nodes.push({ kind: "emojiText", text: token.raw });
+          break;
+        }
         const text = token.escaped ? token.raw : decodeHTMLStrict(token.raw);
-        const lines = text.split("\n");
-        for (const [i, line] of lines.entries()) {
+        for (const [i, line] of text.split("\n").entries()) {
           if (i > 0) nodes.push({ kind: "lineBreak" });
           appendText(nodes, line);
         }
@@ -85,7 +98,7 @@ function inline(tokens: Token[], insideLink = false): Inline[] {
       case "del": {
         nodes.push({
           kind: emphasisKinds[token.type],
-          children: inline(token.tokens, insideLink),
+          children: inline(token.tokens, options),
         });
         break;
       }
@@ -95,14 +108,14 @@ function inline(tokens: Token[], insideLink = false): Inline[] {
           target: insideLink ? null : publishedLinkTarget(token.href),
           children: token.autolink
             ? [{ kind: "text", text: token.text }]
-            : inline(token.tokens, true),
+            : inline(token.tokens, { inlineEmoji, insideLink: true }),
         });
         break;
       case "image":
         nodes.push({
           kind: "imageDescription",
           target: insideLink ? null : publishedLinkTarget(token.href),
-          text: plainText(inline(token.tokens, true)),
+          text: plainText(inline(token.tokens, { insideLink: true })),
         });
         break;
       case "checkbox":
@@ -116,7 +129,7 @@ function inline(tokens: Token[], insideLink = false): Inline[] {
   return nodes;
 }
 
-function blocks(tokens: Token[]): Block[] {
+function blocks(tokens: Token[], options: InlineOptions): Block[] {
   const nodes: Block[] = [];
   for (const token of tokens as MarkedToken[]) {
     switch (token.type) {
@@ -124,18 +137,18 @@ function blocks(tokens: Token[]): Block[] {
       case "text":
         nodes.push({
           kind: "paragraph",
-          children: inline(token.tokens ?? [token]),
+          children: inline(token.tokens ?? [token], options),
         });
         break;
       case "heading":
         nodes.push({
           kind: "heading",
           level: token.depth,
-          children: inline(token.tokens),
+          children: inline(token.tokens, options),
         });
         break;
       case "blockquote":
-        nodes.push({ kind: "quote", blocks: blocks(token.tokens) });
+        nodes.push({ kind: "quote", blocks: blocks(token.tokens, options) });
         break;
       case "hr":
         nodes.push({ kind: "rule" });
@@ -149,7 +162,7 @@ function blocks(tokens: Token[]): Block[] {
         break;
       case "table": {
         const row = (cells: Tokens.TableCell[]) =>
-          cells.map((cell) => inline(cell.tokens));
+          cells.map((cell) => inline(cell.tokens, options));
         nodes.push({
           kind: "table",
           align: token.align,
@@ -165,7 +178,7 @@ function blocks(tokens: Token[]): Block[] {
           loose: token.loose,
           items: token.items.map((item: Tokens.ListItem) => ({
             checked: item.checked ?? null,
-            blocks: blocks(item.tokens),
+            blocks: blocks(item.tokens, options),
           })),
         });
         break;
@@ -181,6 +194,12 @@ function blocks(tokens: Token[]): Block[] {
 }
 
 /** Takes the displayed text of a published post, including an intentionally empty body. */
-export function publishedPostDocument(post: { message: string }): Block[] {
-  return blocks(lexPostMarkdown(post.message));
+export function publishedPostDocument({
+  message,
+  inlineEmoji,
+}: {
+  message: string;
+  inlineEmoji?: boolean;
+}): Block[] {
+  return blocks(lexPostMarkdown(message), { inlineEmoji });
 }

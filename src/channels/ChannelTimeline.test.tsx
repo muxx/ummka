@@ -567,7 +567,10 @@ test("parses 60 mounted canonical bodies once and only reparses the changed mess
     i === 20 ? { ...p, message: "_Changed_" } : p,
   );
   rerender(<ChannelTimeline {...base} page={page(...edited)} />);
-  expect(parse).toHaveBeenCalledExactlyOnceWith({ message: "_Changed_" });
+  expect(parse).toHaveBeenCalledExactlyOnceWith({
+    message: "_Changed_",
+    inlineEmoji: true,
+  });
   expect(screen.getByText("Changed").tagName).toBe("EM");
   expect(screen.getByRole("cell", { name: "Visible table" })).toBeTruthy();
 });

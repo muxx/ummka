@@ -1,3 +1,4 @@
+import { decodeHTMLStrict } from "entities/decode";
 import {
   createContext,
   Fragment,
@@ -7,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { isAndroid } from "../build-platform.ts";
 import type { IntegrationCard } from "../mattermost/integration-cards.ts";
@@ -26,7 +28,10 @@ import {
   tableOpenLabel,
 } from "./PublishedReaderWindow.tsx";
 import { publishedLinkTarget } from "./published-link-target.ts";
-import { publishedPostDocument } from "./published-post-document.ts";
+import {
+  publishedEmojiPattern,
+  publishedPostDocument,
+} from "./published-post-document.ts";
 import {
   integrationCardBody,
   integrationCardTitle,
@@ -107,6 +112,58 @@ function bodyText(text: string, clipText?: boolean) {
   return clipText ? <CardBodyText>{text}</CardBodyText> : text;
 }
 
+type EmojiLookup =
+  typeof import("../mattermost/standard-emoji.ts").findStandardEmoji;
+let emojiLookup: EmojiLookup | undefined;
+let emojiLoad: "idle" | "pending" | "settled" = "idle";
+const emojiListeners = new Set<() => void>();
+
+function settleEmojiLoad(lookup?: EmojiLookup) {
+  emojiLoad = "settled";
+  emojiLookup = lookup;
+  if (lookup) for (const changed of emojiListeners) changed();
+  emojiListeners.clear();
+}
+
+function subscribeEmoji(listener: () => void) {
+  if (emojiLoad === "settled") return () => {};
+  emojiListeners.add(listener);
+  if (emojiLoad === "idle") {
+    emojiLoad = "pending";
+    void import("../mattermost/standard-emoji.ts").then(
+      ({ findStandardEmoji }) => settleEmojiLoad(findStandardEmoji),
+      (cause: unknown) => {
+        settleEmojiLoad();
+        console.error(
+          "Could not load the bundled standard emoji catalog",
+          cause,
+        );
+      },
+    );
+  }
+  return () => emojiListeners.delete(listener);
+}
+
+function InlineEmojiText({ source }: { source: string }) {
+  const findEmoji = useSyncExternalStore(subscribeEmoji, () => emojiLookup);
+  const text = findEmoji
+    ? source.replace(
+        publishedEmojiPattern,
+        (original, name: string) =>
+          findEmoji(name.toLowerCase())?.glyph ?? original,
+      )
+    : source;
+  const decoded = decodeHTMLStrict(text);
+  if (!decoded.includes("\n")) return decoded;
+  return decoded.split("\n").map((line, index) => (
+    // biome-ignore lint/suspicious/noArrayIndexKey: Soft lines keep their authored order within this token.
+    <Fragment key={index}>
+      {index > 0 && <br />}
+      {line}
+    </Fragment>
+  ));
+}
+
 function inlineNode(
   node: Inline,
   locale: Locale,
@@ -115,6 +172,8 @@ function inlineNode(
   switch (node.kind) {
     case "text":
       return bodyText(node.text, clipText);
+    case "emojiText":
+      return <InlineEmojiText source={node.text} />;
     case "code":
       return <code>{bodyText(node.text, clipText)}</code>;
     case "lineBreak":
@@ -541,14 +600,19 @@ export const PublishedPostCards = memo(function PublishedPostCards({
 
 export const PublishedPostBody = memo(function PublishedPostBody({
   message,
+  inlineEmoji,
   locale,
   authorName,
   inThread,
 }: {
   message: string;
+  inlineEmoji?: boolean;
   locale: Locale;
 } & ReaderOrigin) {
-  const document = useMemo(() => publishedPostDocument({ message }), [message]);
+  const document = useMemo(
+    () => publishedPostDocument({ message, inlineEmoji }),
+    [message, inlineEmoji],
+  );
   if (!document.length) return null;
   return (
     <PostReaderOrigin value={{ authorName, inThread }}>
