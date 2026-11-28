@@ -297,12 +297,17 @@ export function ChannelsWorkspace({
     return () => window.clearTimeout(timeout);
   }, [appearanceNotice]);
   const archivePolicy = policy.server.value?.search?.archivedChannels;
+  const { closeSavedSurface } = workspace.messages;
+  const closeWorkspaceSaved = useCallback(
+    () => closeSavedSurface(team.id),
+    [closeSavedSurface, team.id],
+  );
   const collections = useWorkspaceCollections(
     connection,
     online,
     archivePolicy,
     sessionIssue,
-    () => workspace.messages.closeSavedSurface(team.id),
+    closeWorkspaceSaved,
   );
   const mentionLabels = mentionCopy[language];
   const collectionLabels = collectionCopy[language];
@@ -1248,16 +1253,33 @@ export function ChannelsWorkspace({
   const pinsRoom = pinsSource
     ? channels?.find((room) => room.id === pinsSource)
     : undefined;
+  const directoryDenied = ["forbidden", "session", "unauthorized"].includes(
+    directory.state.status,
+  );
   const pinsAvailable =
     !pinsSource ||
-    (!["forbidden", "session", "unauthorized"].includes(
-      directory.state.status,
-    ) &&
+    (!directoryDenied &&
       !(chosen === pinsSource && historyDenied) &&
       pinsRoom !== undefined);
-  useEffect(() => {
-    if (!pinsAvailable) collections.close(false);
-  }, [pinsAvailable, collections.close]);
+  const directoryReady = directory.state.status === "ready";
+  const confirmedChannels = directoryReady
+    ? directory.state.value?.data.channels
+    : undefined;
+  const allowedPinnedChannels = useMemo(
+    () =>
+      directoryDenied || directoryReady
+        ? new Set(confirmedChannels?.map(({ id }) => id))
+        : undefined,
+    [confirmedChannels, directoryDenied, directoryReady],
+  );
+  const deniedPinsChannel = historyDenied ? chosen : null;
+  const { retainPins, close: closeCollection } = collections;
+  useLayoutEffect(() => {
+    retainPins(allowedPinnedChannels, deniedPinsChannel);
+  }, [retainPins, allowedPinnedChannels, deniedPinsChannel]);
+  useLayoutEffect(() => {
+    if (!pinsAvailable) closeCollection(false);
+  }, [pinsAvailable, closeCollection]);
   const mentionPolicyChanged =
     collections.view?.kind === "mentions" &&
     collections.view.archivedChannels !== archivePolicy;
@@ -2084,6 +2106,7 @@ export function ChannelsWorkspace({
               authorName={(id) => author(id)?.name}
               savedIds={knownSaves.ids}
               restore={collections.restore}
+              pinnedReading={collections.pinnedReading}
               openRow={openCollectionRow}
               close={() => collections.close()}
             />

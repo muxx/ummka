@@ -812,15 +812,6 @@ test("pins identify their source during first read and after a channel switch", 
     items: [],
     firstInaccessiblePostTime: 0,
   });
-  async function openPins(room: string) {
-    fireEvent.click(
-      await screen.findByRole("button", { name: `Channel menu, ${room}` }),
-    );
-    fireEvent.click(screen.getByRole("menuitem", { name: "Pinned messages" }));
-    return within(
-      screen.getByRole("complementary", { name: "Pinned messages" }),
-    );
-  }
   const initial = await openPins("Home");
   expect(initial.getByText("Loading messages…")).toBeTruthy();
   expect(document.activeElement).toBe(
@@ -848,6 +839,182 @@ test("pins identify their source during first read and after a channel switch", 
     other,
   ]);
   expect(account.readChannelIdentity).not.toHaveBeenCalled();
+});
+
+async function openPins(room: string) {
+  fireEvent.click(
+    await screen.findByRole("button", { name: `Channel menu, ${room}` }),
+  );
+  fireEvent.click(screen.getByRole("menuitem", { name: "Pinned messages" }));
+  return within(screen.getByRole("complementary", { name: "Pinned messages" }));
+}
+
+function pendingResult<T>() {
+  let resolve!: (result: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((accept, refuse) => {
+    resolve = accept;
+    reject = refuse;
+  });
+  return { promise, resolve, reject };
+}
+
+test("reopens pins with the same rows and reading place while revisiting the channel", async () => {
+  const { account } = fixture();
+  type Result = Awaited<ReturnType<typeof account.readPinnedChannelPosts>>;
+  const messages = (channelId: string, rows: string[]): Result => ({
+    items: rows.map((message, i) => ({
+      id: String(i + 1).repeat(26),
+      channelId,
+      userId: user,
+      message,
+      cards: [],
+      isPinned: true,
+    })),
+    firstInaccessiblePostTime: 0,
+  });
+  const late = pendingResult<Result>();
+  const renewed = pendingResult<Result>();
+  const emptyRead = pendingResult<Result>();
+  account.readPinnedChannelPosts
+    .mockResolvedValueOnce(messages(home, ["First pin", "Second pin"]))
+    .mockReturnValueOnce(late.promise)
+    .mockResolvedValueOnce(messages(other, ["Other channel pin"]))
+    .mockReturnValueOnce(renewed.promise)
+    .mockReturnValueOnce(emptyRead.promise);
+  const second = { name: /Second pin/ };
+  let pane = await openPins("Home");
+  const remembered = await pane.findByRole("button", second);
+  const list = remembered.closest<HTMLElement>(".collection-rows");
+  if (!list) throw new Error("Expected the collection scroll container");
+  list.scrollTop = 37;
+  remembered.focus();
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Channel menu, Home" }),
+  );
+
+  pane = await openPins("Home");
+  const reopened = pane.getByRole("button", second);
+  expect(pane.getAllByRole("listitem")).toHaveLength(2);
+  expect(reopened.closest(".collection-rows")?.scrollTop).toBe(37);
+  expect(document.activeElement).toBe(reopened);
+  await waitFor(() =>
+    expect(account.readPinnedChannelPosts).toHaveBeenCalledTimes(2),
+  );
+  const closing = account.readPinnedChannelPosts.mock.calls[1]?.[1];
+  fireEvent.click(screen.getByRole("button", { name: "Third channel" }));
+  expect(closing?.aborted).toBe(true);
+  pane = await openPins("Third channel");
+  await pane.findByText("Other channel pin");
+  await act(async () => late.resolve(messages(home, ["Late Home pin"])));
+  expect(pane.queryByText("Late Home pin")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Home" }));
+  pane = await openPins("Home");
+  expect(pane.getByRole("button", second)).toBeTruthy();
+  expect(pane.queryByText("Other channel pin")).toBeNull();
+  expect(pane.queryByText("Late Home pin")).toBeNull();
+  await waitFor(() =>
+    expect(account.readPinnedChannelPosts.mock.calls.map(([id]) => id)).toEqual(
+      [home, home, other, home],
+    ),
+  );
+  pane.getByRole("button", second).focus();
+  await act(async () => renewed.resolve(messages(home, [])));
+  const empty = pane.getByText("No pinned messages in this channel.");
+  expect(document.activeElement).toBe(empty);
+  fireEvent.click(pane.getByRole("button", { name: "Close collection" }));
+  pane = await openPins("Home");
+  expect(pane.getByText("No pinned messages in this channel.")).toBeTruthy();
+  expect(pane.queryByText("Loading messages…")).toBeNull();
+  await act(async () => emptyRead.resolve(messages(home, [])));
+});
+
+test.each([403, 404])(
+  "discarding pinned results after HTTP %s makes the next visit cold",
+  async (status) => {
+    const { account } = fixture();
+    const denied =
+      pendingResult<
+        Awaited<ReturnType<typeof account.readPinnedChannelPosts>>
+      >();
+    account.readPinnedChannelPosts
+      .mockImplementationOnce(async () => ({
+        items: [
+          {
+            id: root.id,
+            channelId: home,
+            userId: user,
+            message: "Home pin",
+            cards: [],
+            isPinned: true,
+          },
+        ],
+        firstInaccessiblePostTime: 0,
+      }))
+      .mockReturnValueOnce(denied.promise)
+      .mockImplementationOnce(() => new Promise(() => {}));
+    let pane = await openPins("Home");
+    await pane.findByText("Home pin");
+    fireEvent.click(pane.getByRole("button", { name: "Close collection" }));
+    pane = await openPins("Home");
+    pane.getByRole("button", { name: /Home pin/ }).focus();
+    await act(async () =>
+      denied.reject(new ResponseError(new Response(null, { status }))),
+    );
+    const heading = pane.getByRole("heading", { name: "Pinned messages" });
+    expect(pane.getByRole("alert")).toBeTruthy();
+    expect(pane.queryByText("Home pin")).toBeNull();
+    expect(heading.hasAttribute("aria-describedby")).toBe(false);
+    expect(document.activeElement).toBe(heading);
+    fireEvent.click(pane.getByRole("button", { name: "Close collection" }));
+    pane = await openPins("Home");
+    expect(pane.getByText("Loading messages…")).toBeTruthy();
+    expect(pane.queryByText("Home pin")).toBeNull();
+  },
+);
+
+test("a confirmed removal from the joined sidebar evicts the closed pinned collection", async () => {
+  const { account } = fixture();
+  let pins = await openPins("Home");
+  await pins.findByText("Home pin");
+  fireEvent.click(pins.getByRole("button", { name: "Close collection" }));
+  const before = await account.readTeamSidebar(winter);
+  if (!before) throw Error("Fixture sidebar required");
+  account.readTeamSidebar.mockResolvedValue({
+    selectedChannel: other,
+    data: {
+      ...before.data,
+      channels: before.data.channels.filter(({ id }) => id !== home),
+    },
+  });
+  const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+  const refreshes = account.refreshTeamSidebar.mock.calls.length;
+  try {
+    act(() => window.dispatchEvent(new Event("offline")));
+    await screen.findByRole("button", { name: "Channel menu, Third channel" });
+    online.mockReturnValue(true);
+    await act(async () => window.dispatchEvent(new Event("online")));
+    expect(account.refreshTeamSidebar.mock.calls.length).toBeGreaterThan(
+      refreshes,
+    );
+    expect(screen.queryByRole("button", { name: "Home" })).toBeNull();
+
+    account.readTeamSidebar.mockResolvedValue(before);
+    online.mockReturnValue(false);
+    act(() => window.dispatchEvent(new Event("offline")));
+    online.mockReturnValue(true);
+    await act(async () => window.dispatchEvent(new Event("online")));
+    fireEvent.click(await screen.findByRole("button", { name: "Home" }));
+    account.readPinnedChannelPosts.mockImplementationOnce(
+      () => new Promise(() => {}),
+    );
+    pins = await openPins("Home");
+    expect(pins.getByText("Loading messages…")).toBeTruthy();
+    expect(pins.queryByText("Home pin")).toBeNull();
+  } finally {
+    online.mockRestore();
+  }
 });
 
 test.each([
@@ -1371,6 +1538,15 @@ test("archived channels show the pinned messages and keep the shared action hidd
   );
   await pins.findByText("Home pin");
   expect(pins.queryByRole("button", { name: "Unpin for everyone" })).toBeNull();
+  fireEvent.click(pins.getByRole("button", { name: "Close collection" }));
+  account.readPinnedChannelPosts.mockImplementationOnce(
+    () => new Promise(() => {}),
+  );
+  const reopened = await openPins("Home");
+  expect(reopened.getByText("Home pin")).toBeTruthy();
+  expect(
+    reopened.queryByRole("button", { name: "Unpin for everyone" }),
+  ).toBeNull();
   expect(account.setPostPinned).not.toHaveBeenCalled();
 });
 
