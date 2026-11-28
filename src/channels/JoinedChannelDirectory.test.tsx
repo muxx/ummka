@@ -71,7 +71,8 @@ test("the joined directory selects public and private memberships by ID and sear
   fireEvent.change(input, { target: { value: "trees-old" } });
   expect(rows.getAllByRole("button")).toHaveLength(1);
   fireEvent.change(input, { target: { value: "личная" } });
-  expect(screen.getByText("Совпадений нет.")).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Совпадений нет" })).toBeTruthy();
+  expect(screen.getByText("Измените запрос.")).toBeTruthy();
   expect(screen.getByText("Без сети · Сохранено на устройстве")).toBeTruthy();
 });
 test("revoked access hides cached room names immediately, while retry and empty states are explicit", () => {

@@ -2,8 +2,10 @@ import { PrivateChannelIcon } from "./PrivateChannelIcon.tsx";
 
 export function DirectoryChannelIcon({
   kind,
+  size = 18,
 }: {
   kind: "public" | "private" | "archived";
+  size?: number;
 }) {
   return (
     <span className="directory-kind" aria-hidden="true">
@@ -12,8 +14,8 @@ export function DirectoryChannelIcon({
       ) : (
         <svg
           aria-hidden="true"
-          width="18"
-          height="18"
+          width={size}
+          height={size}
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
