@@ -803,7 +803,14 @@ export function webviewServers(
         assert.equal(req.method, "POST");
         assert.equal(await json(req), 0);
         visits.push("account-bookmark-move");
-        outcome = [board, { ...own, sort_order: 1 }];
+        outcome = [
+          board,
+          {
+            ...own,
+            sort_order: 1,
+            image_url: "https://[fe80::1%25en0]/icon.png",
+          },
+        ];
       } else if (suffix === `/${"d".repeat(26)}`) {
         assert.equal(req.method, "DELETE");
         visits.push("account-bookmark-forbidden");

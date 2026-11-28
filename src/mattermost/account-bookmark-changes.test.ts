@@ -9,6 +9,7 @@ const fileId = "f".repeat(26);
 const userId = "u".repeat(26);
 const otherUser = "o".repeat(26);
 const href = "https://example.org/guide";
+const storedImageUrl = "https://[fe80::1%25en0]/icon.png";
 const link = {
   id: linkId,
   channel_id: channel,
@@ -213,6 +214,34 @@ test("accepts a board in the server order and rejects a response for the wrong m
   }
 });
 
+test("preserves the stored image of another bookmark in the sort response", async () => {
+  const { account } = fixture([
+    { ...board, sort_order: 0 },
+    { ...link, sort_order: 1, image_url: storedImageUrl },
+  ]);
+  await expect(
+    account.moveChannelBookmark(channel, board.id, 0),
+  ).resolves.toMatchObject([
+    { id: board.id },
+    { id: link.id, imageUrl: storedImageUrl },
+  ]);
+});
+
+test.each([403, 501])(
+  "preserves an HTTP %i sort refusal and its body",
+  async (status) => {
+    const body = { id: "fixture_sort_refusal", status_code: status };
+    const { account, send } = fixture(body, status);
+    const failure = await account
+      .moveChannelBookmark(channel, board.id, 0)
+      .catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(ResponseError);
+    expect((failure as ResponseError).response.status).toBe(status);
+    expect(await (failure as ResponseError).response.json()).toEqual(body);
+    expect(send).toHaveBeenCalledTimes(1);
+  },
+);
+
 test("rejects invalid or empty changes, credentials and an already cancelled write before sending", async () => {
   const { account, send } = fixture(null);
   for (const linkUrl of [
@@ -230,6 +259,7 @@ test("rejects invalid or empty changes, credentials and an already cancelled wri
     { displayName: "🐻".repeat(65) },
     { fileId },
     { imageUrl: "https://user@example.org/icon" },
+    { imageUrl: storedImageUrl },
     { displayName: "Revised", sortOrder: 0 },
   ])
     await expect(

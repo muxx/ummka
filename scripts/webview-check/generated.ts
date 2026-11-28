@@ -284,8 +284,9 @@ export async function checkGeneratedRequests(ports: string[]) {
       check(
         sorted.length === 2 &&
           sorted[0].id === board &&
-          sorted[1].id === created.id,
-        "account bookmark board moved to zero",
+          sorted[1].id === created.id &&
+          sorted[1].imageUrl === "https://[fe80::1%25en0]/icon.png",
+        "account bookmark board moved to zero and stored image URL preserved",
       );
       check(
         (await accountPrefix.deleteChannelBookmark(

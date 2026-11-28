@@ -75,9 +75,7 @@ export function activeChannelBookmark(
     typeof row.displayName !== "string" ||
     !row.displayName ||
     (row.emoji !== undefined && typeof row.emoji !== "string") ||
-    (row.imageUrl !== undefined &&
-      row.imageUrl !== "" &&
-      !parseBookmarkUrl(row.imageUrl))
+    (row.imageUrl !== undefined && typeof row.imageUrl !== "string")
   )
     throw TypeError("Invalid active Mattermost channel bookmark.");
   return {

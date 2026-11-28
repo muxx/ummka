@@ -107,6 +107,18 @@ test("keeps an available empty channel distinct from a license refusal", async (
   ).toEqual({ kind: "unlicensed" });
 });
 
+test("keeps a stored image URL in the list even when the browser cannot parse it", async () => {
+  const imageUrl = "https://[fe80::1%25en0]/icon.png";
+  const { config } = fixture(
+    Response.json([{ ...link, image_url: imageUrl }, board]),
+  );
+  expect(URL.canParse(imageUrl)).toBe(false);
+  await expect(readChannelBookmarks(config, channel)).resolves.toMatchObject({
+    kind: "available",
+    bookmarks: [{ id: link.id, imageUrl }, { id: board.id }],
+  });
+});
+
 test.each([401, 403, 404, 500, 501])(
   "preserves an unrelated HTTP %i and its original body",
   async (status) => {
@@ -126,6 +138,7 @@ test.each([
   [{ ...link, channel_id: other }],
   [{ ...link, delete_at: 1 }],
   [{ ...link, display_name: "" }],
+  [{ ...link, image_url: 17 }],
   [{ ...link, link_url: "mailto:help@example.test" }],
   [{ ...file, file_id: "missing" }],
   [{ ...file, file: { id: other, name: "wrong" } }],
