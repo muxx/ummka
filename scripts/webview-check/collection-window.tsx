@@ -30,6 +30,18 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
     if (response.status !== 204)
       throw Error(`Native collection Back failed: ${step}`);
   }
+  async function fixtureStatus(step: "boundary" | "pins-refresh") {
+    const connection = await openNativeRestConnection(url);
+    try {
+      return (
+        await connection.fetchApi(
+          `${connection.basePath}/api/v4/system/ping?step=${step}`,
+        )
+      ).status;
+    } finally {
+      await connection.close();
+    }
+  }
   try {
     await connectInstallation(url);
     flushSync(() => root.render(<App language="en" />));
@@ -151,16 +163,8 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
       "Earlier saved messages haven’t loaded yet.",
     );
     boundary.scrollIntoView({ block: "end" });
-    const control = await openNativeRestConnection(url);
-    try {
-      const response = await control.fetchApi(
-        `${control.basePath}/api/v4/system/ping?step=boundary`,
-      );
-      if (response.status !== 204)
-        throw Error("Saved continuation was not pending");
-    } finally {
-      await control.close();
-    }
+    if ((await fixtureStatus("boundary")) !== 204)
+      throw Error("Saved continuation was not pending");
     const scroller = returned.closest<HTMLElement>(".collection-rows");
     if (!scroller) throw Error("Missing saved list viewport");
     const bounds = scroller.getBoundingClientRect();
@@ -504,10 +508,7 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
     try {
       flushSync(() => window.dispatchEvent(new Event("offline")));
       await pins.findByText("You’re offline.");
-      const armed = await control.fetchApi(
-        `${control.basePath}/api/v4/system/ping?step=pins-refresh`,
-      );
-      if (armed.status !== 204)
+      if ((await fixtureStatus("pins-refresh")) !== 204)
         throw Error("Could not arm the Pins refresh response");
     } finally {
       if (previousOnline)
