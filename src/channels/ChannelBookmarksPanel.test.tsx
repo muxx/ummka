@@ -189,8 +189,13 @@ test("network retry, license refusal, missing permission and session expiry rema
   expect(account.readChannelBookmarks).not.toHaveBeenCalled();
   view.rerender(<Panel ctx={ctx} />);
   await screen.findByText("Couldn’t load channel bookmarks.");
-  fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+  const retry = screen.getByRole("button", { name: "Try again" });
+  retry.focus();
+  fireEvent.click(retry);
   await screen.findByText("Channel bookmarks aren’t available on this server.");
+  expect(document.activeElement).toBe(
+    screen.getByRole("heading", { name: "Channel bookmarks" }),
+  );
   view.rerender(<Panel ctx={ctx} id={other} />);
   await screen.findByText("You don’t have access to these bookmarks.");
   expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();

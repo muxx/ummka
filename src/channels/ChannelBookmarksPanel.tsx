@@ -603,7 +603,14 @@ export function ChannelBookmarksPanel(props: Props) {
           </p>
         )}
         {value.status === "failed" && (
-          <button className="bookmark-add" type="button" onClick={retry}>
+          <button
+            className="bookmark-add"
+            type="button"
+            onClick={() => {
+              focusHeading();
+              retry();
+            }}
+          >
             {filePanelCopy[language].retry}
           </button>
         )}
