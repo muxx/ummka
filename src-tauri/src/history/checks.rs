@@ -4,6 +4,7 @@ mod cards;
 pub(crate) mod departure;
 mod departure_schema;
 pub(crate) mod migrations;
+mod pending_files;
 #[cfg(test)]
 mod post_observations;
 pub(crate) mod posts;
@@ -44,6 +45,10 @@ fn concurrent_restore(
 pub(crate) fn check_channel_departure(root: &Path) -> Result<(), HistoryError> {
     departure::round_trip(&root.join("membership-scope"))?;
     departure_schema::check(&root.join("membership-schema"))
+}
+
+pub(crate) fn check_pending_files(root: &Path) -> Result<(), HistoryError> {
+    pending_files::round_trip(&root.join("pending-files"))
 }
 
 /// Exercise the same files, transactions and competing connections on macOS and Android.
@@ -139,6 +144,11 @@ mod tests {
     fn forgets_only_the_departed_channel_across_open_copies() {
         let root = tempdir().unwrap();
         check_channel_departure(root.path()).unwrap();
+    }
+
+    #[test]
+    fn preserves_ordered_pending_post_files_and_cleans_up_with_their_parent() {
+        check_pending_files(tempdir().unwrap().path()).unwrap();
     }
 
     #[test]
