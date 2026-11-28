@@ -11,7 +11,7 @@ const icons = {
 };
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
-function directInitial(name: string, language: EntryLanguage) {
+export function directInitial(name: string, language: EntryLanguage) {
   const first = graphemes.segment(name.trimStart()).containing(0);
   if (!first) return "";
   const uppercase = first.segment.toLocaleUpperCase(language);

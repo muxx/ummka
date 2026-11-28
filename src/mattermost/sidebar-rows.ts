@@ -30,6 +30,7 @@ const captions = {
   en: {
     unread: "Unreads",
     dm: "Direct message",
+    group: "Group message",
     favorites: "Favorites",
     channels: "Channels",
     direct_messages: "Direct messages",
@@ -37,6 +38,7 @@ const captions = {
   ru: {
     unread: "Непрочитанные",
     dm: "Личное сообщение",
+    group: "Групповая переписка",
     favorites: "Избранное",
     channels: "Каналы",
     direct_messages: "Личные сообщения",
@@ -74,7 +76,10 @@ export function conversationRow(
     id: c.id,
     kind: c.kind,
     displayName: name,
-    title: name || (c.kind === "D" ? captions[ctx.locale].dm : c.name),
+    title:
+      c.kind === "G" && (!name || name === c.name)
+        ? captions[ctx.locale].group
+        : name || (c.kind === "D" ? captions[ctx.locale].dm : c.name),
     current: c.id === selected,
     archived: c.deleteAt > 0,
     muted: c.muted,
@@ -159,7 +164,7 @@ function limitConversations(items: Ranked[], limit: number) {
   return eligible.filter((x) => keep.has(x));
 }
 
-function sectionName(c: Category, locale: Locale) {
+export function sidebarCategoryName(c: Category, locale: Locale) {
   if (
     c.kind === "favorites" ||
     c.kind === "channels" ||
@@ -240,7 +245,7 @@ export function visibleSidebar(
     sections.push({
       id: c.id,
       kind: c.kind,
-      title: sectionName(c, ctx.locale),
+      title: sidebarCategoryName(c, ctx.locale),
       collapsed: c.collapsed,
       muted: c.muted,
       rows,

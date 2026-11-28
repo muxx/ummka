@@ -60,6 +60,7 @@ type FrameProps = {
   focusConversation?: () => boolean;
   focusChannelChange?: boolean;
   inboxPlaceholder?: { title: string; message: string };
+  conversationFocus?: number;
   thread?: {
     id: string;
     title: string;
@@ -139,6 +140,7 @@ export function ChannelsFrame({
   draftRef,
   focusConversation,
   focusChannelChange = true,
+  conversationFocus,
   thread,
   inboxPlaceholder,
 }: FrameProps) {
@@ -187,6 +189,7 @@ export function ChannelsFrame({
     page,
     channelId,
     openThread,
+    conversationFocus,
     showingPanel,
     inboxSingle,
   });
@@ -228,6 +231,7 @@ export function ChannelsFrame({
       page,
       channelId,
       openThread,
+      conversationFocus,
       showingPanel,
       inboxSingle,
     };
@@ -276,6 +280,11 @@ export function ChannelsFrame({
     )
       threadOpener.current = lastConversationControl.current;
     if (
+      conversationFocus !== undefined &&
+      conversationFocus !== old.conversationFocus
+    )
+      focusVisiblePane();
+    else if (
       openThread !== old.openThread ||
       page !== old.page ||
       (channelId !== old.channelId &&
@@ -326,6 +335,7 @@ export function ChannelsFrame({
     observer.observe(scene);
     return () => observer.disconnect();
   }, [
+    conversationFocus,
     page,
     channelId,
     openThread,
