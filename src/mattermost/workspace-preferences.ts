@@ -16,6 +16,7 @@ type LicenseSettings = {
 
 type Settings = {
   EnableUserStatuses?: string;
+  HideGuestTags?: string;
   RestrictDirectMessage?: string;
   EnableCrossTeamSearch?: string;
   EnableFileAttachments?: string;
@@ -137,10 +138,10 @@ type MentionSettings = {
   ldapGroups: boolean;
 };
 
-function configFlag(value: string | undefined) {
+function configFlag(value: string | undefined, field: string) {
   if (value === undefined) return undefined;
   if (value === "true" || value === "false") return value === "true";
-  throw TypeError("Invalid Mattermost mention flag.");
+  throw TypeError(`Invalid Mattermost ${field} flag.`);
 }
 
 function mentionSettings(
@@ -155,10 +156,14 @@ function mentionSettings(
     throw TypeError("Invalid Mattermost channel notification limit.");
   const confirmNotifications = configFlag(
     config.EnableConfirmNotificationsToChannel,
+    "EnableConfirmNotificationsToChannel",
   );
-  const customGroups = configFlag(config.EnableCustomGroups);
-  const licensed = configFlag(license.IsLicensed);
-  const ldap = configFlag(license.LDAPGroups);
+  const customGroups = configFlag(
+    config.EnableCustomGroups,
+    "EnableCustomGroups",
+  );
+  const licensed = configFlag(license.IsLicensed, "IsLicensed");
+  const ldap = configFlag(license.LDAPGroups, "LDAPGroups");
   if (
     limit === undefined ||
     confirmNotifications === undefined ||
@@ -220,6 +225,7 @@ function fileUploadSettings(
 
 export type ServerPolicy = {
   userStatusesEnabled: boolean;
+  hideGuestTags?: boolean;
   dmRecipientScope?: "any" | "team";
   uniqueReactionLimit?: string;
   postEditLimitSeconds?: string;
@@ -246,6 +252,7 @@ export function workspaceServerPolicy(
         ? value
         : "default_off";
   const mentions = mentionSettings(config, license);
+  const hideGuestTags = configFlag(config.HideGuestTags, "HideGuestTags");
   const fileUpload = fileUploadSettings(config, license, platform);
   const uniqueReactionLimit = signedLimit(
     config.UniqueEmojiReactionLimitPerPost,
@@ -260,6 +267,7 @@ export function workspaceServerPolicy(
         : undefined;
   return {
     userStatusesEnabled: config.EnableUserStatuses !== "false",
+    ...(hideGuestTags !== undefined && { hideGuestTags }),
     ...(config.RestrictDirectMessage !== undefined && {
       dmRecipientScope: config.RestrictDirectMessage === "any" ? "any" : "team",
     }),

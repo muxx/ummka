@@ -1,7 +1,7 @@
 use super::{AccountHistory, HistoryError, HistoryOwner};
 use crate::rest::is_mattermost_id;
 use rusqlite::{OptionalExtension, Row, Transaction, params};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -86,11 +86,23 @@ fn user_statuses_enabled_by_default() -> bool {
     true
 }
 
+fn deserialize_present_bool<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<bool>, D::Error> {
+    bool::deserialize(deserializer).map(Some)
+}
+
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ServerPolicy {
     #[serde(default = "user_statuses_enabled_by_default")]
     user_statuses_enabled: bool,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
+    hide_guest_tags: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     dm_recipient_scope: Option<RecipientScope>,
     #[serde(skip_serializing_if = "Option::is_none")]

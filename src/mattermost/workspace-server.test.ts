@@ -18,6 +18,7 @@ test("projects display and mention policy from the old config and license endpoi
       ? {
           CollapsedThreads: "always_on",
           EnableUserStatuses: "false",
+          HideGuestTags: "false",
           EnableConfirmNotificationsToChannel: "false",
           EnableCustomGroups: "true",
           MaxNotificationsPerChannel: "6",
@@ -56,6 +57,7 @@ test("projects display and mention policy from the old config and license endpoi
     nameFormat: "full_name",
     lockNameFormat: false,
     userStatusesEnabled: false,
+    hideGuestTags: false,
     sharedChannelDMs: true,
     dmRecipientScope: "team",
     search: { allTeams: true, files: true, archivedChannels: false },
@@ -69,6 +71,30 @@ test("projects display and mention policy from the old config and license endpoi
       ldapGroups: true,
     },
   });
+});
+
+test("keeps a missing guest-tag flag unknown and accepts only exact wire booleans", async () => {
+  let settings: Record<string, unknown> = {};
+  const config = new Configuration({
+    basePath,
+    fetchApi: async (url) =>
+      Response.json(
+        String(url).includes("/config/")
+          ? settings
+          : { IsLicensed: "false", HideGuestTags: "true" },
+      ),
+  });
+  expect(await loadWorkspaceServerPolicy(config)).not.toHaveProperty(
+    "hideGuestTags",
+  );
+  for (const value of [false, true]) {
+    settings = { HideGuestTags: String(value), EnableGuestAccounts: "false" };
+    expect((await loadWorkspaceServerPolicy(config)).hideGuestTags).toBe(value);
+  }
+  for (const value of [null, false, true, 0, "", "TRUE", "false ", "yes", {}]) {
+    settings = { HideGuestTags: value };
+    await expect(loadWorkspaceServerPolicy(config)).rejects.toThrow(TypeError);
+  }
 });
 
 test("publishes a zero limit, distinguishes disabled uploads and isolates invalid upload settings", async () => {

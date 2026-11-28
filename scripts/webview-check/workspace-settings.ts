@@ -30,7 +30,7 @@ export async function checkWorkspaceSettings(account: Account, other: Account) {
     lockNameFormat: false,
     separateUnreads: false,
   };
-  if (await publish(account.rid, old, current))
+  if (await publish(account.rid, old, { ...current, hideGuestTags: true }))
     throw Error("late server policy accepted");
   async function rejected(action: Promise<unknown>, expected: string) {
     try {
@@ -60,14 +60,41 @@ export async function checkWorkspaceSettings(account: Account, other: Account) {
   )
     throw Error("separate WebSocket host was accepted");
   const received: AccountEventRoute[] = [];
-  if (
-    !(await account.refreshWorkspaceServerPolicy(undefined, (route) =>
+  const refresh = () =>
+    account.refreshWorkspaceServerPolicy(undefined, (route) =>
       received.push(route),
-    )) ||
-    received.length !== 1 ||
-    received[0] !== "sameInstallation"
+    );
+  for (const value of [undefined, false, true]) {
+    if (!(await refresh())) throw Error("server policy not published");
+    const { server } = await account.readWorkspaceSettings();
+    if (
+      !server ||
+      server.hideGuestTags !== value ||
+      Object.hasOwn(server, "hideGuestTags") !== (value !== undefined)
+    )
+      throw Error("wrong saved guest-tag policy");
+  }
+  await rejected(
+    publish(account.rid, await begin(), { ...current, hideGuestTags: null }),
+    "invalid_directory",
+  );
+  try {
+    await refresh();
+    throw Error("malformed guest-tag setting was published");
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+  }
+  const retained = (await account.readWorkspaceSettings()).server;
+  if (retained?.hideGuestTags !== true || retained.nameFormat !== "full_name")
+    throw Error("malformed guest-tag setting changed the confirmed policy");
+  if (
+    !(await refresh()) ||
+    received.length !== 4 ||
+    received.some((route) => route !== "sameInstallation")
   )
     throw Error("server policy not published");
+  if ((await other.readWorkspaceSettings()).server !== null)
+    throw Error("server policy leaked to another account");
   const saved = await account.readWorkspaceSettings();
   if (!saved.server || !saved.preferences)
     throw Error("missing confirmed settings");
@@ -82,6 +109,7 @@ export async function checkWorkspaceSettings(account: Account, other: Account) {
     Object.hasOwn(saved.server, "eventRoute") ||
     saved.server.dmRecipientScope !== "team" ||
     saved.server.userStatusesEnabled !== false ||
+    saved.server.hideGuestTags !== false ||
     effective.limit !== 18 ||
     effective.viewTimes["c".repeat(26)] !== 310 ||
     Object.hasOwn(effective.viewTimes, "historical-channel-key")

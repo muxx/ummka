@@ -100,6 +100,8 @@ export function webviewServers(
     ]),
   );
   const visits: string[] = [];
+  const guestTagValues = [undefined, "false", "true", "TRUE", "false"];
+  let workspaceConfigReads = 0;
   const systemPostReads = new Set<string>();
   const collectionWindow = collectionWindowFixture();
   const inboxWindow = threadInboxWindowFixture(
@@ -1846,6 +1848,10 @@ export function webviewServers(
       assert.equal(req.headers.cookie, undefined);
       assert.equal(url.search, "?format=old");
       visits.push(`workspace-${setting[2]}`);
+      const hideGuestTags =
+        setting[2] === "config"
+          ? guestTagValues[workspaceConfigReads++]
+          : undefined;
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(
         JSON.stringify(
@@ -1860,12 +1866,14 @@ export function webviewServers(
                 MaxNotificationsPerChannel: "9223372036854775807",
                 UniqueEmojiReactionLimitPerPost: "-2",
                 EnableUserStatuses: "false",
+                HideGuestTags: hideGuestTags,
                 PostEditTimeLimit: "9007199254740993",
                 EnableCrossTeamSearch: "true",
                 EnableFileAttachments: "true",
                 EnableFileSearch: "false",
                 EnableCustomGroups: "true",
-                TeammateNameDisplay: "full_name",
+                TeammateNameDisplay:
+                  hideGuestTags === "TRUE" ? "username" : "full_name",
                 LockTeammateNameDisplay: "true",
                 Unrelated: "ignored",
               }
@@ -2442,8 +2450,10 @@ export function webviewServers(
         "directory-teams",
         "my-team-members",
         "sidebar-preferences",
-        "workspace-config",
-        "workspace-license",
+        ...guestTagValues.flatMap(() => [
+          "workspace-config",
+          "workspace-license",
+        ]),
         "account-html",
         "account-large",
         "account-truncated",
