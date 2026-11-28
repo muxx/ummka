@@ -43,7 +43,7 @@ type Waiting = {
   settle: (outcome: Outcome) => void;
 };
 type Root = {
-  visit?: symbol;
+  visit?: { attached: boolean; detach: () => void };
   revision?: symbol;
   active?: Running;
   waiting?: Waiting;
@@ -63,23 +63,24 @@ function accessRefused(outcome: Outcome) {
   return outcome.kind === "refused" && outcome.error.response.status !== 400;
 }
 
-// There is one owner per App. A team and a replacement RID route requests for
-// a root, but neither owns the state of an earlier write to that root.
+// The App retains unresolved writes across team and RID changes.
 export function createThreadReadCoordination(deadlineMs = 15_000) {
   const roots = new Map<string, Root>();
-  const connections = new Map<string, AbortController>();
+  const connections = new Map<string, () => void>();
   return {
     bind(serverUrl: string, userId: string, connection: Transport) {
       const account = JSON.stringify([canonicalServerUrl(serverUrl), userId]);
-      connections.get(account)?.abort();
+      connections.get(account)?.();
       const lifetime = new AbortController();
-      connections.set(account, lifetime);
+      const visits = new Set<() => void>();
+      function close() {
+        if (connections.get(account) === close) connections.delete(account);
+        lifetime.abort();
+        for (const detach of visits) detach();
+      }
+      connections.set(account, close);
       return {
-        close() {
-          if (connections.get(account) === lifetime)
-            connections.delete(account);
-          lifetime.abort();
-        },
+        close,
         visit(target: Target) {
           const { teamId, channelId, rootId } = target;
           if (![teamId, channelId, rootId].every(isMattermostId))
@@ -88,15 +89,33 @@ export function createThreadReadCoordination(deadlineMs = 15_000) {
           const key = JSON.stringify([account, rootId]);
           const root = roots.get(key) ?? {};
           roots.set(key, root);
-          const visit = Symbol();
+          const previous = root.visit;
+          const visit = { attached: true, detach };
           root.visit = visit;
+          visits.add(detach);
+          previous?.detach();
           root.waiting?.cancel(notSent("cancelled"));
           let manual = false;
           let autoConfirmed = false;
           let revoked = false;
+          let runningAuto: Running | undefined;
 
-          function available() {
+          function canFinish() {
             return !lifetime.signal.aborted && root.visit === visit && !revoked;
+          }
+          function available() {
+            return visit.attached && canFinish();
+          }
+          function releaseRoot() {
+            if (root.visit?.attached || root.active || root.waiting) return;
+            root.visit = undefined;
+            if (!root.unknown && roots.get(key) === root) roots.delete(key);
+          }
+          function detach() {
+            visit.attached = false;
+            visits.delete(detach);
+            if (runningAuto && !runningAuto.sent) runningAuto.cancel();
+            releaseRoot();
           }
           function blocked(): NotSent {
             return { ...notSent("previous-unknown"), previous: root.unknown };
@@ -114,6 +133,7 @@ export function createThreadReadCoordination(deadlineMs = 15_000) {
               cancel: () => controller.abort(cancelled),
             };
             root.active = operation;
+            if (command.kind === "auto") runningAuto = operation;
             const deadline = setTimeout(
               () =>
                 controller.abort(
@@ -168,6 +188,7 @@ export function createThreadReadCoordination(deadlineMs = 15_000) {
               signal.throwIfAborted();
               outcome = mark ? { kind: "confirmed", mark } : notSent("empty");
               if (mark && command.kind === "auto") autoConfirmed = true;
+              if (mark && command.kind !== "auto") root.unknown = undefined;
             } catch (error) {
               const status =
                 error instanceof ResponseError
@@ -198,12 +219,15 @@ export function createThreadReadCoordination(deadlineMs = 15_000) {
               observer?.removeEventListener("abort", stopObserving);
               lifetime.signal.removeEventListener("abort", ownerClosed);
               root.active = undefined;
+              runningAuto = undefined;
               root.revision = Symbol();
             }
             root.waiting?.settle(outcome);
+            releaseRoot();
             return outcome;
           }
           return {
+            detach,
             getUncertainty: () => root.unknown,
             async observe(signal?: AbortSignal) {
               const revision = root.revision;
@@ -254,6 +278,7 @@ export function createThreadReadCoordination(deadlineMs = 15_000) {
                   root.waiting = undefined;
                   lifetime.signal.removeEventListener("abort", ownerClosed);
                   resolve(outcome);
+                  releaseRoot();
                 }
                 function ownerClosed() {
                   cancel(notSent("cancelled"));
@@ -268,7 +293,7 @@ export function createThreadReadCoordination(deadlineMs = 15_000) {
                         outcome.reason === "access")
                     )
                       cancel(notSent("access"));
-                    else if (!available()) ownerClosed();
+                    else if (!canFinish()) ownerClosed();
                     else {
                       root.waiting = undefined;
                       lifetime.signal.removeEventListener("abort", ownerClosed);
@@ -283,7 +308,7 @@ export function createThreadReadCoordination(deadlineMs = 15_000) {
               });
             },
             revoke() {
-              if (!available()) return;
+              if (!canFinish()) return;
               revoked = true;
               root.waiting?.cancel(notSent("access"));
               if (root.active && !root.active.sent) root.active.cancel();

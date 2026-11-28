@@ -45,6 +45,14 @@ export function useWorkspaceThreadInbox(
   const previousRestoreRowCount = useRef(0);
   const [selection, setSelection] = useState<Selection | null>(null);
   const opening = useRef<AbortController | null>(null);
+  const currentVisit = useRef<{
+    rootId: string;
+    visit: ThreadReadVisit;
+  } | null>(null);
+  const detachVisit = useCallback(() => {
+    currentVisit.current?.visit.detach();
+    currentVisit.current = null;
+  }, []);
   const visited = useRef(false);
   const connected = useRef(online);
   useLayoutEffect(() => {
@@ -79,9 +87,10 @@ export function useWorkspaceThreadInbox(
     setModel(next);
     return () => {
       opening.current?.abort();
+      detachVisit();
       next.close();
     };
-  }, [connection, teamId, enabled]);
+  }, [connection, teamId, enabled, detachVisit]);
   const inbox = enabled ? model : null;
   const state = useSyncExternalStore(
     inbox?.subscribe ?? noSubscription,
@@ -90,24 +99,30 @@ export function useWorkspaceThreadInbox(
   const denied = selection && inbox?.isRootUnavailable(selection.id);
   const hideRoot = useCallback(
     (id: string, issue: "limited" | "forbidden") => {
-      if (selection?.id === id) selection.visit?.revoke();
+      if (currentVisit.current?.rootId === id) {
+        currentVisit.current.visit.revoke();
+        detachVisit();
+      }
       inbox?.revokeRoot(id);
       setSelection((prior) =>
         prior?.id === id ? { ...prior, post: null, issue } : prior,
       );
     },
-    [inbox, selection],
+    [detachVisit, inbox],
   );
   useLayoutEffect(() => {
     if (!denied) return;
-    selection?.visit?.revoke();
+    if (selection?.visit === currentVisit.current?.visit) {
+      selection?.visit?.revoke();
+      detachVisit();
+    }
     opening.current?.abort();
     setSelection((prior) =>
       prior && (!prior.issue || prior.post)
         ? { ...prior, post: null, issue: "forbidden" }
         : prior,
     );
-  }, [denied, selection?.visit]);
+  }, [denied, detachVisit, selection?.visit]);
   useEffect(() => {
     if (online && inbox) void inbox.refreshTotals();
   }, [online, inbox]);
@@ -119,16 +134,19 @@ export function useWorkspaceThreadInbox(
       }
       if (status === "forbidden") {
         opening.current?.abort();
+        currentVisit.current?.visit.revoke();
+        detachVisit();
         setSelection(null);
         setRestoring(undefined);
       }
     }
-  }, [state?.page.status, state?.totals.status, sessionIssue]);
+  }, [state?.page.status, state?.totals.status, sessionIssue, detachVisit]);
   const closeThread = useCallback(() => {
     opening.current?.abort();
+    detachVisit();
     setSelection(null);
     inbox?.select(null);
-  }, [inbox]);
+  }, [detachVisit, inbox]);
   function close() {
     closeThread();
     setRestoring(undefined);
@@ -142,6 +160,7 @@ export function useWorkspaceThreadInbox(
   }
   function resume(post: LocalPost, place: ThreadInboxPlace) {
     if (!inbox || inbox.isRootUnavailable(post.id)) return false;
+    if (selection?.id !== post.id) detachVisit();
     if (!visible || selection?.id !== post.id) {
       previousRestoreRowCount.current = 0;
       setRestoring(place);
@@ -200,19 +219,21 @@ export function useWorkspaceThreadInbox(
   async function choose(row: ThreadInboxRow) {
     if (!inbox || !row.post || inbox.isRootUnavailable(row.id)) return;
     opening.current?.abort();
+    detachVisit();
     setRestoring(undefined);
     const controller = new AbortController();
     opening.current = controller;
     const { signal } = controller;
     inbox.select(row.id);
     const observeRoot = inbox.beginRootRead();
-    setSelection({ id: row.id, row, post: null, issue: null });
     try {
       const visit = threadReads.visit({
         teamId,
         channelId: row.post.channelId,
         rootId: row.id,
       });
+      currentVisit.current = { rootId: row.id, visit };
+      setSelection({ id: row.id, row, visit, post: null, issue: null });
       if (!connected.current) throw Error("Offline");
       const found = await inspectPostTarget(
         connection,
@@ -239,7 +260,10 @@ export function useWorkspaceThreadInbox(
       const issue = workspaceFailure(error, "network");
       if (issue === "session" || issue === "unauthorized") sessionIssue(issue);
       if (issue === "forbidden") hideRoot(row.id, issue);
-      else setSelection({ id: row.id, row, post: null, issue });
+      else {
+        detachVisit();
+        setSelection({ id: row.id, row, post: null, issue });
+      }
     }
   }
   const confirmFollowing = useCallback(

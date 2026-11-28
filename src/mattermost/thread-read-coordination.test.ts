@@ -125,6 +125,7 @@ test("waits for a sent automatic PUT, then resolves the last reply and writes on
   });
   expect(command.lastPost).not.toHaveBeenCalled();
   panel.abort();
+  proof.visit.detach();
   const elsewhere = proof.account.visit({ ...target, rootId: "k".repeat(26) });
   expect(await elsewhere.manual(read)).toMatchObject({ kind: "confirmed" });
   expect(proof.writes.map(({ method }) => method)).toEqual(["PUT", "PUT"]);
@@ -260,6 +261,8 @@ test("closed RIDs leave sent writes uncertain, ignore late replies, and isolate 
     reason: "cancelled",
   });
   response.resolve(proof.applyRead(timestamp(proof)));
+  proof.account.close();
+  proof.visit.detach();
   expect(await visit.auto(observer().signal)).toMatchObject({
     kind: "not-sent",
     reason: "previous-unknown",
@@ -353,4 +356,107 @@ test("a dispatched exchange has a deadline even when the transport never resolve
   const mark = await visit.auto(observer().signal);
   expect(mark).toMatchObject({ kind: "unknown", attempt: { action: "auto" } });
   expect(proof.writes).toHaveLength(1);
+});
+
+test("a confirmed explicit choice uses the old permission once and a fresh visit may auto-mark", async () => {
+  const proof = fixture();
+  proof.request.mockRejectedValueOnce(Error("auto response lost"));
+  expect(await proof.visit.auto(observer().signal)).toMatchObject({
+    kind: "unknown",
+  });
+  const old = proof.visit.getUncertainty();
+  expect(await proof.visit.manual(unreadCommand(), old)).toMatchObject({
+    kind: "confirmed",
+  });
+  expect(await proof.visit.manual(read, old)).toMatchObject({
+    kind: "not-sent",
+  });
+  expect(await proof.visit.auto(observer().signal)).toMatchObject({
+    kind: "not-sent",
+  });
+  expect(proof.writes.map(({ method }) => method)).toEqual(["PUT", "POST"]);
+  const reopened = proof.account.visit({ ...target, teamId: otherTeam });
+  expect(await reopened.auto(observer().signal)).toMatchObject({
+    kind: "confirmed",
+  });
+  expect(proof.writes[2].path).toContain(
+    `/teams/${otherTeam}/threads/${root}/read/`,
+  );
+});
+
+test("detaching resolved visits and closing the binding release their coordination entries", async () => {
+  const removed = vi.spyOn(Map.prototype, "delete");
+  try {
+    const proof = fixture();
+    const key = (id: string) =>
+      JSON.stringify([JSON.stringify([server, user]), id]);
+    expect(await proof.visit.auto(observer().signal)).toMatchObject({
+      kind: "confirmed",
+    });
+    proof.visit.detach();
+    expect(removed).toHaveBeenCalledWith(key(root));
+
+    const another = "a".repeat(26);
+    const visit = proof.account.visit({ ...target, rootId: another });
+    expect(await visit.manual(read)).toMatchObject({ kind: "confirmed" });
+    proof.account.close();
+    expect(removed).toHaveBeenCalledWith(key(another));
+  } finally {
+    removed.mockRestore();
+  }
+});
+
+test("a detached in-flight root is released only after the receipt arrives", async () => {
+  const removed = vi.spyOn(Map.prototype, "delete");
+  try {
+    const proof = fixture();
+    const key = JSON.stringify([JSON.stringify([server, user]), root]);
+    const response = deferred<Response>();
+    proof.request.mockReturnValueOnce(response.promise);
+    const auto = proof.visit.auto(observer().signal);
+    await sent(proof, 1);
+    proof.visit.detach();
+    expect(removed).not.toHaveBeenCalledWith(key);
+    response.resolve(proof.applyRead(timestamp(proof)));
+    expect(await auto).toMatchObject({ kind: "confirmed" });
+    expect(removed).toHaveBeenCalledWith(key);
+  } finally {
+    removed.mockRestore();
+  }
+});
+
+test("late cleanup for the old bound connection keeps a new DM visit and its confirmed write", async () => {
+  const proof = fixture();
+  const oldReply = deferred<Response>();
+  proof.request.mockReturnValueOnce(oldReply.promise);
+  const first = proof.visit.auto(observer().signal);
+  await sent(proof, 1);
+  const replacement = proof.coordination.bind(server, user, proof.connection);
+  const next = replacement.visit({ ...target, teamId: otherTeam });
+  expect(await first).toMatchObject({ kind: "unknown" });
+
+  const newReply = deferred<Response>();
+  proof.request.mockReturnValueOnce(newReply.promise);
+  const manual = next.manual(unreadCommand(), next.getUncertainty());
+  await sent(proof, 2);
+  proof.account.close();
+  proof.visit.detach();
+  oldReply.resolve(proof.applyRead(timestamp(proof)));
+  newReply.resolve(proof.applyRead(20));
+  expect(await manual).toMatchObject({ kind: "confirmed" });
+  expect(next.getUncertainty()).toBeUndefined();
+  expect(await next.auto(observer().signal)).toMatchObject({
+    kind: "not-sent",
+    reason: "busy",
+  });
+  expect(
+    await replacement
+      .visit({ ...target, teamId: otherTeam })
+      .auto(observer().signal),
+  ).toMatchObject({ kind: "confirmed" });
+  expect(proof.writes.map(({ method }) => method)).toEqual([
+    "PUT",
+    "POST",
+    "PUT",
+  ]);
 });
