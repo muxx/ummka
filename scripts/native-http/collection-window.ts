@@ -36,7 +36,7 @@ export function collectionWindowFixture() {
   };
   const links = new Map([[foreignLink, initialLink]]);
   let pinned = true;
-  let pinReads = 0;
+  let failPinRefresh = false;
   let markBoundary!: () => void;
   const boundaryArrived = new Promise<void>((resolve) => {
     markBoundary = resolve;
@@ -91,6 +91,17 @@ export function collectionWindowFixture() {
       assert.equal(req.method, "GET");
       assert.equal(req.headers.authorization, undefined);
       await boundaryArrived;
+      res.writeHead(204).end();
+      return true;
+    }
+    if (
+      path === "system/ping" &&
+      url.searchParams.get("step") === "pins-refresh"
+    ) {
+      assert.equal(req.method, "GET");
+      assert.equal(req.headers.authorization, undefined);
+      assert.equal(failPinRefresh, false);
+      failPinRefresh = true;
       res.writeHead(204).end();
       return true;
     }
@@ -356,9 +367,10 @@ export function collectionWindowFixture() {
       send({ status: "OK" }, "POST");
     } else if (path === `channels/${channel}/pinned`) {
       assert.equal(url.search, "");
-      if (++pinReads === 2)
+      if (failPinRefresh) {
+        failPinRefresh = false;
         send({ message: "Temporary server error" }, "GET", 503);
-      else send(posts(pinned ? [root] : []));
+      } else send(posts(pinned ? [root] : []));
     } else if (path === `posts/${root}/unpin`) {
       pinned = false;
       send({ status: "OK" }, "POST");

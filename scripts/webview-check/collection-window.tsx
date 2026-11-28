@@ -504,6 +504,11 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
     try {
       flushSync(() => window.dispatchEvent(new Event("offline")));
       await pins.findByText("You’re offline.");
+      const armed = await control.fetchApi(
+        `${control.basePath}/api/v4/system/ping?step=pins-refresh`,
+      );
+      if (armed.status !== 204)
+        throw Error("Could not arm the Pins refresh response");
     } finally {
       if (previousOnline)
         Object.defineProperty(navigator, "onLine", previousOnline);
