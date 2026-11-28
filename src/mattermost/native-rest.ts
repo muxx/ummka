@@ -564,6 +564,7 @@ export async function openAccountRestConnection(
         if (profiles.length)
           await invoke<void>("store_channel_profiles", { rid, profiles });
         signal?.throwIfAborted();
+        return profiles;
       });
     },
     readProfileImage(profile: ProfileImageIdentity, signal?: AbortSignal) {

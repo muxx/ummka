@@ -306,7 +306,9 @@ function mount(
           }
         : { profiles: {}, usernames: {} },
     ),
-    refreshSavedProfiles: vi.fn(),
+    refreshSavedProfiles: vi
+      .fn<Connection["refreshSavedProfiles"]>()
+      .mockResolvedValue(options.directProfile ? [options.directProfile] : []),
     readChannelWindow: vi.fn<Connection["readChannelWindow"]>(
       async ({ channelId }) => ({
         posts: channelId === general ? rows : [],

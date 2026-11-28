@@ -264,7 +264,9 @@ export function fixture({
     readSavedProfiles: vi
       .fn()
       .mockResolvedValue({ profiles: {}, usernames: {} }),
-    refreshSavedProfiles: vi.fn(),
+    refreshSavedProfiles: vi
+      .fn<Account["refreshSavedProfiles"]>()
+      .mockResolvedValue([]),
     saveDraft: vi.fn<Account["saveDraft"]>(async (draft) => {
       drafts.set(draft.rootId ?? draft.channelId, draft.message);
       return {

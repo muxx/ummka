@@ -776,7 +776,7 @@ export function ChannelsWorkspace({
     online,
     sessionIssue,
   );
-  const profileQuery = useMemo(() => {
+  const { profileQuery, readingAuthors } = useMemo(() => {
     const query = workspaceProfileQuery(
       userId,
       current,
@@ -785,6 +785,13 @@ export function ChannelsWorkspace({
       resultChannelIds,
     );
     const ids = new Set(query.ids);
+    const authors = new Set<string>();
+    for (const post of timeline.page?.posts ?? []) {
+      authors.add(post.userId);
+      if (settings?.collapsedThreads && post.threadSummary?.replyCount)
+        for (const id of post.threadSummary.participantIds?.slice(0, 3) ?? [])
+          authors.add(id);
+    }
     if (inbox.visible) {
       for (const row of inbox.state?.page.rows ?? []) {
         if (!row.post) continue;
@@ -807,7 +814,10 @@ export function ChannelsWorkspace({
     }
     for (const post of resultItems ?? [])
       if (isMattermostId(post.userId)) ids.add(post.userId);
-    return { ids: [...ids], usernames: [...usernames] };
+    return {
+      profileQuery: { ids: [...ids], usernames: [...usernames] },
+      readingAuthors: [...authors],
+    };
   }, [
     userId,
     current,
@@ -826,6 +836,7 @@ export function ChannelsWorkspace({
     profileQuery,
     online,
     sessionIssue,
+    readingAuthors,
   );
   const profiles = useMemo(
     () => indexChannelProfiles(Object.values(saved.profiles), saved.usernames),
