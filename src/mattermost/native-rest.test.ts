@@ -1361,8 +1361,11 @@ test("a recipient result cannot outlive its account connection", async () => {
     finish = resolve;
   });
   const search = vi
-    .spyOn(UsersApi.prototype, "searchUsers")
-    .mockReturnValue(response);
+    .spyOn(UsersApi.prototype, "searchUsersRaw")
+    .mockResolvedValue({
+      raw: new Response(),
+      value: () => response,
+    });
   try {
     const pending = account.readConversationRecipients("t".repeat(26), {
       kind: "search",
