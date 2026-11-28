@@ -1267,7 +1267,9 @@ test("reopening Saved keeps the previous rows through a failed refresh and retri
   const stale = pane().getByRole("button", options);
   stale.focus();
   expect(stale.getAttribute("aria-disabled")).toBe("false");
-  await act(async () => fail(new TypeError("no connection")));
+  await act(async () =>
+    fail(new TypeError("Native REST request failed", { cause: "network" })),
+  );
   const retry = await pane().findByRole("button", {
     name: "Retry update: Saved messages",
   });

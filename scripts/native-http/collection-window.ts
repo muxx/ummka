@@ -21,6 +21,7 @@ export function collectionWindowFixture() {
   ];
   const hidden = new Set(raw.slice(60, 120));
   let pinned = true;
+  let pinReads = 0;
   let markBoundary!: () => void;
   const boundaryArrived = new Promise<void>((resolve) => {
     markBoundary = resolve;
@@ -63,12 +64,12 @@ export function collectionWindowFixture() {
     const path = url.pathname.slice(prefix.length);
     const common = new URL(url);
     common.pathname = "/browser-action-check/api/v4/" + path;
-    const send = (value: unknown, method = "GET") => {
+    const send = (value: unknown, method = "GET", status = 200) => {
       assert.equal(req.headers.authorization, "Bearer fixture-browser-action");
       assert.equal(req.headers.cookie, undefined);
       assert.equal(req.method, method);
       res
-        .writeHead(200, { "Content-Type": "application/json" })
+        .writeHead(status, { "Content-Type": "application/json" })
         .end(JSON.stringify(value));
     };
     if (path === "system/ping" && url.searchParams.get("step") === "boundary") {
@@ -147,7 +148,11 @@ export function collectionWindowFixture() {
         .filter((id) => !hidden.has(id));
       offsets.push(offset);
       const result = posts(page);
-      if (offset === 60) {
+      if (offsets.length === 1) {
+        assert.equal(offset, 0);
+        delete result.posts[reply];
+        send(result);
+      } else if (offset === 60) {
         releasePrevious = () => {
           if (!res.destroyed) send(result);
         };
@@ -157,7 +162,7 @@ export function collectionWindowFixture() {
           releasePrevious?.();
           releasePrevious = undefined;
         }
-        if (offset === 119) assert.deepEqual(offsets, [0, 60, 59, 119]);
+        if (offset === 119) assert.deepEqual(offsets, [0, 0, 60, 59, 119]);
         send(result);
       }
     } else if (path === "users/me/preferences/delete") {
@@ -173,7 +178,10 @@ export function collectionWindowFixture() {
       raw.splice(index, 1);
       send({ status: "OK" }, "POST");
     } else if (path === `channels/${channel}/pinned`) {
-      send(posts(pinned ? [root] : []));
+      assert.equal(url.search, "");
+      if (++pinReads === 2)
+        send({ message: "Temporary server error" }, "GET", 503);
+      else send(posts(pinned ? [root] : []));
     } else if (path === `posts/${root}/unpin`) {
       pinned = false;
       send({ status: "OK" }, "POST");

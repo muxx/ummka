@@ -5,7 +5,11 @@ import {
 } from "../mattermost/account-post-collections.ts";
 import { isMattermostId } from "../mattermost/model-fields.ts";
 import type { accountCollectionActions } from "../mattermost/post-collection-actions.ts";
-import { mayKeepCache, workspaceFailure } from "./workspace-data.ts";
+import {
+  collectionReadFailure,
+  mayKeepCache,
+  workspaceFailure,
+} from "./workspace-data.ts";
 
 type Account = ReturnType<typeof accountPostCollections> &
   ReturnType<typeof accountCollectionActions>;
@@ -19,7 +23,7 @@ type ReadState = {
     | "refreshing"
     | "ready"
     | "closed"
-    | ReturnType<typeof workspaceFailure>;
+    | ReturnType<typeof collectionReadFailure>;
   value: Collection | null;
   returnedPost?: { id: string; saved: boolean | undefined };
 };
@@ -279,9 +283,10 @@ export function openPostCollection(account: Account, source: Source) {
       };
     } catch (error) {
       if (signal.aborted) return;
-      const status = workspaceFailure(error, "network");
-      next = { status, value: mayKeepCache(status) ? state.value : null };
-      if (!mayKeepCache(status)) {
+      const status = collectionReadFailure(error);
+      const retain = status === "unknown" || mayKeepCache(status);
+      next = { status, value: retain ? state.value : null };
+      if (!retain) {
         readCursor = undefined;
         cancelRequests();
       } else {

@@ -52,6 +52,11 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
       name: "Saved messages",
       description: "Only visible to you",
     });
+    await saved.findByRole("alert", {}, { timeout: 10000 });
+    saved.getByRole("heading", { name: "Saved messages couldn’t load" });
+    if (saved.queryByRole("list") || saved.queryByText(/no connection/i))
+      throw Error("An invalid saved page was displayed or reported as offline");
+    click(saved.getByRole("button", { name: "Try again" }));
     const row = await saved.findByRole("button", {
       name: /Reply visible only inside Town/,
     });
@@ -220,6 +225,18 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
     const pin = await pins.findByRole("button", {
       name: /Town fixture message/,
     });
+    click(pins.getByRole("button", { name: "Refresh" }));
+    await pins.findByText(
+      "Pinned messages couldn’t update. Showing the previous response",
+      {},
+      { timeout: 10000 },
+    );
+    if (!pin.isConnected || pins.queryByText(/no connection/i))
+      throw Error("A failed update lost the confirmed pin or reported offline");
+    click(pins.getByRole("button", { name: "Retry update: Pinned messages" }));
+    await pins.findByText("Pinned messages updated");
+    if (document.activeElement !== pin)
+      throw Error("Retry did not focus the confirmed pinned row");
     if (!pins.queryByText("Saved by you"))
       throw Error("Confirmed personal marker missing in pins");
     click(pin);

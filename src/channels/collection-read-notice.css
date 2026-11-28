@@ -41,3 +41,34 @@
     min-height: 44px;
   }
 }
+
+.collection-read-notice[data-cold-error] {
+  display: grid;
+  gap: 8px;
+  justify-content: normal;
+  justify-items: start;
+  margin: 8px auto;
+  max-width: 460px;
+  padding: 24px 20px;
+}
+.collection-read-notice[data-cold-error] svg {
+  color: var(--accent);
+  width: 27px;
+  height: 27px;
+  margin-bottom: 4px;
+}
+.collection-read-notice[data-cold-error] h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+.collection-read-notice[data-cold-error] p {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.collection-read-notice[data-cold-error] button {
+  padding-inline: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+}

@@ -265,8 +265,6 @@ export function PostCollectionPane({
     online &&
     !["closed", "unauthorized", "session", "forbidden"].includes(state.status);
   const busy = state.status === "loading" || state.status === "refreshing";
-  const retryList = state.status === "network" || state.status === "storage";
-  const coldOffline = !online && !state.value && state.status === "idle";
   const nextFailed =
     state.continuation === "network" || state.continuation === "storage";
   useEffect(() => {
@@ -378,18 +376,17 @@ export function PostCollectionPane({
         {announcement}
       </span>
       <CollectionScroll pane={list}>
-        {kind === "all" && (
-          <CollectionReadNotice
-            kind="all"
-            status={state.status}
-            hasResponse={state.value !== null}
-            online={online}
-            language={language}
-            list={list}
-            heading={heading}
-            refresh={refresh}
-          />
-        )}
+        <CollectionReadNotice
+          kind={kind}
+          icon={<CollectionMark kind={kind} />}
+          status={state.status}
+          hasResponse={state.value !== null}
+          online={online}
+          language={language}
+          list={list}
+          heading={heading}
+          refresh={refresh}
+        />
         {state.removing.length > 0 && (
           <p role="status">{kind === "all" ? text.removing : text.unpinning}</p>
         )}
@@ -402,32 +399,10 @@ export function PostCollectionPane({
             {missingReturn?.id && text.removedOnReturn}
           </p>
         )}
-        {!online && (kind === "pins" || state.value) && (
-          <p role="status">{state.value ? text.offline : text.offlineCold}</p>
-        )}
-        {kind === "pins" && busy && (
-          <p role="status">
-            {state.status === "refreshing" ? text.refreshing : text.loading}
-          </p>
+        {!online && state.value && state.status !== "network" && (
+          <p role="status">{text.offline}</p>
         )}
         {state.status === "forbidden" && <p role="alert">{text.unavailable}</p>}
-        {kind === "pins" && retryList && (
-          <p role="alert">
-            {state.status === "storage" ? text.storage : text.network}
-          </p>
-        )}
-        {kind === "pins" && (retryList || coldOffline) && (
-          <button
-            className="collection-page-action"
-            type="button"
-            onClick={() => {
-              heading.current?.focus({ preventScroll: true });
-              void model.refresh();
-            }}
-          >
-            {text.retry}
-          </button>
-        )}
         {state.value && (
           <ul>
             {rows.map((row, index) => {

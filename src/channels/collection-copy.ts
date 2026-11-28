@@ -1,8 +1,15 @@
+function reasonSuffix(reason: string) {
+  return reason ? `: ${reason.toLowerCase()}` : "";
+}
+
 export const collectionCopy = {
   en: {
     count: (n: number) => `${n} ${n === 1 ? "message" : "messages"}`,
     loaded: (n: number) => `${n} loaded`,
     mentions: "Mentions",
+    pinsName: "Pinned messages",
+    serverList:
+      "This list comes from the server and isn’t stored on this device.",
     loadingSaved: "Loading saved messages…",
     loadingMentions: "Loading mentions…",
     updatingList: "Updating the list…",
@@ -10,12 +17,14 @@ export const collectionCopy = {
     readStorage: "Couldn’t read the list on this device",
     firstReadFailed: (name: string, reason: string) =>
       `${name} couldn’t load. ${reason}.`,
+    firstReadAnnouncement: (name: string, reason: string) =>
+      `${name} couldn’t load${reasonSuffix(reason)}`,
     retryUpdate: (name: string) => `Retry update: ${name}`,
     updated: (name: string) => `${name} updated`,
     updateFailed: (reason: string) =>
-      `The list couldn’t update: ${reason.toLowerCase()}. Showing the previous response.`,
+      `The list couldn’t update${reasonSuffix(reason)}. Showing the previous response.`,
     updateFailedAnnouncement: (name: string, reason: string) =>
-      `${name} couldn’t update: ${reason.toLowerCase()}. Showing the previous response`,
+      `${name} couldn’t update${reasonSuffix(reason)}. Showing the previous response`,
     removing: "Removing from saved…",
     unpinning: "Unpinning…",
     saved: "Saved messages",
@@ -33,12 +42,11 @@ export const collectionCopy = {
     shared: "Visible to channel members",
     sharedIn: (room: string) => `${room} · visible to all members`,
     offlineCold:
-      "Connect to load this collection. It isn’t stored on this device.",
+      "No connection. This list comes from the server and isn’t stored on this device.",
     menu: "Channel menu",
     closeMenu: "Close channel menu",
     close: "Close collection",
     loading: "Loading messages…",
-    refreshing: "Updating messages…",
     retry: "Try again",
     more: "Earlier saved messages haven’t loaded yet.",
     edgeFailed: "Earlier saved messages couldn’t load.",
@@ -76,6 +84,8 @@ export const collectionCopy = {
     count: (n: number) => `Сообщений: ${n}`,
     loaded: (n: number) => `Загружено: ${n}`,
     mentions: "Упоминания",
+    pinsName: "Закреплённые",
+    serverList: "Список приходит с сервера, на устройстве его нет.",
     loadingSaved: "Загружаем сохранённые…",
     loadingMentions: "Загружаем упоминания…",
     updatingList: "Обновляем список…",
@@ -83,12 +93,14 @@ export const collectionCopy = {
     readStorage: "Не удалось прочитать список на устройстве",
     firstReadFailed: (name: string, reason: string) =>
       `${name} не загрузились. ${reason}.`,
+    firstReadAnnouncement: (name: string, reason: string) =>
+      `${name} не загрузились${reasonSuffix(reason)}`,
     retryUpdate: (name: string) => `Повторить обновление: ${name}`,
     updated: (name: string) => `${name} обновлены`,
     updateFailed: (reason: string) =>
-      `Список не обновился: ${reason.toLowerCase()}. Ниже — прошлый ответ сервера.`,
+      `Список не обновился${reasonSuffix(reason)}. Ниже — прошлый ответ сервера.`,
     updateFailedAnnouncement: (name: string, reason: string) =>
-      `${name} не обновились: ${reason.toLowerCase()}. Показан прежний ответ`,
+      `${name} не обновились${reasonSuffix(reason)}. Показан прежний ответ`,
     removing: "Убираем из сохранённых…",
     unpinning: "Открепляем…",
     saved: "Сохранённые",
@@ -106,12 +118,11 @@ export const collectionCopy = {
     shared: "Видят участники канала",
     sharedIn: (room: string) => `${room} · видят все участники`,
     offlineCold:
-      "Для загрузки нужна связь с сервером. Подборка не хранится на устройстве.",
+      "Причина: нет связи. Список приходит с сервера, на устройстве его нет.",
     menu: "Меню беседы",
     closeMenu: "Закрыть меню канала",
     close: "Закрыть подборку",
     loading: "Загружаем сообщения…",
-    refreshing: "Обновляем сообщения…",
     retry: "Повторить",
     more: "Более ранние сохранённые ещё не загружены",
     edgeFailed: "Более ранние сохранённые не загрузились",
