@@ -65,11 +65,29 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
             rest_ipc::close_rest_connection,
             #[cfg(all(feature = "webview-check", any(target_os = "android", target_os = "macos")))]
             rest_ipc::trace_webview_check,
+            #[cfg(all(feature = "webview-check", any(target_os = "android", target_os = "macos")))]
+            device_document::picker::bridge_check::prepare_draft_picker_fixture,
             #[cfg(all(feature = "webview-check", target_os = "macos"))]
             check_link_window::check_system_post_window,
             rest_ipc::drafts::read_composer_draft,
             rest_ipc::drafts::save_composer_draft,
             rest_ipc::drafts::transition_draft_command,
+            #[cfg(any(target_os = "android", target_os = "macos"))]
+            rest_ipc::draft_files::bridge::open_draft_file_workspace,
+            #[cfg(any(target_os = "android", target_os = "macos"))]
+            rest_ipc::draft_files::bridge::choose_draft_files,
+            #[cfg(any(target_os = "android", target_os = "macos"))]
+            rest_ipc::draft_files::bridge::read_draft_files,
+            #[cfg(any(target_os = "android", target_os = "macos"))]
+            rest_ipc::draft_files::bridge::start_draft_file_upload,
+            #[cfg(any(target_os = "android", target_os = "macos"))]
+            rest_ipc::draft_files::bridge::remove_draft_file,
+            #[cfg(any(target_os = "android", target_os = "macos"))]
+            rest_ipc::draft_files::bridge::confirm_draft_file_upload_policy,
+            #[cfg(any(target_os = "android", target_os = "macos"))]
+            rest_ipc::draft_files::bridge::stage_draft_post_with_files,
+            #[cfg(any(target_os = "android", target_os = "macos"))]
+            rest_ipc::draft_files::bridge::close_draft_file_workspace,
             rest_ipc::delivery::stage_composer_post,
             rest_ipc::delivery::read_pending_posts,
             rest_ipc::delivery::confirm_post_delivery,
@@ -133,7 +151,7 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
                 .ok_or("missing main WebView")?;
             #[cfg(all(feature = "webview-check", any(target_os = "android", target_os = "macos")))]
             app.add_capability(
-                r#"{"identifier":"fixture-progress","local":true,"webviews":["main"],"permissions":["allow-trace-webview-check"]}"#,
+                r#"{"identifier":"fixture-progress","local":true,"webviews":["main"],"permissions":["allow-trace-webview-check","allow-prepare-draft-picker-fixture"]}"#,
             )?;
             #[cfg(all(target_os = "macos", feature = "webview-check"))]
             {

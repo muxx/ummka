@@ -12,11 +12,21 @@ fn main() {
         "close_rest_connection",
         #[cfg(feature = "webview-check")]
         "trace_webview_check",
+        #[cfg(feature = "webview-check")]
+        "prepare_draft_picker_fixture",
         #[cfg(all(feature = "webview-check", target_os = "macos"))]
         "check_system_post_window",
         "read_composer_draft",
         "save_composer_draft",
         "transition_draft_command",
+        "open_draft_file_workspace",
+        "choose_draft_files",
+        "read_draft_files",
+        "start_draft_file_upload",
+        "remove_draft_file",
+        "confirm_draft_file_upload_policy",
+        "stage_draft_post_with_files",
+        "close_draft_file_workspace",
         "stage_composer_post",
         "read_pending_posts",
         "confirm_post_delivery",

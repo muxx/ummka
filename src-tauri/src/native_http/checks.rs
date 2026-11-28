@@ -422,6 +422,7 @@ pub fn run_checks<'local>(
             crate::history::checks::windows::round_trip(fixtures)?;
             crate::history::checks::reclamation::round_trip(fixtures)?;
             crate::history::checks::check_channel_departure(fixtures)?;
+            crate::history::checks::check_pending_files(fixtures)?;
             report_stage("documents")?;
             crate::device_document::check_android().await?;
             report_stage("transport")?;

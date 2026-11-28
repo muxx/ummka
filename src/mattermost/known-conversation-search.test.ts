@@ -1,6 +1,10 @@
 import { expect, test } from "vitest";
 import { channelProfile, indexChannelProfiles } from "./channel-profiles.ts";
-import { prepareKnownConversationSearch } from "./known-conversation-search.ts";
+import {
+  conversationTitleMatch,
+  knownConversationTerm,
+  prepareKnownConversationSearch,
+} from "./known-conversation-search.ts";
 import type { TeamSidebar } from "./team-sidebar.ts";
 import { workspacePreferences } from "./workspace-preferences.ts";
 
@@ -99,12 +103,13 @@ test("hidden DMs and groups match known human names without exposing wire identi
         .sort(),
     ).toEqual([dm.id, group.id]);
   expect(search("fox").map((row) => row.id)).toEqual([group.id]);
-  expect(search("умка").find((row) => row.id === dm.id)?.deactivated).toBe(
-    true,
-  );
+  const known = search("умка").find((row) => row.id === dm.id);
+  expect(known?.deactivated).toBe(true);
+  expect(known?.displayName).toBe(known?.title);
   for (const term of [peer, "group-wire-name", "opaque-group-name"])
     expect(search(term)).toEqual([]);
   expect(search("")[0]?.title).toBe("Личное сообщение");
+  expect(search("")[0]?.displayName).toBe("");
   const emptyGroupRecent = prepareKnownConversationSearch(team, ctx, [
     emptyGroup.id,
   ])("");
@@ -218,3 +223,18 @@ test("equal visit times use localized numeric titles and a stable identity", () 
   );
   expect(search("room").map((row) => row.id)).toEqual([82, 83, 81].map(id));
 });
+
+test.each([
+  ["Ёлка", "@ел", "Ёл"],
+  ["İstanbul", "sta", "sta"],
+  ["İstanbul", "i", "İ"],
+  ["🐻 İST · штаб", "штаб", "штаб"],
+  ["General", "@other", null],
+  ["General", "@", null],
+])(
+  "highlights original title segments independently of aliases",
+  (title, input, marked) => {
+    const range = conversationTitleMatch(title, knownConversationTerm(input));
+    expect(range ? title.slice(...range) : null).toBe(marked);
+  },
+);

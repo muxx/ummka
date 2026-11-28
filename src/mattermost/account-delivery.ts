@@ -29,10 +29,11 @@ export type PendingPost = {
   previousLogin: boolean;
   confirmedPostId: string | null;
   attempt: number;
+  files: { id: string; name: string; size: number }[];
   refusal: PostRefusal | null;
   retryRefusal?: PostRefusal;
 };
-type StagePost =
+export type StagePost =
   | { kind: "created"; post: PendingPost; draft: ComposerDraft }
   | { kind: "notStaged"; draft: ComposerDraft };
 type DeliverySource =

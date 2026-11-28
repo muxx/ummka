@@ -279,6 +279,39 @@ export async function verifyWorkspaceBack(
           `Leaving search: resultsConnected=${resultsNode.isConnected} threadVisible=${Boolean(restored.getClientRects().length)} focus=${document.activeElement?.className} draft=${restoredField.value === threadText}`,
         );
     });
+    await fixtureStep("return-from-quick-switch", async () => {
+      const threadClose = within(restored).getByRole("button", {
+        name: "Close thread",
+      });
+      threadClose.focus();
+      flushSync(() =>
+        fireEvent.keyDown(threadClose, {
+          code: "KeyK",
+          key: "k",
+          metaKey: mac,
+          ctrlKey: !mac,
+        }),
+      );
+      const picker = await ui.findByRole("dialog", { name: "Find a channel" });
+      // Keep the keyboard hidden so Android sends this Back to the app.
+      if (!mac) within(picker).getByRole("button", { name: "Close" }).focus();
+      await press("quick-switch");
+      await waitFor(
+        () => {
+          if (
+            picker.isConnected ||
+            !restored.getClientRects().length ||
+            document.activeElement !== threadClose ||
+            restoredField.value !== threadText ||
+            channel.value !== channelText
+          )
+            throw Error(
+              "Closing the quick switcher lost thread focus or a draft",
+            );
+        },
+        { container: host, timeout: 5000, onTimeout: (error) => error },
+      );
+    });
     await press("thread");
     await waitFor(() => {
       if (

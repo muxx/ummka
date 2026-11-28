@@ -188,6 +188,7 @@ test("a local delivery block stays separate from both neighboring published mess
           createdAt,
           previousLogin: false,
           confirmedPostId: null,
+          files: [],
           attempt: 1,
           refusal: null,
         },

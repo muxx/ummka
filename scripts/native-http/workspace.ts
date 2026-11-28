@@ -16,6 +16,8 @@ const member = "f".repeat(26);
 const townMessage =
   "Town fixture message\n\n| Name | Score |\n| :- | -: |\n| Aurora | 17 |";
 const cardEmbed = { embeds: [{ type: "message_attachment" }] };
+const self = "s".repeat(26);
+const directCategory = "m".repeat(26);
 
 const townRoom = {
   id: town,
@@ -52,7 +54,11 @@ function postList(
   channelId: string,
   userId: string,
   message: string,
-  id = channelId === town ? townRoot : "y".repeat(26),
+  id = channelId === town
+    ? townRoot
+    : channelId === self
+      ? "personalnote".padEnd(26, "0")
+      : "y".repeat(26),
 ) {
   return {
     order: [id],
@@ -115,6 +121,15 @@ export async function respondToWorkspace(
     systemLinks = false,
     acceptedThreadReply = false,
     ordinaryReadingThread = false,
+    browserToken = "fixture-browser-action",
+    visible,
+  }: {
+    joinedPublicRoom?: boolean;
+    systemLinks?: boolean;
+    acceptedThreadReply?: boolean;
+    ordinaryReadingThread?: boolean;
+    browserToken?: string;
+    visible?: { selfOpenedAt?: string };
   } = {},
 ): Promise<string | undefined> {
   function json(value: unknown, name: string, status = 200) {
@@ -139,6 +154,46 @@ export async function respondToWorkspace(
   const base = "/browser-action-check/api/v4/";
   if (!url.pathname.startsWith(base)) return;
   const path = url.pathname.slice(base.length);
+  if (
+    visible &&
+    path === "users/me/preferences" &&
+    (req.method === "PUT" || visible.selfOpenedAt)
+  ) {
+    assert.equal(req.headers.authorization, `Bearer ${browserToken}`);
+    assert.equal(req.headers.cookie, undefined);
+    assert.equal(url.search, "");
+    const ownRows = (stamp: string) => [
+      {
+        user_id: member,
+        category: "direct_channel_show",
+        name: member,
+        value: "true",
+      },
+      {
+        user_id: member,
+        category: "channel_open_time",
+        name: self,
+        value: stamp,
+      },
+    ];
+    if (req.method === "PUT") {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const rows = JSON.parse(Buffer.concat(chunks).toString());
+      const stamp = rows[1]?.value;
+      assert.equal(typeof stamp, "string");
+      assert.match(stamp, /^[1-9]\d+$/);
+      assert.deepEqual(rows, ownRows(stamp));
+      visible.selfOpenedAt = stamp;
+      return json({ status: "OK" }, "live-show-personal-conversation");
+    }
+    assert.equal(req.method, "GET");
+    assert.ok(visible.selfOpenedAt);
+    return json(
+      ownRows(visible.selfOpenedAt),
+      "browser-entry-users/me/preferences",
+    );
+  }
   if (
     path === `users/me/teams/${team}/threads` &&
     url.searchParams.get("totalsOnly") === "true"
@@ -176,11 +231,23 @@ export async function respondToWorkspace(
           delete_at: 0,
         },
         ...(joinedPublicRoom ? [publicRoom] : []),
+        ...(visible
+          ? [
+              {
+                id: self,
+                team_id: "",
+                type: "D",
+                name: `${member}__${member}`,
+                display_name: "",
+                delete_at: 0,
+              },
+            ]
+          : []),
       ],
     ],
     [
       `users/me/teams/${team}/channels/members`,
-      joinedIds.map((channel_id) => ({
+      [...joinedIds, ...(visible ? [self] : [])].map((channel_id) => ({
         channel_id,
         user_id: member,
         roles: channel_id === design ? "fixture_reader" : "channel_user",
@@ -189,7 +256,7 @@ export async function respondToWorkspace(
     [
       `users/me/teams/${team}/channels/categories`,
       {
-        order: [category],
+        order: [category, directCategory],
         categories: [
           {
             id: category,
@@ -202,6 +269,18 @@ export async function respondToWorkspace(
             muted: false,
             collapsed: false,
             channel_ids: joinedIds,
+          },
+          {
+            id: directCategory,
+            user_id: member,
+            team_id: team,
+            type: "direct_messages",
+            display_name: "Direct Messages",
+            sorting: "recent",
+            sort_order: 1,
+            muted: false,
+            collapsed: false,
+            channel_ids: visible ? [self] : [],
           },
         ],
       },
@@ -303,7 +382,9 @@ export async function respondToWorkspace(
       ? town
       : path === `channels/${design}/posts`
         ? design
-        : null;
+        : path === `channels/${self}/posts`
+          ? self
+          : null;
   const countRoom = joinedIds.find((id) => path === `channels/${id}/stats`);
   const listRooms = path === `teams/${team}/channels`;
   const queryRooms = path === `teams/${team}/channels/autocomplete`;
@@ -343,9 +424,7 @@ export async function respondToWorkspace(
     return;
   assert.equal(
     req.headers.authorization,
-    systemLinks
-      ? "Bearer fixture-system-post"
-      : "Bearer fixture-browser-action",
+    systemLinks ? "Bearer fixture-system-post" : `Bearer ${browserToken}`,
   );
   assert.equal(req.headers.cookie, undefined);
   assert.equal(req.method, post ? "POST" : "GET");
@@ -512,7 +591,11 @@ export async function respondToWorkspace(
       postList(
         channelId,
         member,
-        channelId === town ? townMessage : "Design fixture message",
+        channelId === town
+          ? townMessage
+          : channelId === self
+            ? "Personal fixture message"
+            : "Design fixture message",
       ),
       "live-posts-" + channelId,
     );

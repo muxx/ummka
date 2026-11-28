@@ -206,23 +206,31 @@ export function useWorkspaceSearch(
     else trigger.current?.focus();
     setForm(null);
   }
-  function abandonDestination() {
+  function clearResultSource() {
     activation.current?.controller.abort();
     activation.current = null;
     sourceRow.current = null;
     setRestore(null);
+  }
+  function abandonDestination() {
+    clearResultSource();
     clearPosition();
   }
-  function dismiss() {
-    abandonDestination();
+  function leaveResults() {
+    clearResultSource();
     request.current?.token.abort();
     request.current = null;
     setPending(null);
-    closeDialog();
+    setForm(null);
     setIssues({});
     result.current?.close();
     result.current = null;
     setEntry(null);
+  }
+  function dismiss() {
+    clearPosition();
+    closeDialog();
+    leaveResults();
   }
   function currentQuery(): SearchInput {
     return {
@@ -356,6 +364,7 @@ export function useWorkspaceSearch(
       return origin?.channelId;
     },
     dismiss,
+    leaveResults,
     abortPending: () => activation.current?.controller.abort(),
     back: open
       ? closeDialog

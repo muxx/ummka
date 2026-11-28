@@ -11,6 +11,8 @@ import { accountPostCollections } from "../mattermost/account-post-collections.t
 import { accountSearch } from "../mattermost/account-search.ts";
 import { channelProfile } from "../mattermost/channel-profiles.ts";
 import "../empty-link-inbox.test-utils.ts";
+import { listInstallations } from "../mattermost/installation-registry.ts";
+import { getCurrentAccountId } from "../mattermost/native-rest.ts";
 import {
   bookmark,
   design,
@@ -30,9 +32,12 @@ import {
 vi.mock("../mattermost/device-launch.ts", () => ({
   getDeviceLaunchContext: vi.fn(),
 }));
+vi.mock("../mattermost/installation-registry.ts", () => ({
+  listInstallations: vi.fn(),
+}));
 vi.mock("../mattermost/native-rest.ts", () => ({
-  openAccountRestConnection: vi.fn(),
   getCurrentAccountId: vi.fn(),
+  openAccountRestConnection: vi.fn(),
 }));
 let nativeBack: (() => void) | undefined;
 vi.mock("@tauri-apps/api/app", () => ({
@@ -169,6 +174,8 @@ test.each([
         }).value,
       ).toBe("Original unfinished draft"),
     );
+    expect(account.selectSidebarChannel).toHaveBeenCalledWith(winter, home);
+    expect(account.reopenKnownConversation).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(restored);
   },
 );
@@ -1506,7 +1513,11 @@ test.each([
 ] as const)(
   "describes a %s conversation with no saved topic",
   async (homeKind, description, title) => {
-    fixture({ homeKind, homeHeader: " \n " });
+    fixture({
+      homeKind,
+      homeHeader: " \n ",
+      homeName: homeKind === "G" ? "group-wire-name" : undefined,
+    });
     const button = await screen.findByRole("button", {
       name: `Channel menu, ${title}`,
       description,
@@ -3697,4 +3708,269 @@ test("removing a saved row keeps the next whole row in place through the replace
     geometry.mockRestore();
     vi.unstubAllGlobals();
   }
+});
+
+test.each([
+  [root, true],
+  [root, false],
+  [reply, false],
+] as const)(
+  "a pasted permalink opens the exact published %j across teams %s using one account route",
+  async (post, cross) => {
+    const { account } = fixture({ cross });
+    vi.mocked(listInstallations).mockResolvedValue(["https://example.test"]);
+    vi.mocked(getCurrentAccountId).mockResolvedValue(user);
+    if (!cross && post === root) {
+      fireEvent.click(await screen.findByRole("button", { name: "Home" }));
+    }
+    const original = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+      name: "Message #Home…",
+    });
+    await waitFor(() =>
+      expect(original.value).toBe("Original unfinished draft"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Channels" }));
+    const frame = original.closest(".channels-panes");
+    expect(frame?.getAttribute("data-page")).toBe("navigation");
+    fireEvent.click(screen.getByRole("button", { name: "Find a channel" }));
+    const picker = within(
+      await screen.findByRole("dialog", { name: "Find a channel" }),
+    );
+    const field = picker.getByRole("combobox");
+    fireEvent.change(field, {
+      target: { value: "https://example.test/summer/pl/" + post.id },
+    });
+    picker.getByRole("option", { name: "Go to message" });
+    expect(listInstallations).not.toHaveBeenCalled();
+    expect(account.readPostAnchor).not.toHaveBeenCalled();
+    fireEvent.keyDown(field, { key: "Enter" });
+    fireEvent.keyDown(field, { key: "Enter", repeat: true });
+    const destination = (await screen.findByText(post.message)).closest(
+      "article",
+    );
+    await waitFor(() => expect(document.activeElement).toBe(destination));
+    expect(
+      destination?.closest(".channels-panes")?.getAttribute("data-page"),
+    ).toBe(post === reply ? "thread" : "conversation");
+    expect(listInstallations).toHaveBeenCalledTimes(1);
+    expect(account.readPostAnchor.mock.calls.map((call) => call[0])).toEqual([
+      post.id,
+    ]);
+    expect(account.readPostSearchPage).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("button", { name: "Back to results" }),
+    ).toBeNull();
+    if (!cross && post === root) {
+      fireEvent.click(screen.getByRole("button", { name: "Directory" }));
+      const directory = await screen.findByRole("main", { name: "Directory" });
+      expect(document.activeElement).toBe(
+        within(directory).getByRole("heading", { level: 1, name: "Directory" }),
+      );
+      fireEvent.keyDown(window, { key: "Escape" });
+      await screen.findByRole("main", { name: "Design" });
+    }
+    if (cross)
+      expect(account.selectJoinedTeam).toHaveBeenCalledExactlyOnceWith(summer);
+    else if (post === reply)
+      expect(screen.getByRole("heading", { name: "Thread" })).toBeTruthy();
+  },
+);
+test.each([true, false])(
+  "opens the exact recipient conversation after a pasted message link, saved membership %s",
+  async (existing) => {
+    const { account } = fixture();
+    vi.mocked(listInstallations).mockResolvedValue(["https://example.test"]);
+    vi.mocked(getCurrentAccountId).mockResolvedValue(user);
+    const peer = channelProfile({
+      id: "x".repeat(26),
+      username: "recipient",
+      deleteAt: 0,
+    });
+    const conversation = "m".repeat(26);
+    const outdatedConversation = "n".repeat(26);
+    const read = account.readTeamSidebar.getMockImplementation();
+    if (!read) throw Error("Missing sidebar fixture");
+    let permalink = false;
+    let created = false;
+    account.readTeamSidebar.mockImplementation(async (team) => {
+      const sidebar = await read(team);
+      const sampleRoom = sidebar?.data.channels[0];
+      if (!sidebar || !sampleRoom)
+        throw Error("Missing current workspace membership");
+      // The navigation handoff may have an earlier complete snapshot than the sidebar observer.
+      const id = permalink
+        ? outdatedConversation
+        : existing || created
+          ? conversation
+          : null;
+      const channels = id
+        ? [
+            ...sidebar.data.channels,
+            {
+              ...sampleRoom,
+              id,
+              kind: "D",
+              name: `${user}__${peer.id}`,
+              displayName: "",
+            },
+          ]
+        : sidebar.data.channels;
+      return {
+        ...sidebar,
+        data: {
+          channels,
+          categories: [
+            ...sidebar.data.categories,
+            {
+              id: "direct-category",
+              kind: "direct_messages",
+              displayName: "Direct messages",
+              sorting: "recent",
+              collapsed: false,
+              muted: false,
+              channelIds: id ? [id] : [],
+            },
+          ],
+        },
+      };
+    });
+    account.readConversationRecipients.mockResolvedValue({
+      profiles: [peer],
+      nextPage: null,
+    });
+    account.openRecipientConversation.mockImplementation(async () => {
+      created = true;
+      return { kind: "applied", channelId: conversation, channelKind: "D" };
+    });
+    await screen.findByRole("button", { name: "Direct message actions" });
+    await waitFor(() =>
+      expect(account.readTeamSidebar.mock.calls.length).toBeGreaterThanOrEqual(
+        2,
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Find a channel" }));
+    const link = within(
+      await screen.findByRole("dialog", { name: "Find a channel" }),
+    );
+    fireEvent.change(link.getByRole("combobox"), {
+      target: { value: `https://example.test/winter/pl/${root.id}` },
+    });
+    permalink = true;
+    fireEvent.click(link.getByRole("option", { name: "Go to message" }));
+    await screen.findByText(root.message);
+    permalink = false;
+    account.selectSidebarChannel.mockClear();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Direct message actions" }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Write a message" }));
+    const picker = within(
+      await screen.findByRole("dialog", { name: "New direct message" }),
+    );
+    fireEvent.click(await picker.findByRole("checkbox", { name: "recipient" }));
+    fireEvent.click(picker.getByRole("button", { name: "Open conversation" }));
+    await waitFor(() =>
+      expect(account.selectSidebarChannel).toHaveBeenCalledExactlyOnceWith(
+        winter,
+        conversation,
+      ),
+    );
+    expect(account.openRecipientConversation).toHaveBeenCalledTimes(
+      existing ? 0 : 1,
+    );
+    await waitFor(() =>
+      expect(account.reopenKnownConversation).toHaveBeenCalledExactlyOnceWith(
+        winter,
+        conversation,
+        expect.any(AbortSignal),
+      ),
+    );
+  },
+);
+
+test("refused pasted post returns to the source and its original draft", async () => {
+  const { account } = fixture();
+  vi.mocked(listInstallations).mockResolvedValue(["https://example.test"]);
+  vi.mocked(getCurrentAccountId).mockResolvedValue(user);
+  account.readPostAnchor.mockRejectedValue(
+    new ResponseError(new Response(null, { status: 404 })),
+  );
+  const original = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Message #Home…",
+  });
+  original.focus();
+  fireEvent.keyDown(original, { code: "KeyK", key: "k", ctrlKey: true });
+  const picker = within(
+    await screen.findByRole("dialog", { name: "Find a channel" }),
+  );
+  fireEvent.change(picker.getByRole("combobox"), {
+    target: { value: "https://example.test/_redirect/pl/" + reply.id },
+  });
+  fireEvent.click(picker.getByRole("option", { name: "Go to message" }));
+  const error = within(
+    await screen.findByRole("dialog", { name: "Open message" }),
+  );
+  expect(error.getByRole("alert").textContent).toContain("Message unavailable");
+  fireEvent.click(error.getByRole("button", { name: "OK" }));
+  await waitFor(() => expect(document.activeElement).toBe(original));
+  expect(original.value).toBe("Original unfinished draft");
+  expect(account.selectSidebarChannel).not.toHaveBeenCalled();
+});
+
+test("a pasted post keeps the active search source until it has a destination", async () => {
+  const { account } = fixture();
+  vi.mocked(listInstallations).mockResolvedValue(["https://example.test"]);
+  vi.mocked(getCurrentAccountId).mockResolvedValue(user);
+  account.readPostAnchor.mockRejectedValueOnce(
+    new ResponseError(new Response(null, { status: 404 })),
+  );
+  const results = await search();
+  const source = await results.findByRole("button", {
+    name: "Search root snippet",
+  });
+  async function paste() {
+    source.focus();
+    fireEvent.keyDown(source, { code: "KeyK", key: "k", ctrlKey: true });
+    const picker = within(
+      await screen.findByRole("dialog", { name: "Find a channel" }),
+    );
+    fireEvent.change(picker.getByRole("combobox"), {
+      target: { value: "https://example.test/_redirect/pl/" + root.id },
+    });
+    fireEvent.click(picker.getByRole("option", { name: "Go to message" }));
+  }
+  await paste();
+  const error = within(
+    await screen.findByRole("dialog", { name: "Open message" }),
+  );
+  fireEvent.click(error.getByRole("button", { name: "OK" }));
+  await waitFor(() => expect(document.activeElement).toBe(source));
+  expect(source.isConnected).toBe(true);
+  await paste();
+  const destination = (await screen.findByText(root.message)).closest(
+    "article",
+  );
+  await waitFor(() => expect(document.activeElement).toBe(destination));
+  expect(source.isConnected).toBe(false);
+  expect(screen.queryByRole("button", { name: "Back to results" })).toBeNull();
+});
+
+test("a replaced user cannot open a pasted post with an old workspace connection", async () => {
+  const { account } = fixture();
+  vi.mocked(listInstallations).mockResolvedValue(["https://example.test"]);
+  vi.mocked(getCurrentAccountId).mockResolvedValue("x".repeat(26));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Find a channel" }),
+  );
+  const picker = within(
+    await screen.findByRole("dialog", { name: "Find a channel" }),
+  );
+  fireEvent.change(picker.getByRole("combobox"), {
+    target: { value: "https://example.test/winter/pl/" + root.id },
+  });
+  fireEvent.click(picker.getByRole("option", { name: "Go to message" }));
+  await waitFor(() => expect(account.close).toHaveBeenCalled());
+  expect(account.readPostAnchor).not.toHaveBeenCalled();
+  expect(account.selectSidebarChannel).not.toHaveBeenCalled();
 });

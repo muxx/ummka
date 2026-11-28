@@ -19,6 +19,10 @@ export const workspaceCopy = {
     forbidden: "This content is no longer available to your account.",
     retry: "Try again",
     selected: "Couldn’t save the selected channel.",
+    reopenWrite:
+      "Couldn’t confirm that this conversation is visible on your other devices.",
+    reopenRefresh:
+      "The server saved your change. Couldn’t update the sidebar on this device.",
     edge: "This part of the history is unavailable.",
     positionLost: "The messages you were reading are no longer available here.",
     latest: "Go to latest messages",
@@ -61,6 +65,10 @@ export const workspaceCopy = {
     forbidden: "У аккаунта больше нет доступа к этим данным.",
     retry: "Повторить",
     selected: "Не удалось сохранить выбранный канал.",
+    reopenWrite:
+      "Не удалось подтвердить видимость этой беседы на других устройствах.",
+    reopenRefresh:
+      "Сервер сохранил настройку. Не удалось обновить панель на этом устройстве.",
     edge: "Этот участок истории недоступен.",
     sidebar: "Категории каналов",
     privateChannel: "Закрытый канал",

@@ -12,6 +12,36 @@ function fold(text: string) {
   return text.toLowerCase().replaceAll("ё", "е");
 }
 
+export function knownConversationTerm(text: string) {
+  return fold(text.trim()).replace(/^[#~@]/, "");
+}
+
+export function conversationTitleMatch(
+  title: string,
+  term: string,
+): [number, number] | null {
+  if (!term) return null;
+  const folded = fold(title);
+  const start = folded.indexOf(term);
+  if (start < 0) return null;
+  const end = start + term.length;
+  if (folded.length === title.length) return [start, end];
+
+  // Case folding can expand a character (İ → i plus combining dot).
+  // Return offsets into the original title for rendering the highlight.
+  let original = 0,
+    offset = 0,
+    from = 0;
+  for (const character of title) {
+    const next = offset + fold(character).length;
+    if (offset <= start && start < next) from = original;
+    original += character.length;
+    if (end <= next) return [from, original];
+    offset = next;
+  }
+  return null;
+}
+
 function profileNames(person: ChannelProfile) {
   return [
     person.username,
@@ -29,6 +59,7 @@ function searchNames(channel: Channel, title: string, ctx: Context) {
   }
   if (channel.kind !== "G") return [title, channel.name];
 
+  if (!channel.displayName || channel.displayName === channel.name) return [];
   const names = [title];
   for (const username of channel.displayName.split(", ")) {
     names.push(username);
@@ -48,11 +79,6 @@ export function prepareKnownConversationSearch(
   const entries = snapshot.data.channels.map((channel) => {
     const row = conversationRow(channel, snapshot.selectedChannel, ctx);
     const names = searchNames(channel, row.title, ctx);
-    if (
-      channel.kind === "G" &&
-      (row.title === channel.name || !names.some(Boolean))
-    )
-      row.title = ctx.locale === "ru" ? "Групповая переписка" : "Group message";
     return {
       row,
       keys: [...new Set(names.filter(Boolean).map(fold))],
@@ -82,7 +108,7 @@ export function prepareKnownConversationSearch(
   }
 
   return (text: string): readonly Row[] => {
-    const term = fold(text.trim()).replace(/^[#~@]/, "");
+    const term = knownConversationTerm(text);
     if (!term) return [...recent];
 
     // Active prefix, active substring, archived prefix, archived substring.

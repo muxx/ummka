@@ -21,7 +21,7 @@ mod confirmation;
 mod lifecycle;
 pub use confirmation::{DeliveryPost, DeliverySource};
 mod pending;
-pub use pending::{PendingCursor, PendingPost, StagePost};
+pub use pending::{PendingCursor, PendingPost, PendingPostFile, StagePost};
 mod posts;
 mod profiles;
 mod thread_summary;

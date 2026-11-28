@@ -303,6 +303,11 @@ fn upgrades_settings_and_drafts_and_protects_the_new_policy() {
 fn guest_tag_policy_upgrades_v31_and_survives_downgrade_refusals() {
     let root = tempdir().unwrap();
     let prior = &MIGRATIONS[..31];
+    let open_v32 = || {
+        let mut database = HistoryDatabase::open_with(root.path(), URL, &MIGRATIONS[..32]).unwrap();
+        let owner = database.restore(&account()).unwrap();
+        AccountHistory { database, owner }
+    };
     let mut old = HistoryDatabase::open_with(root.path(), URL, prior).unwrap();
     let owner = old.restore(&account()).unwrap();
     let legacy = policy();
@@ -320,7 +325,7 @@ fn guest_tag_policy_upgrades_v31_and_survives_downgrade_refusals() {
     })
     .unwrap();
 
-    let mut db = open(root.path());
+    let mut db = open_v32();
     assert_eq!(db.read_workspace_settings().unwrap().server, Some(legacy));
     let migrated: (i64, String) = db
         .read(|tx| {
@@ -355,7 +360,7 @@ fn guest_tag_policy_upgrades_v31_and_survives_downgrade_refusals() {
             Some(HistoryError::UnsupportedSchema)
         );
         assert_eq!(std::fs::read(&file).unwrap(), before);
-        db = open(root.path());
+        db = open_v32();
         assert_eq!(
             db.read_workspace_settings().unwrap(),
             WorkspaceSettings {

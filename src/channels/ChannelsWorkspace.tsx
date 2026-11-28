@@ -29,7 +29,7 @@ import {
 } from "../mattermost/channel-profiles.ts";
 import type { LocalPost } from "../mattermost/local-history.ts";
 import { isMattermostId } from "../mattermost/model-fields.ts";
-import { visibleSidebar } from "../mattermost/sidebar-rows.ts";
+import { conversationRow, visibleSidebar } from "../mattermost/sidebar-rows.ts";
 import { effectiveWorkspacePreferences } from "../mattermost/workspace-preferences.ts";
 import { ChannelBookmarksPanel } from "./ChannelBookmarksPanel.tsx";
 import { ChannelFilesPanel } from "./ChannelFilesPanel.tsx";
@@ -63,7 +63,7 @@ import {
   DirectoryNavigationIcon,
   directoryCopy,
 } from "./DirectorySurface.tsx";
-import { DraftComposer } from "./DraftComposer.tsx";
+import { DraftComposer, type DraftSelection } from "./DraftComposer.tsx";
 import { draftCopy } from "./draft-copy.ts";
 import { MentionMark, MentionsPane, mentionCopy } from "./MentionsPane.tsx";
 import { applyOpenChannelEvents } from "./open-channel-events.ts";
@@ -93,6 +93,8 @@ import {
   publishedOriginLink,
 } from "./published-reading-history.ts";
 import { SidebarConversationRow } from "./SidebarConversationRow.tsx";
+import { StartConversationCategoryMenu } from "./StartConversationCategoryMenu.tsx";
+import { StartConversationDialog } from "./StartConversationDialog.tsx";
 import type { ReactionThread } from "./submit-channel-reaction.ts";
 import { TeamChannelDirectory } from "./TeamChannelDirectory.tsx";
 import { ThreadInboxPane } from "./ThreadInboxPane.tsx";
@@ -112,6 +114,7 @@ import {
 } from "./use-account-post-observer.ts";
 import { useChannelTimeline } from "./use-channel-timeline.ts";
 import { useInfoRead } from "./use-info-read.ts";
+import { useReopenConversation } from "./use-reopen-conversation.ts";
 import { useResultChannelIdentities } from "./use-result-channel-identities.ts";
 import { useWorkspaceBack } from "./use-workspace-back.ts";
 import { useWorkspaceCollections } from "./use-workspace-collections.ts";
@@ -119,6 +122,7 @@ import { useWorkspaceProfiles } from "./use-workspace-profiles.ts";
 import { useTeamRoles, useWorkspaceRead } from "./use-workspace-read.ts";
 import { useWorkspaceSearch } from "./use-workspace-search.tsx";
 import { useWorkspaceThreadInbox } from "./use-workspace-thread-inbox.ts";
+import { useWorkspaceQuickSwitch } from "./WorkspaceQuickSwitch.tsx";
 import { workspaceCopy } from "./workspace-copy.ts";
 import { openingChannel, workspaceProfileQuery } from "./workspace-data.ts";
 import "./workspace.css";
@@ -140,10 +144,12 @@ type Sections = ReturnType<typeof visibleSidebar>;
 function Sidebar({
   sections,
   choose,
+  startConversation,
   language,
 }: {
   sections: Sections;
   choose: (id: string) => void;
+  startConversation: (opener: HTMLButtonElement) => void;
   language: EntryLanguage;
 }) {
   const text = workspaceCopy[language],
@@ -154,12 +160,23 @@ function Sidebar({
         .filter(
           (section) =>
             section.rows.length ||
+            section.kind === "direct_messages" ||
             section.kind === "custom" ||
             section.kind === "managed",
         )
         .map((section, i) => (
           <section key={section.id} aria-labelledby={`${prefix}-${i}`}>
-            <h2 id={`${prefix}-${i}`}>{section.title}</h2>
+            {section.kind === "direct_messages" ? (
+              <div className="direct-message-category">
+                <h2 id={`${prefix}-${i}`}>{section.title}</h2>
+                <StartConversationCategoryMenu
+                  language={language}
+                  start={startConversation}
+                />
+              </div>
+            ) : (
+              <h2 id={`${prefix}-${i}`}>{section.title}</h2>
+            )}
             <ul>
               {section.rows.map((row) => (
                 <li key={row.id}>
@@ -264,6 +281,10 @@ export function ChannelsWorkspace({
     null,
   );
   const accountOverlayReturn = useRef<HTMLButtonElement | null>(null);
+  const [recipientOpener, setRecipientOpener] =
+    useState<HTMLButtonElement | null>(null);
+  const draftSelections = useRef(new Map<string, DraftSelection>());
+  const [conversationFocus, focusConversation] = useState(0);
   const appearanceButton = useRef<HTMLButtonElement>(null);
   const savedButton = useRef<HTMLButtonElement>(null);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
@@ -498,7 +519,10 @@ export function ChannelsWorkspace({
   const [handoff, setHandoff] = useState({ focusRequest, published, status });
   if (focusRequest !== handoff.focusRequest) {
     setHandoff({ focusRequest, published, status });
-    if (focusRequest) setDirectoryOpen(false);
+    if (focusRequest) {
+      setDirectoryOpen(false);
+      setPage("conversation");
+    }
   }
   const snapshot =
     position &&
@@ -900,9 +924,18 @@ export function ChannelsWorkspace({
     team.id,
     workspace.teamChoice.teams,
   ]);
-  const selectedRow = sections
-    .flatMap((section) => section.rows)
-    .find((row) => row.id === chosen);
+  const selectedRow =
+    sections
+      .flatMap((section) => section.rows)
+      .find((row) => row.id === chosen) ??
+    (channel && settings
+      ? conversationRow(channel, chosen, {
+          userId,
+          preferences: settings,
+          profiles,
+          locale: language,
+        })
+      : undefined);
   const selectedLabel = selectedRow?.title;
   function inboxRoomName(id: string) {
     const room = inboxRooms?.get(id);
@@ -938,7 +971,9 @@ export function ChannelsWorkspace({
         settings.nameFormat,
         language,
       );
-    return name ? draftText.direct(name) : draftText.generic;
+    return name && (channel.kind !== "G" || name !== channel.name)
+      ? draftText.direct(name)
+      : draftText.generic;
   }
   useEffect(() => {
     for (const issue of [
@@ -957,7 +992,12 @@ export function ChannelsWorkspace({
     roles.state.status,
   ]);
 
-  function choose(id: string, returning = false) {
+  const reopen = useReopenConversation(workspace);
+  function choose(
+    id: string,
+    returning = false,
+    quick?: { origin: HTMLElement | null; afterSaved?: () => void },
+  ) {
     const main = inbox.visible ? inboxMain.current : undefined;
     const switchingChannel = id !== chosen;
     const keepCurrentReading = !switchingChannel && !position && !inbox.visible;
@@ -1014,14 +1054,16 @@ export function ChannelsWorkspace({
               : null,
           );
         },
-        false,
+        () => quick?.origin != null && document.activeElement === quick.origin,
+        quick?.afterSaved,
       );
-    } else chooseChannel(id);
+    } else chooseChannel(id, undefined, undefined, quick?.afterSaved);
   }
   function chooseChannel(
     id: string,
     outcome?: (accepted: boolean) => void,
-    focusOnCommit = true,
+    focusOnCommit = () => true,
+    afterSaved?: () => void,
   ) {
     const version = ++choice.current;
     const owner = active.current;
@@ -1037,12 +1079,13 @@ export function ChannelsWorkspace({
       } catch {
         /* The local choice is acknowledged only by SQLite. */
       }
+      if (accepted && active.current === owner) afterSaved?.();
       if (active.current === owner && version === choice.current) {
         if (!accepted) {
           setSelected(null);
           setChoiceFailed(outcome ? { exclude: id } : {});
           if (outcome) directory.retry();
-        } else if (outcome) setSelected({ id, focus: focusOnCommit });
+        } else if (outcome) setSelected({ id, focus: focusOnCommit() });
         outcome?.(accepted);
       }
       return accepted;
@@ -1110,6 +1153,15 @@ export function ChannelsWorkspace({
   const policyIssue =
     error(policy.server.status) ||
     (policy.userReadFailed ? text.storage : null);
+  function hiddenPreference(room: typeof channel | undefined) {
+    if (!settings || !room) return false;
+    if (room.kind === "G") return !settings.groupShown[room.id];
+    if (room.kind !== "D") return false;
+    const peer = directPartnerId(room.name, userId);
+    return Boolean(peer && !settings.directShown[peer]);
+  }
+  const reopenIssue =
+    chosen && hiddenPreference(channel) ? reopen.failures[chosen] : undefined;
   const own = profiles.byId.get(userId);
   const accountName = own
     ? teammateName(own, settings?.nameFormat ?? "full_name")
@@ -1326,8 +1378,72 @@ export function ChannelsWorkspace({
   const notice = (message: string, retry?: () => void, alert = false) => (
     <Notice message={message} label={text.retry} retry={retry} alert={alert} />
   );
+  function chooseKnownConversation(
+    id: string,
+    origin: HTMLElement | null,
+    room = current?.data.channels.find((row) => row.id === id),
+  ) {
+    if (search.panel) search.dismiss();
+    if (id === chosen) {
+      closeThread();
+      focusConversation((request) => request + 1);
+    }
+    choose(id, false, {
+      origin,
+      afterSaved:
+        online && hiddenPreference(room)
+          ? () => void reopen.open(id)
+          : undefined,
+    });
+  }
+  const quickSwitch = useWorkspaceQuickSwitch(
+    {
+      connection,
+      serverUrl: workspace.serverUrl,
+      teamName: team.name,
+      online,
+      snapshot: current,
+      preferences: settings,
+      visible: saved,
+      recent: recent.current,
+      userId,
+      language,
+      sessionIssue,
+      unavailable:
+        directoryIssue ||
+        policyIssue ||
+        (!snapshot
+          ? online
+            ? text.loading
+            : text.noCache
+          : online
+            ? text.policy
+            : text.noPolicy),
+    },
+    chooseKnownConversation,
+    (id, signal, origin) => {
+      search.abortPending();
+      collections.abort();
+      return workspace.messages.open(
+        {
+          kind: "post",
+          id,
+          onAccepted: () => {
+            search.leaveResults();
+            collections.close(false);
+            inbox.close();
+            setInfoChannel(null);
+            setChannelMenuOpen(null);
+          },
+        },
+        signal,
+        origin,
+      );
+    },
+  );
   const nav = (
     <>
+      {quickSwitch.trigger}
       <div className="panel-navigation">
         {inbox.model && (
           <button
@@ -1372,6 +1488,7 @@ export function ChannelsWorkspace({
           data-surface={directoryOpen ? "selected-navigation" : undefined}
           onClick={(event) => {
             if (directoryOpen) return;
+            if (position && chosen) setSelected({ id: chosen, focus: true });
             restoreDirectoryControl.current = event.detail === 0;
             search.dismiss();
             workspace.messages.clear();
@@ -1402,7 +1519,12 @@ export function ChannelsWorkspace({
           !!policyIssue,
         )}
       {settings && (
-        <Sidebar sections={sections} language={language} choose={choose} />
+        <Sidebar
+          sections={sections}
+          language={language}
+          choose={choose}
+          startConversation={setRecipientOpener}
+        />
       )}
       {choiceFailed && notice(text.selected, undefined, true)}
     </>
@@ -1952,6 +2074,8 @@ export function ChannelsWorkspace({
   );
   const overlayOpen =
     accountOverlay !== null ||
+    recipientOpener !== null ||
+    Boolean(quickSwitch.dialog) ||
     notification !== null ||
     workspace.messages.dialogOpen ||
     Boolean(attachments.selected) ||
@@ -2356,6 +2480,7 @@ export function ChannelsWorkspace({
         online={online}
         sessionIssue={sessionIssue}
         fieldRef={rootId ? replyField : draftField}
+        selections={rootId ? undefined : draftSelections.current}
       />
     );
   }
@@ -2935,8 +3060,9 @@ export function ChannelsWorkspace({
         accountRef={accountButton}
         draftRef={inbox.visible || directoryOpen ? undefined : draftField}
         focusConversation={directoryOpen ? focusDirectory : undefined}
+        conversationFocus={conversationFocus}
         focusChannelChange={
-          selected?.id !== chosen || selected?.focus !== false
+          directoryOpen || selected?.id !== chosen || selected?.focus !== false
         }
         accountName={accountName}
         accountDescription={
@@ -3212,6 +3338,17 @@ export function ChannelsWorkspace({
           className="workspace-conversation-route"
           hidden={directoryOpen || inbox.visible}
         >
+          {chosen &&
+            reopenIssue &&
+            notice(
+              reopenIssue === "refresh" ? text.reopenRefresh : text.reopenWrite,
+              online
+                ? () => {
+                    void reopen.retry(chosen);
+                  }
+                : undefined,
+              true,
+            )}
           {timeline.status === "positionLost" && (
             <Notice
               message={text.positionLost}
@@ -3283,6 +3420,28 @@ export function ChannelsWorkspace({
             )}
         </div>
       </ChannelsFrame>
+      {quickSwitch.dialog}
+      {recipientOpener && settings && (
+        <StartConversationDialog
+          account={connection}
+          teamId={team.id}
+          userId={userId}
+          language={language}
+          format={settings.nameFormat}
+          online={online}
+          directory={directory.state}
+          refresh={directory.retry}
+          sessionIssue={sessionIssue}
+          dismiss={() => {
+            setRecipientOpener(null);
+            recipientOpener.focus({ preventScroll: true });
+          }}
+          choose={(room) => {
+            setRecipientOpener(null);
+            chooseKnownConversation(room.id, recipientOpener, room);
+          }}
+        />
+      )}
       {search.dialog}
       {notification && notification.room === chosen && notificationKind && (
         <ChannelNotificationsDialog

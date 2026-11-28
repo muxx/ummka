@@ -33,7 +33,9 @@ import type { EntryLanguage } from "./language.ts";
 import type { SystemPostRequest } from "./use-system-permalink";
 
 type SystemOrigin = { request: SystemPostRequest; chooseTeam: () => void };
-type Source = Parameters<typeof openPostNavigation>[1];
+type Source = Parameters<typeof openPostNavigation>[1] & {
+  onAccepted?: () => void;
+};
 type Consent = Parameters<Parameters<typeof openPostNavigation>[3]>[0];
 type Outcome = Awaited<
   ReturnType<ReturnType<typeof openPostNavigation>["open"]>
@@ -610,6 +612,7 @@ export function useMessageNavigation(
           savedSurfaces.current.add(destination.saved.teamId);
         setSavedReturn(null);
         setPosition(destination);
+        source.onAccepted?.();
       }
       if (
         !(await selectTeam(team, signal, commit, {

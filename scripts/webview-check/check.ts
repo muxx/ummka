@@ -15,6 +15,7 @@ import { androidFixtureStep, fixtureStep } from "./fixture-step.ts";
 import { checkDesktopFormatting, checkGeneratedRequests } from "./generated.ts";
 import { checkNotificationSoundAssets } from "./notification-sounds.ts";
 import { checkPaletteSurfaces } from "./palette.ts";
+import { checkRecipientWindow } from "./recipient-window.tsx";
 import {
   checkSystemPostWindowRestore,
   resumeRegistryCheck,
@@ -163,6 +164,9 @@ async function checkResources() {
       checkClipboardPolicy(ports[1]),
     );
     await checkGeneratedRequests(ports);
+    await fixtureStep("recipient-window", () =>
+      checkRecipientWindow(ports[0], ports[1]),
+    );
     const invalid = await fixtureStep("reject-relative-external-link", () =>
       openExternalPostLink("/relative").catch((reason: unknown) => reason),
     );

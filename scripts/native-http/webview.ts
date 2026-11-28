@@ -22,6 +22,7 @@ import {
 import { respondToChannelMembers } from "./channel-members.ts";
 import { respondToChannelView } from "./channel-view.ts";
 import { collectionWindowFixture } from "./collection-window.ts";
+import { draftWorkspaceFixture } from "./draft-workspace.ts";
 import { respondToGroupAssociations } from "./group-associations.ts";
 import { respondToGroupAudience } from "./group-audience.ts";
 import { respondToHistory } from "./history.ts";
@@ -31,6 +32,7 @@ import { openChannelEventFixture } from "./open-channel-event-fixture.ts";
 import { collectionFixture } from "./post-collections.ts";
 import { respondToPostContext } from "./post-context.ts";
 import { respondToPostMutation } from "./post-mutations.ts";
+import { recipientWindowFixture } from "./recipient-window.ts";
 import { submissionFixture } from "./submit-post.ts";
 import { threadInboxWindowFixture } from "./thread-inbox-window.ts";
 import { respondToThreadList } from "./thread-list.ts";
@@ -86,6 +88,11 @@ export function webviewServers(
     "card-race-delete",
     "card-race-first",
     "submit-post",
+    "submit-file-retry",
+    "submit-file-retire",
+    "bridge-slow-1",
+    "bridge-hold-1",
+    "bridge-hold-2",
     "recipient-hold",
     "remote-recipient",
     "remote-recipient-cancel",
@@ -109,6 +116,7 @@ export function webviewServers(
   let workspaceConfigReads = 0;
   const systemPostReads = new Set<string>();
   const collectionWindow = collectionWindowFixture();
+  const recipientWindow = recipientWindowFixture();
   const inboxWindow = threadInboxWindowFixture(
     () => swipeAndroid !== undefined,
     async () => {
@@ -185,6 +193,7 @@ export function webviewServers(
     "appearance",
     "dialog",
     "results",
+    "quick-switch",
     "thread",
     "reopened",
     "channel-menu",
@@ -260,8 +269,11 @@ export function webviewServers(
       },
     ],
   ]);
-  const submissions = submissionFixture(userId, () =>
-    events.emit("submit-post-received"),
+  const submissions = submissionFixture(userId, (name, step) =>
+    events.emit(`${name}-${step}`),
+  );
+  const draftWorkspace = draftWorkspaceFixture(userId, (name, step) =>
+    events.emit(`${name}-${step}`),
   );
   const refresh = historyRefreshFixture(userId, () =>
     events.emit("refresh-late-received"),
@@ -273,6 +285,7 @@ export function webviewServers(
   const channelId = "c".repeat(26);
   const groupId = "g".repeat(26);
   let groupOpenedAt: string | undefined;
+  const liveVisibility: { selfOpenedAt?: string } = {};
   const collections = collectionFixture(channelId, userId);
   const teamReads = new Map<
     string,
@@ -806,6 +819,7 @@ export function webviewServers(
       return;
     }
     if (await collectionWindow(req, res, url)) return;
+    if (await recipientWindow.serve(req, res, url)) return;
     if (url.pathname === `/team/chat/api/v4/channels/${channelId}/bookmarks`) {
       assert.equal(req.method, "POST");
       assert.equal(url.search, "");
@@ -1485,6 +1499,11 @@ export function webviewServers(
         .end(JSON.stringify({ status: "OK" }));
       return;
     }
+    const draftUpload = await draftWorkspace.respond(req, res, url);
+    if (draftUpload) {
+      visits.push(draftUpload);
+      return;
+    }
     const mutation = await respondToPostMutation(
       req,
       res,
@@ -1549,6 +1568,7 @@ export function webviewServers(
       {
         joinedPublicRoom: visits.includes("directory-join"),
         acceptedThreadReply: visits.includes("live-window-send-reply"),
+        visible: liveVisibility,
       },
     );
     if (workspace) {
@@ -2126,9 +2146,14 @@ export function webviewServers(
           "release-remote-recipient",
           "release-history",
           "release-submission",
+          "release-draft-upload",
           "disconnect",
           "external-handoff",
           "search-ime-back",
+          "recipient-picker-ime-back",
+          "recipient-picker-back",
+          "recipient-picker-confirm",
+          "recipient-picker-complete",
           "first-team-empty",
           "first-team-back",
           "first-team-invite",
@@ -2209,6 +2234,22 @@ export function webviewServers(
       assert(swipeAndroid && pressWorkspaceBack && !tableBack);
       if (!(await press(pressWorkspaceBack))) return;
       tableBack = true;
+    } else if (step === "recipient-picker-confirm") {
+      await recipientWindow.confirmRemote();
+    } else if (step === "recipient-picker-complete") {
+      recipientWindow.verify();
+      console.log(
+        "Verified the recipient picker, its signed requests and its single creation across a failed sidebar read.",
+      );
+    } else if (step === "recipient-picker-ime-back") {
+      const dismiss = pressSearchImeBack;
+      const point = /^([1-9]\d{0,3}),([1-9]\d{0,3})$/u.exec(name);
+      assert(dismiss && point);
+      if (!(await press(() => dismiss(Number(point[1]), Number(point[2])))))
+        return;
+    } else if (step === "recipient-picker-back") {
+      assert(pressWorkspaceBack);
+      if (!(await press(pressWorkspaceBack))) return;
     } else if (step === "search-ime-back") {
       const dismiss = pressSearchImeBack;
       const point = /^([1-9]\d{0,3}),([1-9]\d{0,3})$/u.exec(name);
@@ -2359,7 +2400,9 @@ export function webviewServers(
       if (name && name !== "refresh-late") cardRace.release(name);
       else refresh.release();
     } else if (step === "release-submission") {
-      submissions.release();
+      submissions.release(name);
+    } else if (step === "release-draft-upload") {
+      draftWorkspace.release();
     } else if (step === "disconnect") {
       const socket =
         name === "profile-image-network" ? profileImageSocket : disconnect;
@@ -2607,6 +2650,19 @@ export function webviewServers(
         "submit-unknown-retry",
         "submit-wrong-author",
         "submit-expired",
+        "submit-file-reordered",
+        "submit-file-unknown",
+        "submit-file-retry",
+        "submit-file-only-reply",
+        "submit-file-refused",
+        "submit-file-retire",
+        "bridge-slow-1",
+        "bridge-fast-1",
+        "bridge-retry-1",
+        "bridge-retry-2",
+        "bridge-denied-1",
+        "bridge-hold-1",
+        "bridge-hold-2",
         "create-post-reply",
         "save-post-reaction",
         "delete-post-reaction",
@@ -2820,6 +2876,12 @@ export function webviewServers(
           "live-channels",
           "live-members",
           "live-categories",
+          "live-show-personal-conversation",
+          "live-posts-" + "s".repeat(26),
+          "live-posts-" + "d".repeat(26),
+          "browser-entry-users/me/teams",
+          "browser-entry-users/me/teams/members",
+          "browser-entry-users/me/preferences",
           "live-window-send",
           "live-window-thread",
           ...clipboardPolicySteps.map((action) => `copy-${action}`),
@@ -2845,6 +2907,9 @@ export function webviewServers(
           "live-search-reply-anchor",
           "live-search-thread-up",
           "live-search-thread-down",
+          "live-posts-" + "c".repeat(26),
+          "live-search-destination",
+          "live-search-post-anchor",
           "live-posts-" + "c".repeat(26),
           "live-posts-" + "c".repeat(26),
           "browser-action-confirmed",
@@ -2885,8 +2950,9 @@ export function webviewServers(
         "live-members",
       );
       assert.equal(stepIndex, backSteps.length);
+      recipientWindow.verify();
       console.log(
-        `${platform} verified native return through the search dialog, results and thread with both composer drafts intact.`,
+        `${platform} verified native return through search, the quick switcher and the thread with both composer drafts intact.`,
       );
       assert.deepEqual(visits.sort(), expected.sort());
       console.log(

@@ -265,6 +265,11 @@ pub(crate) fn seed_check_sessions(
                 "fixture-browser-action",
             ),
             (
+                &format!("{root}/recipient-window"),
+                "ffffffffffffffffffffffffff",
+                "fixture-recipient-window",
+            ),
+            (
                 collections.as_str(),
                 "ffffffffffffffffffffffffff",
                 "fixture-browser-action",

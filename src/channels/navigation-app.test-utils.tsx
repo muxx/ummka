@@ -223,12 +223,15 @@ export function fixture({
       return true;
     }),
     readTeamSidebar: vi.fn<Account["readTeamSidebar"]>(readSidebar),
+    readConversationRecipients: vi.fn<Account["readConversationRecipients"]>(),
+    openRecipientConversation: vi.fn<Account["openRecipientConversation"]>(),
     readChannelMemberCount: vi
       .fn<Account["readChannelMemberCount"]>()
       .mockResolvedValue(7),
     readChannelMemberDirectory: vi
       .fn<Account["readChannelMemberDirectory"]>()
       .mockResolvedValue({ members: [], nextPage: null }),
+    reopenKnownConversation: vi.fn().mockResolvedValue("alreadyShown"),
     readChannelNotifications: vi
       .fn<Account["readChannelNotifications"]>()
       .mockResolvedValue({ account: {}, channel: {} }),
