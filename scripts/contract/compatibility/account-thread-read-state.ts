@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { accountFollowedThreads } from "../../../src/mattermost/account-followed-threads.ts";
 import type { Configuration, Post } from "../../../vendor/mattermost/index.js";
+import { checkOpenThreadInbox } from "./thread-inbox.ts";
 
 type Conversation = {
   scope: { threadId: string };
@@ -77,4 +78,11 @@ export async function checkAccountThreadReadState(
   });
   assert.deepEqual(await counts(writer, teamId, writerThreadId), [1, 1]);
   assert.deepEqual(await counts(reader, otherTeamId, outsideId), [1, 1]);
+  await checkOpenThreadInbox(
+    reader,
+    teamId,
+    subject.scope.threadId,
+    subject.mention,
+    { id: direct.scope.threadId, mention: direct.mention },
+  );
 }

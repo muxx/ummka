@@ -75,7 +75,16 @@ export async function respondToThreadList(
     });
     return reply({ ...noCounts, threads: [] }, "account-thread-empty");
   }
-  if (accountPage) {
+  const inbox = accountPage && query.per_page === "25";
+  if (inbox) {
+    assert.ok(query.unread === "true" || query.unread === "false");
+    assert.deepEqual(query, {
+      per_page: "25",
+      threadsOnly: "true",
+      extended: "true",
+      unread: query.unread,
+    });
+  } else if (accountPage) {
     assert.deepEqual(query, {
       per_page: "1",
       threadsOnly: "true",
@@ -123,6 +132,10 @@ export async function respondToThreadList(
         },
       ],
     },
-    accountPage ? "account-thread-page" : "thread-list-page",
+    inbox
+      ? `inbox-thread-${query.unread}`
+      : accountPage
+        ? "account-thread-page"
+        : "thread-list-page",
   );
 }
