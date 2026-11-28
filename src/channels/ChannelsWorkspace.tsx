@@ -913,62 +913,59 @@ export function ChannelsWorkspace({
 
   function choose(id: string, returning = false) {
     const main = inbox.visible ? inboxMain.current : undefined;
-    if (!returning && !inbox.visible) rememberChannelReading();
+    const switchingChannel = id !== chosen;
+    const keepCurrentReading = !switchingChannel && !position && !inbox.visible;
+    if (!returning && switchingChannel && !inbox.visible)
+      rememberChannelReading();
     const { collapsedThreads } = historyWindowScope;
     const retained =
-      !returning && collapsedThreads !== null && retainedChannels.has(id);
+      !returning &&
+      switchingChannel &&
+      collapsedThreads !== null &&
+      retainedChannels.has(id);
     inbox.close();
     setDirectoryOpen(false);
     search.abortPending();
     if (!returning) {
       collections.close(false);
-      if (!retained)
+      if (!retained && !keepCurrentReading)
         restoreConversation(id, main?.channelId === id ? main.reading : null);
     }
     setChannelMenuOpen(false);
     if (!returning && (position || search.origin)) search.dismiss();
     workspace.messages.clear();
-    if (id !== chosen) closeThread();
+    if (switchingChannel) closeThread();
     if (retained) {
-      chooseChannel(
-        id,
-        (accepted) => {
-          const window = retainedChannels.get(id);
-          retainedChannels.delete(id);
-          if (!accepted) return;
-          setRestoredChannel(
-            window
-              ? {
-                  channelId: id,
-                  request: {
-                    kind: "return",
-                    requestId: ++restoreVersion.current,
-                    rid: historyWindowScope.account.connection.rid,
-                    teamId: historyWindowScope.account.teamId,
-                    collapsedThreads,
-                    window,
-                  },
-                  place: window.place,
-                  composerHeight: window.composerHeight,
-                  owner: retainedChannels,
-                }
-              : null,
-          );
-          setPage("conversation");
-        },
-        true,
-      );
+      chooseChannel(id, (accepted) => {
+        const window = retainedChannels.get(id);
+        retainedChannels.delete(id);
+        if (!accepted) return;
+        setRestoredChannel(
+          window
+            ? {
+                channelId: id,
+                request: {
+                  kind: "return",
+                  requestId: ++restoreVersion.current,
+                  rid: historyWindowScope.account.connection.rid,
+                  teamId: historyWindowScope.account.teamId,
+                  collapsedThreads,
+                  window,
+                },
+                place: window.place,
+                composerHeight: window.composerHeight,
+                owner: retainedChannels,
+              }
+            : null,
+        );
+      });
     } else chooseChannel(id);
   }
-  function chooseChannel(
-    id: string,
-    outcome?: (accepted: boolean) => void,
-    deferConversation = false,
-  ) {
+  function chooseChannel(id: string, outcome?: (accepted: boolean) => void) {
     const version = ++choice.current;
     const owner = active.current;
     if (!outcome) setSelected(id);
-    if (!deferConversation) setPage("conversation");
+    setPage("conversation");
     setChoiceFailed(null);
     void workspace.messages.enqueue(async () => {
       if (!owner || active.current !== owner || version !== choice.current)

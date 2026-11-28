@@ -3345,6 +3345,71 @@ test("a second warm return keeps the confirmed timeline while refresh is still p
   ).toHaveLength(3);
 });
 
+test.each(["directory", "sidebar", "other channel"])(
+  "a delayed local selection from %s keeps the newer team picker and its Back target",
+  async (source) => {
+    const account = mount(true);
+    await screen.findByText(root.message);
+    await waitFor(() =>
+      expect(account.readChannelWindow).toHaveBeenCalledTimes(2),
+    );
+    const pane = screen.getByRole("region", { name: "Channel messages" });
+    Object.defineProperty(pane, "clientHeight", { value: 120 });
+    const draft = screen.getByRole<HTMLTextAreaElement>("textbox", {
+      name: "Message #General…",
+    });
+    const panes = draft.closest(".channels-panes");
+    if (!panes) throw Error("Missing workspace panes");
+    const text = "Draft stays with the current channel";
+    fireEvent.change(draft, { target: { value: text } });
+    if (source === "other channel") {
+      fireEvent.click(screen.getByRole("button", { name: "Design" }));
+      await screen.findByRole("heading", { name: "Design" });
+      await waitFor(() =>
+        expect(account.readChannelWindow).toHaveBeenCalledTimes(4),
+      );
+    }
+    const navigate = () =>
+      fireEvent.click(screen.getByRole("button", { name: "Channels" }));
+    navigate();
+    const selected = deferred<boolean>();
+    account.selectSidebarChannel.mockReturnValueOnce(selected.promise);
+    const readCount = account.readChannelWindow.mock.calls.length;
+    if (source === "directory") {
+      fireEvent.click(screen.getByRole("button", { name: "Directory" }));
+      await screen.findByRole("heading", { name: "Directory" });
+      fireEvent.click(
+        screen.getByRole("button", { name: "General, Public channel" }),
+      );
+    } else fireEvent.click(screen.getByRole("button", { name: "General" }));
+    await waitFor(() =>
+      expect(account.selectSidebarChannel).toHaveBeenLastCalledWith(
+        team.id,
+        general,
+      ),
+    );
+    if (panes.getAttribute("data-page") === "conversation") navigate();
+    const opener = screen.getByRole("button", { name: /^Switch team,/ });
+    fireEvent.click(opener);
+    await screen.findByRole("dialog", { name: "Teams and servers" });
+    await act(async () => selected.resolve(true));
+    expect(panes.getAttribute("data-page")).toBe("navigation");
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Teams and servers" }),
+      ).toBeNull(),
+    );
+    expect(document.activeElement).toBe(opener);
+    if (source !== "other channel") {
+      expect(draft.isConnected).toBe(true);
+      expect(draft.value).toBe(text);
+      expect(pane.isConnected).toBe(true);
+      expect(account.readChannelWindow).toHaveBeenCalledTimes(readCount);
+    }
+  },
+);
+
 test.each([{ rid: 2 }, { teamId: "n".repeat(26) }])(
   "a new directory scope starts fresh and ignores an old pending answer (%o)",
   async (scope) => {
