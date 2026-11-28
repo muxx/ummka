@@ -1,4 +1,5 @@
 import {
+  type RefObject,
   useEffect,
   useId,
   useLayoutEffect,
@@ -8,21 +9,23 @@ import {
   useSyncExternalStore,
 } from "react";
 import { availableDirectoryCopy } from "./available-directory-copy.ts";
+import { useCollectionRefreshVisibility } from "./CollectionReadNotice.tsx";
 import { DirectoryChannelIcon } from "./DirectoryChannelIcon.tsx";
 import {
   type DirectoryChannel,
   DirectoryJoinDialog,
 } from "./DirectoryJoinDialog.tsx";
 import {
-  DirectoryEmpty,
-  DirectorySearch,
-  directoryCopy,
-} from "./DirectorySurface.tsx";
+  DirectoryPosition,
+  directoryFocusFallback,
+} from "./DirectoryPosition.tsx";
+import { DirectorySearch, directoryCopy } from "./DirectorySurface.tsx";
 import {
   availableDirectoryChannels,
   openChannelDirectoryList,
 } from "./open-channel-directory.ts";
 import { openDirectorySearch } from "./open-directory-search.ts";
+import { PanelRetry, PanelState } from "./PanelState.tsx";
 import type { DirectoryProps } from "./TeamChannelDirectory.tsx";
 import { workspaceCopy } from "./workspace-copy.ts";
 
@@ -42,8 +45,15 @@ export function AvailableChannels({
   choose,
   refresh,
   sessionIssue,
-  active,
-}: DirectoryProps & { active: boolean }) {
+  selectedTab,
+  visible,
+  scroll,
+}: DirectoryProps & {
+  selectedTab: boolean;
+  visible: boolean;
+  scroll: RefObject<HTMLDivElement | null>;
+}) {
+  const active = visible && selectedTab;
   const text = availableDirectoryCopy[language],
     common = workspaceCopy[language],
     id = useId();
@@ -54,7 +64,10 @@ export function AvailableChannels({
   const region = useRef<HTMLElement>(null),
     filter = useRef<HTMLInputElement>(null),
     edge = useRef<HTMLButtonElement>(null),
-    opener = useRef<HTMLButtonElement | null>(null);
+    opener = useRef<HTMLButtonElement | null>(null),
+    statusHeading = useRef<HTMLHeadingElement>(null),
+    refreshNotice = useRef<HTMLDivElement>(null);
+  const refreshOnReturn = useRef(false);
   const retryRows = useRef<Set<string> | null>(null);
   useEffect(() => {
     const next = {
@@ -88,6 +101,7 @@ export function AvailableChannels({
     [search?.query, search?.items, page?.items, joined],
   );
   const status = (search?.query ? search.status : page?.status) ?? "idle";
+  const query = search?.query ?? "";
   const denied =
     accessLost ||
     [page?.status, search?.status].some(
@@ -102,18 +116,53 @@ export function AvailableChannels({
     }
     if (denied) {
       setAccessLost(true);
+      setInput("");
       setSelected(null);
+      opener.current = null;
       model?.search.close();
       model?.list.close();
     }
   }, [page?.status, search?.status, sessionIssue, denied, model]);
-  useEffect(() => {
-    if (!active) {
-      setInput("");
-      model?.search.setQuery("");
-    } else if (online && state.value && !denied && page?.status === "idle")
-      void model?.list.more();
-  }, [active, online, model, state.value, denied, page?.status]);
+  const membershipKnown = Boolean(state.value);
+  useLayoutEffect(() => {
+    if (!model) return;
+    if (!visible) refreshOnReturn.current = true;
+    if (!active || !online || !membershipKnown || denied) {
+      model.list.pause();
+      model.search.pause();
+      if (!active) {
+        setSelected(null);
+        opener.current = null;
+        retryRows.current = null;
+      }
+      if (!selectedTab) {
+        setInput("");
+        model.search.setQuery("");
+      }
+      return;
+    }
+    const reenter = refreshOnReturn.current;
+    refreshOnReturn.current = false;
+    if (query) {
+      model.list.pause();
+      if (reenter || model.search.getSnapshot().status === "idle")
+        void model.search.resume();
+    } else {
+      const page = model.list.getSnapshot();
+      if (reenter && page.hasResponse) void model.list.refresh();
+      else if (page.status === "idle") void model.list.more();
+      else if (reenter && page.failed) void model.list.retry();
+    }
+  }, [
+    active,
+    denied,
+    membershipKnown,
+    model,
+    online,
+    query,
+    selectedTab,
+    visible,
+  ]);
   const browsing =
     active && online && !!state.value && !denied && !search?.query;
   useEffect(() => {
@@ -141,7 +190,7 @@ export function AvailableChannels({
   }, [browsing, model, page]);
   useLayoutEffect(() => {
     const before = retryRows.current;
-    if (!before || !active || status === "loading") return;
+    if (!before || !active || status === "loading" || denied) return;
     retryRows.current = null;
     const first = rows.find((row) => !before.has(row.id));
     const target =
@@ -149,8 +198,12 @@ export function AvailableChannels({
       region.current?.querySelector<HTMLButtonElement>(
         `[data-directory-id="${first.id}"]`,
       );
-    (target || edge.current)?.focus({ preventScroll: true });
-  }, [active, status, rows]);
+    (
+      target ||
+      edge.current ||
+      (scroll.current && directoryFocusFallback(scroll.current))
+    )?.focus({ preventScroll: true });
+  }, [active, denied, status, rows, scroll]);
   function close() {
     setSelected(null);
     queueMicrotask(() => {
@@ -160,42 +213,113 @@ export function AvailableChannels({
       target?.focus({ preventScroll: true });
     });
   }
+  const searching = Boolean(search?.query);
+  const hasResponse = Boolean(
+    searching ? search?.hasResponse : page?.hasResponse,
+  );
   const failed = status === "network" || status === "storage";
-  const tail = !!page?.hasMore && !search?.query && !denied;
-  return (
+  const refreshing = status === "refreshing";
+  const showRefresh = useCollectionRefreshVisibility(refreshing);
+  const refreshFailed =
+    hasResponse && failed && (searching || page?.failed === "refresh");
+  const tail = !!page?.hasMore && !searching;
+  function retryDirectory() {
+    if (!hasResponse || (!refreshFailed && !searching))
+      retryRows.current = new Set(rows.map((r) => r.id));
+    if (
+      refreshFailed &&
+      refreshNotice.current?.contains(document.activeElement)
+    )
+      refreshNotice.current.focus({ preventScroll: true });
+    void (searching ? model?.search.retry() : model?.list.retry());
+  }
+  const content = active && (
     <section
       ref={region}
       className="channel-directory directory-column"
       aria-label={text.available}
     >
-      {state.value && !denied && (
+      {state.value && (
         <DirectorySearch
           ref={filter}
           language={language}
-          value={input}
+          value={denied ? "" : input}
           onChange={(event) => {
             const value = event.target.value;
             setInput(value);
             model?.search.setQuery(value.trim().replace(/^[@#]/, ""));
           }}
-          disabled={!online || !model}
+          disabled={denied || !online || !model}
         />
       )}
       {!state.value ? (
-        <p role="status">
-          {state.status === "offline"
-            ? common.noCache
-            : state.status === "network" || state.status === "storage"
-              ? common[state.status]
-              : common.loading}
-        </p>
+        state.status === "offline" ? (
+          <PanelState
+            variant="offline"
+            role="status"
+            title={common.offlineEmpty}
+            message={common.noCache}
+          />
+        ) : state.status === "network" || state.status === "storage" ? (
+          <PanelState
+            variant="error"
+            role="alert"
+            message={common[state.status]}
+          />
+        ) : (
+          <PanelState
+            variant="pending"
+            role="status"
+            message={common.loading}
+          />
+        )
       ) : denied ? (
-        <p role="alert">{common.forbidden}</p>
+        <PanelState
+          variant="error"
+          role="alert"
+          title={text.deniedTitle}
+          message={text.deniedMessage}
+          titleRef={statusHeading}
+        />
       ) : (
         <>
-          {!online && <p role="status">{text.offline}</p>}
+          {!online && !hasResponse && status !== "loading" && (
+            <PanelState
+              variant="offline"
+              role="status"
+              title={common.offlineEmpty}
+              message={text.offline}
+            />
+          )}
+          {hasResponse && (!online || refreshing || refreshFailed) && (
+            <PanelState
+              variant={online && refreshing ? "refresh" : "stale"}
+              ref={refreshNotice}
+              quiet={online && refreshing && !showRefresh}
+              role={online && refreshFailed ? "alert" : "status"}
+              message={
+                !online
+                  ? text.offlineResponse
+                  : refreshFailed
+                    ? text.refreshFailed(
+                        status === "storage" ? common.storage : common.network,
+                      )
+                    : showRefresh
+                      ? text.refreshing
+                      : ""
+              }
+              action={
+                online &&
+                refreshFailed && (
+                  <PanelRetry onClick={retryDirectory}>
+                    {common.retry}
+                  </PanelRetry>
+                )
+              }
+            />
+          )}
           {!!rows.length && (
-            <ul aria-label={text.available}>
+            <ul aria-label={text.available} data-directory-rows>
               {rows.map((row) => (
                 <li key={row.id}>
                   <button
@@ -222,42 +346,77 @@ export function AvailableChannels({
               ))}
             </ul>
           )}
-          {status === "loading" && (
-            <p role="status">{search?.query ? text.search : text.loading}</p>
-          )}
-          {failed && (
-            <p role="alert">
-              {status === "storage" ? common.storage : common.network}{" "}
-              <button
-                type="button"
-                disabled={!online}
-                ref={edge}
-                onClick={() => {
-                  if (!search?.query)
-                    retryRows.current = new Set(rows.map((r) => r.id));
-                  void (search?.query
-                    ? model?.search.retry()
-                    : model?.list.retry());
-                }}
-              >
-                {common.retry}
-              </button>
-            </p>
-          )}
-          {status === "ready" && !rows.length && !tail && (
-            <DirectoryEmpty
+          {online &&
+            (status === "loading" || (status === "idle" && !hasResponse)) &&
+            (hasResponse ? (
+              <p role="status">{text.loading}</p>
+            ) : (
+              <PanelState
+                variant="pending"
+                role="status"
+                message={search?.query ? text.search : text.loading}
+              />
+            ))}
+          {online &&
+            failed &&
+            !refreshFailed &&
+            (hasResponse ? (
+              <p role="alert">
+                {status === "storage" ? common.storage : common.network}{" "}
+                <button
+                  type="button"
+                  disabled={!online}
+                  ref={edge}
+                  onClick={retryDirectory}
+                >
+                  {common.retry}
+                </button>
+              </p>
+            ) : (
+              <PanelState
+                variant={online ? "error" : "offline"}
+                role="alert"
+                title={
+                  online
+                    ? search?.query
+                      ? text.searchFailed
+                      : text.loadFailed
+                    : common.offlineEmpty
+                }
+                message={
+                  status === "storage"
+                    ? common.storage
+                    : online
+                      ? common.network
+                      : text.offline
+                }
+                action={
+                  <PanelRetry
+                    disabled={!online}
+                    ref={edge}
+                    onClick={retryDirectory}
+                  >
+                    {common.retry}
+                  </PanelRetry>
+                }
+              />
+            ))}
+          {hasResponse && !rows.length && !tail && (
+            <PanelState
+              variant="empty"
+              role="status"
+              titleRef={statusHeading}
               title={
                 search?.query ? directoryCopy[language].noMatches : text.none
               }
-              hint={
+              message={
                 search?.query
                   ? directoryCopy[language].changeQueryOrTab
                   : text.noneHint
               }
-              kind={search?.query ? "search" : "channels"}
             />
           )}
-          {status === "ready" && rows.length > 0 && !tail && !search?.query && (
+          {rows.length > 0 && !tail && !searching && (
             <p role="status">{text.end}</p>
           )}
           {tail && status === "ready" && (
@@ -271,7 +430,7 @@ export function AvailableChannels({
               {text.more}
             </button>
           )}
-          {selected && (
+          {active && selected && (
             <DirectoryJoinDialog
               {...{
                 account,
@@ -289,5 +448,27 @@ export function AvailableChannels({
         </>
       )}
     </section>
+  );
+  return (
+    <DirectoryPosition
+      key={selectedTab ? "available" : "inactive"}
+      scroll={scroll}
+      visible={active}
+      query={query}
+      rows={rows}
+      layout={[
+        language,
+        membershipKnown,
+        denied,
+        online,
+        status,
+        hasResponse,
+        refreshFailed,
+        showRefresh,
+        tail,
+      ]}
+    >
+      {content}
+    </DirectoryPosition>
   );
 }

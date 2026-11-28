@@ -1,12 +1,10 @@
-import { useId, useMemo, useState } from "react";
+import { type RefObject, useId, useMemo, useRef, useState } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
 import type { TeamSidebar } from "../mattermost/team-sidebar.ts";
 import { DirectoryChannelIcon } from "./DirectoryChannelIcon.tsx";
-import {
-  DirectoryEmpty,
-  DirectorySearch,
-  directoryCopy,
-} from "./DirectorySurface.tsx";
+import { DirectoryPosition } from "./DirectoryPosition.tsx";
+import { DirectorySearch, directoryCopy } from "./DirectorySurface.tsx";
+import { PanelRetry, PanelState } from "./PanelState.tsx";
 import { workspaceCopy } from "./workspace-copy.ts";
 import type { WorkspaceRead } from "./workspace-data.ts";
 
@@ -22,22 +20,28 @@ export function JoinedChannelDirectory({
   language,
   choose,
   retry,
+  scroll,
+  visible,
 }: {
   state: WorkspaceRead<TeamSidebar>;
   headingVisible?: boolean;
   language: EntryLanguage;
   choose: (channelId: string) => void;
   retry: () => void;
+  scroll: RefObject<HTMLDivElement | null>;
+  visible: boolean;
 }) {
   const text = directoryCopy[language],
     workspace = workspaceCopy[language];
   const heading = useId();
+  const emptyHeading = useRef<HTMLHeadingElement>(null);
   const [input, setInput] = useState("");
   const channels = state.value?.data.channels;
   const rows = useMemo(() => {
     return (channels ?? [])
       .filter((c) => c.kind === "O" || c.kind === "P")
       .map((c) => ({
+        id: c.id,
         channel: c,
         title: c.displayName || c.name,
         key: folded(c.displayName || c.name),
@@ -57,12 +61,12 @@ export function JoinedChannelDirectory({
   const denied =
     status === "forbidden" || status === "unauthorized" || status === "session";
   const unavailable = status === "network" || status === "storage";
-  return (
+  const content = visible && (
     <section
       className="channel-directory directory-column"
       aria-labelledby={heading}
     >
-      <h2 id={heading} hidden={!headingVisible}>
+      <h2 id={heading} tabIndex={-1} hidden={!headingVisible}>
         {text.joined}
       </h2>
       {!denied && state.value && (
@@ -73,34 +77,48 @@ export function JoinedChannelDirectory({
         />
       )}
       {denied ? (
-        <p role="alert">{workspace.forbidden}</p>
+        <PanelState
+          variant="error"
+          role="alert"
+          message={workspace.forbidden}
+        />
       ) : (
         <>
           {unavailable && (
-            <p role="alert">
-              {workspace[status]}{" "}
-              <button type="button" onClick={retry}>
-                {workspace.retry}
-              </button>
-            </p>
+            <PanelState
+              variant={state.value ? "stale" : "error"}
+              role="alert"
+              message={workspace[status]}
+              action={
+                <PanelRetry onClick={retry}>{workspace.retry}</PanelRetry>
+              }
+            />
           )}
           {status === "offline" && (
-            <p role="status">
-              {state.value ? workspace.offline : workspace.noCache}
-            </p>
+            <PanelState
+              variant={state.value ? "stale" : "offline"}
+              role="status"
+              title={state.value ? undefined : workspace.offlineEmpty}
+              message={state.value ? workspace.offline : workspace.noCache}
+            />
           )}
           {!state.value &&
             (status === "loading" || status === "refreshing") && (
-              <p role="status">{workspace.loading}</p>
+              <PanelState
+                variant="pending"
+                role="status"
+                message={workspace.loading}
+              />
             )}
           {state.value &&
             (matches.length ? (
-              <ul aria-labelledby={heading}>
+              <ul aria-labelledby={heading} data-directory-rows>
                 {matches.map(({ channel, title }) => (
                   <li key={channel.id}>
                     <button
                       type="button"
                       className="directory-channel"
+                      data-directory-id={channel.id}
                       aria-label={[
                         title,
                         channel.kind === "P" ? text.private : text.public,
@@ -139,16 +157,36 @@ export function JoinedChannelDirectory({
                 ))}
               </ul>
             ) : query ? (
-              <DirectoryEmpty
+              <PanelState
+                variant="empty"
+                role="status"
                 title={text.noMatches}
-                hint={headingVisible ? text.changeQuery : text.changeQueryOrTab}
-                kind="search"
+                titleRef={emptyHeading}
+                message={
+                  headingVisible ? text.changeQuery : text.changeQueryOrTab
+                }
               />
             ) : (
-              <p role="status">{workspace.empty}</p>
+              <PanelState
+                variant="empty"
+                role="status"
+                title={workspace.empty}
+                titleRef={emptyHeading}
+              />
             ))}
         </>
       )}
     </section>
+  );
+  return (
+    <DirectoryPosition
+      scroll={scroll}
+      visible={visible}
+      query={query}
+      rows={matches}
+      layout={[language, headingVisible, status, Boolean(state.value)]}
+    >
+      {content}
+    </DirectoryPosition>
   );
 }

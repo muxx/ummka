@@ -143,6 +143,26 @@ const view = {
   sessionIssue: vi.fn(),
 };
 
+test("uses the secondary role only while the first page is pending", async () => {
+  const { connection } = account([]);
+  const props = { ...view, connection, offline: false };
+  const { rerender } = render(
+    <ConversationTimeline {...props} waitingMessage="Loading messages…" />,
+  );
+  expect(
+    screen
+      .getByText("Loading messages…")
+      .classList.contains("panel-text--secondary"),
+  ).toBe(true);
+  rerender(<ConversationTimeline {...props} page={page()} />);
+  expect(
+    screen
+      .getByText("There are no messages in this channel yet.")
+      .classList.contains("panel-text--secondary"),
+  ).toBe(false);
+  await act(async () => {});
+});
+
 test("preserves both tie orders and matches only a confirmed post of the same author, room and root", () => {
   const records = [
     pending(5, { confirmedPostId: "reply" }),

@@ -1,4 +1,5 @@
 import {
+  type CSSProperties,
   lazy,
   Suspense,
   useCallback,
@@ -93,7 +94,11 @@ import { ThreadInboxPane } from "./ThreadInboxPane.tsx";
 import { ThreadPane } from "./ThreadPane.tsx";
 import type { ThreadInboxPlace } from "./thread-inbox.ts";
 import { threadInboxCopy } from "./thread-inbox-copy.ts";
-import type { TimelineRequest } from "./timeline-reader.ts";
+import type {
+  ChannelHistoryAccess,
+  RetainedChannelWindow,
+  TimelineRequest,
+} from "./timeline-reader.ts";
 import { measureTimeline, type TimelinePlace } from "./timeline-viewport.ts";
 import { useChannelTimeline } from "./use-channel-timeline.ts";
 import { useInfoRead } from "./use-info-read.ts";
@@ -311,12 +316,17 @@ export function ChannelsWorkspace({
     return () => window.clearTimeout(timeout);
   }, [appearanceNotice]);
   const archivePolicy = policy.server.value?.search?.archivedChannels;
+  const { closeSavedSurface } = workspace.messages;
+  const closeWorkspaceSaved = useCallback(
+    () => closeSavedSurface(team.id),
+    [closeSavedSurface, team.id],
+  );
   const collections = useWorkspaceCollections(
     connection,
     online,
     archivePolicy,
     sessionIssue,
-    () => workspace.messages.closeSavedSurface(team.id),
+    closeWorkspaceSaved,
   );
   const mentionLabels = mentionCopy[language];
   const allowChannelFiles = policy.server.value?.search?.files === true;
@@ -324,6 +334,14 @@ export function ChannelsWorkspace({
   const channelMenuButton = useRef<HTMLButtonElement>(null);
   const quickActionsButton = useRef<HTMLButtonElement>(null);
   const directoryButton = useRef<HTMLButtonElement>(null);
+  const directoryReturn = useRef<() => boolean>(null);
+  const restoreDirectoryControl = useRef(false);
+  const focusDirectory = useCallback(() => {
+    if (!restoreDirectoryControl.current) return false;
+    restoreDirectoryControl.current = false;
+    return directoryReturn.current?.() ?? false;
+  }, []);
+  const directoryScope = JSON.stringify([connection.rid, team.id]);
   const restoreDirectoryFocus = useRef(false);
   const [directoryOpen, setDirectoryOpen] = useState(false);
   const directoryTitle = directoryCopy[language].title;
@@ -423,7 +441,11 @@ export function ChannelsWorkspace({
   const [page, setPage] = useState<"navigation" | "conversation">(
     "conversation",
   );
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<{
+    id: string;
+    focus: boolean;
+  } | null>(null);
+  const selectedChannelId = selected?.id;
   const [thread, setThread] = useState<LocalPost | null>(null);
   const requestedPosition =
     workspace.messages.position?.request.teamId === team.id &&
@@ -449,14 +471,16 @@ export function ChannelsWorkspace({
   const suppressLatest = useRef(Boolean(workspace.systemPost));
   if (!workspace.systemPost || position?.system) suppressLatest.current = false;
   const choice = useRef(0);
-  const active = useRef(false);
+  const active = useRef<{ connection: typeof connection; teamId: string }>(
+    null,
+  );
   useLayoutEffect(() => {
-    active.current = true;
+    active.current = { connection, teamId: team.id };
     return () => {
-      active.current = false;
+      active.current = null;
       choice.current++;
     };
-  }, []);
+  }, [connection, team.id]);
   useLayoutEffect(() => {
     const node = host.current;
     if (!node) return;
@@ -479,7 +503,7 @@ export function ChannelsWorkspace({
     (signal: AbortSignal) => connection.refreshTeamSidebar(team.id, signal),
     [connection, team.id],
   );
-  const directory = useWorkspaceRead(team.id, online, read, refresh);
+  const directory = useWorkspaceRead(directoryScope, online, read, refresh);
   const roles = useTeamRoles(
     connection,
     team,
@@ -493,6 +517,23 @@ export function ChannelsWorkspace({
   // publication from the team's existing observer, including loss of access.
   const published = directory.state.value;
   const status = directory.state.status;
+  const directoryDenied = ["forbidden", "session", "unauthorized"].includes(
+    status,
+  );
+  const publishedChannels = published?.data.channels;
+  const publishedChannelIds = useMemo(
+    () => new Set(publishedChannels?.map(({ id }) => id)),
+    [publishedChannels],
+  );
+  const confirmedChannelIds = useMemo(
+    () =>
+      directoryDenied
+        ? new Set<string>()
+        : status === "ready"
+          ? publishedChannelIds
+          : undefined,
+    [directoryDenied, status, publishedChannelIds],
+  );
   const focusRequest = position?.request;
   const readingInbox = position?.readingReturn?.origin.inbox;
   const [handoff, setHandoff] = useState({ focusRequest, published, status });
@@ -537,10 +578,18 @@ export function ChannelsWorkspace({
       : snapshot;
     return (
       sidebar.data.channels.find(
-        (c) => c.id === (readingInbox ? readingInbox.channelId : selected),
+        (c) =>
+          c.id === (readingInbox ? readingInbox.channelId : selectedChannelId),
       ) ?? openingChannel(sidebar, language)
     );
-  }, [snapshot, selected, language, position, excludedChannel, readingInbox]);
+  }, [
+    snapshot,
+    selectedChannelId,
+    language,
+    position,
+    excludedChannel,
+    readingInbox,
+  ]);
   const chosen = channel?.id ?? null;
   const recent = useRef(new Set<string>());
   useEffect(() => {
@@ -556,8 +605,28 @@ export function ChannelsWorkspace({
         : null,
     [policy.user, policy.server.value],
   );
+  const historyAccessScope = useMemo(
+    () => ({
+      connection,
+      teamId: team.id,
+      channels: new Map<string, ChannelHistoryAccess>(),
+    }),
+    [connection, team.id],
+  );
+  const historyWindowScope = useMemo(
+    () => ({
+      account: historyAccessScope,
+      collapsedThreads: settings?.collapsedThreads ?? null,
+      windows: new Map<string, RetainedChannelWindow>(),
+    }),
+    [historyAccessScope, settings?.collapsedThreads],
+  );
+  const channelHistoryAccess = historyAccessScope.channels;
+  const retainedChannels = historyWindowScope.windows;
+  useLayoutEffect(() => () => retainedChannels.clear(), [retainedChannels]);
   const inbox = useWorkspaceThreadInbox(
     connection,
+    workspace.threadReads,
     team.id,
     settings?.collapsedThreads === true &&
       !["forbidden", "session", "unauthorized"].includes(
@@ -624,8 +693,10 @@ export function ChannelsWorkspace({
   const restoreVersion = useRef(0);
   const [restoredChannel, setRestoredChannel] = useState<{
     channelId: string;
-    request: Extract<TimelineRequest, { kind: "restore" }>;
-    place: TimelinePlace;
+    request: Extract<TimelineRequest, { kind: "restore" | "return" }>;
+    place?: TimelinePlace;
+    composerHeight?: number;
+    owner?: typeof retainedChannels;
   } | null>(null);
   const appliedSavedReturn =
     useRef<TeamWorkspace["messages"]["savedReturn"]>(null);
@@ -660,9 +731,16 @@ export function ChannelsWorkspace({
     collections.open({ kind: "all", returnRow: place }, savedButton.current);
   });
   const restoration =
-    (!position || readingInbox) && restoredChannel?.channelId === chosen
+    (!position || readingInbox) &&
+    restoredChannel?.channelId === chosen &&
+    (!restoredChannel.owner ||
+      (restoredChannel.owner === retainedChannels &&
+        !directoryDenied &&
+        chosen &&
+        publishedChannelIds.has(chosen)))
       ? restoredChannel
       : null;
+  const returningComposerHeight = restoration?.composerHeight;
   const timeline = useChannelTimeline(
     connection,
     team.id,
@@ -671,7 +749,18 @@ export function ChannelsWorkspace({
     online,
     sessionIssue,
     (!readingInbox ? position?.request : undefined) ?? restoration?.request,
+    chosen ? channelHistoryAccess.get(chosen) : undefined,
   );
+  useLayoutEffect(() => {
+    // The reader has taken this snapshot. Keep the route and coordinates,
+    // without holding another copy of the messages in navigation state.
+    if (restoration?.request.kind !== "return" || !restoration.request.window)
+      return;
+    const request = { ...restoration.request, window: undefined };
+    setRestoredChannel((current) =>
+      current === restoration ? { ...current, request } : current,
+    );
+  }, [restoration]);
   const current = useMemo(
     () =>
       snapshot
@@ -909,6 +998,16 @@ export function ChannelsWorkspace({
 
   function choose(id: string, returning = false) {
     const main = inbox.visible ? inboxMain.current : undefined;
+    const switchingChannel = id !== chosen;
+    const keepCurrentReading = !switchingChannel && !position && !inbox.visible;
+    if (!returning && switchingChannel && !inbox.visible)
+      rememberChannelReading();
+    const { collapsedThreads } = historyWindowScope;
+    const retained =
+      !returning &&
+      switchingChannel &&
+      collapsedThreads !== null &&
+      retainedChannels.has(id);
     inbox.close();
     setInfoChannel(
       returning &&
@@ -921,33 +1020,68 @@ export function ChannelsWorkspace({
     search.abortPending();
     if (!returning) {
       collections.close(false);
-      restoreConversation(id, main?.channelId === id ? main.reading : null);
+      if (!retained && !keepCurrentReading)
+        restoreConversation(id, main?.channelId === id ? main.reading : null);
     }
     setChannelMenuOpen(null);
     if (!returning && (position || search.origin)) search.dismiss();
     workspace.messages.clear();
-    if (id !== chosen) closeThread();
-    chooseChannel(id);
+    if (switchingChannel) closeThread();
+    if (retained) {
+      chooseChannel(
+        id,
+        (accepted) => {
+          const window = retainedChannels.get(id);
+          retainedChannels.delete(id);
+          if (!accepted) return;
+          setRestoredChannel(
+            window
+              ? {
+                  channelId: id,
+                  request: {
+                    kind: "return",
+                    requestId: ++restoreVersion.current,
+                    rid: historyWindowScope.account.connection.rid,
+                    teamId: historyWindowScope.account.teamId,
+                    collapsedThreads,
+                    window,
+                  },
+                  place: window.place,
+                  composerHeight: window.composerHeight,
+                  owner: retainedChannels,
+                }
+              : null,
+          );
+        },
+        false,
+      );
+    } else chooseChannel(id);
   }
-  function chooseChannel(id: string, outcome?: (accepted: boolean) => void) {
+  function chooseChannel(
+    id: string,
+    outcome?: (accepted: boolean) => void,
+    focusOnCommit = true,
+  ) {
     const version = ++choice.current;
-    if (!outcome) setSelected(id);
+    const owner = active.current;
+    if (!outcome) setSelected({ id, focus: true });
     setPage("conversation");
     setChoiceFailed(null);
     void workspace.messages.enqueue(async () => {
-      if (!active.current || version !== choice.current) return false;
+      if (!owner || active.current !== owner || version !== choice.current)
+        return false;
       let accepted = false;
       try {
         accepted = await connection.selectSidebarChannel(team.id, id);
       } catch {
         /* The local choice is acknowledged only by SQLite. */
       }
-      if (active.current && version === choice.current) {
+      if (active.current === owner && version === choice.current) {
         if (!accepted) {
           setSelected(null);
           setChoiceFailed(outcome ? { exclude: id } : {});
           if (outcome) directory.retry();
-        } else if (outcome) setSelected(id);
+        } else if (outcome) setSelected({ id, focus: focusOnCommit });
         outcome?.(accepted);
       }
       return accepted;
@@ -1051,6 +1185,37 @@ export function ChannelsWorkspace({
     setDirectoryOpen(false);
     collectionReading.current = readChannelPlace();
     collections.open(source, opener);
+  }
+  function rememberChannelReading() {
+    if (
+      !chosen ||
+      !settings ||
+      position ||
+      directoryOpen ||
+      !timeline.page?.posts.length ||
+      (timeline.status !== "ready" &&
+        timeline.status !== "offline" &&
+        !(
+          timeline.status === "loading" &&
+          restoration?.request.kind === "return"
+        )) ||
+      timeline.notice === "forbidden"
+    )
+      return;
+    const pane = timeline.viewport.current;
+    if (!pane?.clientHeight) return;
+    retainedChannels.delete(chosen);
+    retainedChannels.set(chosen, {
+      page: timeline.page,
+      place: measureTimeline(pane, timeline.latest),
+      composerHeight: draftField.current
+        ?.closest(".draft-wrap")
+        ?.getBoundingClientRect().height,
+    });
+    if (retainedChannels.size > 4) {
+      const oldest = retainedChannels.keys().next();
+      if (!oldest.done) retainedChannels.delete(oldest.value);
+    }
   }
   function rememberInboxChannel() {
     const feed = timeline.viewport.current;
@@ -1200,60 +1365,65 @@ export function ChannelsWorkspace({
   );
   const nav = (
     <>
-      {inbox.model && (
+      <div className="panel-navigation">
+        {inbox.model && (
+          <button
+            type="button"
+            className="workspace-row panel-navigation__item inbox-trigger"
+            aria-label={inboxName}
+            data-surface={inbox.visible ? "selected-navigation" : undefined}
+            aria-current={inbox.visible ? "page" : undefined}
+            onClick={() => {
+              if (inbox.visible) {
+                setPage("conversation");
+                return;
+              }
+              search.dismiss();
+              workspace.messages.clear();
+              collections.close(false);
+              setDirectoryOpen(false);
+              closeThread();
+              inboxList.current = undefined;
+              rememberInboxChannel();
+              setPage("conversation");
+              inbox.show();
+            }}
+          >
+            <ThreadMark />
+            <span className="panel-navigation__label">{inboxText.title}</span>
+            {counts && counts.totalUnreadMentions > 0 ? (
+              <span className="workspace-count" aria-hidden="true">
+                {counts.totalUnreadUrgentMentions > 0 ? "!" : ""}
+                {counts.totalUnreadMentions}
+              </span>
+            ) : counts && counts.totalUnreadThreads > 0 ? (
+              <span className="workspace-unread" aria-hidden="true" />
+            ) : null}
+          </button>
+        )}
         <button
           type="button"
-          className="workspace-row inbox-trigger"
-          aria-label={inboxName}
-          data-unread={Boolean(counts?.totalUnreadThreads) || undefined}
-          aria-current={inbox.visible ? "page" : undefined}
-          onClick={() => {
-            if (inbox.visible) {
-              setPage("conversation");
-              return;
-            }
+          className="workspace-row panel-navigation__item directory-trigger"
+          ref={directoryButton}
+          aria-current={directoryOpen ? "page" : undefined}
+          data-surface={directoryOpen ? "selected-navigation" : undefined}
+          onClick={(event) => {
+            if (directoryOpen) return;
+            restoreDirectoryControl.current = event.detail === 0;
             search.dismiss();
             workspace.messages.clear();
             collections.close(false);
-            setDirectoryOpen(false);
+            setChannelMenuOpen(null);
             closeThread();
-            inboxList.current = undefined;
-            rememberInboxChannel();
+            inbox.close();
+            setDirectoryOpen(true);
             setPage("conversation");
-            inbox.show();
           }}
         >
-          <ThreadMark />
-          <span className="workspace-row-name">{inboxText.title}</span>
-          {counts && counts.totalUnreadMentions > 0 ? (
-            <span className="workspace-count" aria-hidden="true">
-              {counts.totalUnreadUrgentMentions > 0 ? "!" : ""}
-              {counts.totalUnreadMentions}
-            </span>
-          ) : counts && counts.totalUnreadThreads > 0 ? (
-            <span className="workspace-unread" aria-hidden="true" />
-          ) : null}
+          <DirectoryCompass />
+          <span className="panel-navigation__label">{directoryTitle}</span>
         </button>
-      )}
-      <button
-        type="button"
-        className="workspace-row directory-trigger"
-        ref={directoryButton}
-        aria-current={directoryOpen ? "page" : undefined}
-        onClick={() => {
-          search.dismiss();
-          workspace.messages.clear();
-          collections.close(false);
-          setChannelMenuOpen(null);
-          closeThread();
-          inbox.close();
-          setDirectoryOpen(true);
-          setPage("conversation");
-        }}
-      >
-        <DirectoryCompass />
-        {directoryTitle}
-      </button>
+      </div>
       {directoryIssue && notice(directoryIssue, directory.retry, true)}
       {status === "offline" && notice(snapshot ? text.offline : text.noCache)}
       {!snapshot &&
@@ -1292,6 +1462,53 @@ export function ChannelsWorkspace({
   const historyDenied =
     timeline.notice === "forbidden" ||
     ["forbidden", "session", "unauthorized"].includes(timeline.status);
+  const channelHistoryForbidden =
+    timeline.status === "forbidden" || timeline.notice === "forbidden";
+  const { invalidateChannel } = inbox;
+  useLayoutEffect(() => {
+    if (chosen && channelHistoryForbidden) invalidateChannel(chosen);
+  }, [chosen, channelHistoryForbidden, invalidateChannel]);
+  useLayoutEffect(() => {
+    if (directoryDenied) return;
+    if (chosen && (historyDenied || timeline.status === "inaccessible")) {
+      retainedChannels.delete(chosen);
+      setRestoredChannel((current) =>
+        current?.owner === retainedChannels &&
+        current.channelId === chosen &&
+        current.place
+          ? { ...current, place: undefined, composerHeight: undefined }
+          : current,
+      );
+    }
+    if (chosen) {
+      const previous = channelHistoryAccess.get(chosen);
+      const cutoff = Math.max(
+        previous?.cutoff ?? 0,
+        timeline.firstInaccessiblePostTime,
+      );
+      const revoked =
+        historyDenied ||
+        (previous?.revoked === true && timeline.status !== "ready");
+      if (revoked || cutoff)
+        channelHistoryAccess.set(chosen, { revoked, cutoff });
+      else if (previous) channelHistoryAccess.delete(chosen);
+    }
+  }, [
+    chosen,
+    historyDenied,
+    channelHistoryAccess,
+    directoryDenied,
+    retainedChannels,
+    timeline.firstInaccessiblePostTime,
+    timeline.status,
+  ]);
+  useLayoutEffect(() => {
+    if (!confirmedChannelIds) return;
+    for (const id of retainedChannels.keys())
+      if (!confirmedChannelIds.has(id)) retainedChannels.delete(id);
+    for (const id of channelHistoryAccess.keys())
+      if (!confirmedChannelIds.has(id)) channelHistoryAccess.delete(id);
+  }, [confirmedChannelIds, retainedChannels, channelHistoryAccess]);
   const notificationKind =
     !historyDenied &&
     channel?.deleteAt === 0 &&
@@ -1441,14 +1658,17 @@ export function ChannelsWorkspace({
     : undefined;
   const pinsAvailable =
     !pinsSource ||
-    (!["forbidden", "session", "unauthorized"].includes(
-      directory.state.status,
-    ) &&
+    (!directoryDenied &&
       !(chosen === pinsSource && historyDenied) &&
       pinsRoom !== undefined);
-  useEffect(() => {
-    if (!pinsAvailable) collections.close(false);
-  }, [pinsAvailable, collections.close]);
+  const deniedPinsChannel = historyDenied ? chosen : null;
+  const { retainPins, close: dismissCollection } = collections;
+  useLayoutEffect(() => {
+    retainPins(confirmedChannelIds, deniedPinsChannel);
+  }, [retainPins, confirmedChannelIds, deniedPinsChannel]);
+  useLayoutEffect(() => {
+    if (!pinsAvailable) dismissCollection(false);
+  }, [pinsAvailable, dismissCollection]);
   const mentionPolicyChanged =
     collections.view?.kind === "mentions" &&
     collections.view.archivedChannels !== archivePolicy;
@@ -2226,14 +2446,21 @@ export function ChannelsWorkspace({
         channelHeading={
           inbox.visible
             ? (id, ref) => (
-                <div className="inbox-heading">
+                <div className="inbox-heading panel-heading">
                   <div>
                     <ThreadMark />
-                    <h1 id={id} ref={ref} tabIndex={-1}>
+                    <h1
+                      className="panel-heading__title"
+                      id={id}
+                      ref={ref}
+                      tabIndex={-1}
+                    >
                       {inboxText.title}
                     </h1>
                   </div>
-                  <span>{inboxText.description}</span>
+                  <span className="panel-heading__detail">
+                    {inboxText.description}
+                  </span>
                 </div>
               )
             : !directoryOpen && channel && !historyDenied
@@ -2470,6 +2697,7 @@ export function ChannelsWorkspace({
               authorName={(id) => author(id)?.name}
               savedIds={knownSaves.ids}
               restore={collections.restore}
+              pinnedReading={collections.pinnedReading}
               openRow={openCollectionRow}
               close={closeCollection}
             />
@@ -2588,6 +2816,10 @@ export function ChannelsWorkspace({
         returnInThread={compact && Boolean(activeThread)}
         accountRef={accountButton}
         draftRef={inbox.visible || directoryOpen ? undefined : draftField}
+        focusConversation={directoryOpen ? focusDirectory : undefined}
+        focusChannelChange={
+          selected?.id !== chosen || selected?.focus !== false
+        }
         accountName={accountName}
         accountDescription={
           accountName ? undefined : teamChoiceText[language].profilePending
@@ -2618,7 +2850,10 @@ export function ChannelsWorkspace({
               : "navigation"
         }
         onNavigation={() => {
-          if (!inbox.visible && !inbox.paused) rememberInboxChannel();
+          if (!inbox.visible && !inbox.paused) {
+            rememberChannelReading();
+            rememberInboxChannel();
+          }
           publishedReading?.interrupt();
           workspace.systemPost?.stop("paused");
           setInfoChannel(null);
@@ -2640,8 +2875,7 @@ export function ChannelsWorkspace({
           inbox.visible
             ? {
                 title: inboxText.discussion,
-                heading: inboxText.pick,
-                hint: inboxText.pickHint,
+                message: inboxText.pick,
               }
             : undefined
         }
@@ -2650,11 +2884,16 @@ export function ChannelsWorkspace({
             ? {
                 id: paneId,
                 title: text.thread,
-                subtitle: selection?.post
-                  ? inboxRoomName(selection.post.channelId)
-                  : channel?.id === panePost?.channelId
-                    ? roomTitle
-                    : undefined,
+                subtitle: inbox.slow
+                  ? inboxText.refreshingWindow
+                  : selection?.post
+                    ? inboxRoomName(selection.post.channelId)
+                    : channel?.id === panePost?.channelId
+                      ? roomTitle
+                      : undefined,
+                unavailable:
+                  selection?.issue === "forbidden" ||
+                  selection?.issue === "limited",
                 retainOpener: Boolean(selection),
                 close: selection ? closeInboxThread : closeThread,
                 replyRef:
@@ -2695,6 +2934,18 @@ export function ChannelsWorkspace({
                     author={author}
                     online={online}
                     sessionIssue={sessionIssue}
+                    inboxWindow={
+                      selection
+                        ? {
+                            confirmedRoot: selection.confirmedRoot,
+                            opening: selection.opening,
+                            retained: selection.parked,
+                            restoreFocus: selection.restoreFocus,
+                            park: inbox.model?.parkWindow,
+                            register: inbox.registerWindow,
+                          }
+                        : undefined
+                    }
                     lastViewedAt={
                       selectionRow && selectionRow.unreadReplies > 0
                         ? selectionRow.lastViewedAt
@@ -2703,6 +2954,7 @@ export function ChannelsWorkspace({
                     confirmView={
                       selectionRow &&
                       selectionRow.unreadReplies > 0 &&
+                      selection?.confirmedRoot &&
                       !visibleLinkPlacement &&
                       !overlayOpen &&
                       !appearanceOpen &&
@@ -2713,14 +2965,25 @@ export function ChannelsWorkspace({
                         ? inbox.confirmView
                         : undefined
                     }
-                    onOpened={
-                      position?.system
-                        ? () => setConfirmedThread(position.system)
+                    readVisit={
+                      selection?.confirmedRoot ? selection.visit : undefined
+                    }
+                    checkView={
+                      selection?.confirmedRoot && selection.visit
+                        ? inbox.checkView
                         : undefined
+                    }
+                    onOpened={
+                      selection
+                        ? () => inbox.finishOpening(selection.id)
+                        : position?.system
+                          ? () => setConfirmedThread(position.system)
+                          : undefined
                     }
                     onUnavailable={
                       selection
                         ? (reason) => {
+                            inbox.finishOpening(selection.id);
                             if (reason !== "failed")
                               inbox.hideRoot(selection.id, reason);
                           }
@@ -2744,15 +3007,18 @@ export function ChannelsWorkspace({
                   >
                     {selection?.issue === "limited"
                       ? inboxText.limited
-                      : selection?.issue &&
-                          selection.issue !== "network" &&
-                          selection.issue !== "storage"
-                        ? inboxText.unavailable
-                        : selection?.issue === "storage"
-                          ? text.storage
-                          : selection?.issue
-                            ? text.network
-                            : inboxText.opening}
+                      : selection?.retainedAccessRevoked &&
+                          selection.issue === "forbidden"
+                        ? inboxText.accessRevoked
+                        : selection?.issue &&
+                            selection.issue !== "network" &&
+                            selection.issue !== "storage"
+                          ? inboxText.unavailable
+                          : selection?.issue === "storage"
+                            ? text.storage
+                            : selection?.issue
+                              ? text.network
+                              : inboxText.opening}
                     {selectionRow &&
                       (selection?.issue === "network" ||
                         selection?.issue === "storage") && (
@@ -2770,8 +3036,15 @@ export function ChannelsWorkspace({
         }
         composer={
           <div
-            className="workspace-conversation-route"
+            className="workspace-conversation-route channel-composer"
             hidden={directoryOpen || inbox.visible}
+            style={
+              returningComposerHeight
+                ? ({
+                    "--retained-channel-composer-height": `${returningComposerHeight}px`,
+                  } as CSSProperties)
+                : undefined
+            }
           >
             {composer()}
           </div>
@@ -2796,9 +3069,11 @@ export function ChannelsWorkspace({
             />
           </div>
         )}
-        {directoryOpen && (
+        <div hidden={!directoryOpen} className="workspace-conversation-route">
           <TeamChannelDirectory
-            key={team.id}
+            key={directoryScope}
+            ref={directoryReturn}
+            visible={directoryOpen}
             account={connection}
             teamId={team.id}
             language={language}
@@ -2812,7 +3087,7 @@ export function ChannelsWorkspace({
             refresh={directory.retry}
             sessionIssue={sessionIssue}
           />
-        )}
+        </div>
         <div
           className="workspace-conversation-route"
           hidden={directoryOpen || inbox.visible}
@@ -2843,7 +3118,7 @@ export function ChannelsWorkspace({
                 sessionIssue={sessionIssue}
                 page={timeline.page}
                 restoredPosition={
-                  restoration && timeline.page
+                  restoration?.place && timeline.page
                     ? {
                         requestId: restoration.request.requestId,
                         place: restoration.place,

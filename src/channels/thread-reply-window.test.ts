@@ -68,6 +68,102 @@ const cursor = (row: LocalPost) => ({ id: row.id, createAt: row.createAt });
 const messages = (view: ReturnType<typeof openThreadReplyWindow>) =>
   view.getSnapshot().replies.map((r) => r.message);
 
+test("parks a bounded interval around the visible reply and quietly reads after its last cursor", async () => {
+  const rows = Array.from({ length: 180 }, (_, index) => ({
+    ...local("m", 200 + index),
+    id: String(1000 + index).padStart(26, "0"),
+    message: String(index),
+  }));
+  const account = {
+    readThreadPage: vi
+      .fn<(query: ThreadPageRequest) => Promise<ReturnType<typeof page>>>()
+      .mockResolvedValueOnce(page(rows.slice(0, 60), cursor(rows[59])))
+      .mockResolvedValueOnce(page(rows.slice(60, 120), cursor(rows[119])))
+      .mockResolvedValueOnce(page(rows.slice(120))),
+  };
+  const original = openThreadReplyWindow(account, scope);
+  await original.open();
+  await original.more("down");
+  await original.more("down");
+  const kept = original.retain({ id: rows[95].id });
+  expect(kept?.replies.map(({ id }) => id)).toEqual(
+    rows.slice(35, 155).map(({ id }) => id),
+  );
+  expect(kept?.up).toEqual({ status: "ready", cursor: cursor(rows[35]) });
+  expect(kept?.down).toEqual({ status: "ready", cursor: cursor(rows[154]) });
+  original.close();
+  const request = pendingPage();
+  account.readThreadPage.mockReturnValueOnce(request.promise);
+  const reopened = openThreadReplyWindow(
+    account,
+    scope,
+    undefined,
+    undefined,
+    kept ?? undefined,
+  );
+  const initial = reopened.getSnapshot();
+  const refreshing = reopened.open();
+  await Promise.resolve();
+  expect(account.readThreadPage.mock.lastCall?.[0]).toMatchObject({
+    direction: "down",
+    cursor: cursor(rows[154]),
+  });
+  expect(reopened.getSnapshot()).toBe(initial);
+  request.resolve(page(rows.slice(155)));
+  await refreshing;
+  expect(reopened.getSnapshot().replies.map(({ id }) => id)).toEqual(
+    rows.slice(35).map(({ id }) => id),
+  );
+});
+
+test("an earlier edge denial hides a resumed window and discards its pending latest answer", async () => {
+  const positive = local("p", 110);
+  const oldest = local("a", 90);
+  const previous = openThreadReplyWindow(
+    {
+      readThreadPage: async ({ direction }) =>
+        direction === "up" ? page([oldest], cursor(oldest)) : page([positive]),
+    },
+    scope,
+    focus,
+  );
+  await previous.open();
+  const seed = previous.retain();
+  const stale = pendingPage();
+  const account = {
+    readThreadPage: vi.fn(async (request: ThreadPageRequest) => {
+      if (request.direction === "up")
+        throw new ResponseError(
+          new Response(null, { status: 403 }),
+          "Access revoked",
+        );
+      return stale.promise;
+    }),
+  };
+  const resumed = openThreadReplyWindow(
+    account,
+    scope,
+    undefined,
+    undefined,
+    seed ?? undefined,
+  );
+  const checking = resumed.open();
+  await resumed.more("up");
+  expect(resumed.getSnapshot()).toMatchObject({
+    unavailable: "forbidden",
+    root: null,
+    replies: [],
+  });
+  stale.resolve(page([local("q", 130)]));
+  await checking;
+  expect(resumed.getSnapshot()).toMatchObject({
+    unavailable: "forbidden",
+    root: null,
+    replies: [],
+  });
+  expect(resumed.retain()).toBeNull();
+});
+
 test.each(["up", "down"] as const)(
   "keeps the selected reply when %s arrives first, including tied times",
   async (first) => {

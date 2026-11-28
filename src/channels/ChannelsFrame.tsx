@@ -9,6 +9,7 @@ import {
 import smallMark from "../../src-tauri/icons/symbols/ummka-small.svg?no-inline";
 import { isMobile, usesMacOSOverlay } from "../build-platform.ts";
 import type { EntryLanguage } from "../entry/language.ts";
+import { PanelState } from "./PanelState.tsx";
 import {
   PaneExpansion,
   PaneResizer,
@@ -56,11 +57,14 @@ type FrameProps = {
   returnInThread?: boolean;
   composer?: ReactNode;
   draftRef?: RefObject<HTMLElement | null>;
-  inboxPlaceholder?: { title: string; heading: string; hint: string };
+  focusConversation?: () => boolean;
+  focusChannelChange?: boolean;
+  inboxPlaceholder?: { title: string; message: string };
   thread?: {
     id: string;
     title: string;
     subtitle?: string;
+    unavailable?: boolean;
     controlsRef?: (node: HTMLSpanElement | null) => void;
     retainOpener?: boolean;
     content: ReactNode;
@@ -133,6 +137,8 @@ export function ChannelsFrame({
   returnInThread,
   composer,
   draftRef,
+  focusConversation,
+  focusChannelChange = true,
   thread,
   inboxPlaceholder,
 }: FrameProps) {
@@ -161,13 +167,40 @@ export function ChannelsFrame({
     inboxSplit ? "thread" : split ? "right" : "closed",
   );
   const geometry = panes.geometry;
+  const inboxSingle = inboxSplit && geometry?.single;
+  const adjustable =
+    split &&
+    geometry &&
+    (!inboxSplit || geometry.right.min !== geometry.right.max);
+  const threadCloseLabel = inboxSingle
+    ? language === "ru"
+      ? "К тредам"
+      : "Back to threads"
+    : labels.closeThread;
   const widthStyles =
     geometry &&
     ({
       "--navigation-choice": `${geometry.navigation.width}px`,
       "--right-choice": `${panes.expanded ? geometry.right.expanded : geometry.right.width}px`,
     } as CSSProperties);
-  const previous = useRef({ page, channelId, openThread, showingPanel });
+  const previous = useRef({
+    page,
+    channelId,
+    openThread,
+    showingPanel,
+    inboxSingle,
+  });
+  const unavailableThread = thread?.unavailable;
+
+  useLayoutEffect(() => {
+    if (
+      unavailableThread &&
+      lastFocus.current &&
+      !lastFocus.current.isConnected &&
+      document.activeElement === document.body
+    )
+      threadHeading.current?.focus({ preventScroll: true });
+  }, [unavailableThread]);
 
   useLayoutEffect(() => {
     const control = lastFocus.current;
@@ -191,7 +224,13 @@ export function ChannelsFrame({
 
   useLayoutEffect(() => {
     const old = previous.current;
-    previous.current = { page, channelId, openThread, showingPanel };
+    previous.current = {
+      page,
+      channelId,
+      openThread,
+      showingPanel,
+      inboxSingle,
+    };
     if (showingPanel) return;
     function focusNavigation() {
       const current = sidebar.current?.querySelector<HTMLElement>(
@@ -204,6 +243,10 @@ export function ChannelsFrame({
         focusNavigation();
         return;
       }
+      if (openThread && inboxSingle) {
+        threadHeading.current?.focus({ preventScroll: true });
+        return;
+      }
       if (
         openThread &&
         retainOpener &&
@@ -213,6 +256,7 @@ export function ChannelsFrame({
         lastConversationControl.current.focus({ preventScroll: true });
         return;
       }
+      if (!openThread && focusConversation?.()) return;
       const field = openThread ? replyRef?.current : draftRef?.current;
       // Compact layouts focus the title so navigating never raises the on-screen keyboard.
       if (field && (root.current?.clientWidth ?? 0) > 740) {
@@ -234,7 +278,8 @@ export function ChannelsFrame({
     if (
       openThread !== old.openThread ||
       page !== old.page ||
-      channelId !== old.channelId
+      (channelId !== old.channelId &&
+        (focusChannelChange || document.activeElement === document.body))
     ) {
       const opener = threadOpener.current;
       if (!openThread) threadOpener.current = null;
@@ -260,6 +305,17 @@ export function ChannelsFrame({
     }
     const scene = root.current;
     if (!scene) return;
+    const focused = lastFocus.current;
+    if (
+      inboxSingle &&
+      !old.inboxSingle &&
+      openThread &&
+      focused &&
+      focused.getClientRects().length === 0 &&
+      (document.activeElement === document.body ||
+        document.activeElement === focused)
+    )
+      focusVisiblePane();
     const observer = new ResizeObserver(() => {
       const el = lastFocus.current;
       if (!el?.isConnected || el.getClientRects().length > 0) return;
@@ -274,9 +330,12 @@ export function ChannelsFrame({
     channelId,
     openThread,
     draftRef,
+    focusConversation,
+    focusChannelChange,
     replyRef,
     showingPanel,
     retainOpener,
+    inboxSingle,
   ]);
 
   return (
@@ -332,6 +391,7 @@ export function ChannelsFrame({
       <div
         className="channels-panes"
         data-page={showingPanel ? "details" : openThread ? "thread" : page}
+        data-inbox-single={inboxSingle || undefined}
       >
         <nav
           ref={sidebar}
@@ -401,8 +461,7 @@ export function ChannelsFrame({
           <div className="channels-conversation-body">{children}</div>
           {composer}
         </main>
-        {split &&
-          geometry &&
+        {adjustable &&
           !panes.expanded &&
           geometry.right.min !== geometry.right.max && (
             <PaneResizer
@@ -416,7 +475,7 @@ export function ChannelsFrame({
           )}
         <PaneExpansion.Provider
           value={
-            split && geometry
+            adjustable
               ? {
                   language,
                   expanded: panes.expanded,
@@ -435,11 +494,7 @@ export function ChannelsFrame({
                 <ThreadMark />
                 <h2 id={threadId}>{inboxPlaceholder.title}</h2>
               </header>
-              <div className="inbox-prompt">
-                <ThreadMark />
-                <h3>{inboxPlaceholder.heading}</h3>
-                <p>{inboxPlaceholder.hint}</p>
-              </div>
+              <PanelState variant="empty" message={inboxPlaceholder.message} />
             </aside>
           )}
           {!showingPanel && thread && (
@@ -473,11 +528,27 @@ export function ChannelsFrame({
                 <button
                   className="channels-icon-action thread-close"
                   type="button"
-                  aria-label={labels.closeThread}
+                  aria-label={threadCloseLabel}
                   onClick={thread.close}
                 >
                   <span className="thread-back-icon">
-                    <Chevron direction="back" />
+                    {inboxSingle ? (
+                      <svg
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.65"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M5 12h14M5 12l6 6m-6-6 6-6" />
+                      </svg>
+                    ) : (
+                      <Chevron direction="back" />
+                    )}
                   </span>
                   <svg
                     className="thread-close-icon"

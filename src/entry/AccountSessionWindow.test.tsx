@@ -69,6 +69,7 @@ async function fixture() {
   let sessionIssue!: TeamWorkspace["sessionIssue"];
   const view = render(
     <AccountTeamWindow
+      threadReads={createThreadReadCoordination()}
       serverUrl={serverUrl}
       userId={userId}
       language="en"
@@ -269,3 +270,5 @@ test("a cleanup completion after the account is gone cannot end a replacement", 
   await act(async () => finish("superseded"));
   expect(f.onEnded).not.toHaveBeenCalled();
 });
+
+import { createThreadReadCoordination } from "../mattermost/thread-read-coordination.ts";

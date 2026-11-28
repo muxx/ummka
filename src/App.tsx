@@ -9,10 +9,15 @@ import type { SignedInPresentation } from "./entry/SignInMethods";
 import { sessionText } from "./entry/session-text";
 import { useSystemPermalink } from "./entry/use-system-permalink";
 import { getDeviceLaunchContext } from "./mattermost/device-launch";
+import {
+  createThreadReadCoordination,
+  type ThreadReadCoordination,
+} from "./mattermost/thread-read-coordination";
 import "./entry/system-post-notice.css";
 
 type Launch = Awaited<ReturnType<typeof getDeviceLaunchContext>>;
 export function App({ language }: { language: EntryLanguage }) {
+  const [threadReads] = useState(createThreadReadCoordination);
   const [entry, setEntry] = useState<{
     attempt: number;
     signedIn?: SignedInPresentation;
@@ -37,6 +42,7 @@ export function App({ language }: { language: EntryLanguage }) {
       reopen={reopen}
       inbox={inbox}
       signedIn={entry.signedIn}
+      threadReads={threadReads}
     />
   );
 }
@@ -45,11 +51,13 @@ function EntryRoute({
   reopen,
   inbox,
   signedIn,
+  threadReads,
 }: {
   language: EntryLanguage;
   reopen: (signedIn?: SignedInPresentation) => void;
   inbox: ReturnType<typeof useSystemPermalink>;
   signedIn?: SignedInPresentation;
+  threadReads: ThreadReadCoordination;
 }) {
   const [launch, setLaunch] = useState<Launch | "reading" | "failed">(
     "reading",
@@ -136,6 +144,7 @@ function EntryRoute({
           serverUrl={launch.serverUrl}
           userId={launch.userId}
           language={language}
+          threadReads={threadReads}
           onSessionEnded={reopen}
           systemPost={request}
           opening={opening}

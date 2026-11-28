@@ -300,21 +300,27 @@ export async function openAccountRestConnection(
         signal,
       );
     },
-    editOwnPostMessage(
+    async editOwnPostMessage(
       target: OwnPostTarget,
       message: string,
       signal?: AbortSignal,
     ) {
-      return readWhileOpen(
+      const change = await readWhileOpen(
         () => editOwnPostMessage(posts, userId, target, message, signal),
         signal,
       );
+      historyChanges.notify(change.channelId, signal, [change]);
+      return change;
     },
-    deleteOwnPost(target: OwnPostTarget, signal?: AbortSignal) {
-      return readWhileOpen(
+    async deleteOwnPost(target: OwnPostTarget, signal?: AbortSignal) {
+      const { channelId, id } = target;
+      await readWhileOpen(
         () => deleteOwnPost(posts, userId, target, signal),
         signal,
       );
+      historyChanges.notify(channelId, signal, [
+        { kind: "remove", channelId, id },
+      ]);
     },
     readPostEditHistory(target: OwnPostTarget, signal?: AbortSignal) {
       return readWhileOpen(
@@ -378,7 +384,7 @@ export async function openAccountRestConnection(
               : undefined,
           };
         };
-        historyChanges.notify(channelId, signal);
+        historyChanges.notify(channelId, signal, changes);
         return {
           ...page,
           root: attachCards(page.root, 0),
@@ -879,15 +885,13 @@ export async function openAccountRestConnection(
     ) {
       if (retired) return Promise.reject<ChannelRefreshResult>(retired);
       const { channelId } = query;
-      const result = await refreshChannelHistory(
+      return refreshChannelHistory(
         posts,
         historyWriter,
         query,
         signal,
+        (changes) => historyChanges.notify(channelId, signal, changes),
       );
-      if (result.kind === "applied" || result.kind === "inaccessible")
-        historyChanges.notify(channelId, signal);
-      return result;
     },
     close() {
       retire("unknown_connection");
