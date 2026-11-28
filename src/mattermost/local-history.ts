@@ -22,3 +22,7 @@ export interface LocalChannelWindow {
   older: Edge;
   firstInaccessiblePostTime: number;
 }
+
+export type LiveHistoryAccess =
+  | { kind: "cutoff"; time: number }
+  | { kind: "unavailable"; postId: string };

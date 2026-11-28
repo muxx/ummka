@@ -8,7 +8,10 @@ import {
 } from "../../../src/mattermost/channel-history-refresh.ts";
 import { applyPostEventHistory } from "../../../src/mattermost/channel-post-event-history.ts";
 import type { ChannelPostChange as LocalChange } from "../../../src/mattermost/channel-post-records.ts";
-import { readThreadPage } from "../../../src/mattermost/thread-page.ts";
+import {
+  readThreadPage,
+  type ThreadPageRequest,
+} from "../../../src/mattermost/thread-page.ts";
 import type { PostsApi } from "../../../vendor/mattermost/index.js";
 
 /** Exercise the actual workspace consumer over signed REST with an in-memory write receipt. */
@@ -44,6 +47,8 @@ export function openPostEventFlow(
     },
   };
   const account = {
+    readThreadPage: (query: ThreadPageRequest, active?: AbortSignal) =>
+      readThreadPage(viewer, query, active),
     refreshChannelHistory(request: ChannelRefreshRequest, active: AbortSignal) {
       channelReads.push(request.kind);
       return refreshChannelHistory(

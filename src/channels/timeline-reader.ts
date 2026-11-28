@@ -1,4 +1,5 @@
 import type {
+  LiveHistoryAccess,
   LocalChannelWindow,
   LocalPost,
 } from "../mattermost/local-history.ts";
@@ -49,7 +50,11 @@ export type RetainedChannelWindow = {
   place: TimelinePlace;
   composerHeight?: number;
 };
-export type ChannelHistoryAccess = { revoked: boolean; cutoff: number };
+export type ChannelHistoryAccess = {
+  revoked: boolean;
+  cutoff: number;
+  unavailablePosts?: ReadonlySet<string>;
+};
 
 export type TimelineAccount = Pick<
   WorkspaceConnection,
@@ -110,10 +115,17 @@ function sameReading(before: ReadingPosition, after: ReadingPosition) {
 function restrictedPage(
   page: LocalChannelWindow,
   cutoff: number,
+  unavailable?: ReadonlySet<string>,
 ): LocalChannelWindow {
-  if (!cutoff && !page.firstInaccessiblePostTime) return page;
+  if (!cutoff && !page.firstInaccessiblePostTime && !unavailable?.size)
+    return page;
   const boundary = Math.max(cutoff, page.firstInaccessiblePostTime);
-  const posts = page.posts.filter((post) => post.createAt > boundary);
+  const posts = page.posts.filter(
+    (post) =>
+      post.createAt > boundary &&
+      !unavailable?.has(post.id) &&
+      !(post.rootId && unavailable?.has(post.rootId)),
+  );
   if (
     posts.length === page.posts.length &&
     boundary === page.firstInaccessiblePostTime
@@ -123,7 +135,9 @@ function restrictedPage(
     ...page,
     posts,
     firstInaccessiblePostTime: boundary,
-    older: posts.length < page.posts.length ? { kind: "end" } : page.older,
+    older: page.posts.some((post) => post.createAt <= boundary)
+      ? { kind: "end" }
+      : page.older,
   };
 }
 
@@ -159,6 +173,7 @@ export function createTimelineReader(
     retained?.page.firstInaccessiblePostTime ?? 0,
     !target ? (rememberedAccess?.cutoff ?? 0) : 0,
   );
+  const unavailable = new Set(rememberedAccess?.unavailablePosts);
   let state = empty(
     eligible ? "loading" : "unavailable",
     !target && !!channelId,
@@ -166,7 +181,7 @@ export function createTimelineReader(
   );
   if (needsProof) state = { ...state, notice: "forbidden" };
   if (retained) {
-    const page = restrictedPage(retained.page, confirmedCutoff);
+    const page = restrictedPage(retained.page, confirmedCutoff, unavailable);
     state = {
       ...state,
       page,
@@ -197,6 +212,12 @@ export function createTimelineReader(
   let retryChange = false;
 
   function position(visible: HTMLElement): ReadingPosition {
+    if (
+      !target &&
+      !state.page?.posts.length &&
+      (confirmedCutoff || unavailable.size)
+    )
+      return "latest";
     return readingPosition(
       visible,
       !state.page || state.page.newer.kind === "end",
@@ -212,7 +233,7 @@ export function createTimelineReader(
       online === undefined ||
       !channelId ||
       collapsedThreads === null ||
-      !state.canRetry ||
+      (!state.canRetry && !(state.status === "inaccessible" && !target)) ||
       !pane
     )
       return;
@@ -283,16 +304,25 @@ export function createTimelineReader(
   }
 
   function publish(next: Snapshot) {
-    if (next.page && confirmedCutoff) {
-      const page = restrictedPage(next.page, confirmedCutoff);
-      if (!page.posts.length) {
+    if (next.page && (confirmedCutoff || unavailable.size)) {
+      const page = restrictedPage(next.page, confirmedCutoff, unavailable);
+      if (!page.posts.length && confirmedCutoff) {
         clearPage("inaccessible", confirmedCutoff);
         return;
       }
+      const focus = next.focus;
+      const reply = focus?.focusedReply;
       next = {
         ...next,
         page,
         firstInaccessiblePostTime: page.firstInaccessiblePostTime,
+        focus:
+          focus &&
+          page.posts.some((row) => row.id === focus.anchorId) &&
+          (!reply ||
+            (reply.createAt > confirmedCutoff && !unavailable.has(reply.id)))
+            ? focus
+            : null,
       };
     }
     // A publication can replace a boundary even when this reader did not request it.
@@ -632,6 +662,18 @@ export function createTimelineReader(
       pending?.abort();
       pending = undefined;
       clearPage("forbidden");
+    },
+    restrictHistory(access: LiveHistoryAccess) {
+      if (access.kind === "cutoff") {
+        if (access.time <= confirmedCutoff) return;
+        confirmedCutoff = access.time;
+      } else {
+        if (unavailable.has(access.postId)) return;
+        unavailable.add(access.postId);
+      }
+      publish({ ...state, firstInaccessiblePostTime: confirmedCutoff });
+      changed = true;
+      void readChanges();
     },
     retry() {
       if (activeEdge) return;

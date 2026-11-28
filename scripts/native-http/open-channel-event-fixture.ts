@@ -271,6 +271,12 @@ export function openChannelEventFixture() {
         assert(post);
         removedAt.set(id, post.create_at);
         rows.delete(id);
+        if (op === "delete-root")
+          for (const reply of rows.values()) {
+            if (reply.root_id !== id) continue;
+            removedAt.set(reply.id, reply.create_at);
+            rows.delete(reply.id);
+          }
         emit("post_deleted", post);
       } else if (op === "complete") {
         completed.push(collapsed ? "crt" : "flat");

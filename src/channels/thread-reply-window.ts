@@ -8,7 +8,10 @@ import type {
   CardRevision,
   IntegrationCard,
 } from "../mattermost/integration-cards.ts";
-import type { LocalPost } from "../mattermost/local-history.ts";
+import type {
+  LiveHistoryAccess,
+  LocalPost,
+} from "../mattermost/local-history.ts";
 import { retryPostObservation } from "../mattermost/message-anchors.ts";
 import {
   isMattermostId,
@@ -161,6 +164,9 @@ export function openThreadReplyWindow(
   const priorityByPost = new Map<string, number>();
   const cardsByPost = new Map(retained?.cardRevisions);
   const deleted = new Set<string>();
+  let cutoff = 0;
+  const canShow = (post: Pick<LocalPost, "id" | "createAt">) =>
+    post.createAt > cutoff && !deleted.has(post.id);
   function publish(next: ReplyWindow) {
     state = next;
     for (const listener of listeners) listener();
@@ -240,8 +246,12 @@ export function openThreadReplyWindow(
         return;
       }
       const root = visibleRow(channelId, page.root, collapsedThreads);
+      if (!canShow(root)) {
+        stop("limited", cutoff);
+        return;
+      }
       const received = page.replies
-        .filter((post) => !deleted.has(post.id))
+        .filter(canShow)
         .map((post) => visibleRow(channelId, post));
       if (direction === "up") received.reverse();
       const newReply =
@@ -398,8 +408,12 @@ export function openThreadReplyWindow(
       return;
     }
     const root = visibleRow(channelId, page.root, collapsedThreads);
+    if (!canShow(root)) {
+      stop("limited", cutoff);
+      return;
+    }
     const received = page.replies
-      .filter((row) => !deleted.has(row.id))
+      .filter(canShow)
       .map((row) => visibleRow(channelId, row));
     const last = prior.at(-1);
     const newestRoot = merge(state.root, root, "refresh", stamp);
@@ -460,6 +474,27 @@ export function openThreadReplyWindow(
     channelId,
     rootId,
     refreshEvents,
+    restrictHistory(access: LiveHistoryAccess, rootCreatedAt?: number) {
+      if (lifetime.signal.aborted) return;
+      if (access.kind === "cutoff") {
+        if (access.time <= cutoff) return;
+        cutoff = access.time;
+        const stamp = state.root?.createAt ?? rootCreatedAt;
+        if (stamp !== undefined && stamp <= cutoff) {
+          stop("limited", cutoff);
+          return;
+        }
+      } else {
+        if (access.postId === rootId) {
+          stop("forbidden");
+          return;
+        }
+        deleted.add(access.postId);
+      }
+      const replies = state.replies.filter(canShow);
+      if (access.kind === "cutoff" || replies.length !== state.replies.length)
+        publish({ ...state, replies, firstInaccessiblePostTime: cutoff });
+    },
     getSnapshot: () => state,
     hasReadPage: () => readReplies,
     confirmRoot(root: LocalPost) {

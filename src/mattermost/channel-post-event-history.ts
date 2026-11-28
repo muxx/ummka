@@ -34,6 +34,7 @@ export async function applyPostEventHistory(
     throw new TypeError("Invalid changed channel post address.");
   const load = await writer.begin(channelId);
   const changes: PostChange[] = [];
+  const refused: string[] = [];
   try {
     for (const row of addresses) {
       signal.throwIfAborted();
@@ -49,8 +50,12 @@ export async function applyPostEventHistory(
       } catch (error) {
         // An edit can already have been overtaken by a deletion. Only the
         // addressed delete notice authorizes eviction from other cached pages.
-        if (!(error instanceof ResponseError && error.response.status === 404))
+        if (
+          !(error instanceof ResponseError) ||
+          ![403, 404].includes(error.response.status)
+        )
           throw error;
+        if (error.response.status === 403) refused.push(row.postId);
         await error.response.body?.cancel().catch(() => {});
       }
     }
@@ -60,5 +65,5 @@ export async function applyPostEventHistory(
     throw error;
   }
   const result = await writer.store(load, changes);
-  return { result, changes };
+  return { result, changes, ...(refused.length && { refused }) };
 }

@@ -38,6 +38,8 @@ function account() {
         Parameters<typeof applyOpenChannelEvents>[0]["applyChannelPostEvents"]
       >()
       .mockResolvedValue({ result: { kind: "applied" }, changes: [] }),
+    readThreadPage:
+      vi.fn<Parameters<typeof applyOpenChannelEvents>[0]["readThreadPage"]>(),
     readSavedPost: vi
       .fn<Parameters<typeof applyOpenChannelEvents>[0]["readSavedPost"]>()
       .mockResolvedValue(null),
@@ -214,22 +216,6 @@ test("a denied channel read withdraws its open content and a rejected session is
   await expect(
     applyOpenChannelEvents(a, opened, batch, signal),
   ).rejects.toMatchObject({ response: { status: 401 } });
-  const closed = new ReadableStream<Uint8Array>({
-    start(controller) {
-      controller.error(new Error("The response body closed"));
-    },
-  });
-  a.applyChannelPostEvents.mockRejectedValueOnce(
-    new ResponseError(new Response(closed, { status: 403 })),
-  );
-  expect(
-    await applyOpenChannelEvents(
-      a,
-      { ...opened, visibleIds: [postId] },
-      { kind: "posts", changes: [change("edited")] },
-      signal,
-    ),
-  ).toBe("forbidden");
 });
 
 test.each([403, 404])(
@@ -275,3 +261,51 @@ test.each([403, 404])(
     expect(cancelled).toHaveBeenCalledOnce();
   },
 );
+
+test("an exact edit refusal leaves the confirmed readable channel open and withholds only the known target", async () => {
+  const a = account();
+  const onHistoryAccess = vi.fn();
+  a.applyChannelPostEvents.mockResolvedValueOnce({
+    result: { kind: "applied" },
+    changes: [],
+    refused: [postId],
+  });
+  expect(
+    await applyOpenChannelEvents(
+      a,
+      { ...opened, visibleIds: [postId], onHistoryAccess },
+      { kind: "posts", changes: [change("edited")] },
+      signal,
+    ),
+  ).toBeUndefined();
+  expect(a.refreshChannelHistory).toHaveBeenCalledOnce();
+  expect(onHistoryAccess).toHaveBeenCalledExactlyOnceWith({
+    kind: "unavailable",
+    postId,
+  });
+});
+
+test("a limited latest result does not skip another confirmed deletion in the group", async () => {
+  const a = account();
+  const onHistoryAccess = vi.fn();
+  a.refreshChannelHistory.mockResolvedValueOnce({
+    kind: "inaccessible",
+    firstInaccessiblePostTime: 500,
+  });
+  const deleted = change("deleted", rootId);
+  await applyOpenChannelEvents(
+    a,
+    { ...opened, onHistoryAccess },
+    { kind: "posts", changes: [change("created"), deleted] },
+    signal,
+  );
+  expect(onHistoryAccess).toHaveBeenCalledExactlyOnceWith({
+    kind: "cutoff",
+    time: 500,
+  });
+  expect(a.applyChannelPostEvents).toHaveBeenCalledExactlyOnceWith(
+    channelId,
+    [deleted],
+    signal,
+  );
+});

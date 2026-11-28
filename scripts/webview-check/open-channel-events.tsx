@@ -175,11 +175,13 @@ export async function checkOpenChannelEvents(
               throw Error("Returning to the thread lost the draft");
           }, options);
           await reopened.findByText("Edited event reply", {}, options);
-          await control("delete-reply");
-          await waitFor(() => {
-            if (reopened.queryByText("Edited event reply"))
-              throw Error("Deleted reply still visible");
-          }, options);
+          if (mode === "begin") {
+            await control("delete-reply");
+            await waitFor(() => {
+              if (reopened.queryByText("Edited event reply"))
+                throw Error("Deleted reply still visible");
+            }, options);
+          }
           await control("delete-root");
           await reopened.findByText(
             "This thread is no longer available.",
@@ -188,6 +190,10 @@ export async function checkOpenChannelEvents(
           );
           if (reopened.queryByRole("textbox", { name: "Reply in thread…" }))
             throw Error("Deleted root still accepts replies");
+          await waitFor(() => {
+            if (item("q") || reopened.queryByText("Edited event reply"))
+              throw Error("Removing the root left its reply visible");
+          }, options);
           fireEvent.click(
             reopened.getByRole("button", { name: "Close thread" }),
           );

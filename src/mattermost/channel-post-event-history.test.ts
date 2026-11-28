@@ -81,8 +81,13 @@ test("losing visibility of a single edited post does not authorize deleting its 
   api.getPost.mockRejectedValueOnce(
     new ResponseError(new Response(null, { status: 403 })),
   );
-  await expect(run([edited])).rejects.toThrow();
-  expect(writer.cancel).toHaveBeenCalledOnce();
+  const result = await run([
+    edited,
+    { ...edited, postId: rootId, rootId: null, kind: "deleted" },
+  ]);
+  expect(result.refused).toEqual([postId]);
+  expect(result.changes).toEqual([{ kind: "remove", channelId, id: rootId }]);
+  expect(writer.cancel).not.toHaveBeenCalled();
 });
 test("an abort during GET releases the ticket even when the transport returns a response", async () => {
   const { api, owner, writer, run } = setup();

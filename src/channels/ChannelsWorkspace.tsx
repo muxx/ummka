@@ -1463,8 +1463,12 @@ export function ChannelsWorkspace({
       const revoked =
         historyDenied ||
         (previous?.revoked === true && timeline.status !== "ready");
-      if (revoked || cutoff)
-        channelHistoryAccess.set(chosen, { revoked, cutoff });
+      if (revoked || cutoff || previous?.unavailablePosts?.size)
+        channelHistoryAccess.set(chosen, {
+          ...previous,
+          revoked,
+          cutoff,
+        });
       else if (previous) channelHistoryAccess.delete(chosen);
     }
   }, [
@@ -1752,14 +1756,47 @@ export function ChannelsWorkspace({
           firstVisibleReply,
           thread: activeReader,
           threadOnly: inbox.visible,
+          onHistoryAccess(access) {
+            signal.throwIfAborted();
+            const previous = channelHistoryAccess.get(eventChannel);
+            channelHistoryAccess.set(eventChannel, {
+              revoked: previous?.revoked ?? false,
+              cutoff:
+                access.kind === "cutoff"
+                  ? Math.max(access.time, previous?.cutoff ?? 0)
+                  : (previous?.cutoff ?? 0),
+              unavailablePosts:
+                access.kind === "unavailable"
+                  ? new Set([
+                      ...(previous?.unavailablePosts ?? []),
+                      access.postId,
+                    ])
+                  : previous?.unavailablePosts,
+            });
+            if (eventChannel === chosen) timeline.restrictHistory(access);
+            activeReader?.restrictHistory(
+              access,
+              panePost?.rootId ? undefined : panePost?.createAt,
+            );
+          },
         },
         notice,
         signal,
       );
       signal.throwIfAborted();
       if (outcome === "forbidden") {
-        if (inbox.visible) activeReader?.unavailable("forbidden");
-        else timeline.denyAccess();
+        if (inbox.visible) {
+          const previous = channelHistoryAccess.get(eventChannel);
+          channelHistoryAccess.set(eventChannel, {
+            ...previous,
+            cutoff: previous?.cutoff ?? 0,
+            revoked: true,
+          });
+          activeReader?.unavailable("forbidden");
+          invalidateChannel(eventChannel);
+          setChannelDenied(eventChannel, true);
+        }
+        if (eventChannel === chosen) timeline.denyAccess();
       }
     },
   );
@@ -3080,6 +3117,7 @@ export function ChannelsWorkspace({
                           : undefined
                     }
                     eventReader={eventThread}
+                    historyAccess={channelHistoryAccess.get(panePost.channelId)}
                     renderComposer={composer}
                   />
                 ) : (
