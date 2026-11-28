@@ -69,17 +69,18 @@ function inline(tokens: Token[], options: InlineOptions): Inline[] {
   for (const token of tokens as MarkedToken[]) {
     switch (token.type) {
       case "text": {
+        if (
+          inlineEmoji &&
+          !token.escaped &&
+          token.raw.search(publishedEmojiPattern) >= 0
+        ) {
+          nodes.push({ kind: "emojiText", text: token.raw });
+          break;
+        }
         const text = token.escaped ? token.raw : decodeHTMLStrict(token.raw);
-        const lines = text.split("\n");
-        for (const [i, line] of lines.entries()) {
+        for (const [i, line] of text.split("\n").entries()) {
           if (i > 0) nodes.push({ kind: "lineBreak" });
-          if (
-            inlineEmoji &&
-            !token.escaped &&
-            line.search(publishedEmojiPattern) >= 0
-          )
-            nodes.push({ kind: "emojiText", text: line });
-          else appendText(nodes, line);
+          appendText(nodes, line);
         }
         break;
       }

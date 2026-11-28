@@ -117,3 +117,47 @@ test("leaves the Markdown in channel details and integration cards literal", () 
     ),
   ).toEqual(["About :tada:", "Result :tada:"]);
 });
+
+test("matches authored names and boundaries before decoding entities once", async () => {
+  const cases = [
+    ["&#58;tada&#58; and :ta&#100;a:", ":tada: and :tada:"],
+    ["&colon;tada&colon;", ":tada:"],
+    ["&#97;:tada: and :tada:&#97;", "a🎉 and 🎉a"],
+    ["&#58;TADA: :ta&#100;a: :tada:", ":TADA: :tada: 🎉"],
+    [
+      "&amp;#58;tada&amp;#58; :Audit_PENDING: :tada:",
+      "&#58;tada&#58; :Audit_PENDING: 🎉",
+    ],
+    ["&amp;#58; :Audit_PENDING: &amp;#58;", "&#58; :Audit_PENDING: &#58;"],
+    ["&amp;#58; plain &amp;#58;", "&#58; plain &#58;"],
+    [
+      String.raw`\:tada: \\:tada: \\\:tada: :tada\:`,
+      String.raw`:tada: \🎉 \:tada: :tada:`,
+    ],
+    ["A &#10;:tada: B", "A 🎉 B"],
+  ];
+  const row = post(cases.map(([source]) => source).join("\n\n"));
+  const { container } = render(
+    <>
+      <TimelinePost post={row} locale="en" time={time} author={author} />
+      <TimelinePost
+        post={{ ...row, id: "reply", rootId: row.id }}
+        locale="en"
+        time={time}
+        author={author}
+        inThread
+      />
+    </>,
+  );
+  const bodies = container.querySelectorAll(".published-post");
+  expect(bodies).toHaveLength(2);
+  for (const body of bodies) {
+    const paragraphs = [...body.querySelectorAll("p")];
+    await waitFor(() => {
+      expect(paragraphs.at(-1)?.innerHTML).toBe("A <br>🎉 B");
+    });
+    expect(paragraphs.map((paragraph) => paragraph.textContent)).toEqual(
+      cases.map(([, expected]) => expected),
+    );
+  }
+});

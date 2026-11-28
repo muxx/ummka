@@ -1,3 +1,4 @@
+import { decodeHTMLStrict } from "entities/decode";
 import {
   createContext,
   Fragment,
@@ -114,35 +115,53 @@ function bodyText(text: string, clipText?: boolean) {
 type EmojiLookup =
   typeof import("../mattermost/standard-emoji.ts").findStandardEmoji;
 let emojiLookup: EmojiLookup | undefined;
-let loadingEmoji = false;
+let emojiLoad: "idle" | "pending" | "settled" = "idle";
 const emojiListeners = new Set<() => void>();
 
+function settleEmojiLoad(lookup?: EmojiLookup) {
+  emojiLoad = "settled";
+  emojiLookup = lookup;
+  if (lookup) for (const changed of emojiListeners) changed();
+  emojiListeners.clear();
+}
+
 function subscribeEmoji(listener: () => void) {
-  if (!emojiLookup) {
-    emojiListeners.add(listener);
-    if (!loadingEmoji) {
-      loadingEmoji = true;
-      void import("../mattermost/standard-emoji.ts").then(
-        ({ findStandardEmoji }) => {
-          emojiLookup = findStandardEmoji;
-          for (const changed of emojiListeners) changed();
-          emojiListeners.clear();
-        },
-      );
-    }
+  if (emojiLoad === "settled") return () => {};
+  emojiListeners.add(listener);
+  if (emojiLoad === "idle") {
+    emojiLoad = "pending";
+    void import("../mattermost/standard-emoji.ts").then(
+      ({ findStandardEmoji }) => settleEmojiLoad(findStandardEmoji),
+      (cause: unknown) => {
+        settleEmojiLoad();
+        console.error(
+          "Could not load the bundled standard emoji catalog",
+          cause,
+        );
+      },
+    );
   }
   return () => emojiListeners.delete(listener);
 }
 
-function InlineEmojiText({ text }: { text: string }) {
+function InlineEmojiText({ source }: { source: string }) {
   const findEmoji = useSyncExternalStore(subscribeEmoji, () => emojiLookup);
-  return findEmoji
-    ? text.replace(
+  const text = findEmoji
+    ? source.replace(
         publishedEmojiPattern,
         (original, name: string) =>
           findEmoji(name.toLowerCase())?.glyph ?? original,
       )
-    : text;
+    : source;
+  const decoded = decodeHTMLStrict(text);
+  if (!decoded.includes("\n")) return decoded;
+  return decoded.split("\n").map((line, index) => (
+    // biome-ignore lint/suspicious/noArrayIndexKey: Soft lines keep their authored order within this token.
+    <Fragment key={index}>
+      {index > 0 && <br />}
+      {line}
+    </Fragment>
+  ));
 }
 
 function inlineNode(
@@ -154,7 +173,7 @@ function inlineNode(
     case "text":
       return bodyText(node.text, clipText);
     case "emojiText":
-      return <InlineEmojiText text={node.text} />;
+      return <InlineEmojiText source={node.text} />;
     case "code":
       return <code>{bodyText(node.text, clipText)}</code>;
     case "lineBreak":
