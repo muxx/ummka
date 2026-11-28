@@ -1673,12 +1673,11 @@ export function ChannelsWorkspace({
       ? undefined
       : infoReadings;
   useLayoutEffect(() => {
-    discardListReadings(
-      infoReadings,
-      confirmedChannelIds,
-      deniedPinsChannel,
-      allowChannelFiles,
-    );
+    discardListReadings(infoReadings, {
+      allowed: confirmedChannelIds,
+      deniedChannel: deniedPinsChannel,
+      filesAllowed: allowChannelFiles,
+    });
   }, [infoReadings, confirmedChannelIds, deniedPinsChannel, allowChannelFiles]);
   const { retainPins, close: dismissCollection } = collections;
   useLayoutEffect(() => {
@@ -2554,6 +2553,15 @@ export function ChannelsWorkspace({
             <ChannelFilesPanel
               key={channel.id}
               history={rememberedInfo?.files}
+              channelDenied={() => {
+                if (
+                  active.current?.connection === connection &&
+                  active.current.teamId === team.id
+                )
+                  discardListReadings(infoReadings, {
+                    deniedChannel: channel.id,
+                  });
+              }}
               account={connection}
               teamId={team.id}
               channelId={channel.id}

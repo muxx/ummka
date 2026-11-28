@@ -1,4 +1,10 @@
-import { useEffectEvent, useLayoutEffect, useMemo, useState } from "react";
+import {
+  useEffectEvent,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   type ListPage,
   nearbyPages,
@@ -53,6 +59,7 @@ export function useChannelListPages<Row>({
     online ? history?.get(channelId) : undefined,
   );
   const [state, setState] = useState(() => initial(start));
+  const terminalRead = useRef<Read | null>(null);
   const [scope, setScope] = useState({ online, query, history, channelId });
   if (
     scope.online !== online ||
@@ -89,30 +96,33 @@ export function useChannelListPages<Row>({
           received.push(next);
           if (next.next === null) break;
         }
-        // Empty numbered pages do not establish an empty section. A list
-        // that shrank past the retained window starts again at its first page.
-        if (
-          attempt.kind === "refresh" &&
-          received[0].page > 0 &&
-          received.every(({ rows }) => rows.length === 0)
-        ) {
-          received.splice(0, received.length, await read(0, signal));
-          signal.throwIfAborted();
+        const last = received[received.length - 1];
+        const end = last.next === null ? last.page : null;
+        if (end !== null) {
+          terminalRead.current = attempt;
+          const saved = history?.get(channelId);
+          if (saved?.pages.some(({ page }) => page >= end))
+            history?.delete(channelId);
         }
-        setState((old) =>
-          old.request !== attempt
-            ? old
-            : {
-                ...old,
-                status: "ready",
-                pages:
-                  attempt.kind === "edge"
-                    ? [...old.pages, ...received].sort(
-                        (a, b) => a.page - b.page,
-                      )
-                    : received,
-              },
-        );
+        setState((old) => {
+          if (old.request !== attempt) return old;
+          // A terminal earlier page disproves every remembered later page.
+          const retained =
+            attempt.kind === "edge"
+              ? old.pages.filter(({ page }) => end === null || page < end)
+              : [];
+          const pages = [...retained, ...received].sort(
+            (a, b) => a.page - b.page,
+          );
+          // An empty deep window cannot establish that the section is empty.
+          if (
+            end !== null &&
+            pages[0].page > 0 &&
+            pages.every(({ rows }) => rows.length === 0)
+          )
+            return initial();
+          return { ...old, status: "ready", pages };
+        });
       } catch (cause) {
         if (signal.aborted) return;
         const failure = workspaceFailure(cause, "network");
@@ -120,7 +130,10 @@ export function useChannelListPages<Row>({
           failure === "forbidden" ||
           failure === "unauthorized" ||
           failure === "session";
-        if (terminal) history?.delete(channelId);
+        if (terminal) {
+          terminalRead.current = attempt;
+          history?.delete(channelId);
+        }
         if (failure === "unauthorized" || failure === "session")
           report(failure);
         setState((old) =>
@@ -172,7 +185,13 @@ export function useChannelListPages<Row>({
     );
   }
   function remember(place: RowPlace) {
-    if (!history || !online || !state.pages.length) return;
+    if (
+      !history ||
+      !online ||
+      !state.pages.length ||
+      (state.status === "loading" && terminalRead.current === state.request)
+    )
+      return;
     const pages = nearbyPages(state.pages, place, id);
     rememberList(history, channelId, {
       pages,

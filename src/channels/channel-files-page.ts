@@ -1,3 +1,4 @@
+import { ResponseError } from "../../vendor/mattermost/index.js";
 import type { TeamWorkspace } from "../entry/AccountTeamWindow.tsx";
 import { isMattermostId } from "../mattermost/model-fields.ts";
 import { receivedFileDetails } from "../mattermost/received-file.ts";
@@ -13,6 +14,7 @@ export async function readChannelFilesPage(
   channelId: string,
   page: number,
   signal: AbortSignal,
+  channelDenied?: () => void,
 ) {
   signal.throwIfAborted();
   if (!isMattermostId(channelId))
@@ -39,7 +41,17 @@ export async function readChannelFilesPage(
   // The search endpoint returns the same empty page at the end of a list
   // and after the caller loses access to a private channel.
   if (result.items.length === 0) {
-    await account.readChannelIdentity(channelId, signal);
+    try {
+      await account.readChannelIdentity(channelId, signal);
+    } catch (error) {
+      signal.throwIfAborted();
+      if (
+        error instanceof ResponseError &&
+        (error.response.status === 403 || error.response.status === 404)
+      )
+        channelDenied?.();
+      throw error;
+    }
     signal.throwIfAborted();
   }
   return { ...result, items };

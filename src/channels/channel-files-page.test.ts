@@ -1,4 +1,5 @@
 import { expect, it, vi } from "vitest";
+import { ResponseError } from "../../vendor/mattermost/index.js";
 import { readChannelFilesPage } from "./channel-files-page.ts";
 
 type Account = Parameters<typeof readChannelFilesPage>[0];
@@ -102,3 +103,27 @@ it("drops a late empty result after leaving without starting another read", asyn
   ).rejects.toBe(controller.signal.reason);
   expect(api.readChannelIdentity).not.toHaveBeenCalled();
 });
+
+it.each([401, 403, 404, 500])(
+  "preserves an identity HTTP %s error and only reports a channel denial",
+  async (status) => {
+    const api = account();
+    const channelDenied = vi.fn();
+    const denied = new ResponseError(new Response(null, { status }));
+    api.readFileSearchPage.mockResolvedValue(empty);
+    api.readChannelIdentity.mockRejectedValue(denied);
+    await expect(
+      readChannelFilesPage(
+        api,
+        team,
+        channel,
+        0,
+        new AbortController().signal,
+        channelDenied,
+      ),
+    ).rejects.toBe(denied);
+    expect(channelDenied).toHaveBeenCalledTimes(
+      status === 403 || status === 404 ? 1 : 0,
+    );
+  },
+);

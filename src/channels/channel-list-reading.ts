@@ -58,9 +58,15 @@ export function rememberList<Reading>(
 
 export function discardListReadings(
   readings: ListReadings,
-  allowed: ReadonlySet<string> | undefined,
-  deniedChannel: string | null,
-  filesAllowed: boolean,
+  {
+    allowed,
+    deniedChannel,
+    filesAllowed = true,
+  }: {
+    allowed?: ReadonlySet<string>;
+    deniedChannel?: string | null;
+    filesAllowed?: boolean;
+  },
 ) {
   if (!filesAllowed) readings.files.clear();
   for (const entries of Object.values(readings)) {

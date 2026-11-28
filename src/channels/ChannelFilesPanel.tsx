@@ -67,6 +67,7 @@ type Props = {
   back: () => void;
   direct?: boolean;
   close: () => void;
+  channelDenied: () => void;
   sessionIssue: (reason: "session" | "unauthorized") => void;
   showMessage: (postId: string, button: HTMLButtonElement) => void;
 };
@@ -82,6 +83,7 @@ export function ChannelFilesPanel(props: Props) {
     hidden,
     language,
     sessionIssue,
+    channelDenied,
     showMessage,
   } = props;
   const t = filePanelCopy[language];
@@ -100,6 +102,7 @@ export function ChannelFilesPanel(props: Props) {
         channelId,
         page,
         signal,
+        channelDenied,
       );
       return {
         page,

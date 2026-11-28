@@ -3207,3 +3207,91 @@ test("forgets the opened section when the same channel ID is present in a differ
     account.readChannelMemberDirectory.mock.calls.map(([id]) => id),
   ).toEqual([other, other]);
 });
+
+test.each(["channel", "files", "cancelled"] as const)(
+  "scopes %s file denial to the authority of its request",
+  async (source) => {
+    const { account } = fixture({ homeKind: "P" });
+    const member = {
+      profile: channelProfile({ id: user, username: "ada", firstName: "Ada" }),
+      roles: "",
+      schemeAdmin: false,
+      schemeGuest: false,
+    };
+    const bookmark = {
+      id: "bookmark-id",
+      name: "Old source",
+      destination: {
+        kind: "link" as const,
+        href: "https://example.test/source",
+      },
+    };
+    account.readChannelMemberDirectory.mockResolvedValueOnce({
+      members: [member],
+      nextPage: null,
+    });
+    account.readChannelBookmarks.mockResolvedValueOnce({
+      kind: "available",
+      bookmarks: [bookmark],
+    });
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Channel info" }),
+    );
+    const open = (name: string) => {
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: name === "Members" ? /^Members/ : name,
+        }),
+      );
+      return within(screen.getByRole("complementary", { name }));
+    };
+    const back = () => fireEvent.keyDown(window, { key: "Escape" });
+    await open("Members").findByText("@ada");
+    back();
+    await open("Channel bookmarks").findByRole("button", {
+      name: "Old source",
+    });
+    back();
+    const denied = new ResponseError(new Response(null, { status: 403 }));
+    let rejectIdentity!: (cause: ResponseError) => void;
+    if (source === "files")
+      account.readFileSearchPage.mockRejectedValueOnce(denied);
+    else {
+      account.readFileSearchPage.mockResolvedValueOnce({
+        items: [],
+        isEnd: true,
+        firstInaccessibleFileTime: 0,
+      });
+      account.readChannelIdentity.mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            rejectIdentity = reject;
+          }),
+      );
+    }
+    const files = open("Channel files");
+    if (source !== "files") {
+      await waitFor(() =>
+        expect(account.readChannelIdentity).toHaveBeenCalledTimes(1),
+      );
+      if (source === "cancelled") back();
+      await act(async () => rejectIdentity(denied));
+    }
+    if (source !== "cancelled") {
+      await files.findByRole("heading", { name: "No access to channel files" });
+      back();
+    }
+    account.readChannelBookmarks.mockReturnValueOnce(new Promise(() => {}));
+    account.readChannelMemberDirectory.mockReturnValueOnce(
+      new Promise(() => {}),
+    );
+    const bookmarks = open("Channel bookmarks");
+    expect(
+      Boolean(bookmarks.queryByRole("button", { name: "Old source" })),
+    ).toBe(source !== "channel");
+    back();
+    expect(Boolean(open("Members").queryByText("@ada"))).toBe(
+      source !== "channel",
+    );
+  },
+);

@@ -10,11 +10,19 @@ export function useNextPageButton(
   useLayoutEffect(() => {
     const button = boundary.current;
     if (next === null || !button) return;
+    const root = button.parentElement;
     let active = true;
-    let approached = !fromOutside;
+    let approached =
+      !fromOutside ||
+      Boolean(
+        root &&
+          button.getBoundingClientRect().bottom <=
+            root.getBoundingClientRect().top,
+      );
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => !entry.isIntersecting)) approached = true;
+        if (entries.some((entry) => entry.intersectionRatio === 0))
+          approached = true;
         if (
           approached &&
           active &&
@@ -28,7 +36,7 @@ export function useNextPageButton(
           load(next, button);
         }
       },
-      { root: button.parentElement },
+      { root },
     );
     observer.observe(button);
     return () => {
