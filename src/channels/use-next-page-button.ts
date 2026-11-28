@@ -3,16 +3,28 @@ import { useEffectEvent, useLayoutEffect, useRef } from "react";
 export function useNextPageButton(
   next: number | null,
   read: (page: number, button: HTMLButtonElement) => void,
+  fromOutside = false,
 ) {
   const boundary = useRef<HTMLButtonElement>(null);
   const load = useEffectEvent(read);
   useLayoutEffect(() => {
     const button = boundary.current;
     if (next === null || !button) return;
+    const root = button.parentElement;
     let active = true;
+    let approached =
+      !fromOutside ||
+      Boolean(
+        root &&
+          button.getBoundingClientRect().bottom <=
+            root.getBoundingClientRect().top,
+      );
     const observer = new IntersectionObserver(
       (entries) => {
+        if (entries.some((entry) => entry.intersectionRatio === 0))
+          approached = true;
         if (
+          approached &&
           active &&
           boundary.current === button &&
           entries.some(
@@ -24,13 +36,13 @@ export function useNextPageButton(
           load(next, button);
         }
       },
-      { root: button.parentElement },
+      { root },
     );
     observer.observe(button);
     return () => {
       active = false;
       observer.disconnect();
     };
-  }, [next]);
+  }, [next, fromOutside]);
   return boundary;
 }
