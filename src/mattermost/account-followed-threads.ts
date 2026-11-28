@@ -131,6 +131,33 @@ export function accountFollowedThreads(
         return result;
       }, signal);
     },
+    markThreadUnreadFromPost(
+      teamId: string,
+      post: ThreadPost,
+      signal?: AbortSignal,
+    ) {
+      return whileOpen(async () => {
+        signal?.throwIfAborted();
+        if (
+          !isMattermostId(post?.id) ||
+          (post.rootId !== null && !isMattermostId(post.rootId)) ||
+          post.rootId === post.id
+        )
+          throw new TypeError("Invalid Mattermost thread unread target.");
+        const threadId = post.rootId ?? post.id;
+        const response = await api.setThreadUnreadByPostIdRaw(
+          { ...scope(teamId), threadId, postId: post.id },
+          { signal },
+        );
+        const result = threadReadState(await response.value());
+        signal?.throwIfAborted();
+        if (response.raw.status !== 200 || result.id !== threadId)
+          throw new TypeError(
+            "Mattermost did not confirm the requested unread thread state.",
+          );
+        return result;
+      }, signal);
+    },
     markTeamThreadsRead(teamId: string, signal?: AbortSignal) {
       return whileOpen(async () => {
         signal?.throwIfAborted();

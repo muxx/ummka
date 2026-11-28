@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { afterEach, expect, test, vi } from "vitest";
 import {
   Configuration,
+  FetchError,
   ResponseError,
   ThreadsApi,
 } from "../../vendor/mattermost/index.js";
@@ -10,6 +11,7 @@ import { openAccountRestConnection } from "./native-rest.ts";
 
 const team = "t".repeat(26),
   thread = "r".repeat(26),
+  reply = "p".repeat(26),
   user = "u".repeat(26);
 const timestamp = 1_700_000_000_000;
 const wire = {
@@ -130,7 +132,98 @@ test("validates team, thread and precise positive time before dispatch, includin
   );
   expect(fetchApi).not.toHaveBeenCalled();
 });
-test.each(["single", "all"] as const)(
+test.each([
+  { id: thread, rootId: null },
+  { id: reply, rootId: thread },
+])(
+  "marks unread from the selected post and keeps the confirmed server boundary ($id)",
+  async (selected) => {
+    const { account, fetchApi } = fixture();
+    const signal = new AbortController().signal;
+    const post = { ...selected, createAt: timestamp - 20 };
+    fetchApi.mockResolvedValueOnce(
+      Response.json({
+        ...wire,
+        last_viewed_at: timestamp - 1,
+        unread_replies: 2,
+        participants: [],
+        post: { id: thread },
+      }),
+    );
+    expect(await account.markThreadUnreadFromPost(team, post, signal)).toEqual({
+      id: thread,
+      lastViewedAt: timestamp - 1,
+      unreadReplies: 2,
+      unreadMentions: 1,
+    });
+    expect(fetchApi).toHaveBeenCalledExactlyOnceWith(
+      `https://example.test/sub/api/v4/users/me/teams/${team}/threads/${thread}/set_unread/${post.id}`,
+      expect.objectContaining({ method: "POST", signal }),
+    );
+    expect(fetchApi.mock.calls[0]?.[1]?.body).toBeUndefined();
+  },
+);
+
+test("rejects invalid unread targets and caller cancellation before sending", async () => {
+  const { account, fetchApi } = fixture();
+  const post = { id: reply, rootId: thread };
+  for (const [teamId, target] of [
+    ["short", post],
+    [team, { ...post, id: "short" }],
+    [team, { ...post, rootId: "short" }],
+    [team, { ...post, rootId: post.id }],
+  ] as const) {
+    await expect(
+      account.markThreadUnreadFromPost(teamId, target),
+    ).rejects.toThrow();
+  }
+  const signal = AbortSignal.abort(new Error("left account"));
+  await expect(
+    account.markThreadUnreadFromPost(team, post, signal),
+  ).rejects.toBe(signal.reason);
+  expect(fetchApi).not.toHaveBeenCalled();
+});
+
+test.each([
+  [wire, 202],
+  [{ ...wire, id: reply }, 200],
+  [{ ...wire, last_viewed_at: -1 }, 200],
+  [{ ...wire, unread_replies: -1 }, 200],
+  [{ ...wire, unread_mentions: 1.5 }, 200],
+  [{}, 200],
+] as const)(
+  "declines an invalid unread receipt and sends just one request (%j, HTTP %d)",
+  async (body, status) => {
+    const { account, fetchApi } = fixture();
+    fetchApi.mockResolvedValueOnce(Response.json(body, { status }));
+    await expect(
+      account.markThreadUnreadFromPost(team, { id: reply, rootId: thread }),
+    ).rejects.toThrow();
+    expect(fetchApi).toHaveBeenCalledTimes(1);
+  },
+);
+
+test("propagates a refused unread request and a lost receipt without retrying either", async () => {
+  const { account, fetchApi } = fixture();
+  const post = { id: reply, rootId: thread };
+  fetchApi.mockResolvedValueOnce(new Response(null, { status: 403 }));
+  await expect(
+    account.markThreadUnreadFromPost(team, post),
+  ).rejects.toBeInstanceOf(ResponseError);
+  expect(fetchApi).toHaveBeenCalledTimes(1);
+
+  const lost = new TypeError("connection ended after dispatch");
+  fetchApi.mockRejectedValueOnce(lost);
+  await expect(
+    account.markThreadUnreadFromPost(team, post),
+  ).rejects.toMatchObject({
+    name: FetchError.name,
+    cause: lost,
+  });
+  expect(fetchApi).toHaveBeenCalledTimes(2);
+});
+
+test.each(["single", "all", "unread"] as const)(
   "closed and aborted accounts discard a delayed %s read acknowledgement",
   async (kind) => {
     for (const closed of [true, false]) {
@@ -145,7 +238,12 @@ test.each(["single", "all"] as const)(
         finish = resolve;
       });
       const one = vi
-        .spyOn(ThreadsApi.prototype, "updateThreadReadForUserRaw")
+        .spyOn(
+          ThreadsApi.prototype,
+          kind === "unread"
+            ? "setThreadUnreadByPostIdRaw"
+            : "updateThreadReadForUserRaw",
+        )
         .mockResolvedValue({
           raw: new Response(),
           value: async () => {
@@ -175,14 +273,24 @@ test.each(["single", "all"] as const)(
               timestamp,
               controller.signal,
             )
-          : account.markTeamThreadsRead(team, controller.signal);
+          : kind === "unread"
+            ? account.markThreadUnreadFromPost(
+                team,
+                { id: reply, rootId: thread },
+                controller.signal,
+              )
+            : account.markTeamThreadsRead(team, controller.signal);
       if (closed) await account.close();
       else controller.abort(new Error("left account"));
       finish();
       await expect(request).rejects.toBe(
         closed ? "cancelled" : controller.signal.reason,
       );
-      expect(kind === "single" ? one : all).toHaveBeenCalledTimes(1);
+      if (closed && kind === "unread")
+        await expect(
+          account.markThreadUnreadFromPost(team, { id: reply, rootId: thread }),
+        ).rejects.toBe("unknown_connection");
+      expect(kind === "all" ? all : one).toHaveBeenCalledTimes(1);
       one.mockRestore();
       all.mockRestore();
       if (!closed) await account.close();
