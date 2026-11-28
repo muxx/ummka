@@ -2,7 +2,10 @@ import type {
   LocalChannelWindow,
   LocalPost,
 } from "../mattermost/local-history.ts";
-import { prepareFocusedConversation } from "./prepare-focused-conversation.ts";
+import {
+  type PreparedConversation,
+  prepareFocusedConversation,
+} from "./prepare-focused-conversation.ts";
 import { readCommittedTimeline } from "./timeline-reprojection.ts";
 import {
   type ReadingPosition,
@@ -25,6 +28,7 @@ export type TimelineRequest =
       rid: number;
       teamId: string;
       post: LocalPost;
+      prepared?: PreparedConversation;
     }
   | { kind: "latest"; requestId: number }
   | { kind: "restore"; requestId: number; position: readonly string[] };
@@ -79,6 +83,7 @@ export function createTimelineReader(
   request?: TimelineRequest,
 ) {
   let target = request?.kind === "focus" ? request : undefined;
+  let prepared = target?.prepared;
   let restored = request?.kind === "restore" ? request.position : undefined;
   const eligible =
     !target ||
@@ -275,13 +280,16 @@ export function createTimelineReader(
           publish({ ...state, notice: result.status });
         }
       } else if (target) {
-        const result = await prepareFocusedConversation(
-          account,
-          target.post,
-          collapsedThreads,
-          signal,
-          online,
-        );
+        const result =
+          prepared ??
+          (await prepareFocusedConversation(
+            account,
+            target.post,
+            collapsedThreads,
+            signal,
+            online,
+          ));
+        prepared = undefined;
         if (signal.aborted) return;
         if (result.status === "ready") {
           const { page, anchorId, focusedReply } = result;

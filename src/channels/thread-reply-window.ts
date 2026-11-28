@@ -59,6 +59,7 @@ export function openThreadReplyWindow(
   account: Account,
   scope: Scope,
   start?: LocalPost | { lastViewedAt: number; userId: string },
+  initialRoot?: LocalPost,
 ) {
   const { channelId, rootId, collapsedThreads } = scope;
   const unread = start && "lastViewedAt" in start ? { ...start } : undefined;
@@ -100,7 +101,7 @@ export function openThreadReplyWindow(
   const listeners = new Set<() => void>();
   let opened: Promise<void> | undefined;
   let state: ReplyWindow = {
-    root: null,
+    root: initialRoot ?? null,
     replies: focus ? [focus] : [],
     up: { status: focus || (time !== undefined && time > 0) ? "ready" : "end" },
     down: { status: time === Number.MAX_SAFE_INTEGER ? "end" : "ready" },

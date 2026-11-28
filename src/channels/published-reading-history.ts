@@ -1,6 +1,8 @@
 import type { SavedCollectionOrigin } from "../entry/use-message-navigation.tsx";
+import type { LocalPost } from "../mattermost/local-history.ts";
 import { PostObservationSuperseded } from "../mattermost/message-anchors.ts";
 import { inspectPostTarget } from "./inspect-post-target.ts";
+import type { ThreadInboxPlace } from "./thread-inbox.ts";
 import { measureTimeline, type TimelinePlace } from "./timeline-viewport.ts";
 import type { RowOrigin } from "./use-workspace-collections.ts";
 import { workspaceFailure } from "./workspace-data.ts";
@@ -10,8 +12,14 @@ export type PublishedReadingOrigin = {
   channelId: string;
   rootId: string | null;
   postId: string;
-  link: { href: string; occurrence: number };
+  link: { href: string; occurrence: number; expanded?: true };
   reading: TimelinePlace;
+  label?: string;
+  inbox?: {
+    channelId: string | null;
+    reading: TimelinePlace | null;
+    list: ThreadInboxPlace;
+  };
   collection?:
     | { kind: "saved-team"; source: SavedCollectionOrigin; postId: string }
     | {
@@ -29,9 +37,13 @@ export type PublishedReadingOrigin = {
 };
 type ReadingScope = Pick<
   PublishedReadingOrigin,
-  "channelId" | "teamId" | "collection"
+  "teamId" | "collection" | "inbox"
 > & {
+  channelId?: string;
   threadRootId: string | null;
+  threadChannelId?: string;
+  label?: string;
+  threadLabel?: string;
 };
 
 export function capturePublishedReadingOrigin(
@@ -42,8 +54,10 @@ export function capturePublishedReadingOrigin(
   const pane = row?.closest<HTMLElement>(".timeline-scroll");
   if (!row?.dataset.postId || !pane || anchor.closest("[hidden], [inert]"))
     return null;
-  const rootId = pane.matches(".thread-feed") ? scope.threadRootId : null;
-  if (pane.matches(".thread-feed") && rootId === null) return null;
+  const inThread = pane.matches(".thread-feed");
+  const rootId = inThread ? scope.threadRootId : null;
+  const channelId = inThread ? scope.threadChannelId : scope.channelId;
+  if (!channelId || (inThread && rootId === null)) return null;
   const link = anchor.getBoundingClientRect();
   const bounds = pane.getBoundingClientRect();
   if (
@@ -62,14 +76,38 @@ export function capturePublishedReadingOrigin(
   );
   const occurrence = links.filter((link) => link.href === href).indexOf(anchor);
   if (occurrence < 0) return null;
+  const label = inThread ? scope.threadLabel : scope.label;
+  const description =
+    label &&
+    [
+      label,
+      [
+        row.querySelector("header strong")?.textContent,
+        row.querySelector("time")?.textContent,
+      ]
+        .filter(Boolean)
+        .join(", "),
+    ]
+      .filter(Boolean)
+      .join(" · ");
   return {
     teamId: scope.teamId,
-    channelId: scope.channelId,
+    channelId,
     rootId,
     postId: row.dataset.postId,
-    link: { href, occurrence },
+    link: {
+      href,
+      occurrence,
+      ...(anchor
+        .closest(".post-body-disclosure")
+        ?.querySelector(".post-body-disclosure-action[aria-expanded=true]") && {
+        expanded: true,
+      }),
+    },
     reading,
+    ...(description && { label: description }),
     collection: scope.collection,
+    ...(inThread && scope.inbox && { inbox: scope.inbox }),
   };
 }
 
@@ -82,8 +120,28 @@ export type PublishedReadingProposal = {
   shown: () => void;
 };
 
+export function savedReadingSource(origin: PublishedReadingOrigin) {
+  const { collection } = origin;
+  if (collection?.kind === "saved-team") return collection;
+  if (collection?.kind !== "workspace" || collection.source.kind !== "all")
+    return;
+  const { row } = collection;
+  return {
+    postId: row.id,
+    source: {
+      teamId: origin.teamId,
+      channelId: row.channelId,
+      index: row.ids.indexOf(row.id),
+      scroll: row.scroll,
+      offset: row.offset,
+      reading: row.reading,
+    },
+  };
+}
+
 export function createPublishedReadingHistory(account: Account) {
   const entries: { origin: PublishedReadingOrigin }[] = [];
+  const listeners = new Set<() => void>();
   let active = new AbortController();
   let closed = false;
   function interrupt() {
@@ -91,7 +149,24 @@ export function createPublishedReadingHistory(account: Account) {
     if (!closed) active = new AbortController();
     previous.abort();
   }
+  function publish() {
+    for (const listener of listeners) listener();
+  }
+  function clear() {
+    interrupt();
+    entries.length = 0;
+    publish();
+  }
   return {
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    getSnapshot: () => entries.at(-1)?.origin,
+    savedSource: () =>
+      entries.map(({ origin }) => savedReadingSource(origin)).find(Boolean),
     capture(
       origin: PublishedReadingOrigin,
       owner: Pick<PublishedReadingProposal, "serverUrl" | "userId">,
@@ -106,15 +181,16 @@ export function createPublishedReadingHistory(account: Account) {
           if (committed || signal.aborted) return;
           committed = true;
           entries.push({ origin });
+          publish();
         },
       };
     },
     interrupt,
+    clear,
     hasPrevious: () => entries.length > 0,
     close() {
       closed = true;
-      interrupt();
-      entries.length = 0;
+      clear();
     },
     async prepareReturn(caller: AbortSignal) {
       const entry = entries.at(-1);
@@ -125,6 +201,7 @@ export function createPublishedReadingHistory(account: Account) {
       const unavailable = () => {
         if (!current()) return { kind: "cancelled" } as const;
         entries.pop();
+        publish();
         return { kind: "unavailable" } as const;
       };
       try {
@@ -144,6 +221,7 @@ export function createPublishedReadingHistory(account: Account) {
             (target.post.rootId ?? target.post.id) !== origin.rootId)
         )
           return unavailable();
+        let threadRoot: LocalPost | undefined;
         if (origin.rootId && origin.rootId !== origin.postId) {
           const root = await account.readPostAnchor(origin.rootId, signal);
           if (!current()) return { kind: "cancelled" } as const;
@@ -154,14 +232,20 @@ export function createPublishedReadingHistory(account: Account) {
             root.post.rootId
           )
             return unavailable();
+          threadRoot = root.post;
+        } else if (origin.rootId) {
+          threadRoot = target.post;
         }
         return {
           kind: "ready",
           origin,
           post: target.post,
+          threadRoot,
+          signal,
           commit() {
             if (!current()) return false;
             entries.pop();
+            publish();
             return true;
           },
         } as const;

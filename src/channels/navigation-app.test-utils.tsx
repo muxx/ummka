@@ -203,6 +203,17 @@ export function fixture({
       selectedTeam,
     })),
     refreshJoinedTeams: vi.fn().mockResolvedValue(true),
+    readFollowedThreadTotals: vi
+      .fn<Account["readFollowedThreadTotals"]>()
+      .mockResolvedValue({
+        total: 0,
+        totalUnreadThreads: 0,
+        totalUnreadMentions: 0,
+        totalUnreadUrgentMentions: 0,
+      }),
+    readFollowedThreads: vi
+      .fn<Account["readFollowedThreads"]>()
+      .mockResolvedValue({ items: [], nextBefore: null }),
     selectJoinedTeam: vi.fn(async (next: string) => {
       selectedTeam = next;
       return true;
@@ -244,6 +255,13 @@ export function fixture({
       .fn()
       .mockResolvedValue({ profiles: {}, usernames: {} }),
     refreshSavedProfiles: vi.fn(),
+    saveDraft: vi.fn<Account["saveDraft"]>(async (draft) => {
+      drafts.set(draft.rootId ?? draft.channelId, draft.message);
+      return {
+        kind: "saved",
+        draft: { message: draft.message, revision: "2" },
+      };
+    }),
     readDraft: vi.fn<Account["readDraft"]>(async (p) => ({
       revision: "1",
       message: drafts.get(p.rootId ?? p.channelId) ?? "",

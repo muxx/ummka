@@ -14,16 +14,21 @@ function openDialog() {
   );
 }
 
-export function useWorkspaceBack(modal: boolean, back: (() => void) | null) {
-  const active = modal || back !== null;
-  const handle = useEffectEvent(() => {
+export function useWorkspaceBack(
+  modal: boolean,
+  back: (() => void) | null,
+  nativeBack = back,
+) {
+  const active = modal || back !== null || (isAndroid && nativeBack !== null);
+  const handle = useEffectEvent((action: "escape" | "native") => {
     const dialog = openDialog();
     if (dialog) {
       dialog.dispatchEvent(new Event("cancel", { cancelable: true }));
       return true;
     }
-    if (modal || !back) return false;
-    back();
+    const run = action === "native" ? nativeBack : back;
+    if (modal || !run) return false;
+    run();
     return true;
   });
   useEffect(() => {
@@ -31,7 +36,7 @@ export function useWorkspaceBack(modal: boolean, back: (() => void) | null) {
     let listening = true;
     const listener = isAndroid
       ? onBackButtonPress(() => {
-          if (listening) handle();
+          if (listening) handle("native");
         })
       : undefined;
     function handleEscape(event: KeyboardEvent) {
@@ -39,7 +44,7 @@ export function useWorkspaceBack(modal: boolean, back: (() => void) | null) {
         event.key === "Escape" &&
         !event.defaultPrevented &&
         !event.isComposing &&
-        handle()
+        handle("escape")
       )
         event.preventDefault();
     }

@@ -1,3 +1,4 @@
+import { mergePostObservation } from "../mattermost/channel-post-records.ts";
 import type { LocalPost } from "../mattermost/local-history.ts";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
 
@@ -15,10 +16,18 @@ export async function prepareFocusedConversation(
   collapsedThreads: boolean,
   signal: AbortSignal,
   online = true,
+  reading?: { root?: LocalPost },
 ) {
   signal.throwIfAborted();
-  const focusedReply = collapsedThreads && post.rootId ? post : undefined;
-  const anchorId = focusedReply?.rootId ?? post.id;
+  const focusedReply = (
+    reading
+      ? reading.root
+      : collapsedThreads && post.rootId
+  )
+    ? post
+    : undefined;
+  const anchor = reading?.root ?? post;
+  const anchorId = reading ? anchor.id : (focusedReply?.rootId ?? post.id);
   const scope = {
     channelId: post.channelId,
     collapsedThreads,
@@ -56,8 +65,22 @@ export async function prepareFocusedConversation(
     return { status: "unavailable" } as const;
   return {
     status: "ready" as const,
-    page,
+    page: reading
+      ? {
+          ...page,
+          posts: page.posts.map((row) =>
+            row.id === anchorId
+              ? mergePostObservation(row, { ...row, ...anchor }, "refresh")
+              : row,
+          ),
+        }
+      : page,
     anchorId,
     ...(focusedReply && { focusedReply }),
   };
 }
+
+export type PreparedConversation = Extract<
+  Awaited<ReturnType<typeof prepareFocusedConversation>>,
+  { status: "ready" }
+>;

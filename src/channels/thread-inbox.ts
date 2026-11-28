@@ -8,6 +8,12 @@ type Row = Awaited<ReturnType<Reader["readFollowedThreads"]>>["items"][number];
 type Read = Awaited<ReturnType<Account["markFollowedThreadRead"]>>;
 type Totals = Awaited<ReturnType<Reader["readFollowedThreadTotals"]>>;
 type ThreadInboxTab = "followed" | "unread";
+export type ThreadInboxPlace = {
+  tab: ThreadInboxTab;
+  id: string;
+  index: number;
+  position: { top: number; id?: string; offset: number };
+};
 type Key = ThreadInboxTab | "totals";
 type Status =
   | "idle"

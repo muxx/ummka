@@ -4,6 +4,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useEffectEvent,
   useId,
   useLayoutEffect,
   useMemo,
@@ -55,7 +56,12 @@ import {
   PublishedTableScreen,
   usePublishedReaderWindow,
 } from "./PublishedReaderWindow.tsx";
+import {
+  PublishedReadingReturn,
+  PublishedReadingStatus,
+} from "./PublishedReadingReturn.tsx";
 import { PostActionScope, usePostActionScope } from "./post-action-scope.ts";
+import { showPostArrival } from "./post-arrival.ts";
 import { newestCollectionItems } from "./post-collection.ts";
 import {
   capturePublishedReadingOrigin,
@@ -65,6 +71,7 @@ import type { ReactionThread } from "./submit-channel-reaction.ts";
 import { TeamChannelDirectory } from "./TeamChannelDirectory.tsx";
 import { ThreadInboxPane } from "./ThreadInboxPane.tsx";
 import { ThreadPane } from "./ThreadPane.tsx";
+import type { ThreadInboxPlace } from "./thread-inbox.ts";
 import { threadInboxCopy } from "./thread-inbox-copy.ts";
 import type { TimelineRequest } from "./timeline-reader.ts";
 import { measureTimeline, type TimelinePlace } from "./timeline-viewport.ts";
@@ -259,6 +266,7 @@ export function ChannelsWorkspace({
     workspace;
   const publishedLinks = useContext(PublishedLinkNavigation);
   const { publishedReading } = workspace.messages;
+  const readingReturn = workspace.messages.readingReturn;
   const text = workspaceCopy[language];
   const host = useRef<HTMLDivElement>(null);
   const accountButton = useRef<HTMLButtonElement>(null);
@@ -406,6 +414,7 @@ export function ChannelsWorkspace({
   const published = directory.state.value;
   const status = directory.state.status;
   const focusRequest = position?.request;
+  const readingInbox = position?.readingReturn?.origin.inbox;
   const [handoff, setHandoff] = useState({ focusRequest, published, status });
   if (focusRequest !== handoff.focusRequest) {
     setHandoff({ focusRequest, published, status });
@@ -429,7 +438,7 @@ export function ChannelsWorkspace({
     choiceFailed?.exclude ?? savedReturn?.unavailableChannel;
   const channel = useMemo(() => {
     if (!snapshot) return null;
-    if (position)
+    if (position && !readingInbox)
       return (
         snapshot.data.channels.find(
           (c) => c.id === position.request.post.channelId,
@@ -447,10 +456,11 @@ export function ChannelsWorkspace({
         }
       : snapshot;
     return (
-      sidebar.data.channels.find((c) => c.id === selected) ??
-      openingChannel(sidebar, language)
+      sidebar.data.channels.find(
+        (c) => c.id === (readingInbox ? readingInbox.channelId : selected),
+      ) ?? openingChannel(sidebar, language)
     );
-  }, [snapshot, selected, language, position, excludedChannel]);
+  }, [snapshot, selected, language, position, excludedChannel, readingInbox]);
   const chosen = channel?.id ?? null;
   const recent = useRef(new Set<string>());
   useEffect(() => {
@@ -476,13 +486,42 @@ export function ChannelsWorkspace({
     online,
     sessionIssue,
   );
-  const inboxRoute = useRef(position?.request.requestId);
+  const inboxRoute = useRef<number | undefined>(undefined);
+  const inboxMain = useRef<
+    Omit<NonNullable<PublishedReadingOrigin["inbox"]>, "list"> | undefined
+  >(undefined);
+  const inboxList = useRef<ThreadInboxPlace | undefined>(undefined);
   useLayoutEffect(() => {
-    const next = position?.request.requestId;
-    if (next !== undefined && next !== inboxRoute.current && inbox.visible)
+    if (
+      inbox.paused &&
+      !readingReturn?.previous &&
+      readingReturn?.notice === "unavailable"
+    )
       inbox.close();
+    const next = position?.request.requestId;
+    if (next === undefined || next === inboxRoute.current) {
+      inboxRoute.current = next;
+      return;
+    }
+    const root = position?.readingReturn?.threadRoot;
+    if (readingInbox && root && !inbox.model) return;
     inboxRoute.current = next;
-  }, [inbox, position]);
+    if (readingInbox && root) {
+      if (inbox.resume(root, readingInbox.list)) {
+        inboxMain.current = readingInbox;
+        inboxList.current = readingInbox.list;
+        restoreConversation(readingInbox.channelId, readingInbox.reading);
+      }
+    } else if (inbox.visible) {
+      if (position?.system?.publishedFromTeam === team.id) inbox.pause();
+      else inbox.close();
+    } else if (
+      inbox.paused &&
+      !position?.system?.publishedFromTeam &&
+      !position?.readingReturn
+    )
+      inbox.close();
+  });
   const inboxText = threadInboxCopy[language];
   const counts = inbox.state?.totals.value;
   const inboxName = [
@@ -541,7 +580,9 @@ export function ChannelsWorkspace({
     collections.open({ kind: "all", returnRow: place }, savedButton.current);
   });
   const restoration =
-    !position && restoredChannel?.channelId === chosen ? restoredChannel : null;
+    (!position || readingInbox) && restoredChannel?.channelId === chosen
+      ? restoredChannel
+      : null;
   const timeline = useChannelTimeline(
     connection,
     team.id,
@@ -549,7 +590,7 @@ export function ChannelsWorkspace({
     settings?.collapsedThreads ?? null,
     online,
     sessionIssue,
-    position?.request ?? restoration?.request,
+    (!readingInbox ? position?.request : undefined) ?? restoration?.request,
   );
   const current = useMemo(
     () =>
@@ -786,12 +827,13 @@ export function ChannelsWorkspace({
   ]);
 
   function choose(id: string, returning = false) {
+    const main = inbox.visible ? inboxMain.current : undefined;
     inbox.close();
     setDirectoryOpen(false);
     search.abortPending();
     if (!returning) {
       collections.close(false);
-      setRestoredChannel(null);
+      restoreConversation(id, main?.channelId === id ? main.reading : null);
     }
     setChannelMenuOpen(false);
     if (!returning && (position || search.origin)) search.dismiss();
@@ -921,6 +963,16 @@ export function ChannelsWorkspace({
     collectionReading.current = readChannelPlace();
     collections.open(source, opener);
   }
+  function rememberInboxChannel() {
+    const feed = timeline.viewport.current;
+    if (feed?.clientHeight)
+      inboxMain.current = {
+        channelId: chosen,
+        reading: measureTimeline(feed, timeline.latest),
+      };
+    else if (inboxMain.current?.channelId !== chosen)
+      inboxMain.current = { channelId: chosen, reading: null };
+  }
   function readChannelPlace() {
     const pane = timeline.viewport.current;
     return !position && pane?.clientHeight
@@ -990,8 +1042,11 @@ export function ChannelsWorkspace({
   }
   function returnToCollection() {
     if (!position) return;
+    restoreCollection(position.request.post.id);
+  }
+  function restoreCollection(id: string) {
     collections.abort();
-    const source = collections.restoreRow(position.request.post.id);
+    const source = collections.restoreRow(id);
     restoreConversation(source?.channelId ?? null, source?.reading ?? null);
     if (source?.channelId) choose(source.channelId, true);
     else workspace.messages.clear();
@@ -1072,6 +1127,8 @@ export function ChannelsWorkspace({
             collections.close(false);
             setDirectoryOpen(false);
             closeThread();
+            inboxList.current = undefined;
+            rememberInboxChannel();
             setPage("conversation");
             inbox.show();
           }}
@@ -1179,6 +1236,12 @@ export function ChannelsWorkspace({
   const selection = inbox.selection;
   const panePost = selection ? selection.post : activeThread;
   const paneId = selection?.row.id ?? activeThread?.id;
+  function closeInboxThread() {
+    publishedReading?.interrupt();
+    position?.readingReturn?.thread?.close();
+    setClosedRequest(position?.request.requestId ?? null);
+    inbox.closeThread();
+  }
   const pinsSource =
     collections.view?.kind === "pins" ? collections.view.channelId : null;
   const pinsRoom = pinsSource
@@ -1240,6 +1303,10 @@ export function ChannelsWorkspace({
   }
   const manualThread =
     activeThread && closedRequest === position?.request.requestId;
+  const readingBackVisible =
+    page === "conversation" &&
+    !directoryOpen &&
+    Boolean(readingReturn?.previous);
   function workspaceBack() {
     if (appearanceOpen) return () => setAppearanceOpen(false);
     if (channelMenuOpen)
@@ -1258,9 +1325,11 @@ export function ChannelsWorkspace({
         setDirectoryOpen(false);
         if (compact || !chosen) setPage("navigation");
       };
-    if (selection) return inbox.closeThread;
+    if (selection) return closeInboxThread;
     if (inbox.visible && compact && page !== "navigation")
       return () => setPage("navigation");
+    if (readingBackVisible && !activeThread) return null;
+    if (readingBackVisible) return closeThread;
     if (manualThread) return closeThread;
     if (savedSource) return returnToSaved;
     if (collectionDestination) return returnToCollection;
@@ -1358,14 +1427,25 @@ export function ChannelsWorkspace({
     online,
     sessionIssue,
   );
-  const modalOpen =
+  const overlayOpen =
     accountOverlay !== null ||
     notificationRoom !== null ||
     workspace.messages.dialogOpen ||
     Boolean(attachments.selected) ||
     Boolean(reader.opening) ||
     Boolean(actions.anchor);
-  useWorkspaceBack(modalOpen, workspaceBack());
+  function backToReading() {
+    if (settings && !overlayOpen)
+      readingReturn?.back(settings.collapsedThreads);
+  }
+  const backWorkspace = workspaceBack();
+  useWorkspaceBack(
+    overlayOpen,
+    backWorkspace,
+    readingBackVisible && !appearanceOpen && !channelMenuOpen && !search.dialog
+      ? backToReading
+      : backWorkspace,
+  );
   useEffect(() => {
     const request = position?.system;
     if (!request || request !== workspace.systemPost || request.signal.aborted)
@@ -1445,7 +1525,12 @@ export function ChannelsWorkspace({
     timeline.status,
     confirmedThread,
   ]);
-  const threadRootId = activeThread?.rootId ?? activeThread?.id ?? null;
+  const threadRootId = panePost?.rootId ?? panePost?.id ?? null;
+  const threadRoom = snapshot?.data.channels.find(
+    (room) => room.id === panePost?.channelId,
+  );
+  const threadLabel =
+    threadRoom && (selection ? inboxRoomName(threadRoom.id) : roomTitle);
   const linkNavigation = useMemo(() => {
     if (!publishedLinks || !publishedReading) return publishedLinks;
     return {
@@ -1476,7 +1561,10 @@ export function ChannelsWorkspace({
           const source = collectionDestination;
           collection = {
             kind: "workspace",
-            row: collectionOrigin,
+            row: {
+              ...collectionOrigin,
+              id: position?.request.post.id ?? collectionOrigin.id,
+            },
             source:
               source.kind === "all"
                 ? { kind: "all" }
@@ -1489,15 +1577,21 @@ export function ChannelsWorkspace({
                     },
           };
         }
-        const origin =
-          scene?.contains(anchor) && chosen
-            ? capturePublishedReadingOrigin(anchor, {
-                teamId: team.id,
-                channelId: chosen,
-                threadRootId,
-                collection,
-              })
-            : null;
+        const origin = scene?.contains(anchor)
+          ? capturePublishedReadingOrigin(anchor, {
+              teamId: team.id,
+              channelId: chosen ?? undefined,
+              threadRootId,
+              threadChannelId: panePost?.channelId,
+              label: roomTitle,
+              threadLabel,
+              collection,
+              inbox:
+                selection && inboxMain.current && inboxList.current
+                  ? { ...inboxMain.current, list: inboxList.current }
+                  : undefined,
+            })
+          : null;
         publishedLinks.open(
           href,
           anchor,
@@ -1513,6 +1607,10 @@ export function ChannelsWorkspace({
     chosen,
     team.id,
     threadRootId,
+    panePost?.channelId,
+    selection,
+    roomTitle,
+    threadLabel,
     position,
     timeline.focus,
     confirmedThread,
@@ -1521,6 +1619,107 @@ export function ChannelsWorkspace({
     serverUrl,
     userId,
   ]);
+  const landedReading = useRef<number | undefined>(undefined);
+  const linkPlacement = position?.readingReturn;
+  const visibleLinkPlacement =
+    focusRequest?.requestId !== closedRequest &&
+    linkPlacement?.threadRoot?.id === threadRootId
+      ? linkPlacement
+      : undefined;
+  const readingReady = readingInbox
+    ? inbox.visible && selection?.post?.id === linkPlacement?.origin.rootId
+    : timeline.focus?.requestId === focusRequest?.requestId;
+  const reportReadingLanding = useEffectEvent((id: number, edited: boolean) =>
+    readingReturn?.landed(id, edited),
+  );
+  useLayoutEffect(() => {
+    if (
+      !linkPlacement ||
+      !focusRequest ||
+      !readingReady ||
+      landedReading.current === focusRequest.requestId
+    )
+      return;
+    const id = focusRequest.requestId;
+    const origin = linkPlacement.origin;
+    let frame: number;
+    let clear: (() => void) | undefined;
+    const focus = () => {
+      const pane = host.current?.querySelector<HTMLElement>(
+        origin.rootId
+          ? ".thread-feed"
+          : ".channels-conversation .timeline-scroll",
+      );
+      const row = pane?.querySelector<HTMLElement>(
+        `[data-post-id="${CSS.escape(origin.postId)}"]`,
+      );
+      if (!pane || !row || row.closest("[inert], [hidden]")) return;
+      const link = Array.from(
+        row.querySelectorAll<HTMLAnchorElement>("a[data-published-link]"),
+      ).filter((node) => node.href === origin.link.href)[
+        origin.link.occurrence
+      ];
+      const disclosure =
+        origin.link.expanded &&
+        link
+          ?.closest(".post-body-disclosure")
+          ?.querySelector<HTMLButtonElement>(
+            ".post-body-disclosure-action[aria-expanded=false]",
+          );
+      if (disclosure) {
+        disclosure.click();
+        frame = requestAnimationFrame(focus);
+        return;
+      }
+      const offset = origin.reading.anchors[0]?.offset;
+      if (offset !== undefined)
+        pane.scrollTop +=
+          row.getBoundingClientRect().top -
+          pane.getBoundingClientRect().top -
+          offset;
+      const visibleLink =
+        link && !link.closest("[inert], [hidden]") ? link : null;
+      if (!visibleLink) row.tabIndex = -1;
+      (visibleLink ?? row).focus({ preventScroll: true });
+      landedReading.current = id;
+      clear = showPostArrival(row);
+      reportReadingLanding(id, !link);
+    };
+    frame = requestAnimationFrame(focus);
+    return () => {
+      cancelAnimationFrame(frame);
+      clear?.();
+    };
+  }, [focusRequest, linkPlacement, readingReady]);
+  const restoredReadingCollection = useRef<number | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (
+      !linkPlacement ||
+      !focusRequest ||
+      restoredReadingCollection.current === focusRequest.requestId
+    )
+      return;
+    restoredReadingCollection.current = focusRequest.requestId;
+    setPage("conversation");
+    const collection = linkPlacement.origin.collection;
+    if (collection?.kind !== "workspace" || !savedButton.current) return;
+    if (collections.view?.kind !== collection.source.kind)
+      collections.open(collection.source, savedButton.current);
+    collections.origin.current = collection.row;
+  });
+  const lastReadingNotice = useRef(readingReturn?.notice);
+  useLayoutEffect(() => {
+    const notice = readingReturn?.notice;
+    if (lastReadingNotice.current === notice) return;
+    lastReadingNotice.current = notice;
+    if (notice !== "offline" && notice !== "failed" && notice !== "unavailable")
+      return;
+    const root = host.current;
+    (
+      root?.querySelector<HTMLElement>(".published-reading-back") ??
+      root?.querySelector<HTMLElement>(".published-reading-status")
+    )?.focus({ preventScroll: true });
+  }, [readingReturn?.notice]);
   function composer(
     rootId?: string,
     reader?: ReactionThread,
@@ -1571,6 +1770,72 @@ export function ChannelsWorkspace({
       />
     );
   }
+  const readingShown = Boolean(
+    (readingReturn?.previous || readingReturn?.notice) &&
+      !directoryOpen &&
+      page === "conversation",
+  );
+  const readingSource = readingReturn?.previous;
+  const readingLabel =
+    readingSource &&
+    readingSource.teamId === team.id &&
+    snapshot?.data.channels.some(({ id }) => id === readingSource.channelId)
+      ? readingSource.label
+      : undefined;
+  const statusInCollection =
+    readingShown &&
+    !readingSource &&
+    (savedSource ||
+      (collectionOrigin &&
+        collectionDestination &&
+        collectionDestination.kind !== "pins"));
+  const collectionReadingStatus = statusInCollection && (
+    <PublishedReadingStatus
+      notice={readingReturn?.notice}
+      language={language}
+    />
+  );
+  const savedLinkReturn = readingSource && readingReturn?.saved;
+  const readingInThread = readingShown && Boolean(panePost);
+  const savedLinkButton = savedLinkReturn && (
+    <button
+      type="button"
+      className="collection-step-back"
+      onClick={(event) => {
+        if (
+          savedLinkReturn.source.teamId === team.id &&
+          collections.view?.kind === "all" &&
+          collections.origin.current
+        )
+          restoreCollection(savedLinkReturn.postId);
+        else void workspace.messages.returnToSaved(event.currentTarget);
+      }}
+    >
+      {collectionLabels.savedBack}
+    </button>
+  );
+  const readingBar = readingShown && !statusInCollection && (
+    <PublishedReadingReturn
+      previous={Boolean(readingSource)}
+      source={readingLabel}
+      notice={readingReturn?.notice}
+      language={language}
+      blocked={overlayOpen || !settings}
+      back={backToReading}
+    >
+      {(!readingInThread || compact) && savedLinkButton}
+    </PublishedReadingReturn>
+  );
+  const readingMainBar =
+    readingInThread && !compact && savedLinkButton ? (
+      <div className="collection-result-steps">
+        <span className="collection-step-source" aria-hidden="true">
+          <CollectionMark kind="all" />
+          <span>{collectionLabels.saved}</span>
+        </span>
+        {savedLinkButton}
+      </div>
+    ) : null;
   const content = (
     <div ref={host} className="workspace-window">
       <ChannelsFrame
@@ -1747,90 +2012,99 @@ export function ChannelsWorkspace({
             search.panel
           )
         }
+        threadReturn={readingInThread ? readingBar : undefined}
         resultReturn={
-          position && (
-            <>
-              {position.membership && (
-                <span className="search-membership" role="status">
-                  {position.membership}
-                </span>
-              )}
-              {savedSource && (
-                <CollectionResultSteps
-                  name={collectionLabels.saved}
-                  icon={<CollectionMark kind="all" />}
-                  backLabel={collectionLabels.savedBack}
-                  language={language}
-                  sourceTeam={savedSource.teamName}
-                  remind={() =>
-                    setSavedReminder((previous) => ({
-                      source: savedSource,
-                      sequence: (previous?.sequence ?? 0) + 1,
-                    }))
-                  }
-                  blocked={!online || workspace.messages.dialogOpen}
-                  back={returnToSaved}
-                  end={endCollection}
-                />
-              )}
-              {collectionOrigin &&
-                collectionDestination &&
-                (collectionDestination.kind === "pins" ? (
-                  <button
-                    type="button"
-                    className="search-return"
-                    onClick={returnToCollection}
-                  >
-                    {collectionLabels.pinsBack}
-                  </button>
-                ) : (
-                  <CollectionResultSteps
-                    name={
-                      collectionDestination.kind === "mentions"
-                        ? mentionLabels.title
-                        : collectionLabels.saved
-                    }
-                    icon={
-                      collectionDestination.kind === "mentions" ? (
-                        <MentionMark />
-                      ) : (
-                        <CollectionMark kind="all" />
-                      )
-                    }
-                    backLabel={
-                      collectionDestination.kind === "mentions"
-                        ? mentionLabels.back
-                        : collectionLabels.savedBack
-                    }
-                    language={language}
-                    steps={{
-                      index: collectionIndex,
-                      count: collectionOrigin.ids.length,
-                      partial: collectionOrigin.partial,
-                      open: stepCollection,
-                    }}
-                    blocked={
-                      !online ||
-                      workspace.messages.dialogOpen ||
-                      Boolean(attachments.selected) ||
-                      Boolean(reader.opening) ||
-                      Boolean(actions.anchor)
-                    }
-                    back={returnToCollection}
-                    end={endCollection}
-                  />
-                ))}
-              {search.origin && !position.system && (
-                <button
-                  type="button"
-                  className="search-return"
-                  onClick={returnToResults}
-                >
-                  {search.backLabel}
-                </button>
-              )}
-            </>
-          )
+          readingShown && !statusInCollection
+            ? readingInThread
+              ? readingMainBar
+              : readingBar
+            : position && (
+                <>
+                  {position.membership && (
+                    <span className="search-membership" role="status">
+                      {position.membership}
+                    </span>
+                  )}
+                  {savedSource && (
+                    <CollectionResultSteps
+                      name={collectionLabels.saved}
+                      icon={<CollectionMark kind="all" />}
+                      backLabel={collectionLabels.savedBack}
+                      language={language}
+                      sourceTeam={savedSource.teamName}
+                      remind={() =>
+                        setSavedReminder((previous) => ({
+                          source: savedSource,
+                          sequence: (previous?.sequence ?? 0) + 1,
+                        }))
+                      }
+                      blocked={!online || workspace.messages.dialogOpen}
+                      back={returnToSaved}
+                      end={endCollection}
+                    >
+                      {collectionReadingStatus}
+                    </CollectionResultSteps>
+                  )}
+                  {collectionOrigin &&
+                    collectionDestination &&
+                    (collectionDestination.kind === "pins" ? (
+                      <button
+                        type="button"
+                        className="search-return"
+                        onClick={returnToCollection}
+                      >
+                        {collectionLabels.pinsBack}
+                      </button>
+                    ) : (
+                      <CollectionResultSteps
+                        name={
+                          collectionDestination.kind === "mentions"
+                            ? mentionLabels.title
+                            : collectionLabels.saved
+                        }
+                        icon={
+                          collectionDestination.kind === "mentions" ? (
+                            <MentionMark />
+                          ) : (
+                            <CollectionMark kind="all" />
+                          )
+                        }
+                        backLabel={
+                          collectionDestination.kind === "mentions"
+                            ? mentionLabels.back
+                            : collectionLabels.savedBack
+                        }
+                        language={language}
+                        steps={{
+                          index: collectionIndex,
+                          count: collectionOrigin.ids.length,
+                          partial: collectionOrigin.partial,
+                          open: stepCollection,
+                        }}
+                        blocked={
+                          !online ||
+                          workspace.messages.dialogOpen ||
+                          Boolean(attachments.selected) ||
+                          Boolean(reader.opening) ||
+                          Boolean(actions.anchor)
+                        }
+                        back={returnToCollection}
+                        end={endCollection}
+                      >
+                        {collectionReadingStatus}
+                      </CollectionResultSteps>
+                    ))}
+                  {search.origin && !position.system && (
+                    <button
+                      type="button"
+                      className="search-return"
+                      onClick={returnToResults}
+                    >
+                      {search.backLabel}
+                    </button>
+                  )}
+                </>
+              )
         }
         returnInThread={compact && Boolean(activeThread)}
         accountRef={accountButton}
@@ -1865,6 +2139,7 @@ export function ChannelsWorkspace({
               : "navigation"
         }
         onNavigation={() => {
+          if (!inbox.visible && !inbox.paused) rememberInboxChannel();
           publishedReading?.interrupt();
           workspace.systemPost?.stop("paused");
           restoreDirectoryFocus.current = directoryOpen;
@@ -1901,7 +2176,7 @@ export function ChannelsWorkspace({
                     ? roomTitle
                     : undefined,
                 retainOpener: Boolean(selection),
-                close: selection ? inbox.closeThread : closeThread,
+                close: selection ? closeInboxThread : closeThread,
                 replyRef:
                   selection || panePost?.rootId || isMobile
                     ? undefined
@@ -1925,6 +2200,9 @@ export function ChannelsWorkspace({
                     teamId={team.id}
                     controlsHost={threadControls}
                     confirmFollowing={inbox.confirmFollowing}
+                    prepared={visibleLinkPlacement?.thread}
+                    preparedRoot={visibleLinkPlacement?.threadRoot}
+                    returningToLink={Boolean(visibleLinkPlacement)}
                     arrivalRequest={
                       timeline.focus?.focusedReply === panePost &&
                       closedRequest !== timeline.focus.requestId
@@ -1945,7 +2223,8 @@ export function ChannelsWorkspace({
                     confirmView={
                       selection &&
                       selection.row.unreadReplies > 0 &&
-                      !modalOpen &&
+                      !visibleLinkPlacement &&
+                      !overlayOpen &&
                       !appearanceOpen &&
                       !channelMenuOpen &&
                       !search.dialog &&
@@ -2017,17 +2296,23 @@ export function ChannelsWorkspace({
           </div>
         }
       >
-        {inbox.visible && inbox.model && inbox.state && (
-          <ThreadInboxPane
-            online={online}
-            model={inbox.model}
-            state={inbox.state}
-            selected={selection?.row.id}
-            choose={inbox.choose}
-            locale={language}
-            author={author}
-            channel={inboxRoomName}
-          />
+        {(inbox.visible || inbox.paused) && inbox.model && inbox.state && (
+          <div hidden={!inbox.visible} className="workspace-conversation-route">
+            <ThreadInboxPane
+              online={online}
+              model={inbox.model}
+              state={inbox.state}
+              selected={inbox.selectedId}
+              choose={inbox.choose}
+              place={readingInbox?.list}
+              capture={(place) => {
+                inboxList.current = place;
+              }}
+              locale={language}
+              author={author}
+              channel={inboxRoomName}
+            />
+          </div>
         )}
         {directoryOpen && (
           <TeamChannelDirectory
@@ -2096,7 +2381,9 @@ export function ChannelsWorkspace({
                 author={author}
                 onReadEdge={timeline.loadEdge}
                 address={
-                  timeline.focus && !timeline.focus.focusedReply
+                  !linkPlacement &&
+                  timeline.focus &&
+                  !timeline.focus.focusedReply
                     ? timeline.focus
                     : undefined
                 }

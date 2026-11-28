@@ -11,6 +11,7 @@ import type { EntryLanguage } from "../entry/language.ts";
 import { publishedPostDocument } from "./published-post-document.ts";
 import { publishedPostExcerpt } from "./published-post-excerpt.ts";
 import { formatReplyCount, type TimelineAuthor } from "./TimelinePost.tsx";
+import type { ThreadInboxPlace } from "./thread-inbox.ts";
 import { threadInboxCopy } from "./thread-inbox-copy.ts";
 import type {
   ThreadInboxModel,
@@ -20,7 +21,7 @@ import { workspaceCopy } from "./workspace-copy.ts";
 import "./thread-inbox.css";
 
 type State = ReturnType<ThreadInboxModel["getSnapshot"]>;
-type ScrollPlace = { top: number; id?: string; offset: number };
+type ScrollPlace = ThreadInboxPlace["position"];
 
 function listPlace(list: HTMLElement | null): ScrollPlace {
   if (!list) return { top: 0, offset: 0 };
@@ -70,6 +71,8 @@ export function ThreadInboxPane({
   online = true,
   selected,
   choose,
+  place,
+  capture,
   locale,
   author,
   channel,
@@ -79,6 +82,8 @@ export function ThreadInboxPane({
   online?: boolean;
   selected?: string;
   choose: (row: ThreadInboxRow) => void;
+  place?: ThreadInboxPlace;
+  capture?: (place: ThreadInboxPlace) => void;
   locale: EntryLanguage;
   author: TimelineAuthor;
   channel: (id: string) => string | undefined;
@@ -110,12 +115,17 @@ export function ThreadInboxPane({
     () => (page.rows ?? []).filter((row) => row.post),
     [page.rows],
   );
-  const origin = useRef<{
-    tab: State["tab"];
-    id: string;
-    index: number;
-    position: ScrollPlace;
-  } | null>(null);
+  const origin = useRef<ThreadInboxPlace | null>(null);
+  const restored = useRef<ThreadInboxPlace | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (place && restored.current !== place) {
+      restored.current = place;
+      origin.current = place;
+    }
+    if (place && selected && tab === place.tab && page.status === "ready") {
+      if (scroller.current) restoreList(scroller.current, place.position);
+    }
+  }, [place, selected, tab, page.status]);
   function openRow(row: ThreadInboxRow, index: number) {
     origin.current ??= {
       tab,
@@ -123,6 +133,7 @@ export function ThreadInboxPane({
       index,
       position: listPlace(scroller.current),
     };
+    capture?.(origin.current);
     choose(row);
   }
   useLayoutEffect(() => {

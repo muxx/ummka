@@ -6,9 +6,19 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { openPostNavigation } from "../channels/post-navigation.ts";
-import { createPublishedReadingHistory } from "../channels/published-reading-history.ts";
+import {
+  type PreparedConversation,
+  prepareFocusedConversation,
+} from "../channels/prepare-focused-conversation.ts";
+import {
+  createPublishedReadingHistory,
+  type PublishedReadingOrigin,
+  type savedReadingSource,
+} from "../channels/published-reading-history.ts";
+import { openThreadReplyWindow } from "../channels/thread-reply-window.ts";
 import type { TimelineRequest } from "../channels/timeline-reader.ts";
 import type { TimelinePlace } from "../channels/timeline-viewport.ts";
 import type { WorkspaceConnection } from "../channels/use-workspace-read.ts";
@@ -54,7 +64,15 @@ type Position = {
   saved?: SavedCollectionOrigin;
   savedRevoked?: { name: string; focusPost: boolean };
   choosingChannel?: boolean;
+  readingReturn?: {
+    origin: PublishedReadingOrigin;
+    thread?: ReturnType<typeof openThreadReplyWindow>;
+    threadRoot?: import("../mattermost/local-history.ts").LocalPost;
+  };
 };
+type ReadingNotice = "busy" | "offline" | "failed" | "unavailable" | "edited";
+const noReading = () => undefined;
+const subscribeToNothing = () => () => {};
 type Queue = <T>(work: () => Promise<T>) => Promise<T>;
 type Modal =
   | { kind: "consent"; step: Consent; answer: (yes: boolean) => void }
@@ -249,6 +267,13 @@ export type MessageNavigation = {
   dialogOpen: boolean;
   position: Position | null;
   publishedReading: ReturnType<typeof createPublishedReadingHistory> | null;
+  readingReturn?: {
+    previous?: PublishedReadingOrigin;
+    saved?: ReturnType<typeof savedReadingSource>;
+    notice?: ReadingNotice;
+    back: (collapsedThreads: boolean) => void;
+    landed: (requestId: number, edited: boolean) => void;
+  };
   open: (
     source: Source,
     signal: AbortSignal,
@@ -282,13 +307,20 @@ export function useMessageNavigation(
     () => connection && createPublishedReadingHistory(connection),
     [connection],
   );
+  const previousReading = useSyncExternalStore(
+    publishedReading?.subscribe ?? subscribeToNothing,
+    publishedReading?.getSnapshot ?? noReading,
+  );
+  const [readingNotice, setReadingNotice] = useState<ReadingNotice>();
+  const readingThread = position?.readingReturn?.thread;
+  useLayoutEffect(() => () => readingThread?.close(), [readingThread]);
   const [savedReturn, setSavedReturn] = useState<SavedCollectionReturn | null>(
     null,
   );
   const [modal, setModal] = useState<Modal | null>(null);
   const current = useRef<{
     controller: AbortController;
-    kind: "open" | "return";
+    kind: "open" | "return" | "reading";
   } | null>(null);
   const counter = useRef(0);
   const savedSurfaces = useRef(new Set<string>());
@@ -310,7 +342,8 @@ export function useMessageNavigation(
       setModal(null);
       setPosition(null);
       setSavedReturn(null);
-      publishedReading?.interrupt();
+      publishedReading?.clear();
+      setReadingNotice(undefined);
     },
     [publishedReading],
   );
@@ -382,7 +415,11 @@ export function useMessageNavigation(
   }, [directory, position, revokeSaved]);
   useEffect(() => {
     if (online || !current.current) return;
-    if (current.current.kind === "return") {
+    if (current.current.kind === "reading") {
+      current.current.controller.abort();
+      current.current = null;
+      setReadingNotice("offline");
+    } else if (current.current.kind === "return") {
       current.current.controller.abort();
       current.current = null;
     } else clear("offline");
@@ -415,7 +452,8 @@ export function useMessageNavigation(
       current.current.controller.abort();
       setModal(null);
     }
-    if (!system) publishedReading?.interrupt();
+    if (!system) publishedReading?.clear();
+    setReadingNotice(undefined);
     const requestId = ++counter.current;
     external.current = system?.request ?? null;
     const task = new AbortController(),
@@ -590,9 +628,184 @@ export function useMessageNavigation(
       if (current.current?.controller === task) current.current = null;
     }
   }
+  async function returnToReading(collapsedThreads: boolean) {
+    if (
+      !connection ||
+      !directory?.selectedTeam ||
+      !publishedReading?.hasPrevious() ||
+      current.current
+    )
+      return;
+    if (!online) {
+      setReadingNotice("offline");
+      return;
+    }
+    const fromTeam = directory.selectedTeam;
+    const task = new AbortController();
+    current.current = { controller: task, kind: "reading" };
+    setReadingNotice("busy");
+    let thread: ReturnType<typeof openThreadReplyWindow> | undefined;
+    let presented = false;
+    let attemptSignal = task.signal;
+    let consume: (() => boolean) | undefined;
+    try {
+      const result = await publishedReading.prepareReturn(task.signal);
+      if (task.signal.aborted) return;
+      if (result.kind !== "ready") {
+        if (result.kind === "unavailable") setReadingNotice("unavailable");
+        else if (result.kind === "failed") {
+          if (result.reason === "unauthorized") sessionIssue(result.reason);
+          else setReadingNotice("failed");
+        }
+        return;
+      }
+      const { origin, post, threadRoot, signal, commit } = result;
+      attemptSignal = signal;
+      consume = commit;
+      function unavailable() {
+        if (commit()) setReadingNotice("unavailable");
+      }
+      const team = directory.teams.find(({ id }) => id === origin.teamId);
+      if (!team) return unavailable();
+      let sidebar = await connection.readTeamSidebar(team.id);
+      signal.throwIfAborted();
+      if (!sidebar?.data.channels.some(({ id }) => id === origin.channelId)) {
+        const refreshed = await connection.refreshTeamSidebar(team.id, signal);
+        signal.throwIfAborted();
+        if (!refreshed) {
+          setReadingNotice("failed");
+          return;
+        }
+        sidebar = await connection.readTeamSidebar(team.id);
+        signal.throwIfAborted();
+      }
+      if (!sidebar?.data.channels.some(({ id }) => id === origin.channelId))
+        return unavailable();
+      let prepared: PreparedConversation | undefined;
+      if (!origin.inbox) {
+        const result = await prepareFocusedConversation(
+          connection,
+          post,
+          collapsedThreads,
+          signal,
+          true,
+          { root: threadRoot },
+        );
+        if (result.status === "unavailable" || result.status === "inaccessible")
+          return unavailable();
+        if (result.status !== "ready") {
+          setReadingNotice(result.status === "offline" ? "offline" : "failed");
+          return;
+        }
+        prepared = result;
+      }
+      if (threadRoot) {
+        const reader = openThreadReplyWindow(
+          connection,
+          {
+            channelId: origin.channelId,
+            rootId: threadRoot.id,
+            collapsedThreads,
+          },
+          post.rootId ? post : undefined,
+          threadRoot,
+        );
+        thread = reader;
+        signal.addEventListener("abort", reader.close, { once: true });
+        try {
+          await reader.open();
+        } finally {
+          signal.removeEventListener("abort", reader.close);
+        }
+        signal.throwIfAborted();
+        const { unavailable: reason, up, down } = reader.getSnapshot();
+        if (reason === "forbidden" || reason === "limited")
+          return unavailable();
+        if (reason === "unauthorized" || reason === "session") {
+          sessionIssue(reason);
+          return;
+        }
+        if (up.status === "error" || down.status === "error") {
+          setReadingNotice("failed");
+          return;
+        }
+      }
+      const requestId = ++counter.current;
+      if (
+        !(await selectTeam(
+          team,
+          signal,
+          () => {
+            if (!commit()) return;
+            presented = true;
+            setPosition({
+              request: {
+                kind: "focus",
+                requestId,
+                rid: connection.rid,
+                teamId: team.id,
+                post,
+                prepared,
+              },
+              sidebar,
+              membership: "",
+              readingReturn: { origin, thread, threadRoot },
+              ...(origin.collection?.kind === "saved-team" && {
+                saved: origin.collection.source,
+              }),
+            });
+            setReadingNotice(undefined);
+          },
+          {
+            fromTeam,
+            channelId: origin.inbox
+              ? (sidebar.data.channels.find(
+                  ({ id }) => id === origin.inbox?.channelId,
+                )?.id ?? null)
+              : origin.channelId,
+          },
+        )) &&
+        !signal.aborted
+      )
+        setReadingNotice("failed");
+    } catch (cause) {
+      if (!attemptSignal.aborted && current.current?.controller === task) {
+        const issue = workspaceFailure(cause, "network");
+        if (issue === "unauthorized" || issue === "session")
+          sessionIssue(issue);
+        else if (issue === "forbidden" && consume?.())
+          setReadingNotice("unavailable");
+        else setReadingNotice("failed");
+      }
+    } finally {
+      if (!presented) thread?.close();
+      if (current.current?.controller === task) {
+        current.current = null;
+        setReadingNotice((value) => (value === "busy" ? undefined : value));
+      }
+    }
+  }
+  const savedReading = publishedReading?.savedSource();
+  const joinedSavedReading = directory?.teams.some(
+    ({ id }) => id === savedReading?.source.teamId,
+  )
+    ? savedReading
+    : undefined;
   async function returnToSaved(control: HTMLElement | null) {
-    const saved = position?.saved;
-    if (!position || !saved || !connection || !online || current.current)
+    const reading = joinedSavedReading;
+    const saved = position?.saved ?? reading?.source;
+    const savedPost = position?.saved
+      ? position.request.post.id
+      : reading?.postId;
+    const fromTeam = directory?.selectedTeam;
+    if (
+      !saved ||
+      !savedPost ||
+      !fromTeam ||
+      !connection ||
+      !online ||
+      current.current
+    )
       return;
     const task = new AbortController();
     const { signal } = task;
@@ -600,7 +813,6 @@ export function useMessageNavigation(
     publishedReading?.interrupt();
     counter.current++;
     const text = copy[language];
-    const fromTeam = position.request.teamId;
     const sourceTeam = saved.teamId;
     function fail(message: string) {
       setModal({
@@ -636,7 +848,8 @@ export function useMessageNavigation(
       }
       const team = teams.teams.find(({ id }) => id === sourceTeam);
       if (!team) {
-        revokeSaved(position, true);
+        if (position?.saved) revokeSaved(position, true);
+        else setReadingNotice("unavailable");
         return;
       }
       if (teams.selectedTeam !== fromTeam) return;
@@ -679,10 +892,12 @@ export function useMessageNavigation(
               reading: channelId ? saved.reading : null,
               scroll: saved.scroll,
               offset: saved.offset,
-              id: position.request.post.id,
+              id: savedPost,
               index: saved.index,
             },
           });
+          publishedReading?.clear();
+          setReadingNotice(undefined);
           setPosition(null);
         },
         { channelId: null, fromTeam },
@@ -694,7 +909,8 @@ export function useMessageNavigation(
         const revoked =
           currentTeams &&
           !currentTeams.teams.some(({ id }) => id === sourceTeam);
-        if (revoked) revokeSaved(position, true);
+        if (revoked && position?.saved) revokeSaved(position, true);
+        else if (revoked) setReadingNotice("unavailable");
         else fail(text.savedReturnFailed);
       }
     } catch (cause) {
@@ -710,6 +926,18 @@ export function useMessageNavigation(
     navigation: {
       position,
       publishedReading,
+      ...(publishedReading && {
+        readingReturn: {
+          previous: previousReading,
+          saved: joinedSavedReading,
+          notice: readingNotice,
+          back: returnToReading,
+          landed(requestId: number, edited: boolean) {
+            if (position?.request.requestId === requestId && edited)
+              setReadingNotice("edited");
+          },
+        },
+      }),
       savedReturn,
       returnToSaved,
       endSaved,

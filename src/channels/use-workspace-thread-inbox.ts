@@ -8,7 +8,7 @@ import {
 } from "react";
 import type { LocalPost } from "../mattermost/local-history.ts";
 import { inspectPostTarget } from "./inspect-post-target.ts";
-import { openThreadInbox } from "./thread-inbox.ts";
+import { openThreadInbox, type ThreadInboxPlace } from "./thread-inbox.ts";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
 import { workspaceFailure } from "./workspace-data.ts";
 
@@ -33,6 +33,11 @@ export function useWorkspaceThreadInbox(
 ) {
   const [model, setModel] = useState<ThreadInboxModel | null>(null);
   const [visible, setVisible] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [restoring, setRestoring] = useState<{
+    post: LocalPost;
+    place: ThreadInboxPlace;
+  }>();
   const [selection, setSelection] = useState<Selection | null>(null);
   const opening = useRef<AbortController | null>(null);
   const visited = useRef(false);
@@ -42,6 +47,8 @@ export function useWorkspaceThreadInbox(
   }, [online]);
   useLayoutEffect(() => {
     setVisible(false);
+    setPaused(false);
+    setRestoring(undefined);
     setSelection(null);
     visited.current = false;
     if (!enabled) {
@@ -106,21 +113,65 @@ export function useWorkspaceThreadInbox(
       if (status === "forbidden") {
         opening.current?.abort();
         setSelection(null);
+        setRestoring(undefined);
       }
     }
   }, [state?.page.status, state?.totals.status, sessionIssue]);
   const closeThread = useCallback(() => {
     opening.current?.abort();
     setSelection(null);
+    setRestoring(undefined);
     inbox?.select(null);
   }, [inbox]);
   function close() {
     closeThread();
     inbox?.hide();
     setVisible(false);
+    setPaused(false);
   }
+  function pause() {
+    opening.current?.abort();
+    setPaused(true);
+  }
+  function resume(post: LocalPost, place: ThreadInboxPlace) {
+    if (!inbox || inbox.isRootUnavailable(post.id)) return false;
+    if (visible && selection?.row.id === post.id) {
+      setSelection({ row: selection.row, post, issue: null });
+    } else {
+      setRestoring({ post, place });
+      inbox.select(post.id);
+      setVisible(true);
+      visited.current = true;
+      void inbox.show(place.tab);
+    }
+    setPaused(false);
+    return true;
+  }
+  useEffect(() => {
+    if (!restoring || !inbox || !state || state.tab !== restoring.place.tab)
+      return;
+    const { post } = restoring;
+    const { page } = state;
+    if (page.status !== "ready") return;
+    const row = page.rows?.find((item) => item.id === post.id);
+    if (
+      row?.post?.channelId === post.channelId &&
+      !inbox.isRootUnavailable(post.id)
+    ) {
+      setSelection({ row, post, issue: null });
+    } else if (!row && page.nextBefore) {
+      void inbox.loadMore();
+      return;
+    }
+    setRestoring(undefined);
+  }, [inbox, restoring, state]);
   function show() {
-    if (!inbox || visible) return;
+    if (!inbox || (visible && !paused)) return;
+    if (paused) {
+      closeThread();
+      inbox.hide();
+      setPaused(false);
+    }
     setVisible(true);
     if (visited.current) void inbox.refreshTotals();
     void inbox.show(inbox.getSnapshot().tab);
@@ -129,6 +180,7 @@ export function useWorkspaceThreadInbox(
   async function choose(row: ThreadInboxRow) {
     if (!inbox || !row.post || inbox.isRootUnavailable(row.id)) return;
     opening.current?.abort();
+    setRestoring(undefined);
     const controller = new AbortController();
     opening.current = controller;
     const { signal } = controller;
@@ -201,11 +253,14 @@ export function useWorkspaceThreadInbox(
       status === "unauthorized" ||
       status === "session",
   );
-  const active = inbox && visible && !accessDenied ? selection : null;
+  const active =
+    inbox && visible && !paused && !accessDenied ? selection : null;
   return {
     model: inbox,
     state,
-    visible: Boolean(inbox && visible),
+    visible: Boolean(inbox && visible && !paused),
+    paused: Boolean(inbox && visible && paused),
+    selectedId: (paused ? selection : active)?.row.id ?? restoring?.post.id,
     selection:
       active && denied
         ? {
@@ -217,6 +272,8 @@ export function useWorkspaceThreadInbox(
     closeThread,
     close,
     show,
+    pause,
+    resume,
     choose,
     confirmView,
     confirmFollowing,
