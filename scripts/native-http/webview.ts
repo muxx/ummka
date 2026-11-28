@@ -158,6 +158,8 @@ export function webviewServers(
     "collection-back-info-members",
     "collection-back-bookmark-menu",
     "collection-back-bookmark-file",
+    "collection-back-bookmark-confirm",
+    "collection-back-bookmark-restored-menu",
     "collection-back-bookmarks",
     "collection-back-file-details",
     "collection-back-file-message",

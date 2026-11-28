@@ -296,6 +296,98 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
       if (document.activeElement !== bookmark)
         throw Error("File preview lost the bookmark row");
     });
+    const dialogs = within(document.body);
+    async function addBookmark(name: string) {
+      click(await bookmarks.findByRole("button", { name: "Add link" }));
+      const editor = within(
+        await dialogs.findByRole("dialog", { name: "Add link" }),
+      );
+      fireEvent.input(editor.getByRole("textbox", { name: "Name" }), {
+        target: { value: name },
+      });
+      fireEvent.input(editor.getByRole("textbox", { name: "Link address" }), {
+        target: { value: "https://example.org/guide" },
+      });
+      click(editor.getByRole("button", { name: "Save" }));
+      return editor;
+    }
+    async function bookmarkAction(
+      row: HTMLElement,
+      name: string,
+      action: string,
+    ) {
+      click(row);
+      const menu = within(await dialogs.findByRole("dialog", { name }));
+      click(menu.getByRole("button", { name: action }));
+    }
+    await addBookmark("Release guide");
+    const createdGuide = await bookmarks.findByRole("button", {
+      name: "Release guide",
+    });
+    await waitFor(() => {
+      if (document.activeElement !== createdGuide)
+        throw Error("Adding a bookmark did not focus its new row");
+    });
+    const runbook = await bookmarks.findByRole("button", {
+      name: "Team runbook",
+    });
+    await bookmarkAction(runbook, "Team runbook", "Edit");
+    const editor = within(
+      await dialogs.findByRole("dialog", { name: "Edit bookmark" }),
+    );
+    fireEvent.input(editor.getByRole("textbox", { name: "Name" }), {
+      target: { value: "Updated runbook" },
+    });
+    click(editor.getByRole("button", { name: "Save" }));
+    const updated = await bookmarks.findByRole("button", {
+      name: "Updated runbook",
+    });
+    await waitFor(() => {
+      if (document.activeElement !== updated || runbook.isConnected)
+        throw Error("Lost the replaced bookmark");
+    });
+    await bookmarkAction(updated, "Updated runbook", "Delete");
+    await dialogs.findByRole("dialog", { name: "Delete bookmark?" });
+    await back("bookmark-confirm");
+    const restoredBookmarkMenu = within(
+      await dialogs.findByRole("dialog", { name: "Updated runbook" }),
+    );
+    await waitFor(() => {
+      if (
+        document.activeElement !==
+        restoredBookmarkMenu.getByRole("button", { name: "Delete" })
+      )
+        throw Error("Back lost the Delete action in the bookmark menu");
+    });
+    await back("bookmark-restored-menu");
+    await waitFor(() => {
+      if (document.activeElement !== updated)
+        throw Error("Back lost the bookmark that opened confirmation");
+    });
+    await bookmarkAction(updated, "Updated runbook", "Delete");
+    click(
+      within(
+        await dialogs.findByRole("dialog", { name: "Delete bookmark?" }),
+      ).getByRole("button", { name: "Delete" }),
+    );
+    await waitFor(() => {
+      if (updated.isConnected || document.activeElement !== createdGuide)
+        throw Error("Deletion did not focus the next bookmark");
+    });
+    const uncertainEditor = await addBookmark("Unconfirmed guide");
+    await uncertainEditor.findByRole("alert");
+    if (
+      !uncertainEditor.getByRole<HTMLButtonElement>("button", { name: "Save" })
+        .disabled ||
+      uncertainEditor.getByRole<HTMLInputElement>("textbox", { name: "Name" })
+        .value !== "Unconfirmed guide" ||
+      bookmarks.queryByRole("button", { name: "Unconfirmed guide" })
+    )
+      throw Error(
+        "An uncertain bookmark response discarded the draft or allowed another write",
+      );
+    click(uncertainEditor.getByRole("button", { name: "Close" }));
+    await bookmarks.findByRole("button", { name: "Unconfirmed guide" });
     await back("bookmarks");
     about = await findPane("About this channel");
     await waitFor(() => {

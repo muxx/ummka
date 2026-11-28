@@ -1,6 +1,21 @@
-import { useContext, useId, useLayoutEffect, useRef, useState } from "react";
+import {
+  useContext,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import type { EntryLanguage } from "../entry/language.ts";
+import {
+  type Bookmark,
+  type BookmarkEdit,
+  BookmarkEditor,
+  type BookmarkWrites,
+  editorCopy,
+} from "./BookmarkEditor.tsx";
+import { BookmarkIcon } from "./BookmarkIcon.tsx";
 import { FileIcon, filePanelCopy } from "./ChannelFilesPanel.tsx";
 import { ChannelSectionHeader } from "./ChannelSectionHeader.tsx";
 import {
@@ -48,16 +63,14 @@ export const bookmarkCopy = {
     hiddenFile: "Файл недоступен",
   },
 };
-type Account = Pick<
-  WorkspaceConnection,
-  "readChannelBookmarks" | "readChannelFile"
->;
-type Bookmark = Extract<
-  Awaited<ReturnType<Account["readChannelBookmarks"]>>,
-  { kind: "available" }
->["bookmarks"][number];
+type Account = BookmarkWrites &
+  Pick<WorkspaceConnection, "readChannelBookmarks" | "readChannelFile">;
 type Props = {
   account: Account;
+  can: (
+    action: "add" | "edit" | "delete",
+    kind?: Bookmark["destination"]["kind"],
+  ) => boolean;
   channelId: string;
   name: string;
   serverUrl: string;
@@ -68,47 +81,23 @@ type Props = {
   sessionIssue: (reason: "session" | "unauthorized") => void;
 };
 
-export function BookmarkIcon({
-  kind = "bookmark",
-}: {
-  kind?: "bookmark" | "link" | "open" | "close";
-}) {
-  const path = {
-    bookmark: "M18 7v14l-6-4-6 4V7a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4",
-    link: "M10 13a4 4 0 0 0 6 .5l3-3a4 4 0 0 0-5.7-5.7l-1.8 1.8M14 11a4 4 0 0 0-6-.5l-3 3a4 4 0 0 0 5.7 5.7l1.8-1.8",
-    open: "M6 18 18 6M6 6h12v12",
-    close: "m6 6 12 12m0-12L6 18",
-  }[kind];
-  return (
-    <svg
-      aria-hidden="true"
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d={path} />
-    </svg>
-  );
-}
-
 function BookmarkActions({
   title,
   language,
   owner,
-  action,
+  preferred,
+  actions,
   close,
-  file,
 }: {
   title: string;
   language: EntryLanguage;
   owner: HTMLButtonElement;
-  file: boolean;
-  action: { label: string; run: () => void };
+  preferred: "edit" | "delete" | null;
+  actions: {
+    label: string;
+    icon: "file" | "open" | "edit" | "delete";
+    run: (keyboard: boolean) => void;
+  }[];
   close: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null),
@@ -189,18 +178,25 @@ function BookmarkActions({
         </button>
       </header>
       <div className="modal-scroll">
-        <button
-          type="button"
-          className="bookmark-action"
-          ref={primary}
-          onClick={() => {
-            returnToRow();
-            action.run();
-          }}
-        >
-          {file ? <FileIcon /> : <BookmarkIcon kind="open" />}
-          <strong>{action.label}</strong>
-        </button>
+        {actions.map(({ label, icon, run }, i) => (
+          <button
+            key={icon}
+            type="button"
+            className={
+              "bookmark-action" + (icon === "delete" ? " destructive" : "")
+            }
+            ref={
+              (preferred ? icon === preferred : i === 0) ? primary : undefined
+            }
+            onClick={(e) => {
+              returnToRow();
+              run(e.detail === 0);
+            }}
+          >
+            {icon === "file" ? <FileIcon /> : <BookmarkIcon kind={icon} />}
+            <strong>{label}</strong>
+          </button>
+        ))}
       </div>
     </dialog>,
     document.body,
@@ -213,10 +209,14 @@ function BookmarkRow({
   channelId,
   serverUrl,
   language,
-}: Pick<Props, "account" | "channelId" | "serverUrl" | "language"> & {
+  can,
+  begin,
+}: Pick<Props, "account" | "channelId" | "serverUrl" | "language" | "can"> & {
   item: Bookmark;
+  begin: (edit: BookmarkEdit) => void;
 }) {
-  const [opener, setOpener] = useState<HTMLButtonElement | null>(null);
+  const [opener, setOpener] = useState<HTMLButtonElement | null>(null),
+    [preferred, setPreferred] = useState<"edit" | "delete" | null>(null);
   const attachments = useContext(AttachmentWindow),
     navigation = useContext(PublishedLinkNavigation),
     row = useId();
@@ -259,16 +259,55 @@ function BookmarkRow({
     d.kind === "file"
       ? d.fileName === null || !attachments
       : !navigation?.openBookmark;
+  const actions: {
+    icon: "open" | "file" | "edit" | "delete";
+    label: string;
+    run: (keyboard: boolean) => void;
+  }[] = [];
+  if (!unavailable)
+    actions.push({
+      icon: d.kind === "file" ? "file" : "open",
+      label:
+        d.kind === "file"
+          ? t.openFile
+          : d.kind === "board"
+            ? t.openBoard
+            : t.openLink,
+      run: open,
+    });
+  for (const action of ["edit", "delete"] as const)
+    if (can(action, d.kind))
+      actions.push({
+        icon: action,
+        label:
+          action === "edit"
+            ? editorCopy[language].edit
+            : editorCopy[language].remove,
+        run: (keyboard) => {
+          setOpener(null);
+          begin({
+            action,
+            item,
+            keyboard,
+            openMenu: () => {
+              setPreferred(action);
+              setOpener(opener);
+            },
+          });
+        },
+      });
   return (
     <li>
       <button
         type="button"
         className="channel-bookmark-row"
-        disabled={unavailable}
+        data-bookmark-id={item.id}
+        disabled={!actions.length}
         aria-labelledby={row + "-label"}
         aria-describedby={detail ? row + "-detail" : undefined}
         aria-haspopup="dialog"
         onClick={(e) => {
+          setPreferred(null);
           setOpener(e.currentTarget);
         }}
       >
@@ -279,17 +318,9 @@ function BookmarkRow({
           title={item.name}
           language={language}
           owner={opener}
-          file={d.kind === "file"}
+          preferred={preferred}
           close={() => setOpener(null)}
-          action={{
-            label:
-              d.kind === "file"
-                ? t.openFile
-                : d.kind === "board"
-                  ? t.openBoard
-                  : t.openLink,
-            run: open,
-          }}
+          actions={actions}
         />
       )}
       {d.kind === "file" && d.fileName !== null && (
@@ -304,14 +335,164 @@ function BookmarkRow({
   );
 }
 
+function EditableBookmarks({
+  initial,
+  reload,
+  focusHeading,
+  setEditorOpen,
+  ...props
+}: Props & {
+  initial: Bookmark[];
+  reload: () => void;
+  focusHeading: () => void;
+  setEditorOpen: (open: boolean) => void;
+}) {
+  const [items, setItems] = useState(initial),
+    [edit, setEdit] = useState<BookmarkEdit | null>(null),
+    [sendingInBackground, setSendingInBackground] = useState(false);
+  const panel = useRef<HTMLDivElement>(null),
+    add = useRef<HTMLButtonElement>(null);
+  const target = useRef<string | number | null>(null),
+    t = bookmarkCopy[props.language],
+    w = editorCopy[props.language];
+  function begin(next: BookmarkEdit) {
+    setEdit(next);
+    setEditorOpen(true);
+  }
+  function restore(focus: string | number | null, dismissed: boolean) {
+    target.current = dismissed ? null : (focus ?? "");
+    setSendingInBackground(false);
+    setEdit(null);
+    setEditorOpen(false);
+  }
+  useLayoutEffect(() => {
+    if (edit || target.current === null) return;
+    const focus = target.current;
+    const rows = Array.from(
+      panel.current?.querySelectorAll<HTMLButtonElement>(
+        "button[data-bookmark-id]",
+      ) ?? [],
+    );
+    const row =
+      typeof focus === "number"
+        ? (rows.slice(focus).find((node) => !node.disabled) ??
+          rows
+            .slice(0, focus)
+            .reverse()
+            .find((node) => !node.disabled))
+        : rows.find(
+            (node) => node.dataset.bookmarkId === focus && !node.disabled,
+          );
+    target.current = null;
+    if (row ?? add.current)
+      (row ?? add.current)?.focus({ preventScroll: true });
+    else focusHeading();
+  }, [edit, focusHeading]);
+  const authorized =
+    !edit ||
+    !props.online ||
+    (edit.action === "add"
+      ? props.can("add")
+      : props.can(edit.action, edit.item.destination.kind));
+  useEffect(() => {
+    if (!authorized) {
+      target.current = "";
+      setSendingInBackground(false);
+      setEdit(null);
+      setEditorOpen(false);
+    }
+  }, [authorized, setEditorOpen]);
+  function confirm(updated: Bookmark | null, dismissed: boolean) {
+    if (!edit) return;
+    if (edit.action === "add") {
+      if (!updated) return;
+      setItems([...items, updated]);
+      restore(updated.id, dismissed);
+    } else {
+      const index = items.findIndex((item) => item.id === edit.item.id);
+      if (index < 0) {
+        restore(null, dismissed);
+        reload();
+        return;
+      }
+      const next = items.slice();
+      next.splice(index, 1, ...(updated ? [updated] : []));
+      setItems(next);
+      restore(updated?.id ?? index, dismissed);
+    }
+  }
+  return (
+    <div ref={panel}>
+      {props.can("add") && (
+        <div className="bookmark-add-strip">
+          <button
+            type="button"
+            className="bookmark-add"
+            disabled={!props.online || sendingInBackground}
+            ref={add}
+            onClick={(e) => begin({ action: "add", keyboard: e.detail === 0 })}
+          >
+            {w.add}
+          </button>
+        </div>
+      )}
+      {sendingInBackground && <p role="status">{w.saving}</p>}
+      {items.length ? (
+        <ul>
+          {items.map((item) => (
+            <BookmarkRow
+              key={item.id}
+              {...props}
+              can={(action, kind) =>
+                props.online && !sendingInBackground && props.can(action, kind)
+              }
+              item={item}
+              begin={begin}
+            />
+          ))}
+        </ul>
+      ) : (
+        <div className="channel-files-empty" role="status">
+          <BookmarkIcon />
+          <h3>{t.empty}</h3>
+          <p>{props.can("add") ? w.empty : t.hint}</p>
+        </div>
+      )}
+      {edit && authorized && (
+        <BookmarkEditor
+          edit={edit}
+          account={props.account}
+          channelId={props.channelId}
+          online={props.online}
+          language={props.language}
+          sessionIssue={props.sessionIssue}
+          confirm={confirm}
+          leavePending={() => {
+            setSendingInBackground(true);
+            focusHeading();
+          }}
+          close={(refresh, dismissed = false) => {
+            restore(edit.action === "add" ? null : edit.item.id, dismissed);
+            if (refresh) {
+              if (!dismissed) focusHeading();
+              reload();
+            }
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 export function ChannelBookmarksPanel(props: Props) {
+  const [editorOpen, setEditorOpen] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null),
     id = useId();
   const { account, channelId, online, language } = props,
     t = bookmarkCopy[language];
   const { value, retry } = useInfoRead(
     channelId,
-    online,
+    online || editorOpen,
     (s, id) => account.readChannelBookmarks(id, s),
     props.sessionIssue,
   );
@@ -342,18 +523,16 @@ export function ChannelBookmarksPanel(props: Props) {
         {value.status === "ready" ? (
           value.value.kind === "unlicensed" ? (
             <p role="status">{t.unlicensed}</p>
-          ) : value.value.bookmarks.length ? (
-            <ul>
-              {value.value.bookmarks.map((item) => (
-                <BookmarkRow key={item.id} item={item} {...props} />
-              ))}
-            </ul>
           ) : (
-            <div className="channel-files-empty" role="status">
-              <BookmarkIcon />
-              <h3>{t.empty}</h3>
-              <p>{t.hint}</p>
-            </div>
+            <EditableBookmarks
+              {...props}
+              initial={value.value.bookmarks}
+              reload={retry}
+              setEditorOpen={setEditorOpen}
+              focusHeading={() =>
+                heading.current?.focus({ preventScroll: true })
+              }
+            />
           )
         ) : (
           <p
@@ -367,11 +546,7 @@ export function ChannelBookmarksPanel(props: Props) {
           </p>
         )}
         {value.status === "failed" && (
-          <button
-            className="channel-files-control"
-            type="button"
-            onClick={retry}
-          >
+          <button className="bookmark-add" type="button" onClick={retry}>
             {filePanelCopy[language].retry}
           </button>
         )}

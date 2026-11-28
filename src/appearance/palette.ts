@@ -44,6 +44,7 @@ const surfaces = {
     link: "#176156",
     "message-link": "#177a70",
     error: "#a62c33",
+    "danger-fill": "#a62c33",
     topbar: "#172941",
   },
   dark: {
@@ -64,6 +65,7 @@ const surfaces = {
     link: "#8fd9bd",
     "message-link": "#2d977b",
     error: "#ffabb1",
+    "danger-fill": "#96353d",
     topbar: "#0f1c2e",
   },
 } as const;
@@ -123,6 +125,7 @@ function colorsFor(
     "on-selected": foreground(selected),
     "on-notification": foreground(notification),
     "on-accent": foreground(surface.accent),
+    "on-danger": foreground(surface["danger-fill"]),
     "row-selected": mix(selected, weight, surface.canvas),
     "row-selected-hover": mix(
       selected,

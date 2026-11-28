@@ -178,6 +178,12 @@
   height: 21px;
   color: var(--muted);
 }
+.bookmark-editor .bookmark-editor-fields p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.48;
+}
 .channel-information.channel-bookmarks-panel .channels-pane-titles p {
   font-size: 0.76rem;
   line-height: 1.5;
@@ -200,4 +206,87 @@
   .channel-information.channel-bookmarks-panel .channels-pane-titles p {
     font-size: 0.7rem;
   }
+}
+
+.bookmark-add-strip {
+  display: flex;
+  margin-bottom: 12px;
+}
+.channel-bookmark-body .bookmark-add {
+  border: 1px solid var(--strong-divider);
+  padding: 8px 13px;
+  border-radius: 6px;
+  background: var(--canvas);
+  color: var(--text);
+  font-size: 0.83rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.bookmark-add:hover {
+  background: var(--row-hover);
+}
+.bookmark-action.destructive,
+.bookmark-editor-error {
+  color: var(--error);
+}
+.bookmark-editor .bookmark-editor-fields {
+  display: grid;
+  gap: 14px;
+  padding: 8px 20px 14px;
+}
+.bookmark-editor-fields label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+.bookmark-editor-fields input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 9px 10px;
+  border: 1px solid var(--field-border);
+  border-radius: 6px;
+  background: var(--canvas);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 400;
+}
+.bookmark-editor .bookmark-editor-fields .bookmark-editor-error {
+  padding: 8px 12px;
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 9%, var(--canvas));
+  border-radius: 6px;
+}
+.bookmark-editor footer {
+  padding: 12px 20px 16px;
+}
+.directory-join-dialog.bookmark-editor footer .bookmark-delete:last-child {
+  background: var(--danger-fill);
+  color: var(--on-danger);
+  font-weight: 600;
+  font-size: 0.83rem;
+  padding: 8px 13px;
+  border-radius: 6px;
+}
+@media (max-width: 740px) {
+  .bookmark-editor .bookmark-editor-fields,
+  .bookmark-editor footer {
+    padding-inline: 15px;
+  }
+  .bookmark-editor-fields input {
+    font-size: 1rem;
+  }
+}
+
+.bookmark-editor::backdrop {
+  background: #06183966;
+}
+.bookmark-editor[data-input="pointer"] button:focus {
+  outline: none;
+}
+.bookmark-editor[data-input="keyboard"] button:focus {
+  outline: 2px solid var(--focus);
+  outline-offset: -3px;
 }

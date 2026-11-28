@@ -20,6 +20,21 @@ export function collectionWindowFixture() {
     oldest,
   ];
   const hidden = new Set(raw.slice(60, 120));
+  const originalLink = "k".repeat(26),
+    replacementLink = "n".repeat(26),
+    foreignLink = "g".repeat(26),
+    uncertainLink = "z".repeat(26),
+    foreignOwner = "h".repeat(26);
+  const initialLink = {
+    id: foreignLink,
+    channel_id: channel,
+    owner_id: foreignOwner,
+    type: "link",
+    display_name: "Team runbook",
+    link_url: "https://example.org/runbook",
+    delete_at: 0,
+  };
+  const links = new Map([[foreignLink, initialLink]]);
   let pinned = true;
   let pinReads = 0;
   let markBoundary!: () => void;
@@ -131,7 +146,62 @@ export function collectionWindowFixture() {
       post_id: "",
       size: 13,
     };
-    if (path === `channels/${channel}/bookmarks`) {
+    const bookmarkPath = `channels/${channel}/bookmarks`;
+    if (path === bookmarkPath && req.method === "POST") {
+      const requested = await requestJson(req);
+      const uncertain =
+        typeof requested === "object" &&
+        requested !== null &&
+        "display_name" in requested &&
+        requested.display_name === "Unconfirmed guide";
+      const label = uncertain ? "Unconfirmed guide" : "Release guide";
+      const link = "https://example.org/guide";
+      assert.deepEqual(requested, {
+        type: "link",
+        display_name: label,
+        link_url: link,
+      });
+      const id = uncertain ? uncertainLink : originalLink;
+      assert.ok(!links.has(id));
+      const item = {
+        ...initialLink,
+        id,
+        owner_id: user,
+        display_name: label,
+        link_url: link,
+      };
+      links.set(id, item);
+      // The write reached the server, but the unexpected HTTP status leaves the caller uncertain.
+      send(item, "POST", uncertain ? 200 : 201);
+    } else if (
+      path === `${bookmarkPath}/${foreignLink}` &&
+      req.method === "PATCH"
+    ) {
+      assert.deepEqual(await requestJson(req), {
+        display_name: "Updated runbook",
+      });
+      assert.ok(links.delete(foreignLink));
+      const updated = {
+        ...initialLink,
+        id: replacementLink,
+        owner_id: user,
+        display_name: "Updated runbook",
+        original_id: foreignLink,
+      };
+      // Keep the replacement before the previously added guide, in the original position.
+      const existing = [...links];
+      links.clear();
+      links.set(updated.id, updated);
+      for (const [id, row] of existing) links.set(id, row);
+      send({ updated, deleted: { ...initialLink, delete_at: 123 } }, "PATCH");
+    } else if (
+      path === `${bookmarkPath}/${replacementLink}` &&
+      req.method === "DELETE"
+    ) {
+      const deleting = links.get(replacementLink);
+      assert.ok(deleting && links.delete(replacementLink));
+      send({ ...deleting, delete_at: 124 }, "DELETE");
+    } else if (path === bookmarkPath) {
       assert.equal(url.search, "");
       send([
         {
@@ -144,6 +214,7 @@ export function collectionWindowFixture() {
           file: bookmarkFile,
           delete_at: 0,
         },
+        ...links.values(),
       ]);
     } else if (path === `files/${bookmarkFile.id}/info`) {
       send(bookmarkFile);
@@ -329,7 +400,13 @@ export function collectionWindowFixture() {
           name,
           permissions:
             name === "channel_user"
-              ? ["create_post", "read_channel_content"]
+              ? [
+                  "create_post",
+                  "read_channel_content",
+                  "add_bookmark_public_channel",
+                  "edit_bookmark_public_channel",
+                  "delete_bookmark_public_channel",
+                ]
               : [],
         })),
         "POST",

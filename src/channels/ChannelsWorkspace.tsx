@@ -48,6 +48,7 @@ import {
 import { CollectionResultSteps } from "./CollectionResultSteps.tsx";
 import { ComposerAccessNotice } from "./ComposerAccessNotice.tsx";
 import { ConversationTimeline } from "./ConversationTimeline.tsx";
+import { channelBookmarkAccess } from "./channel-bookmark-access.ts";
 import { channelDraftActions } from "./channel-draft-actions.ts";
 import { collectionCopy } from "./collection-copy.ts";
 import { channelComposerAccess } from "./composer-access.ts";
@@ -2345,9 +2346,18 @@ export function ChannelsWorkspace({
             />
           ) : infoOpen && channel && infoChannel.stage === "bookmarks" ? (
             <ChannelBookmarksPanel
-              key={channel.id}
+              key={`${serverUrl}:${userId}:${channel.id}`}
               account={connection}
               channelId={channel.id}
+              can={(action, kind) =>
+                channelBookmarkAccess(
+                  permission,
+                  roles.state.value?.systemRoles,
+                  channel,
+                  action,
+                  kind,
+                ) === "allowed"
+              }
               name={roomTitle}
               serverUrl={workspace.serverUrl}
               online={online}
