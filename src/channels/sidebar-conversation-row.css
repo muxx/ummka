@@ -1,0 +1,89 @@
+.sidebar-conversation-row {
+  --sidebar-conversation-weight: 430;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 29px;
+  border: 0;
+  border-radius: 5px;
+  padding: 0 9px;
+  background: transparent;
+  color: var(--on-navigation);
+  cursor: pointer;
+  text-align: start;
+}
+.sidebar-conversation-row:hover {
+  background: var(--navigation-hover);
+}
+.sidebar-conversation-row[aria-current="page"] {
+  background: var(--selected);
+  color: var(--on-selected);
+  --sidebar-conversation-weight: 650;
+}
+.sidebar-conversation-row[data-unread] {
+  --sidebar-conversation-weight: 730;
+}
+.sidebar-conversation-row__icon {
+  flex: none;
+  color: var(--navigation-muted);
+}
+.sidebar-conversation-row[aria-current="page"] .sidebar-conversation-row__icon {
+  color: inherit;
+}
+.sidebar-conversation-row__initial {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 1.0625rem;
+  height: 1.0625rem;
+  border-radius: 5px;
+  background: var(--navigation-hover);
+  color: var(--on-navigation);
+  font-size: 0.56rem;
+  font-weight: var(--sidebar-conversation-weight);
+}
+.sidebar-conversation-row[aria-current="page"]
+  .sidebar-conversation-row__initial {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  color: inherit;
+}
+.sidebar-conversation-row__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.83rem;
+  font-weight: var(--sidebar-conversation-weight);
+}
+.sidebar-conversation-row__count {
+  flex: none;
+  margin-inline-start: auto;
+  border-radius: 12px;
+  padding: 0 6px;
+  background: var(--notification);
+  color: var(--on-notification);
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+.sidebar-conversation-row__dot {
+  flex: none;
+  margin-inline-start: auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--notification);
+}
+.sidebar-conversation-row[aria-current="page"] .sidebar-conversation-row__dot {
+  background: var(--on-selected);
+}
+@media (740px < width <= 900px) {
+  .sidebar-conversation-row {
+    min-height: 30px;
+  }
+}
+@media (width <= 740px) {
+  .sidebar-conversation-row {
+    min-height: 44px;
+  }
+}

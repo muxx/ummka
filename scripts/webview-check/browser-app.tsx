@@ -530,7 +530,16 @@ async function checkBrowserSearchAndChannels(
     }),
   );
   openChannelNavigation(host, "Channels");
-  const design = ui.getByRole("button", { name: "Design" });
+  const sidebar = within(
+    ui.getByRole("region", { name: "Channel categories" }),
+  );
+  const town = sidebar.getByRole("button", {
+    name: "Town Square",
+    current: "page",
+  });
+  const design = sidebar.getByRole("button", { name: "Design" });
+  if (design.getAttribute("aria-description") !== "Private channel")
+    throw Error("Design lost its private channel description in the sidebar");
   flushSync(() => fireEvent.click(design));
   await ui.findByText("Design fixture message", {}, { timeout: 10_000 });
   const refused = (await ui.findByText(refusedDesignDraft)).closest("article");
@@ -548,6 +557,16 @@ async function checkBrowserSearchAndChannels(
     throw Error("room switch retained a different timeline");
   await workspaceFixtureStep(controlPort, "allow-design-posts");
   openChannelNavigation(host, "Channels");
+  if (
+    sidebar.getByRole("button", {
+      name: "Design",
+      current: "page",
+    }) !== design ||
+    town.hasAttribute("aria-current") ||
+    getComputedStyle(design).getPropertyValue("--keyboard-focus").trim() !==
+      getComputedStyle(design).getPropertyValue("--on-selected").trim()
+  )
+    throw Error("The selected conversation lost its sidebar row or focus role");
   const switchTeam = ui.getByRole("button", {
     name: "Switch team, Browser team",
   });
