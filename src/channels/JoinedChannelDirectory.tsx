@@ -2,11 +2,8 @@ import { useId, useMemo, useState } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
 import type { TeamSidebar } from "../mattermost/team-sidebar.ts";
 import { DirectoryChannelIcon } from "./DirectoryChannelIcon.tsx";
-import {
-  DirectoryEmpty,
-  DirectorySearch,
-  directoryCopy,
-} from "./DirectorySurface.tsx";
+import { DirectorySearch, directoryCopy } from "./DirectorySurface.tsx";
+import { PanelRetry, PanelState } from "./PanelState.tsx";
 import { workspaceCopy } from "./workspace-copy.ts";
 import type { WorkspaceRead } from "./workspace-data.ts";
 
@@ -73,25 +70,38 @@ export function JoinedChannelDirectory({
         />
       )}
       {denied ? (
-        <p role="alert">{workspace.forbidden}</p>
+        <PanelState
+          variant="error"
+          role="alert"
+          message={workspace.forbidden}
+        />
       ) : (
         <>
           {unavailable && (
-            <p role="alert">
-              {workspace[status]}{" "}
-              <button type="button" onClick={retry}>
-                {workspace.retry}
-              </button>
-            </p>
+            <PanelState
+              variant={state.value ? "stale" : "error"}
+              role="alert"
+              message={workspace[status]}
+              action={
+                <PanelRetry onClick={retry}>{workspace.retry}</PanelRetry>
+              }
+            />
           )}
           {status === "offline" && (
-            <p role="status">
-              {state.value ? workspace.offline : workspace.noCache}
-            </p>
+            <PanelState
+              variant={state.value ? "stale" : "offline"}
+              role="status"
+              title={state.value ? undefined : workspace.offlineEmpty}
+              message={state.value ? workspace.offline : workspace.noCache}
+            />
           )}
           {!state.value &&
             (status === "loading" || status === "refreshing") && (
-              <p role="status">{workspace.loading}</p>
+              <PanelState
+                variant="pending"
+                role="status"
+                message={workspace.loading}
+              />
             )}
           {state.value &&
             (matches.length ? (
@@ -139,13 +149,20 @@ export function JoinedChannelDirectory({
                 ))}
               </ul>
             ) : query ? (
-              <DirectoryEmpty
+              <PanelState
+                variant="empty"
+                role="status"
                 title={text.noMatches}
-                hint={headingVisible ? text.changeQuery : text.changeQueryOrTab}
-                kind="search"
+                message={
+                  headingVisible ? text.changeQuery : text.changeQueryOrTab
+                }
               />
             ) : (
-              <p role="status">{workspace.empty}</p>
+              <PanelState
+                variant="empty"
+                role="status"
+                title={workspace.empty}
+              />
             ))}
         </>
       )}

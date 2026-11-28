@@ -13,16 +13,13 @@ import {
   type DirectoryChannel,
   DirectoryJoinDialog,
 } from "./DirectoryJoinDialog.tsx";
-import {
-  DirectoryEmpty,
-  DirectorySearch,
-  directoryCopy,
-} from "./DirectorySurface.tsx";
+import { DirectorySearch, directoryCopy } from "./DirectorySurface.tsx";
 import {
   availableDirectoryChannels,
   openChannelDirectoryList,
 } from "./open-channel-directory.ts";
 import { openDirectorySearch } from "./open-directory-search.ts";
+import { PanelRetry, PanelState } from "./PanelState.tsx";
 import type { DirectoryProps } from "./TeamChannelDirectory.tsx";
 import { workspaceCopy } from "./workspace-copy.ts";
 
@@ -162,6 +159,11 @@ export function AvailableChannels({
   }
   const failed = status === "network" || status === "storage";
   const tail = !!page?.hasMore && !search?.query && !denied;
+  const hasResults = !search?.query && !!page?.items.length;
+  function retryDirectory() {
+    if (!search?.query) retryRows.current = new Set(rows.map((r) => r.id));
+    void (search?.query ? model?.search.retry() : model?.list.retry());
+  }
   return (
     <section
       ref={region}
@@ -182,18 +184,37 @@ export function AvailableChannels({
         />
       )}
       {!state.value ? (
-        <p role="status">
-          {state.status === "offline"
-            ? common.noCache
-            : state.status === "network" || state.status === "storage"
-              ? common[state.status]
-              : common.loading}
-        </p>
+        state.status === "offline" ? (
+          <PanelState
+            variant="offline"
+            role="status"
+            title={common.offlineEmpty}
+            message={common.noCache}
+          />
+        ) : state.status === "network" || state.status === "storage" ? (
+          <PanelState
+            variant="error"
+            role="alert"
+            message={common[state.status]}
+          />
+        ) : (
+          <PanelState
+            variant="pending"
+            role="status"
+            message={common.loading}
+          />
+        )
       ) : denied ? (
-        <p role="alert">{common.forbidden}</p>
+        <PanelState variant="error" role="alert" message={common.forbidden} />
       ) : (
         <>
-          {!online && <p role="status">{text.offline}</p>}
+          {!online && !failed && (
+            <PanelState
+              variant={hasResults ? "stale" : "offline"}
+              role="status"
+              message={text.offline}
+            />
+          )}
           {!!rows.length && (
             <ul aria-label={text.available}>
               {rows.map((row) => (
@@ -222,39 +243,70 @@ export function AvailableChannels({
               ))}
             </ul>
           )}
-          {status === "loading" && (
-            <p role="status">{search?.query ? text.search : text.loading}</p>
-          )}
-          {failed && (
-            <p role="alert">
-              {status === "storage" ? common.storage : common.network}{" "}
-              <button
-                type="button"
-                disabled={!online}
-                ref={edge}
-                onClick={() => {
-                  if (!search?.query)
-                    retryRows.current = new Set(rows.map((r) => r.id));
-                  void (search?.query
-                    ? model?.search.retry()
-                    : model?.list.retry());
-                }}
-              >
-                {common.retry}
-              </button>
-            </p>
-          )}
+          {status === "loading" &&
+            (hasResults ? (
+              <p role="status">{text.loading}</p>
+            ) : (
+              <PanelState
+                variant="pending"
+                role="status"
+                message={search?.query ? text.search : text.loading}
+              />
+            ))}
+          {failed &&
+            (hasResults ? (
+              <p role="alert">
+                {status === "storage" ? common.storage : common.network}{" "}
+                <button
+                  type="button"
+                  disabled={!online}
+                  ref={edge}
+                  onClick={retryDirectory}
+                >
+                  {common.retry}
+                </button>
+              </p>
+            ) : (
+              <PanelState
+                variant={online ? "error" : "offline"}
+                role="alert"
+                title={
+                  online
+                    ? search?.query
+                      ? text.searchFailed
+                      : text.loadFailed
+                    : common.offlineEmpty
+                }
+                message={
+                  status === "storage"
+                    ? common.storage
+                    : online
+                      ? common.network
+                      : text.offline
+                }
+                action={
+                  <PanelRetry
+                    disabled={!online}
+                    ref={edge}
+                    onClick={retryDirectory}
+                  >
+                    {common.retry}
+                  </PanelRetry>
+                }
+              />
+            ))}
           {status === "ready" && !rows.length && !tail && (
-            <DirectoryEmpty
+            <PanelState
+              variant="empty"
+              role="status"
               title={
                 search?.query ? directoryCopy[language].noMatches : text.none
               }
-              hint={
+              message={
                 search?.query
                   ? directoryCopy[language].changeQueryOrTab
                   : text.noneHint
               }
-              kind={search?.query ? "search" : "channels"}
             />
           )}
           {status === "ready" && rows.length > 0 && !tail && !search?.query && (

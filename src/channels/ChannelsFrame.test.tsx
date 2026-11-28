@@ -184,8 +184,7 @@ test("reserves the inbox size button for a selected discussion", () => {
       ...frame(),
       inboxPlaceholder: {
         title: "Discussion",
-        heading: "Choose a discussion",
-        hint: "Replies open next to the list.",
+        message: "Choose a discussion",
       },
     };
     const thread = {
@@ -202,6 +201,7 @@ test("reserves the inbox size button for a selected discussion", () => {
     const separator = () =>
       screen.queryByRole("separator", { name: "Side pane width" });
 
+    expect(placeholder().getByText("Choose a discussion").tagName).toBe("P");
     expect(placeholder().queryAllByRole("button")).toHaveLength(0);
     expect(separator()).toBeNull();
 
@@ -212,6 +212,7 @@ test("reserves the inbox size button for a selected discussion", () => {
     expect(separator()?.getAttribute("aria-valuenow")).toBe("400");
 
     rerender(<ChannelsFrame {...props} />);
+    expect(placeholder().getByText("Choose a discussion").tagName).toBe("P");
     expect(placeholder().queryAllByRole("button")).toHaveLength(0);
     expect(separator()?.getAttribute("aria-valuenow")).toBe("400");
 

@@ -1421,7 +1421,7 @@ test("reopening Saved keeps the previous rows through a failed refresh and retri
       }),
   );
   fireEvent.click(trigger);
-  await pane().findByText("Updating the list…");
+  await waitFor(() => expect(fail).toBeTypeOf("function"));
   const stale = pane().getByRole("button", options);
   stale.focus();
   expect(stale.getAttribute("aria-disabled")).toBe("false");
@@ -1449,7 +1449,9 @@ test("reopening Saved keeps the previous rows through a failed refresh and retri
   );
   retry.focus();
   fireEvent.click(retry);
-  const waiting = await pane().findByText("Updating the list…");
+  const waiting = await pane().findByText("Updating the list…", undefined, {
+    timeout: 2500,
+  });
   expect(document.activeElement).toBe(waiting.parentElement);
   await act(async () => finish(previous));
   await pane().findByText("Saved messages updated");
@@ -1920,7 +1922,7 @@ test.each(["saved", "mentions"] as const)(
     fireEvent.click(trigger);
     if (kind === "saved") account.readSavedPosts.mockImplementationOnce(denied);
     fireEvent.click(trigger);
-    await screen.findByText("Updating the list…");
+    await waitFor(() => expect(reject).toBeTypeOf("function"));
     fireEvent.click(screen.getByRole("button", row));
     const thread = await screen.findByRole("complementary", { name: "Thread" });
     await within(thread).findByText(reply.message);

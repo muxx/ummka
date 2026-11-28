@@ -1,4 +1,5 @@
 import {
+  type MouseEvent,
   memo,
   useEffect,
   useId,
@@ -8,6 +9,7 @@ import {
   useState,
 } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
+import { PanelRetry, PanelState } from "./PanelState.tsx";
 import { attachmentExcerpt } from "./post-attachment-cards.ts";
 import { publishedPostSummary } from "./published-post-summary.ts";
 import { formatReplyCount, type TimelineAuthor } from "./TimelinePost.tsx";
@@ -63,7 +65,7 @@ const Summary = memo(function Summary({
     [post, locale],
   );
   return (
-    <span className="inbox-excerpt">
+    <span className="inbox-excerpt panel-text--body">
       {value || threadInboxCopy[locale].post}
     </span>
   );
@@ -267,17 +269,32 @@ export function ThreadInboxPane({
       : page.status === "storage"
         ? workspace.storage
         : workspace.network;
+  const firstPage = page.rows === null;
+  const offline = page.status === "network" && !online;
+  function readPage(event: MouseEvent<HTMLButtonElement>) {
+    if (document.activeElement === event.currentTarget) {
+      restore.current = {
+        tab,
+        existing: new Set(rows.map((row) => row.id)),
+        control: event.currentTarget,
+      };
+      edge.current?.focus({ preventScroll: true });
+    }
+    if (error) void model.retryPage();
+    else void model.loadMore();
+  }
   return (
     <div className="thread-inbox">
       <div
         ref={tabsNode}
         role="tablist"
         aria-label={text.title}
-        className="inbox-tabs"
+        className="inbox-tabs panel-tabs"
       >
         {tabs.map((item) => (
           <button
             type="button"
+            className="panel-tabs__tab"
             key={item}
             role="tab"
             id={`${prefix}-${item}`}
@@ -413,10 +430,13 @@ export function ThreadInboxPane({
                           )}
                         </span>
                       )}
-                      <strong>{name}</strong>
+                      <strong className="panel-text--author">{name}</strong>
                       {row.lastReplyAt > 0 &&
                         Number.isFinite(time.getTime()) && (
-                          <time dateTime={time.toISOString()}>
+                          <time
+                            className="panel-text--secondary"
+                            dateTime={time.toISOString()}
+                          >
                             {(time.toDateString() === new Date().toDateString()
                               ? dates.time
                               : dates.day
@@ -425,7 +445,7 @@ export function ThreadInboxPane({
                         )}
                     </span>
                     <Summary post={post} locale={locale} />
-                    <span className="inbox-replies">
+                    <span className="inbox-replies panel-text--secondary">
                       <span
                         className="timeline-participants"
                         aria-hidden="true"
@@ -448,7 +468,11 @@ export function ThreadInboxPane({
                       ) : (
                         text.noReplies
                       )}
-                      {room && <span className="inbox-channel">· {room}</span>}
+                      {room && (
+                        <span className="inbox-channel panel-text--secondary">
+                          · {room}
+                        </span>
+                      )}
                     </span>
                   </button>
                 </li>
@@ -457,46 +481,55 @@ export function ThreadInboxPane({
           </ul>
         )}
         {page.status === "ready" && !rows.length && (
-          <p className="inbox-status" role="status">
-            {page.rows?.length
-              ? text.noRoots
-              : tab === "unread"
-                ? text.noUnread
-                : text.empty}
-          </p>
+          <PanelState
+            variant="empty"
+            role="status"
+            title={
+              page.rows?.length
+                ? text.noRoots
+                : tab === "unread"
+                  ? text.noUnread
+                  : text.empty
+            }
+          />
         )}
-        {(error ||
-          page.status === "loading" ||
-          page.status === "idle" ||
-          page.nextBefore) && (
-          <div ref={edge} className="inbox-status" tabIndex={-1}>
-            <span role={error ? "alert" : "status"}>
-              {error
-                ? `${page.rows ? text.moreError : text.firstError} ${reason}`
-                : page.status === "ready"
-                  ? text.earlier
-                  : text.loading}
-            </span>
-            {(error || (page.status === "ready" && page.nextBefore)) && (
-              <button
-                type="button"
-                onClick={(event) => {
-                  if (document.activeElement === event.currentTarget) {
-                    restore.current = {
-                      tab,
-                      existing: new Set(rows.map((row) => row.id)),
-                      control: event.currentTarget,
-                    };
-                    edge.current?.focus({ preventScroll: true });
-                  }
-                  if (error) void model.retryPage();
-                  else void model.loadMore();
-                }}
-              >
-                {error ? workspace.retry : text.more}
-              </button>
-            )}
-          </div>
+        {firstPage ? (
+          error ? (
+            <PanelState
+              variant={offline ? "offline" : "error"}
+              ref={edge}
+              role="alert"
+              title={offline ? workspace.offlineEmpty : text.firstError}
+              message={offline ? text.offlineRetry : reason}
+              action={
+                <PanelRetry onClick={readPage}>{workspace.retry}</PanelRetry>
+              }
+            />
+          ) : (
+            <PanelState
+              variant="pending"
+              ref={edge}
+              role="status"
+              message={text.loading}
+            />
+          )
+        ) : (
+          (error || page.status === "loading" || page.nextBefore) && (
+            <div ref={edge} className="inbox-status" tabIndex={-1}>
+              <span role={error ? "alert" : "status"}>
+                {error
+                  ? `${text.moreError} ${reason}`
+                  : page.status === "ready"
+                    ? text.earlier
+                    : text.loading}
+              </span>
+              {(error || (page.status === "ready" && page.nextBefore)) && (
+                <button type="button" onClick={readPage}>
+                  {error ? workspace.retry : text.more}
+                </button>
+              )}
+            </div>
+          )
         )}
         <span aria-live="polite" className="inbox-sr">
           {notice}

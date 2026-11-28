@@ -67,7 +67,7 @@ export function TeamChannelDirectory({
       <div className="directory-tab-strip">
         <div
           role="tablist"
-          className="directory-tabs directory-column"
+          className="directory-tabs directory-column panel-tabs"
           aria-label={text.title}
           onKeyDown={(event) => {
             if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
@@ -91,6 +91,7 @@ export function TeamChannelDirectory({
           {(["joined", "available"] as const).map((name) => (
             <button
               type="button"
+              className="panel-tabs__tab"
               role="tab"
               key={name}
               id={id + name}

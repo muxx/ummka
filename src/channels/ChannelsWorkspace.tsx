@@ -1118,60 +1118,63 @@ export function ChannelsWorkspace({
   );
   const nav = (
     <>
-      {inbox.model && (
+      <div className="panel-navigation">
+        {inbox.model && (
+          <button
+            type="button"
+            className="workspace-row panel-navigation__item inbox-trigger"
+            aria-label={inboxName}
+            data-surface={inbox.visible ? "selected-navigation" : undefined}
+            aria-current={inbox.visible ? "page" : undefined}
+            onClick={() => {
+              if (inbox.visible) {
+                setPage("conversation");
+                return;
+              }
+              search.dismiss();
+              workspace.messages.clear();
+              collections.close(false);
+              setDirectoryOpen(false);
+              closeThread();
+              inboxList.current = undefined;
+              rememberInboxChannel();
+              setPage("conversation");
+              inbox.show();
+            }}
+          >
+            <ThreadMark />
+            <span className="panel-navigation__label">{inboxText.title}</span>
+            {counts && counts.totalUnreadMentions > 0 ? (
+              <span className="workspace-count" aria-hidden="true">
+                {counts.totalUnreadUrgentMentions > 0 ? "!" : ""}
+                {counts.totalUnreadMentions}
+              </span>
+            ) : counts && counts.totalUnreadThreads > 0 ? (
+              <span className="workspace-unread" aria-hidden="true" />
+            ) : null}
+          </button>
+        )}
         <button
           type="button"
-          className="workspace-row inbox-trigger"
-          aria-label={inboxName}
-          data-unread={Boolean(counts?.totalUnreadThreads) || undefined}
-          aria-current={inbox.visible ? "page" : undefined}
+          className="workspace-row panel-navigation__item directory-trigger"
+          ref={directoryButton}
+          aria-current={directoryOpen ? "page" : undefined}
+          data-surface={directoryOpen ? "selected-navigation" : undefined}
           onClick={() => {
-            if (inbox.visible) {
-              setPage("conversation");
-              return;
-            }
             search.dismiss();
             workspace.messages.clear();
             collections.close(false);
-            setDirectoryOpen(false);
+            setChannelMenuOpen(false);
             closeThread();
-            inboxList.current = undefined;
-            rememberInboxChannel();
+            inbox.close();
+            setDirectoryOpen(true);
             setPage("conversation");
-            inbox.show();
           }}
         >
-          <ThreadMark />
-          <span className="workspace-row-name">{inboxText.title}</span>
-          {counts && counts.totalUnreadMentions > 0 ? (
-            <span className="workspace-count" aria-hidden="true">
-              {counts.totalUnreadUrgentMentions > 0 ? "!" : ""}
-              {counts.totalUnreadMentions}
-            </span>
-          ) : counts && counts.totalUnreadThreads > 0 ? (
-            <span className="workspace-unread" aria-hidden="true" />
-          ) : null}
+          <DirectoryCompass />
+          <span className="panel-navigation__label">{directoryTitle}</span>
         </button>
-      )}
-      <button
-        type="button"
-        className="workspace-row directory-trigger"
-        ref={directoryButton}
-        aria-current={directoryOpen ? "page" : undefined}
-        onClick={() => {
-          search.dismiss();
-          workspace.messages.clear();
-          collections.close(false);
-          setChannelMenuOpen(false);
-          closeThread();
-          inbox.close();
-          setDirectoryOpen(true);
-          setPage("conversation");
-        }}
-      >
-        <DirectoryCompass />
-        {directoryTitle}
-      </button>
+      </div>
       {directoryIssue && notice(directoryIssue, directory.retry, true)}
       {status === "offline" && notice(snapshot ? text.offline : text.noCache)}
       {!snapshot &&
@@ -1965,14 +1968,21 @@ export function ChannelsWorkspace({
         channelHeading={
           inbox.visible
             ? (id, ref) => (
-                <div className="inbox-heading">
+                <div className="inbox-heading panel-heading">
                   <div>
                     <ThreadMark />
-                    <h1 id={id} ref={ref} tabIndex={-1}>
+                    <h1
+                      className="panel-heading__title"
+                      id={id}
+                      ref={ref}
+                      tabIndex={-1}
+                    >
                       {inboxText.title}
                     </h1>
                   </div>
-                  <span>{inboxText.description}</span>
+                  <span className="panel-heading__detail">
+                    {inboxText.description}
+                  </span>
                 </div>
               )
             : !directoryOpen && channel && !historyDenied
@@ -2228,8 +2238,7 @@ export function ChannelsWorkspace({
           inbox.visible
             ? {
                 title: inboxText.discussion,
-                heading: inboxText.pick,
-                hint: inboxText.pickHint,
+                message: inboxText.pick,
               }
             : undefined
         }

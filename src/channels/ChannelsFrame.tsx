@@ -9,6 +9,7 @@ import {
 import smallMark from "../../src-tauri/icons/symbols/ummka-small.svg?no-inline";
 import { isMobile, usesMacOSOverlay } from "../build-platform.ts";
 import type { EntryLanguage } from "../entry/language.ts";
+import { PanelState } from "./PanelState.tsx";
 import {
   PaneExpansion,
   PaneResizer,
@@ -54,7 +55,7 @@ type FrameProps = {
   returnInThread?: boolean;
   composer?: ReactNode;
   draftRef?: RefObject<HTMLElement | null>;
-  inboxPlaceholder?: { title: string; heading: string; hint: string };
+  inboxPlaceholder?: { title: string; message: string };
   thread?: {
     id: string;
     title: string;
@@ -422,11 +423,7 @@ export function ChannelsFrame({
                 <ThreadMark />
                 <h2 id={threadId}>{inboxPlaceholder.title}</h2>
               </header>
-              <div className="inbox-prompt">
-                <ThreadMark />
-                <h3>{inboxPlaceholder.heading}</h3>
-                <p>{inboxPlaceholder.hint}</p>
-              </div>
+              <PanelState variant="empty" message={inboxPlaceholder.message} />
             </aside>
           )}
           {!sidePanel && thread && (
