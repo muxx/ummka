@@ -93,8 +93,9 @@ export async function checkSavedTeamWindow(
     flushSync(() => root.render(<App language="ru" />));
     const ui = within(element);
     const nativeWait = { container: element, timeout: 7000 };
-    const saved = () =>
-      ui.findByText("Saved fixture room message", {}, nativeWait);
+    const savedText = "Saved fixture room message";
+    const saved = (options = nativeWait) =>
+      ui.findByText(savedText, {}, options);
     const originalDraft = "  Черновик канала\n🐻‍❄️ ";
     const restoredDraft = (expected: string) =>
       waitFor(() => {
@@ -108,8 +109,51 @@ export async function checkSavedTeamWindow(
         return field;
       }, nativeWait);
     const stored = await readRestoredOutgoing(observer);
+    // The native host prints the URL-encoded failure on one logcat line.
+    // Report only known fixture markers and counts, never a dump of the window.
+    const restoreWait = (waiting: "saved" | "outgoing") => ({
+      ...nativeWait,
+      onTimeout: () => {
+        const page = ["conversation", "navigation", "thread", "details"].find(
+          (name) =>
+            element.querySelector(`.channels-panes[data-page="${name}"]`),
+        );
+        const main = element.querySelector("main.channels-conversation");
+        const heading = main?.querySelector("h1");
+        const timeline = main?.querySelector(".timeline-scroll");
+        const posts = Array.from(
+          timeline?.querySelectorAll<HTMLElement>("article[data-post-id]") ??
+            [],
+        );
+        const row = posts.find(
+          (post) => post.dataset.postId === stored.pendingId,
+        );
+        return Error(
+          [
+            "Offline restore",
+            `wait=${waiting}`,
+            `launch=${removeOutgoing ? 2 : 1}`,
+            `view=${page ?? (element.querySelector(".entry-window") ? "entry" : "unknown")}`,
+            `town=${(heading?.getAttribute("aria-label") ?? heading?.textContent) === "Town Square"}`,
+            `timeline=${Boolean(timeline)}`,
+            `latestMarker=${Boolean(timeline?.hasAttribute("data-latest"))}`,
+            `offline=${Boolean(main?.querySelector(".channel-timeline > .timeline-status"))}`,
+            `empty=${Boolean(timeline?.querySelector(".timeline-empty"))}`,
+            `rows=${posts.length}`,
+            `saved=${posts.some((post) => post.textContent?.includes(savedText))}`,
+            `pendingText=${posts.some((post) => post.textContent?.includes(stored.message))}`,
+            `pendingId=${Boolean(row)}`,
+            `outgoing=${Boolean(row?.hasAttribute("data-outgoing"))}`,
+            `readError=${Boolean(timeline?.querySelector(".workspace-notice[role=alert]"))}`,
+            `morePending=${Boolean(timeline?.querySelector(".timeline-boundary"))}`,
+            `older=${Boolean(timeline?.querySelector('[data-channel-edge="older"]'))}`,
+            `newer=${Boolean(timeline?.querySelector('[data-channel-edge="newer"]'))}`,
+          ].join(" "),
+        );
+      },
+    });
     const [, outgoing] = await Promise.all([
-      saved(),
+      saved(restoreWait("saved")),
       waitFor(() => {
         const row = ui.queryByText(stored.message)?.closest("article");
         if (!row || row.dataset.postId !== stored.pendingId)
@@ -117,7 +161,7 @@ export async function checkSavedTeamWindow(
             "The restored post is in SQLite but its row is missing from the offline timeline",
           );
         return row;
-      }, nativeWait),
+      }, restoreWait("outgoing")),
     ]);
     if (!outgoing.textContent?.includes("Доставка не подтверждена"))
       throw Error(
