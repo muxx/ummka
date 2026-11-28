@@ -1141,6 +1141,52 @@ export async function checkGeneratedRequests(ports: string[]) {
         threads.getUserThreadRaw(follow, overrides),
       );
     });
+    await fixtureStep("observe-account-thread", async () => {
+      const target = { teamId, channelId, rootId: postId };
+      for (const scope of [
+        target,
+        { teamId, channelId: "d".repeat(26), rootId: "b".repeat(26) },
+      ]) {
+        const state = await accountPrefix.readFollowedThreadState(scope);
+        check(
+          state.id === scope.rootId &&
+            state.following === true &&
+            state.lastViewedAt === timestamp - 2 &&
+            state.unreadReplies === 3 &&
+            state.unreadMentions === 2,
+          "account thread observation",
+        );
+      }
+      const missing = await rejected(
+        accountPrefix.readFollowedThreadState({
+          ...target,
+          rootId: "z".repeat(26),
+        }),
+      );
+      check(
+        missing instanceof ResponseError &&
+          missing.response.status === 404 &&
+          (await missing.response.json()).id ===
+            "app.user.get_threads_for_user.not_found",
+        "account thread observation preserves 404",
+      );
+      const stop = new AbortController();
+      const held = rejected(
+        accountPrefix.readFollowedThreadState(
+          { ...target, rootId: "h".repeat(26) },
+          stop.signal,
+        ),
+      );
+      await Promise.race([
+        observed("received", "observe-account-thread-body"),
+        held.then(() => {
+          throw Error("account observation ended before reaching server");
+        }),
+      ]);
+      stop.abort(new Error("Left observed thread"));
+      await held;
+      await observed("closed", "observe-account-thread-body");
+    });
     for (const request of [
       () => guestThreads.setThreadUnreadByPostId(unreadScope),
       () => threads.setThreadUnreadByPostId({ ...unreadScope, userId }),

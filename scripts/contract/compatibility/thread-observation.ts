@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { accountFollowedThreads } from "../../../src/mattermost/account-followed-threads.ts";
 import {
   ChannelsApi,
   type Configuration,
@@ -44,6 +45,7 @@ export async function checkThreadObservation(
   version: string,
 ) {
   const threads = new ThreadsApi(reader.session);
+  const account = accountFollowedThreads(reader.session, (read) => read());
   const channels = new ChannelsApi(reader.session);
   const readerPosts = new PostsApi(reader.session);
   const author = new ThreadsApi(writer.session);
@@ -75,6 +77,7 @@ export async function checkThreadObservation(
 
     const root = await create("Root for addressed thread observation");
     const scope = selection(root);
+    const target = { teamId, channelId, rootId: scope.threadId };
     await expectFailure(threads.getUserThread(scope), 404, missingMembership);
     await expectFailure(
       threads.setThreadUnreadByPostId({ ...scope, postId: scope.threadId }),
@@ -82,6 +85,11 @@ export async function checkThreadObservation(
       missingThread,
     );
     await expectFailure(threads.getUserThread(scope), 404, missingThread);
+    await expectFailure(
+      account.readFollowedThreadState(target),
+      404,
+      missingThread,
+    );
 
     const reply = await create(
       `@${reader.username} Reply to mark`,
@@ -119,6 +127,10 @@ export async function checkThreadObservation(
     const channelBefore = await membership();
     const peerBefore = readState(await author.getUserThread(scope));
     assert.equal(await following(), true);
+    assert.deepEqual(await account.readFollowedThreadState(target), {
+      ...expected,
+      following: true,
+    });
     const compact = await threads.getUserThread({ ...scope, extended: false });
     const expandedResponse = await threads.getUserThreadRaw({
       ...scope,
@@ -129,8 +141,11 @@ export async function checkThreadObservation(
     assert.deepEqual(await threads.getUserThread(scope), compact);
     for (const result of [compact, expanded]) {
       assert.deepEqual(readState(result), expected);
+      assert.equal(result.deleteAt, 0);
       assert.equal(result.post?.id, scope.threadId);
       assert.equal(result.post.channelId, channelId);
+      assert.equal(result.post.rootId, "");
+      assert.equal(result.post.deleteAt, 0);
       assert.equal(result.post.message, root.message);
       assert.deepEqual(
         result.participants?.map(({ id }) => id),
@@ -153,8 +168,16 @@ export async function checkThreadObservation(
     assert.equal(await following(), true);
     await threads.stopFollowingThread(scope);
     await expectFailure(threads.getUserThread(scope), 404, missingThread);
+    await expectFailure(
+      account.readFollowedThreadState(target),
+      404,
+      missingThread,
+    );
   }
   console.log(
     `Mattermost ${version} verified addressed thread reads as an ordinary user in a private channel and DM, both extended modes, distinct HTTP 404s, denied access, and unchanged thread and channel state.`,
+  );
+  console.log(
+    `Mattermost ${version} verified the account observation after marking a reply, with an active nested root in its expected channel, and preserved 404 before a reply and after unfollowing.`,
   );
 }
