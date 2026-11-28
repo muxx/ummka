@@ -947,13 +947,14 @@ test("both thread follow verbs return StatusOK and stop on upstream response cha
   }
 });
 
-test("both thread read operations expose their actual response and guard the timestamp on both pins", () => {
-  for (const [suffix, model] of [
-    ["/read", "StatusOK"],
-    ["/{thread_id}/read/{timestamp}", "UserThread"],
+test("thread read-state operations expose their actual responses and guard the timestamp on both pins", () => {
+  for (const [method, suffix, model] of [
+    ["put", "/read", "StatusOK"],
+    ["put", "/{thread_id}/read/{timestamp}", "UserThread"],
+    ["post", "/{thread_id}/set_unread/{post_id}", "UserThread"],
   ]) {
     const path = threadListPath + suffix;
-    const key = [path, "put"];
+    const key = [path, method];
     assert.equal(
       at(contract, [
         "paths",
@@ -976,7 +977,29 @@ test("both thread read operations expose their actual response and guard the tim
     assert.throws(() => correctThreadMutation(changed, newer), /Review both/);
     assert.throws(() => correctThreadMutation(source, changed), /Review both/);
     assert.throws(() => correctThreadMutation(changed, changed), /Review both/);
-    if (model === "UserThread") {
+    if (method === "post") {
+      const operation = object(at(contract, ["paths", ...key]), path);
+      assert.ok(!("requestBody" in operation));
+      assert.ok(Array.isArray(operation.parameters));
+      assert.deepEqual(
+        operation.parameters.map(({ name, in: location, required }) => [
+          name,
+          location,
+          required,
+        ]),
+        ["user_id", "team_id", "thread_id", "post_id"].map((name) => [
+          name,
+          "path",
+          true,
+        ]),
+      );
+      const withBody = { ...source, requestBody: { required: true } };
+      assert.throws(
+        () => correctThreadMutation(withBody, withBody),
+        /Review both/,
+      );
+    }
+    if (method === "put" && model === "UserThread") {
       const params = at(contract, ["paths", ...key, "parameters"]);
       assert.ok(Array.isArray(params) && Array.isArray(source.parameters));
       assert.deepEqual(params.find((p) => p.name === "timestamp")?.schema, {
@@ -1178,6 +1201,7 @@ test("retains the catalog operations, security and transitive models", () => {
         object(at(read("bookmarks-12.1.0.yaml"), key), path),
       );
     if (
+      source.operationId === "SetThreadUnreadByPostId" ||
       source.operationId === "UpdateThreadReadForUser" ||
       source.operationId === "UpdateThreadsReadForUser" ||
       source.operationId === "StartFollowingThread" ||

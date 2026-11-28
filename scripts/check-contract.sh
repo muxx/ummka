@@ -98,6 +98,9 @@ const selection = {userId: "me", teamId: "team", threadId: "thread"};
 (await threads.updateThreadsReadForUser(selection)).status satisfies string | undefined;
 // @ts-expect-error callers use Unix milliseconds as a number
 threads.updateThreadReadForUser({...selection, timestamp: "1700000000000"});
+(await threads.setThreadUnreadByPostId({...selection, postId: "post"})) satisfies UserThread;
+// @ts-expect-error the selected post is required independently from its thread root
+threads.setThreadUnreadByPostId(selection);
 const followed = await threads.getUserThreads({ userId: "me", teamId: "team", before: "thread", perPage: 25, unread: true, threadsOnly: true });
 followed.threads satisfies UserThread[] | null | undefined;
 followed.threads?.[0].participants?.[0].username satisfies string | undefined;

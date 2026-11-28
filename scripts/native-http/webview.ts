@@ -2249,6 +2249,8 @@ export function webviewServers(
         "post-reactions",
         "read-thread",
         "read-team-threads",
+        "unread-thread-reply",
+        "unread-thread-root",
         "read-thread",
         "read-team-threads",
         "account-direct-conversation",

@@ -706,6 +706,42 @@ mod tests {
     }
 
     #[test]
+    fn thread_unread_from_post_requires_a_signed_bodyless_post_with_valid_ids() {
+        let base = "https://fixture.test/sub";
+        let connection = RestConnection::new(base).unwrap();
+        let team = "t".repeat(26);
+        let root = "r".repeat(26);
+        let prefix = format!("/api/v4/users/me/teams/{team}/threads/{root}/set_unread");
+        let post = reqwest::Method::POST;
+        for selected in [&root, &"p".repeat(26)] {
+            let route = format!("{prefix}/{selected}");
+            let operation = OPERATIONS
+                .iter()
+                .find(|op| op.allows(&post, &route))
+                .unwrap();
+            assert!(operation.self_only);
+            assert!(!operation.allows(&reqwest::Method::PUT, &route));
+            for invalid in [
+                route.replace("/me/", &format!("/{root}/")),
+                route.replace(&team, "short"),
+                route.replace(&root, "short"),
+                format!("{prefix}/short"),
+            ] {
+                assert!(!operation.allows(&post, &invalid));
+            }
+            let mut request =
+                Request::new(post.clone(), Url::parse(&format!("{base}{route}")).unwrap());
+            assert!(operation.accepts_body(&request));
+            assert_eq!(
+                connection.check_request(&request),
+                Err(TransportError::OperationDenied)
+            );
+            *request.body_mut() = Some("{}".into());
+            assert!(!operation.accepts_body(&request));
+        }
+    }
+
+    #[test]
     fn personal_notification_changes_require_a_signed_connection_and_self_route() {
         let base = "https://fixture.test/sub";
         let connection = RestConnection::new(base).unwrap();
