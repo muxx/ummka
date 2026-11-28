@@ -35,6 +35,7 @@ import { checkChannelRefresh } from "./channel-refresh.ts";
 import { checkCollectionWindow } from "./collection-window.tsx";
 import { checkDraftWrites } from "./composer-drafts.ts";
 import { checkConnectServer } from "./connect-server.tsx";
+import { checkDraftFileWorkspace } from "./draft-file-workspace.ts";
 import { androidFixtureStep, fixtureStep } from "./fixture-step.ts";
 import { checkChannelHistory } from "./history.ts";
 import { prepareHistoryLoads } from "./history-loads.ts";
@@ -677,6 +678,15 @@ export async function checkGeneratedRequests(ports: string[]) {
     );
     await fixtureStep("file-submissions", () =>
       checkFileSubmissions(accountPrefix, userId, observed),
+    );
+    await fixtureStep("draft-file-workspace", () =>
+      checkDraftFileWorkspace(
+        accountPrefix,
+        accountRoot,
+        root.rid,
+        userId,
+        observed,
+      ),
     );
     const cached = await accountPrefix.readJoinedTeams();
     check(

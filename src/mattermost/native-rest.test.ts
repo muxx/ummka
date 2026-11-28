@@ -626,6 +626,7 @@ test("passes the canonical installation and closes the exact native handle", asy
   expect("readConversationRecipients" in connection).toBe(false);
   expect("addOwnReaction" in connection).toBe(false);
   expect("removeOwnReaction" in connection).toBe(false);
+  expect("openDraftFileWorkspace" in connection).toBe(false);
   expect("readPendingPosts" in connection).toBe(false);
   expect("confirmPostDelivery" in connection).toBe(false);
   expect("retireDeliveredPosts" in connection).toBe(false);
@@ -684,6 +685,7 @@ test("opens a native account by installation and user ID", async () => {
     "moveChannelBookmark",
     "notifyChannelHistoryChanged",
     "observeChannelEvents",
+    "openDraftFileWorkspace",
     "openRecentMentions",
     "openRecipientConversation",
     "readAccountDirectory",

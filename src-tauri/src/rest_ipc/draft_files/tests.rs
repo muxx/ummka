@@ -14,7 +14,7 @@ use tokio::{io::AsyncReadExt, sync::oneshot};
 
 const SERVER: &str = "https://chat.example.test";
 const PEER: &str = "https://other.example.test";
-const SIZE: NonZeroU64 = NonZeroU64::new(5).unwrap();
+const SIZE: u64 = 5;
 
 fn fixture() -> (
     App<MockRuntime>,

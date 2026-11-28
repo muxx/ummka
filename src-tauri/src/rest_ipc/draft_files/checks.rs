@@ -83,15 +83,9 @@ impl Fixture<'_> {
             provider(name).await?
         };
         let weak = Arc::downgrade(&source);
-        let files = add_to_workspace(
-            account,
-            workspace,
-            draft,
-            NonZeroU64::new(LIMIT).unwrap(),
-            [ready(Ok(source))],
-        )
-        .await
-        .unwrap();
+        let files = add_to_workspace(account, workspace, draft, LIMIT, [ready(Ok(source))])
+            .await
+            .unwrap();
         let [AddResult::Added(file)] = files.as_slice() else {
             panic!("selected {name}: {files:?}")
         };
