@@ -67,7 +67,6 @@ import { DraftComposer } from "./DraftComposer.tsx";
 import { draftCopy } from "./draft-copy.ts";
 import { MentionMark, MentionsPane, mentionCopy } from "./MentionsPane.tsx";
 import { CollectionMark, PostCollectionPane } from "./PostCollectionPane.tsx";
-import { PrivateChannelIcon } from "./PrivateChannelIcon.tsx";
 import {
   AttachmentWindow,
   useAttachmentWindow,
@@ -92,6 +91,7 @@ import {
   type PublishedReadingOrigin,
   publishedOriginLink,
 } from "./published-reading-history.ts";
+import { SidebarConversationRow } from "./SidebarConversationRow.tsx";
 import type { ReactionThread } from "./submit-channel-reaction.ts";
 import { TeamChannelDirectory } from "./TeamChannelDirectory.tsx";
 import { ThreadInboxPane } from "./ThreadInboxPane.tsx";
@@ -157,68 +157,11 @@ function Sidebar({
             <ul>
               {section.rows.map((row) => (
                 <li key={row.id}>
-                  <button
-                    className="workspace-row"
-                    type="button"
-                    aria-current={row.current ? "page" : undefined}
-                    aria-description={
-                      row.kind === "P" ? text.privateChannel : undefined
-                    }
-                    data-unread={row.unread || undefined}
-                    onClick={() => choose(row.id)}
-                  >
-                    <span className="workspace-kind" aria-hidden="true">
-                      {row.kind === "P" ? (
-                        <PrivateChannelIcon />
-                      ) : row.kind === "D" ? (
-                        "@"
-                      ) : row.kind === "G" ? (
-                        "••"
-                      ) : (
-                        "#"
-                      )}
-                    </span>
-                    <span className="workspace-row-name" title={row.title}>
-                      {row.title}
-                    </span>
-                    {row.archived && (
-                      <span
-                        className="workspace-state"
-                        role="img"
-                        title={text.archived}
-                        aria-label={text.archived}
-                      >
-                        ▤
-                      </span>
-                    )}
-                    {row.muted && (
-                      <span
-                        className="workspace-state"
-                        role="img"
-                        title={text.muted}
-                        aria-label={text.muted}
-                      >
-                        ◌
-                      </span>
-                    )}
-                    {row.mentions > 0 ? (
-                      <span
-                        className="workspace-count"
-                        role="img"
-                        aria-label={text.formatMentions(row.mentions)}
-                      >
-                        {row.mentions}
-                      </span>
-                    ) : (
-                      row.unread && (
-                        <span
-                          className="workspace-unread"
-                          role="img"
-                          aria-label={text.unread}
-                        />
-                      )
-                    )}
-                  </button>
+                  <SidebarConversationRow
+                    row={row}
+                    language={language}
+                    choose={choose}
+                  />
                 </li>
               ))}
             </ul>

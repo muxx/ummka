@@ -18,7 +18,7 @@
 }
 .workspace-categories ul {
   margin: 0;
-  padding: 0;
+  padding: 0 3px;
   list-style: none;
 }
 .workspace-row {
@@ -42,34 +42,6 @@
   color: var(--on-selected);
   background: var(--selected);
   font-weight: 650;
-}
-.workspace-row-name {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.89rem;
-}
-.workspace-row[data-unread] .workspace-row-name {
-  font-weight: 700;
-}
-.workspace-kind {
-  flex: 0 0 1rem;
-  text-align: center;
-  font-size: 1rem;
-}
-.workspace-lock {
-  display: block;
-  margin-inline: auto;
-  color: var(--navigation-muted);
-}
-.workspace-row[aria-current="page"] .workspace-lock {
-  color: inherit;
-}
-.workspace-state {
-  flex: none;
-  font-size: 0.81rem;
 }
 .workspace-count {
   border-radius: 9px;
@@ -188,6 +160,9 @@
   background: var(--row-hover);
 }
 @media (max-width: 740px) {
+  .workspace-categories ul {
+    padding-inline: 6px;
+  }
   .workspace-composer-note button {
     min-height: 44px;
   }

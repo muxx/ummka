@@ -1329,6 +1329,31 @@ test("the selected platform owns Back only while its thread is open", async () =
   expect(document.activeElement).toBe(opener);
 });
 
+test("a cold direct message keeps its initial empty until the profile is available", async () => {
+  const account = mount(true, false, { direct: "D" });
+  const sidebar = within(
+    await screen.findByRole("region", { name: "Channel categories" }),
+  );
+  const cold = sidebar.getByRole("button", {
+    name: "Direct message",
+    current: "page",
+  });
+  const initial = cold.querySelector(".sidebar-conversation-row__initial");
+  expect(initial?.textContent).toBe("");
+  expect(account.refreshSavedProfiles).not.toHaveBeenCalled();
+
+  const peer = "v".repeat(26);
+  account.readSavedProfiles.mockResolvedValue({
+    profiles: { [peer]: channelProfile({ id: peer, username: "vera" }) },
+    usernames: { vera: peer },
+  });
+  account.setOnline(true);
+  expect(
+    await sidebar.findByRole("button", { name: "vera", current: "page" }),
+  ).toBe(cold);
+  expect(initial?.textContent).toBe("V");
+});
+
 test("the directory opens from the sidebar, restores the draft on Back and selects the chosen membership", async () => {
   const account = mount(true);
   const draft = await screen.findByRole<HTMLTextAreaElement>("textbox", {
