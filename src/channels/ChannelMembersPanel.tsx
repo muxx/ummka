@@ -18,7 +18,7 @@ import {
   channelListError,
   channelListOffline,
 } from "./ChannelListState.tsx";
-import { PaneSizeToggle } from "./PaneWidthControls.tsx";
+import { ChannelSectionHeader } from "./ChannelSectionHeader.tsx";
 import { initials } from "./profile-initials.ts";
 import { useNextPageButton } from "./use-next-page-button.ts";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
@@ -237,50 +237,18 @@ export function ChannelMembersPanel({
       className="channels-thread channel-information channel-context-pane channel-members-panel"
       aria-labelledby={title}
     >
-      <header className="channels-pane-head">
-        {back && (
-          <button
-            className="channels-icon-action"
-            type="button"
-            aria-label={direct ? t.backToChannel : t.back}
-            onClick={back}
-          >
-            ←
-          </button>
-        )}
-        <div className="channels-pane-titles">
-          <h2 ref={heading} tabIndex={-1} id={title}>
-            <MembersIcon />
-            {t.title}
-          </h2>
-          <p>{name}</p>
-        </div>
-        <PaneSizeToggle />
-        <button
-          className={
-            back
-              ? "channels-icon-action channel-members-close"
-              : "channels-icon-action"
-          }
-          type="button"
-          aria-label={t.close}
-          onClick={close}
-        >
-          <svg
-            aria-hidden="true"
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-          >
-            <path className="channel-info-close" d="m6 6 12 12m0-12L6 18" />
-            <path className="channel-info-back" d="m11 5-7 7 7 7M4 12h16" />
-          </svg>
-        </button>
-      </header>
+      <ChannelSectionHeader
+        id={title}
+        heading={heading}
+        icon={<MembersIcon />}
+        title={t.title}
+        name={name}
+        desktopBack={Boolean(back) && !direct}
+        backLabel={direct || !back ? t.backToChannel : t.back}
+        closeLabel={t.close}
+        back={back ?? close}
+        close={close}
+      />
       <div className="channel-member-body" aria-busy={loading || undefined}>
         {(!empty || term) && (
           <label className="channel-member-search">
