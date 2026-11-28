@@ -14,7 +14,11 @@ import {
 } from "../mattermost/model-fields.ts";
 import type { openAccountRestConnection } from "../mattermost/native-rest.ts";
 import type { ThreadPageRequest } from "../mattermost/thread-page.ts";
-import { workspaceFailure } from "./workspace-data.ts";
+import {
+  type HistoryPageFailure,
+  historyPageFailure,
+  workspaceFailure,
+} from "./workspace-data.ts";
 
 type Account = Pick<
   Awaited<ReturnType<typeof openAccountRestConnection>>,
@@ -28,7 +32,7 @@ type Direction = ThreadPageRequest["direction"];
 type Cursor = NonNullable<ThreadPageRequest["cursor"]>;
 type Edge =
   | { status: "ready" | "end" | "loading" }
-  | { status: "error"; error: unknown };
+  | { status: "error"; error: unknown; reason: HistoryPageFailure };
 
 interface ReplyWindow {
   isFollowing?: boolean;
@@ -277,7 +281,11 @@ export function openThreadReplyWindow(
       }
       finish(direction, {
         ...state,
-        [direction]: { status: "error", error },
+        [direction]: {
+          status: "error",
+          error,
+          reason: historyPageFailure(error, navigator.onLine),
+        },
       });
     }
   }

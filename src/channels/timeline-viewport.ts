@@ -36,6 +36,31 @@ export function measureTimeline(
 
 export type TimelinePlace = ReturnType<typeof measureTimeline>;
 
+export type TimelineScrollCorrection = { top: number; remainder: number };
+
+export function restoreTimelineAnchor(
+  pane: HTMLElement,
+  row: HTMLElement,
+  place: { top: number; offset: number },
+  correction?: TimelineScrollCorrection,
+): TimelineScrollCorrection {
+  // WebKit quantizes scrollTop. Carry the unapplied fraction while the reader stays put.
+  const remainder = correction?.top === place.top ? correction.remainder : 0;
+  const desired =
+    pane.scrollTop +
+    row.getBoundingClientRect().top -
+    pane.getBoundingClientRect().top -
+    place.offset +
+    remainder;
+  const target = Math.min(
+    Math.max(0, desired),
+    pane.scrollHeight - pane.clientHeight,
+  );
+  pane.scrollTop = target;
+  const top = pane.scrollTop;
+  return { top, remainder: target - top };
+}
+
 export type ReadingPosition = "latest" | readonly string[];
 
 export function readingPosition(

@@ -3174,6 +3174,7 @@ export function ChannelsWorkspace({
                 offline={!online}
                 locale={language}
                 author={author}
+                edgeReads={timeline.edges}
                 onReadEdge={timeline.loadEdge}
                 address={
                   !linkPlacement &&

@@ -26,6 +26,20 @@ function nativeFailureCode(error: unknown) {
   return native instanceof TypeError ? native.cause : native;
 }
 
+export type HistoryPageFailure = "offline" | "server" | "unknown";
+
+export function historyPageFailure(
+  error: unknown,
+  online: boolean | undefined,
+): HistoryPageFailure {
+  if (error instanceof ResponseError && error.response.status >= 500)
+    return "server";
+  const code = nativeFailureCode(error);
+  if (typeof code === "string" && localErrors.has(code)) return "unknown";
+  if (online === false || code === "network") return "offline";
+  return "unknown";
+}
+
 export function collectionReadFailure(error: unknown) {
   const issue = workspaceFailure(error, "network");
   return issue === "network" && nativeFailureCode(error) !== "network"

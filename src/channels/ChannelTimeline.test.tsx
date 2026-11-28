@@ -571,3 +571,79 @@ test("parses 60 mounted canonical bodies once and only reparses the changed mess
   expect(screen.getByText("Changed").tagName).toBe("EM");
   expect(screen.getByRole("cell", { name: "Visible table" })).toBeTruthy();
 });
+
+test.each(["older", "newer"] as const)(
+  "keeps the %s request focus through a failure and moves it to the nearest result",
+  (direction) => {
+    const first = post("loaded-first", 100);
+    const last = post("loaded-last", 200);
+    const adjacent =
+      direction === "older" ? post("adjacent", 50) : post("adjacent", 250);
+    const edge = direction === "older" ? first : last;
+    const initial = {
+      ...page(last, first),
+      [direction]: { kind: "more" as const, postId: edge.id },
+    };
+    const read = vi.fn();
+    const view = render(
+      <ChannelTimeline {...base} page={initial} onReadEdge={read} />,
+    );
+    Object.defineProperty(screen.getByRole("region"), "clientHeight", {
+      value: 400,
+    });
+
+    const action = screen.getByRole("button", {
+      name:
+        direction === "older" ? "Show earlier messages" : "Show later messages",
+    });
+    action.focus();
+    fireEvent.click(action, { detail: 0 });
+    expect(read).toHaveBeenLastCalledWith(direction, edge.id);
+    const loading = (
+      <ChannelTimeline
+        {...base}
+        page={initial}
+        edgeReads={{ [direction]: { postId: edge.id, status: "loading" } }}
+        onReadEdge={read}
+      />
+    );
+    view.rerender(loading);
+    expect(document.activeElement?.getAttribute("data-channel-edge")).toBe(
+      direction,
+    );
+    expect(screen.getByRole("status").textContent).toBe("Loading messages…");
+
+    view.rerender(
+      <ChannelTimeline
+        {...base}
+        page={initial}
+        edgeReads={{
+          [direction]: { postId: edge.id, status: "error", reason: "server" },
+        }}
+        onReadEdge={read}
+      />,
+    );
+    const retry = screen.getByRole("button", { name: /Try again$/ });
+    expect(document.activeElement).toBe(retry);
+    fireEvent.click(retry, { detail: 0 });
+    expect(read.mock.calls).toEqual([
+      [direction, edge.id],
+      [direction, edge.id],
+    ]);
+    view.rerender(loading);
+    view.rerender(
+      <ChannelTimeline
+        {...base}
+        page={
+          direction === "older"
+            ? page(last, first, adjacent)
+            : page(adjacent, last, first)
+        }
+        onReadEdge={read}
+      />,
+    );
+    expect(document.activeElement?.getAttribute("data-post-id")).toBe(
+      adjacent.id,
+    );
+  },
+);

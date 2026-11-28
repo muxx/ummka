@@ -16,6 +16,8 @@ import {
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
 import {
   channelPageSize,
+  type HistoryPageFailure,
+  historyPageFailure,
   observeWorkspaceRead,
   readTimelineEdge,
   type WorkspaceRead,
@@ -57,8 +59,13 @@ export type TimelineAccount = Pick<
   | "subscribeToChannelHistory"
 >;
 
-type Direction = "older" | "newer";
-type Edge = { direction: Direction; postId: string };
+export type TimelineDirection = "older" | "newer";
+type Edge = { direction: TimelineDirection; postId: string };
+type EdgeRead = { postId: string } & (
+  | { status: "loading" }
+  | { status: "error"; reason: HistoryPageFailure }
+);
+export type TimelineEdgeReads = Partial<Record<TimelineDirection, EdgeRead>>;
 type Status =
   | WorkspaceRead<LocalChannelWindow>["status"]
   | "unavailable"
@@ -69,6 +76,7 @@ type Snapshot = {
   status: Status;
   notice: Status | null;
   page: LocalChannelWindow | null;
+  edges: TimelineEdgeReads;
   focus: {
     requestId: number;
     anchorId: string;
@@ -84,6 +92,7 @@ function empty(status: Status, latest = false, canRetry = true): Snapshot {
     status,
     notice: null,
     page: null,
+    edges: {},
     focus: null,
     firstInaccessiblePostTime: 0,
     latest,
@@ -168,7 +177,7 @@ export function createTimelineReader(
   const listeners = new Set<() => void>();
   let online: boolean | undefined;
   let pending: AbortController | undefined;
-  let edge: Edge | undefined;
+  let activeEdge: Edge | undefined;
   let paged = false;
   let pane: HTMLElement | null = null;
   let resize: ResizeObserver | undefined;
@@ -286,12 +295,21 @@ export function createTimelineReader(
         firstInaccessiblePostTime: page.firstInaccessiblePostTime,
       };
     }
-    state = next;
+    // A publication can replace a boundary even when this reader did not request it.
+    const edges = { ...next.edges };
+    for (const direction of ["older", "newer"] as const) {
+      const boundary = next.page?.[direction];
+      if (
+        boundary?.kind !== "more" ||
+        boundary.postId !== edges[direction]?.postId
+      )
+        delete edges[direction];
+    }
+    state = { ...next, edges };
     for (const listener of listeners) listener();
   }
 
   function clearPage(status: Status, cutoff = 0) {
-    edge = undefined;
     returnPlace = undefined;
     publish({
       ...empty(status),
@@ -312,7 +330,17 @@ export function createTimelineReader(
     });
   }
 
-  async function read() {
+  function failEdge({ direction, postId }: Edge, reason: HistoryPageFailure) {
+    publish({
+      ...state,
+      edges: {
+        ...state.edges,
+        [direction]: { postId, status: "error", reason },
+      },
+    });
+  }
+
+  async function read(edge?: Edge) {
     if (
       !state.canRetry ||
       !channelId ||
@@ -325,27 +353,36 @@ export function createTimelineReader(
     projection?.abort();
     const operation = new AbortController();
     pending = operation;
+    activeEdge = edge;
     const { signal } = operation;
     const scope = { channelId, collapsedThreads };
     try {
       if (edge && state.page) {
+        const page = state.page;
+        const { direction, postId } = edge;
+        publish({
+          ...state,
+          edges: { ...state.edges, [direction]: { postId, status: "loading" } },
+        });
         const result = await readTimelineEdge(
           account,
           channelId,
           collapsedThreads,
-          state.page,
-          edge.direction,
-          edge.postId,
+          page,
+          direction,
+          postId,
           online,
           signal,
         );
         if (signal.aborted) return;
         if (result.status === "ready") {
-          edge = undefined;
+          const edges = { ...state.edges };
+          delete edges[direction];
           paged = true;
           publish({
             ...state,
             page: result.page,
+            edges,
             latest: result.page.newer.kind === "end",
             status: "ready",
             notice: null,
@@ -356,7 +393,7 @@ export function createTimelineReader(
         } else if (result.status === "missing") {
           clearPage("unavailable");
         } else {
-          publish({ ...state, notice: result.status });
+          failEdge(edge, result.status === "offline" ? "offline" : "unknown");
         }
       } else if (target) {
         const result =
@@ -374,6 +411,7 @@ export function createTimelineReader(
           const { page, anchorId, focusedReply } = result;
           publish({
             page,
+            edges: state.edges,
             canRetry: true,
             focus: {
               requestId: target.requestId,
@@ -452,6 +490,7 @@ export function createTimelineReader(
           publish({
             ...empty(online ? "ready" : "offline", page.newer.kind === "end"),
             page,
+            edges: state.edges,
             firstInaccessiblePostTime: page.firstInaccessiblePostTime,
           });
         }
@@ -470,6 +509,7 @@ export function createTimelineReader(
           publish({
             ...empty(online ? "ready" : "offline", page.newer.kind === "end"),
             page,
+            edges: state.edges,
             firstInaccessiblePostTime: page.firstInaccessiblePostTime,
           });
         }
@@ -497,6 +537,7 @@ export function createTimelineReader(
                   status !== "unauthorized",
               ),
               page: value,
+              edges: state.edges,
               firstInaccessiblePostTime: value?.firstInaccessiblePostTime ?? 0,
             }),
         });
@@ -504,14 +545,16 @@ export function createTimelineReader(
     } catch (error) {
       if (signal.aborted) return;
       const failure = workspaceFailure(error, "network");
-      if (
-        (edge || returnPlace) &&
-        (failure === "network" || failure === "storage")
-      )
-        publish({ ...state, notice: failure });
-      else clearPage(failure);
+      if (failure === "network" || failure === "storage") {
+        if (edge) failEdge(edge, historyPageFailure(error, online));
+        else if (returnPlace) publish({ ...state, notice: failure });
+        else clearPage(failure);
+      } else clearPage(failure);
     } finally {
-      if (pending === operation) pending = undefined;
+      if (pending === operation) {
+        pending = undefined;
+        activeEdge = undefined;
+      }
       if (changed) void readChanges();
     }
   }
@@ -535,11 +578,21 @@ export function createTimelineReader(
       const first = online === undefined;
       if (online === next) return;
       online = next;
+      if (activeEdge) {
+        if (!next) {
+          const interrupted = activeEdge;
+          pending?.abort();
+          pending = undefined;
+          activeEdge = undefined;
+          failEdge(interrupted, "offline");
+          if (changed) void readChanges();
+        }
+        return;
+      }
       if (
         !first &&
         next &&
         !pending &&
-        !edge &&
         paged &&
         !returnPlace &&
         state.page &&
@@ -555,8 +608,6 @@ export function createTimelineReader(
         state.status === "offline"
       )
         void read();
-      else if (!next && state.notice === "network" && edge)
-        publish({ ...state, notice: "offline" });
       else if (
         !next &&
         (state.status === "network" ||
@@ -572,8 +623,10 @@ export function createTimelineReader(
       projection?.abort();
       pending?.abort();
       pending = undefined;
+      activeEdge = undefined;
     },
     retry() {
+      if (activeEdge) return;
       if (!retryChange) return read();
       changed = true;
       return readChanges();
@@ -587,17 +640,16 @@ export function createTimelineReader(
       publish(empty("loading", true));
       return read();
     },
-    async loadEdge(direction: Direction, postId: string) {
+    async loadEdge(direction: TimelineDirection, postId: string) {
       const boundary = state.page?.[direction];
       if (
         online === undefined ||
         boundary?.kind !== "more" ||
         boundary.postId !== postId ||
-        (pending && edge)
+        activeEdge
       )
         return;
-      edge = { direction, postId };
-      await read();
+      await read({ direction, postId });
     },
   };
 }

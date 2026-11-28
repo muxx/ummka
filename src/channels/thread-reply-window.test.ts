@@ -313,7 +313,7 @@ test("retains a loaded root and its replies during a retryable outage", async ()
   await view.more("down");
   expect(view.getSnapshot()).toEqual({
     ...loaded,
-    down: { status: "error", error },
+    down: { status: "error", error, reason: "server" },
   });
   await view.retry("down");
   expect(messages(view)).toEqual(["a", "z"]);
