@@ -21,6 +21,7 @@ fn open(path: &Path) -> AccountHistory {
 fn policy() -> ServerPolicy {
     ServerPolicy {
         user_statuses_enabled: true,
+        hide_guest_tags: None,
         dm_recipient_scope: Some(RecipientScope::Team),
         collapsed_threads: ThreadMode::DefaultOn,
         separate_unreads: false,
@@ -295,6 +296,96 @@ fn upgrades_settings_and_drafts_and_protects_the_new_policy() {
             reopened.read_draft(OTHER, None).unwrap().message,
             "preserved"
         );
+    }
+}
+
+#[test]
+fn guest_tag_policy_upgrades_v31_and_survives_downgrade_refusals() {
+    let root = tempdir().unwrap();
+    let prior = &MIGRATIONS[..31];
+    let mut old = HistoryDatabase::open_with(root.path(), URL, prior).unwrap();
+    let owner = old.restore(&account()).unwrap();
+    let legacy = policy();
+    let saved = serde_json::to_string_pretty(&legacy).unwrap();
+    let prefs = preferences();
+    old.write(&owner, |tx| {
+        prefs.publish(tx)?;
+        tx.execute("UPDATE workspace_settings SET server=?1 WHERE owner=1", [&saved])?;
+        tx.execute(
+            "INSERT INTO history_post(id,channel_id,user_id,create_at,update_at,edit_at,type,message,hashtags,is_pinned)
+             VALUES(?1,?2,?1,5,5,0,'','prior post','',0)",
+            [ME, OTHER],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+
+    let mut db = open(root.path());
+    assert_eq!(db.read_workspace_settings().unwrap().server, Some(legacy));
+    let migrated: (i64, String) = db
+        .read(|tx| {
+            Ok((
+                crate::history::schema::version(tx)?,
+                tx.query_row("SELECT server FROM workspace_settings", [], |row| {
+                    row.get(0)
+                })?,
+            ))
+        })
+        .unwrap();
+    assert_eq!(migrated, (32, saved));
+    assert_eq!(
+        old.write(&owner, |_| -> rusqlite::Result<()> { panic!("old writer") }),
+        Err(HistoryError::UnsupportedSchema)
+    );
+    drop(old);
+
+    let file = root
+        .path()
+        .join("history")
+        .join(crate::history::filename(URL));
+    for hidden in [false, true, false] {
+        let mut confirmed = policy();
+        confirmed.hide_guest_tags = Some(hidden);
+        let load = db.begin_server_policy_load().unwrap();
+        assert!(db.store_server_policy(load, &confirmed).unwrap());
+        drop(db);
+        let before = std::fs::read(&file).unwrap();
+        assert_eq!(
+            HistoryDatabase::open_with(root.path(), URL, prior).err(),
+            Some(HistoryError::UnsupportedSchema)
+        );
+        assert_eq!(std::fs::read(&file).unwrap(), before);
+        db = open(root.path());
+        assert_eq!(
+            db.read_workspace_settings().unwrap(),
+            WorkspaceSettings {
+                preferences: Some(preferences()),
+                server: Some(confirmed),
+            }
+        );
+        assert_eq!(db.read_post(ME).unwrap().unwrap().message, "prior post");
+    }
+}
+
+#[test]
+fn strict_guest_tag_policy_only_accepts_absence_or_a_boolean() {
+    let mut raw = serde_json::to_value(policy()).unwrap();
+    assert!(raw.get("hideGuestTags").is_none());
+    assert_eq!(
+        serde_json::from_value::<ServerPolicy>(raw.clone())
+            .unwrap()
+            .hide_guest_tags,
+        None
+    );
+    for hidden in [false, true] {
+        raw["hideGuestTags"] = json!(hidden);
+        let decoded: ServerPolicy = serde_json::from_value(raw.clone()).unwrap();
+        assert_eq!(decoded.hide_guest_tags, Some(hidden));
+        assert_eq!(serde_json::to_value(decoded).unwrap(), raw);
+    }
+    for invalid in [json!(null), json!("false"), json!(0), json!([])] {
+        raw["hideGuestTags"] = invalid;
+        assert!(serde_json::from_value::<ServerPolicy>(raw.clone()).is_err());
     }
 }
 

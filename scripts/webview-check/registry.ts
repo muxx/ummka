@@ -126,6 +126,7 @@ export async function resumeRegistryCheck(): Promise<boolean> {
             settings.server?.collapsedThreads !== "always_on" ||
             settings.server.sharedChannelDMs !== true ||
             settings.server.dmRecipientScope !== "team" ||
+            settings.server.hideGuestTags !== false ||
             settings.server.uniqueReactionLimit !== "-2" ||
             settings.server.postEditLimitSeconds !== "9007199254740993" ||
             settings.server.search?.allTeams !== true ||

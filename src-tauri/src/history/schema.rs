@@ -707,23 +707,30 @@ pub(super) const MIGRATIONS: &[Migration] = &[
             "ALTER TABLE history_post ADD COLUMN card_observation INTEGER CHECK (card_observation > 0)",
             "ALTER TABLE history_channel_deletion ADD COLUMN observation INTEGER CHECK (observation > 0)",
         ],
-        objects: &directory_objects!(
-            @history POSTS_V31, DELETIONS_V31;
-            JOINED_TEAM_V19,
-            SIDEBAR_CHANNEL_V19,
-            COMPOSER_DRAFT_V21,
-            TEAM_SEARCH,
-            TEAM_SEARCH_ORDER,
-            THREAD_SUMMARY,
-            POST_ATTACHMENT,
-            CHANNEL_MEMBERSHIP_CHANGE,
-            DEPARTED_BY_TEAM,
-            POSTS_BY_CHANNEL,
-            WINDOWS_BY_CHANNEL,
-            POST_OBSERVATION,
-        ),
+        objects: CARD_OBJECTS,
+    },
+    // Format 32 adds the guest tag flag to the strict server policy JSON.
+    Migration {
+        statements: &[],
+        objects: CARD_OBJECTS,
     },
 ];
+
+const CARD_OBJECTS: &[&str] = &directory_objects!(
+    @history POSTS_V31, DELETIONS_V31;
+    JOINED_TEAM_V19,
+    SIDEBAR_CHANNEL_V19,
+    COMPOSER_DRAFT_V21,
+    TEAM_SEARCH,
+    TEAM_SEARCH_ORDER,
+    THREAD_SUMMARY,
+    POST_ATTACHMENT,
+    CHANNEL_MEMBERSHIP_CHANGE,
+    DEPARTED_BY_TEAM,
+    POSTS_BY_CHANNEL,
+    WINDOWS_BY_CHANNEL,
+    POST_OBSERVATION,
+);
 
 const ADD_POST_WEBHOOK_ORIGIN: &str =
     "ALTER TABLE history_post ADD COLUMN from_webhook INTEGER CHECK (from_webhook IN (0, 1))";

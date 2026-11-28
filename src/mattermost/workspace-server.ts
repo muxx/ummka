@@ -29,6 +29,7 @@ export function loadWorkspaceConfiguration(
         );
         const policy = selectStringFields(data, [
           "EnableUserStatuses",
+          "HideGuestTags",
           "MaxNotificationsPerChannel",
           "UniqueEmojiReactionLimitPerPost",
           "PostEditTimeLimit",

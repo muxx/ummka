@@ -66,6 +66,7 @@ import { checkExactProfileReads } from "./exact-profile-reads.ts";
 import { checkFileContent } from "./file-content.ts";
 import { checkFileSearch } from "./file-search.ts";
 import { checkFocusedConversation } from "./focused-conversation.ts";
+import { checkGuestTagPolicy } from "./guest-tag-policy.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
 import { checkIntegrationCards } from "./integration-cards.ts";
 import { checkJoinPostTarget } from "./join-post-target.ts";
@@ -1660,6 +1661,7 @@ await checkChannelUploadPolicy(
 );
 await checkEventConfiguration(base, token, readerToken, version);
 await checkPostEditWindow(base, token, readerToken);
+await checkGuestTagPolicy(base, token, readerToken);
 await checkMobileFilePolicy(base, token, readerToken);
 await checkPresencePolicy(base, token, readerToken, reader.id);
 await checkReactionLimit(base, token, user.id, readerToken, channelId);
