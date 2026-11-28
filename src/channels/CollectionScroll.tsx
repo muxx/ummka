@@ -1,11 +1,15 @@
 import { Component, type ReactNode, type RefObject } from "react";
 
-type Props = { pane: RefObject<HTMLDivElement | null>; children: ReactNode };
+type Props = {
+  pane: RefObject<HTMLElement | null>;
+  label: string;
+  children: ReactNode;
+};
 type RowPlace = { id: string; y: number };
 type Snapshot = { rows: RowPlace[]; focused: HTMLButtonElement | null };
 
 export function restoreCollectionRow(
-  pane: HTMLDivElement | null,
+  pane: HTMLElement | null,
   previous: { id: string; scroll: number; offset?: number } | null,
   notice?: HTMLElement | null,
 ) {
@@ -101,9 +105,15 @@ export class CollectionScroll extends Component<Props> {
   }
   render() {
     return (
-      <div ref={this.props.pane} className="channels-pane-body collection-rows">
+      <section
+        ref={this.props.pane}
+        className="channels-pane-body collection-rows"
+        aria-label={this.props.label}
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: Keyboard users can scroll the results even when there are no row buttons.
+        tabIndex={0}
+      >
         {this.props.children}
-      </div>
+      </section>
     );
   }
 }

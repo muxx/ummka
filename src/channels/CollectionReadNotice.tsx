@@ -26,7 +26,7 @@ export function CollectionReadNotice({
   hasResponse: boolean;
   online: boolean;
   language: EntryLanguage;
-  list: RefObject<HTMLDivElement | null>;
+  list: RefObject<HTMLElement | null>;
   heading: RefObject<HTMLHeadingElement | null>;
   refresh: () => void;
 }) {

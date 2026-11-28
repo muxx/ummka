@@ -225,7 +225,21 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
     const pin = await pins.findByRole("button", {
       name: /Town fixture message/,
     });
-    click(pins.getByRole("button", { name: "Refresh" }));
+    // An open Pins view rereads the same list when connectivity returns.
+    const previousOnline = Object.getOwnPropertyDescriptor(navigator, "onLine");
+    Object.defineProperty(navigator, "onLine", {
+      configurable: true,
+      value: false,
+    });
+    try {
+      flushSync(() => window.dispatchEvent(new Event("offline")));
+      await pins.findByText("You’re offline.");
+    } finally {
+      if (previousOnline)
+        Object.defineProperty(navigator, "onLine", previousOnline);
+      else Reflect.deleteProperty(navigator, "onLine");
+      flushSync(() => window.dispatchEvent(new Event("online")));
+    }
     await pins.findByText(
       "Pinned messages couldn’t update. Showing the previous response",
       {},

@@ -7,10 +7,10 @@ import {
   useState,
 } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
+import { CollectionHeader } from "./CollectionHeader.tsx";
 import { CollectionReadNotice } from "./CollectionReadNotice.tsx";
 import { CollectionScroll, restoreCollectionRow } from "./CollectionScroll.tsx";
 import { collectionCopy } from "./collection-copy.ts";
-import { PaneSizeToggle } from "./PaneWidthControls.tsx";
 import { attachmentExcerpt } from "./post-attachment-cards.ts";
 import {
   newestCollectionItems,
@@ -73,6 +73,7 @@ export function CollectionMark({
 }
 
 export function PostCollectionPane({
+  compact,
   model,
   state,
   kind,
@@ -87,6 +88,7 @@ export function PostCollectionPane({
   openRow,
   close,
 }: {
+  compact: boolean;
   model: Model;
   state: Snapshot;
   kind: "all" | "pins";
@@ -123,7 +125,7 @@ export function PostCollectionPane({
         ? text.sharedIn(roomTitle)
         : text.shared;
   const heading = useRef<HTMLHeadingElement>(null);
-  const list = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLElement>(null);
   const removeFocus = useRef<{
     ids: string[];
     button: HTMLButtonElement;
@@ -311,76 +313,30 @@ export function PostCollectionPane({
   }, [nextFailed, rows, state.continuation]);
   return (
     <aside className="post-collection-pane" aria-labelledby={headingId}>
-      <header className="channels-pane-head">
-        <CollectionMark kind={kind} />
-        <div className="collection-heading">
-          <h2
-            tabIndex={-1}
-            id={headingId}
-            aria-describedby={captionId}
-            ref={heading}
-          >
-            {kind === "all" ? text.saved : text.pins}
-          </h2>
+      <CollectionHeader
+        compact={compact}
+        icon={<CollectionMark kind={kind} />}
+        caption={
           <span id={captionId} title={roomTitle ? caption : undefined}>
             {caption}
           </span>
-        </div>
-        {canRead && state.value && (
-          <button
-            type="button"
-            className="channels-icon-action"
-            aria-label={text.refresh}
-            title={text.refresh}
-            disabled={busy}
-            onClick={refresh}
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              fill="none"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M20 5v5h-5M20 10a8 8 0 1 0 0 5" />
-            </svg>
-          </button>
-        )}
-        <PaneSizeToggle />
-        <button
-          type="button"
-          className="channels-icon-action collection-close"
-          aria-label={text.close}
-          title={text.close}
-          onClick={close}
+        }
+        closeLabel={text.close}
+        close={close}
+      >
+        <h2
+          tabIndex={-1}
+          id={headingId}
+          aria-describedby={captionId}
+          ref={heading}
         >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth="1.7"
-            fill="none"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path
-              className="collection-desktop-close"
-              d="m6 6 12 12M18 6 6 18"
-            />
-            <path className="collection-mobile-close" d="m14 5-7 7 7 7" />
-          </svg>
-        </button>
-      </header>
+          {kind === "all" ? text.saved : text.pins}
+        </h2>
+      </CollectionHeader>
       <span className="collection-announcement" role="status">
         {announcement}
       </span>
-      <CollectionScroll pane={list}>
+      <CollectionScroll pane={list} label={collectionCopy[language].content}>
         <CollectionReadNotice
           kind={kind}
           icon={<CollectionMark kind={kind} />}

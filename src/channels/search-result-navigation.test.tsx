@@ -1164,10 +1164,14 @@ test("a hidden saved page remains traversable, preserves the previous rows on re
   account.readSavedPosts.mockRejectedValueOnce(
     new ResponseError(new Response(null, { status: 403 })),
   );
-  fireEvent.click(pane.getByRole("button", { name: "Refresh" }));
-  await pane.findByText("This collection is no longer available.");
-  expect(pane.queryByText("Saved root preview")).toBeNull();
-  expect(pane.queryByText("Oldest visible")).toBeNull();
+  fireEvent.click(pane.getByRole("button", { name: "Close collection" }));
+  fireEvent.click(trigger);
+  const reopened = within(
+    await screen.findByRole("complementary", { name: "Saved messages" }),
+  );
+  await reopened.findByText("This collection is no longer available.");
+  expect(reopened.queryByText("Saved root preview")).toBeNull();
+  expect(reopened.queryByText("Oldest visible")).toBeNull();
 });
 
 test.each([
@@ -1370,6 +1374,35 @@ test("archived channels show the pinned messages and keep the shared action hidd
   expect(account.setPostPinned).not.toHaveBeenCalled();
 });
 
+test.each(["Saved messages", "Pinned messages", "Mentions"])(
+  "the compact %s header places Back before its heading and the scroll target after it",
+  async (name) => {
+    fixture();
+    if (name === "Pinned messages") {
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Channel menu, Home" }),
+      );
+      fireEvent.click(screen.getByRole("menuitem", { name }));
+    } else {
+      fireEvent.click(await screen.findByRole("button", { name }));
+    }
+    const pane = within(await screen.findByRole("complementary", { name }));
+    const heading = pane.getByRole("heading", { name });
+    const back = pane.getByRole("button", {
+      name: name === "Mentions" ? "Close panel" : "Close collection",
+    });
+    const contents = pane.getByRole("region", { name: "Side panel contents" });
+    expect(
+      back.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      heading.compareDocumentPosition(contents) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(contents.tabIndex).toBe(0);
+  },
+);
+
 test("reopening Saved keeps the previous rows through a failed refresh and retries with focus", async () => {
   const { account } = fixture();
   const trigger = await screen.findByRole("button", { name: "Saved messages" });
@@ -1378,6 +1411,7 @@ test("reopening Saved keeps the previous rows through a failed refresh and retri
     within(screen.getByRole("complementary", { name: "Saved messages" }));
   const options = { name: /Saved reply preview/ };
   await pane().findByRole("button", options);
+  expect(pane().queryByRole("button", { name: "Refresh" })).toBeNull();
   fireEvent.click(trigger);
   let fail!: (error: Error) => void;
   account.readSavedPosts.mockImplementationOnce(
@@ -1429,10 +1463,11 @@ test.each([false, true])(
   "a late denial after the Saved retry control appears respects the current attempt (retried: %s)",
   async (retried) => {
     const { account } = fixture();
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Saved messages" }),
-    );
-    const pane = within(
+    const opener = await screen.findByRole("button", {
+      name: "Saved messages",
+    });
+    fireEvent.click(opener);
+    let pane = within(
       await screen.findByRole("complementary", { name: "Saved messages" }),
     );
     await pane.findByText("Saved root preview");
@@ -1446,7 +1481,11 @@ test.each([false, true])(
     account.readSavedPosts.mockRejectedValueOnce(
       new ResponseError(new Response(null, { status: 503 })),
     );
-    fireEvent.click(pane.getByRole("button", { name: "Refresh" }));
+    fireEvent.click(pane.getByRole("button", { name: "Close collection" }));
+    fireEvent.click(opener);
+    pane = within(
+      await screen.findByRole("complementary", { name: "Saved messages" }),
+    );
     const retry = await pane.findByRole("button", {
       name: "Retry update: Saved messages",
     });
