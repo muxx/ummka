@@ -1,6 +1,9 @@
 use crate::{
-    history::{AccountHistory, ChannelHistoryPage, PageWrite, PostChange, WindowSource},
-    rest::TransportError,
+    history::{
+        AccountHistory, ChannelHistoryPage, DraftSave, PageWrite, PostChange, StagePost,
+        WindowSource,
+    },
+    rest::{TransportError, file_upload::UploadedFile},
     sessions::AccountSessions,
 };
 
@@ -22,6 +25,50 @@ pub(super) async fn seed(sessions: &AccountSessions, origin: &str) -> Result<(),
             .await
             .expect("local history fixture worker")
             .map_err(|_| TransportError::HistoryStorageUnavailable)?;
+    }
+    let owner = sessions
+        .restore(&format!("{origin}/team/chat"), "Abc01234567890123456789012")
+        .await?;
+    let mut history = sessions.open_history(owner).await?;
+    tauri::async_runtime::spawn_blocking(move || seed_outgoing_files(&mut history))
+        .await
+        .expect("outgoing files fixture worker")
+        .map_err(|_| TransportError::HistoryStorageUnavailable)
+}
+
+fn seed_outgoing_files(view: &mut AccountHistory) -> Result<(), crate::history::HistoryError> {
+    let channel = format!("{:0<26}", "filesroom");
+    let thread = format!("{:0<26}", "filesparent");
+    for (root, message, ids) in [
+        (None, "Reordered files", "ef"),
+        (None, "Two queued files", "za"),
+        (Some(thread.as_str()), "", "b"),
+        (None, "Rejected files", "c"),
+        (None, "Close after files", "d"),
+    ] {
+        let current = view.read_draft(&channel, root)?;
+        let revision = if message.is_empty() {
+            current.revision
+        } else {
+            let DraftSave::Saved(saved) =
+                view.save_draft(&channel, root, current.revision.as_deref(), message)?
+            else {
+                panic!("fixture draft must be saved");
+            };
+            saved.revision
+        };
+        let files: Vec<_> = ids
+            .chars()
+            .map(|id| UploadedFile {
+                id: id.to_string().repeat(26),
+                name: format!("{id}.txt"),
+                size: 3,
+            })
+            .collect();
+        assert!(matches!(
+            view.stage_post_with_files(&channel, root, revision.as_deref(), &files)?,
+            StagePost::Created { .. }
+        ));
     }
     Ok(())
 }

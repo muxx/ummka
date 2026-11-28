@@ -85,6 +85,8 @@ export function webviewServers(
     "card-race-delete",
     "card-race-first",
     "submit-post",
+    "submit-file-retry",
+    "submit-file-retire",
     "recipient-hold",
     "remote-recipient",
     "remote-recipient-cancel",
@@ -260,8 +262,8 @@ export function webviewServers(
       },
     ],
   ]);
-  const submissions = submissionFixture(userId, () =>
-    events.emit("submit-post-received"),
+  const submissions = submissionFixture(userId, (name, step) =>
+    events.emit(`${name}-${step}`),
   );
   const refresh = historyRefreshFixture(userId, () =>
     events.emit("refresh-late-received"),
@@ -2345,7 +2347,7 @@ export function webviewServers(
       if (name && name !== "refresh-late") cardRace.release(name);
       else refresh.release();
     } else if (step === "release-submission") {
-      submissions.release();
+      submissions.release(name);
     } else if (step === "disconnect") {
       const socket =
         name === "profile-image-network" ? profileImageSocket : disconnect;
@@ -2592,6 +2594,12 @@ export function webviewServers(
         "submit-unknown-retry",
         "submit-wrong-author",
         "submit-expired",
+        "submit-file-reordered",
+        "submit-file-unknown",
+        "submit-file-retry",
+        "submit-file-only-reply",
+        "submit-file-refused",
+        "submit-file-retire",
         "create-post-reply",
         "save-post-reaction",
         "delete-post-reaction",

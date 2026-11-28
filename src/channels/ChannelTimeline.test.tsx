@@ -366,6 +366,7 @@ test("offers no thread action on an outgoing row even after it acquires a server
     createdAt: 1,
     previousLogin: false,
     confirmedPostId: "server",
+    files: [],
     attempt: 1,
     refusal: null,
   };

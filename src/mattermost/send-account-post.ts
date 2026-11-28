@@ -39,6 +39,9 @@ export async function deliverAccountPost(
         message: pending.message,
         pendingPostId: pending.pendingId,
         ...(pending.rootId !== null && { rootId: pending.rootId }),
+        ...(pending.files.length > 0 && {
+          fileIds: pending.files.map((file) => file.id),
+        }),
       },
     });
   } catch (error) {
@@ -50,6 +53,7 @@ export async function deliverAccountPost(
       return { kind: "unconfirmed", retryRefusal: result.refusal };
     return { kind: "unconfirmed" };
   }
+  // A deduplicated CreatePost can return the saved post without its request key.
   if (
     !post ||
     !isMattermostId(post.id) ||
@@ -59,6 +63,7 @@ export async function deliverAccountPost(
     post.rootId === post.id ||
     post.deleteAt !== 0 ||
     (post.pendingPostId !== undefined &&
+      post.pendingPostId !== "" &&
       post.pendingPostId !== pending.pendingId)
   ) {
     return { kind: "unconfirmed" };

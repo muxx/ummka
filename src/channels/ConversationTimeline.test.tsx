@@ -37,6 +37,7 @@ function pending(n: number, extra: Partial<PendingPost> = {}): PendingPost {
     createdAt: n,
     previousLogin: false,
     confirmedPostId: null,
+    files: [],
     attempt: 1,
     refusal: null,
     ...extra,

@@ -1,14 +1,24 @@
 import assert from "node:assert/strict";
 import type { ServerResponse } from "node:http";
+import { fileSubmissionFixture } from "./submit-post-files.ts";
 
-export function submissionFixture(userId: string, received: () => void) {
+export function submissionFixture(
+  userId: string,
+  signal: (name: string, step: "received" | "closed") => void,
+) {
   const channel = "submitroom".padEnd(26, "0");
   const root = "submissionroot".padEnd(26, "0");
   let rejectedId: string | undefined;
   let uncertainId: string | undefined;
   let release: (() => void) | undefined;
+  const files = fileSubmissionFixture(userId, signal);
   return {
-    release() {
+    release(name: string) {
+      if (name === "submit-file-retry") {
+        files.release();
+        return;
+      }
+      assert.equal(name, "submit-post");
       assert(release);
       release();
       release = undefined;
@@ -19,7 +29,8 @@ export function submissionFixture(userId: string, received: () => void) {
       prefixed: boolean,
       search: string,
     ) {
-      if (body.channel_id !== channel) return;
+      if (body.channel_id !== channel)
+        return files.respond(body, res, prefixed, search);
       const message = body.message;
       assert.equal(search, "");
       assert.equal(prefixed, message !== "Sign-in expired");
@@ -62,7 +73,7 @@ export function submissionFixture(userId: string, received: () => void) {
           release = () => {
             accept(root);
           };
-          received();
+          signal("submit-post", "received");
           return "submit-root";
         case "Declined reply":
           assert.equal(rejectedId, undefined);

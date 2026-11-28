@@ -18,6 +18,7 @@ const post: PendingPost = {
   createdAt: 1,
   previousLogin: false,
   confirmedPostId: null,
+  files: [],
   refusal: null,
 };
 const draft = { channelId: post.channelId, revision: "saved" };

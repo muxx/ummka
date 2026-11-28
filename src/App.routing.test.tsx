@@ -568,6 +568,7 @@ function offlineWorkspace() {
               attempt: 1,
               refusal: null,
               confirmedPostId: null,
+              files: [],
               previousLogin: false,
             },
           ]
