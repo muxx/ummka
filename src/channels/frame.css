@@ -269,6 +269,43 @@
   .channels-panes {
     background: var(--navigation);
   }
+  .channels-team {
+    --team-hover: rgb(255 255 255 / 12%);
+    --team-pressed: rgb(255 255 255 / 20%);
+    position: relative;
+    isolation: isolate;
+  }
+  :root[data-appearance="dark"] .channels-team {
+    --team-hover: rgb(255 255 255 / 8%);
+    --team-pressed: rgb(255 255 255 / 14%);
+  }
+  .channels-team:is(:hover, :active, :focus-visible) {
+    background: transparent;
+    outline: none;
+  }
+  .channels-team::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    inset: 4px 8px;
+    border-radius: 6px;
+    pointer-events: none;
+  }
+  .channels-team:hover::before {
+    background: var(--team-hover);
+  }
+  .channels-team:active::before {
+    background: var(--team-pressed);
+  }
+  :root[data-keyboard-navigation] .channels-team:focus-visible::before {
+    outline: 2px solid var(--on-navigation);
+    outline-offset: -2px;
+  }
+  @media (forced-colors: active) {
+    :root[data-keyboard-navigation] .channels-team:focus-visible::before {
+      outline-color: Highlight;
+    }
+  }
   .channels-conversation {
     border-start-start-radius: 12px;
   }
