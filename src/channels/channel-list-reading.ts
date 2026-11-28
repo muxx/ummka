@@ -27,7 +27,11 @@ export type PageReading<Row> = {
   place: RowPlace;
   query: string;
 };
-export type BookmarkReading = { rows: readonly Bookmark[]; place: RowPlace };
+export type BookmarkReading = {
+  rows: readonly Bookmark[];
+  place: RowPlace;
+  writeCheck?: "checking" | "failed";
+};
 export type ListReadings = ReturnType<typeof createListReadings>;
 
 export function createListReadings() {

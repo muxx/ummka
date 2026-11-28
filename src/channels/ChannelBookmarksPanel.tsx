@@ -573,6 +573,7 @@ export function ChannelBookmarksPanel(props: Props) {
     online ? history?.get(channelId) : undefined,
   );
   const [returning, setReturning] = useState(Boolean(starting));
+  const [writeCheck, setWriteCheck] = useState(starting?.writeCheck);
   const [editorOpen, setEditorOpen] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [items, setItems] = useState<{
@@ -605,17 +606,22 @@ export function ChannelBookmarksPanel(props: Props) {
   const [writeRevision, setWriteRevision] = useState(0);
   if (previousWrite !== pendingFromOtherView) {
     setPreviousWrite(pendingFromOtherView);
-    if (previousWrite && !pendingFromOtherView)
+    if (previousWrite && !pendingFromOtherView) {
+      setWriteCheck("checking");
       setWriteRevision(writeRevision + 1);
+    }
   }
-  const { value, retry } = useInfoRead(
-    returning && pendingFromOtherView ? null : channelId,
+  const waitForWrite = Boolean(returning && pendingFromOtherView);
+  const { value: reading, retry } = useInfoRead(
+    waitForWrite || writeCheck === "failed" ? null : channelId,
     online || editorOpen,
     (s, id) => account.readChannelBookmarks(id, s),
     props.sessionIssue,
     undefined,
     writeRevision,
   );
+  const value =
+    online && writeCheck === "failed" ? { status: "failed" as const } : reading;
   const unlicensed =
     value.status === "ready" && value.value.kind === "unlicensed";
   const closed = value.status === "denied" || unlicensed;
@@ -623,6 +629,10 @@ export function ChannelBookmarksPanel(props: Props) {
     value.status === "ready" && value.value.kind === "available"
       ? value.value.bookmarks
       : null;
+  if (writeCheck === "checking") {
+    if (reading.status === "failed") setWriteCheck("failed");
+    else if (confirmed || closed) setWriteCheck(undefined);
+  }
   if (returning && (confirmed || closed || value.status === "offline"))
     setReturning(false);
   useLayoutEffect(() => {
@@ -642,8 +652,8 @@ export function ChannelBookmarksPanel(props: Props) {
   const visible = items?.channelId === channelId && !unlicensed ? items : null;
   const loading = value.status === "loading";
   const failed = value.status === "failed";
-  const refreshing =
-    Boolean(visible) && loading && !(returning && pendingFromOtherView);
+  const revisiting = returning && !writeCheck;
+  const refreshing = Boolean(visible) && loading && !waitForWrite;
   const refreshFailed = Boolean(visible) && failed;
   const showRefresh = useCollectionRefreshVisibility(refreshing);
   const updateRetry = refreshFailed || (refreshing && retrying);
@@ -660,6 +670,7 @@ export function ChannelBookmarksPanel(props: Props) {
       }
     }
     setAnnouncement("");
+    setWriteCheck("checking");
     retry();
   }
   function takeRefreshFocus() {
@@ -677,6 +688,7 @@ export function ChannelBookmarksPanel(props: Props) {
     }
     setRetrying(true);
     setAnnouncement("");
+    if (writeCheck === "failed") setWriteCheck("checking");
     retry();
   }
   function remember(place: RowPlace) {
@@ -684,6 +696,7 @@ export function ChannelBookmarksPanel(props: Props) {
     const rows = nearbyRows(visible.current, place, (item) => item.id);
     rememberList(history, channelId, {
       rows,
+      writeCheck: writeCheck ?? (pending ? "checking" : undefined),
       place: withinPlace(
         place,
         rows.map((item) => item.id),
@@ -701,7 +714,7 @@ export function ChannelBookmarksPanel(props: Props) {
     if (retrying) setRetrying(false);
     if (refreshFailed) {
       setAnnouncement(
-        returning ? listText.updateAnnouncement : t.updateAnnouncement,
+        revisiting ? listText.updateAnnouncement : t.updateAnnouncement,
       );
       return;
     }
@@ -732,7 +745,7 @@ export function ChannelBookmarksPanel(props: Props) {
     closed,
     confirmed,
     failed,
-    returning,
+    revisiting,
     listText,
     t,
   ]);
@@ -770,7 +783,7 @@ export function ChannelBookmarksPanel(props: Props) {
           updateRetry
             ? t.updateFailed
             : showRefresh
-              ? returning
+              ? revisiting
                 ? listText.updating
                 : t.updating
               : undefined
