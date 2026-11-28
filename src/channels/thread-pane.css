@@ -30,8 +30,6 @@
 .thread-window-loading {
   margin: 0;
   padding: 12px 16px;
-  color: var(--muted);
-  font-size: 0.82rem;
 }
 
 .thread-composer-frame {

@@ -355,7 +355,13 @@ export function ChannelTimeline({
           )}
         </TimelineDays>
         {!ordered.length && (page || !limited) && (
-          <p className="timeline-empty">
+          <p
+            className={
+              waitingMessage === undefined
+                ? "timeline-empty"
+                : "timeline-empty panel-text--secondary"
+            }
+          >
             {waitingMessage ??
               (!page ? text.cold : empty ? text.empty : text.partial)}
           </p>

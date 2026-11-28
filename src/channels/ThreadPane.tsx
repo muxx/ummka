@@ -628,7 +628,10 @@ function ThreadContent({
           </p>
         )}
         {waitingForReplies && (
-          <p className="thread-window-loading" role="status">
+          <p
+            className="thread-window-loading panel-text--secondary"
+            role="status"
+          >
             {text.loading}
           </p>
         )}
