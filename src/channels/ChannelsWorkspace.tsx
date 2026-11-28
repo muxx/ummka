@@ -486,6 +486,7 @@ export function ChannelsWorkspace({
   );
   const inbox = useWorkspaceThreadInbox(
     connection,
+    workspace.threadReads,
     team.id,
     settings?.collapsedThreads === true &&
       !["forbidden", "session", "unauthorized"].includes(
@@ -2301,6 +2302,8 @@ export function ChannelsWorkspace({
                         ? inbox.confirmView
                         : undefined
                     }
+                    readVisit={selection?.visit}
+                    checkView={selection?.visit ? inbox.checkView : undefined}
                     onOpened={
                       position?.system
                         ? () => setConfirmedThread(position.system)

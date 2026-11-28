@@ -287,6 +287,27 @@ export function openThreadInbox(account: Reader, teamId: string) {
     publish();
     return showing ? show(tab) : refreshTotals();
   }
+  function confirmRead(mark: Read) {
+    const lastReply = Math.max(
+      ...tabs.map(
+        (filter) =>
+          pages[filter].rows?.find((row) => row.id === mark.id)?.lastReplyAt ??
+          0,
+      ),
+    );
+    const fullyRead =
+      mark.unreadReplies === 0 && mark.lastViewedAt >= lastReply;
+    return afterConfirmation((row, filter) => {
+      if (row.id !== mark.id) return row;
+      if (filter === "unread") {
+        if (fullyRead) {
+          if (mark.id !== selectedId) return null;
+          retainedReadId = mark.id;
+        } else if (retainedReadId === mark.id) retainedReadId = null;
+      }
+      return { ...row, ...mark };
+    });
+  }
   return {
     getSnapshot: () => current,
     isRootUnavailable: (id: string) =>
@@ -358,26 +379,18 @@ export function openThreadInbox(account: Reader, teamId: string) {
         : fetchPage(tab, page.nextBefore ?? undefined);
     },
     refreshTotals,
-    confirmRead(mark: Read) {
-      const lastReply = Math.max(
-        ...tabs.map(
-          (filter) =>
-            pages[filter].rows?.find((row) => row.id === mark.id)
-              ?.lastReplyAt ?? 0,
+    confirmRead,
+    observeRead(mark: Read) {
+      const changed = tabs.some((filter) =>
+        pages[filter].rows?.some(
+          (row) =>
+            row.id === mark.id &&
+            (row.lastViewedAt !== mark.lastViewedAt ||
+              row.unreadReplies !== mark.unreadReplies ||
+              row.unreadMentions !== mark.unreadMentions),
         ),
       );
-      const fullyRead =
-        mark.unreadReplies === 0 && mark.lastViewedAt >= lastReply;
-      return afterConfirmation((row, filter) => {
-        if (row.id !== mark.id) return row;
-        if (filter === "unread") {
-          if (fullyRead) {
-            if (mark.id !== selectedId) return null;
-            retainedReadId = mark.id;
-          } else if (retainedReadId === mark.id) retainedReadId = null;
-        }
-        return { ...row, ...mark };
-      });
+      if (changed) void confirmRead(mark);
     },
     confirmUnfollow(id: string) {
       if (retainedReadId === id) retainedReadId = null;

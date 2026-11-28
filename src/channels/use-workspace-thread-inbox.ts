@@ -6,7 +6,12 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { ResponseError } from "../../vendor/mattermost/index.js";
 import type { LocalPost } from "../mattermost/local-history.ts";
+import type {
+  AccountThreadReads,
+  ThreadReadVisit,
+} from "../mattermost/thread-read-coordination.ts";
 import { inspectPostTarget } from "./inspect-post-target.ts";
 import { openThreadInbox, type ThreadInboxPlace } from "./thread-inbox.ts";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
@@ -19,6 +24,7 @@ export type ThreadInboxRow = NonNullable<
 type Selection = {
   id: string;
   row?: ThreadInboxRow;
+  visit?: ThreadReadVisit;
   post: LocalPost | null;
   issue: ReturnType<typeof workspaceFailure> | "limited" | null;
 };
@@ -27,6 +33,7 @@ const empty = () => null;
 
 export function useWorkspaceThreadInbox(
   connection: WorkspaceConnection,
+  threadReads: AccountThreadReads,
   teamId: string,
   enabled: boolean,
   online: boolean,
@@ -39,6 +46,14 @@ export function useWorkspaceThreadInbox(
   const previousRestoreRowCount = useRef(0);
   const [selection, setSelection] = useState<Selection | null>(null);
   const opening = useRef<AbortController | null>(null);
+  const currentVisit = useRef<{
+    rootId: string;
+    visit: ThreadReadVisit;
+  } | null>(null);
+  const detachVisit = useCallback(() => {
+    currentVisit.current?.visit.detach();
+    currentVisit.current = null;
+  }, []);
   const visited = useRef(false);
   const connected = useRef(online);
   useLayoutEffect(() => {
@@ -73,9 +88,10 @@ export function useWorkspaceThreadInbox(
     setModel(next);
     return () => {
       opening.current?.abort();
+      detachVisit();
       next.close();
     };
-  }, [connection, teamId, enabled]);
+  }, [connection, teamId, enabled, detachVisit]);
   const inbox = enabled ? model : null;
   const state = useSyncExternalStore(
     inbox?.subscribe ?? noSubscription,
@@ -84,22 +100,30 @@ export function useWorkspaceThreadInbox(
   const denied = selection && inbox?.isRootUnavailable(selection.id);
   const hideRoot = useCallback(
     (id: string, issue: "limited" | "forbidden") => {
+      if (currentVisit.current?.rootId === id) {
+        currentVisit.current.visit.revoke();
+        detachVisit();
+      }
       inbox?.revokeRoot(id);
       setSelection((prior) =>
         prior?.id === id ? { ...prior, post: null, issue } : prior,
       );
     },
-    [inbox],
+    [detachVisit, inbox],
   );
   useLayoutEffect(() => {
     if (!denied) return;
+    if (selection?.visit === currentVisit.current?.visit) {
+      selection?.visit?.revoke();
+      detachVisit();
+    }
     opening.current?.abort();
     setSelection((prior) =>
       prior && (!prior.issue || prior.post)
         ? { ...prior, post: null, issue: "forbidden" }
         : prior,
     );
-  }, [denied]);
+  }, [denied, detachVisit, selection?.visit]);
   useEffect(() => {
     if (online && inbox) void inbox.refreshTotals();
   }, [online, inbox]);
@@ -111,16 +135,19 @@ export function useWorkspaceThreadInbox(
       }
       if (status === "forbidden") {
         opening.current?.abort();
+        currentVisit.current?.visit.revoke();
+        detachVisit();
         setSelection(null);
         setRestoring(undefined);
       }
     }
-  }, [state?.page.status, state?.totals.status, sessionIssue]);
+  }, [state?.page.status, state?.totals.status, sessionIssue, detachVisit]);
   const closeThread = useCallback(() => {
     opening.current?.abort();
+    detachVisit();
     setSelection(null);
     inbox?.select(null);
-  }, [inbox]);
+  }, [detachVisit, inbox]);
   function close() {
     closeThread();
     setRestoring(undefined);
@@ -134,6 +161,7 @@ export function useWorkspaceThreadInbox(
   }
   function resume(post: LocalPost, place: ThreadInboxPlace) {
     if (!inbox || inbox.isRootUnavailable(post.id)) return false;
+    if (selection?.id !== post.id) detachVisit();
     if (!visible || selection?.id !== post.id) {
       previousRestoreRowCount.current = 0;
       setRestoring(place);
@@ -145,7 +173,11 @@ export function useWorkspaceThreadInbox(
     // The point read verified the thread. The list may exclude it after it was read.
     setSelection({
       id: post.id,
-      ...(visible && selection?.id === post.id && { row: selection.row }),
+      ...(visible &&
+        selection?.id === post.id && {
+          row: selection.row,
+          visit: selection.visit,
+        }),
       post,
       issue: null,
     });
@@ -188,14 +220,21 @@ export function useWorkspaceThreadInbox(
   async function choose(row: ThreadInboxRow) {
     if (!inbox || !row.post || inbox.isRootUnavailable(row.id)) return;
     opening.current?.abort();
+    detachVisit();
     setRestoring(undefined);
     const controller = new AbortController();
     opening.current = controller;
     const { signal } = controller;
     inbox.select(row.id);
     const observeRoot = inbox.beginRootRead();
-    setSelection({ id: row.id, row, post: null, issue: null });
     try {
+      const visit = threadReads.visit({
+        teamId,
+        channelId: row.post.channelId,
+        rootId: row.id,
+      });
+      currentVisit.current = { rootId: row.id, visit };
+      setSelection({ id: row.id, row, visit, post: null, issue: null });
       if (!connected.current) throw Error("Offline");
       const found = await inspectPostTarget(
         connection,
@@ -211,17 +250,21 @@ export function useWorkspaceThreadInbox(
         found.post.channelId !== row.post.channelId ||
         found.post.rootId !== null
       ) {
+        visit.revoke();
         hideRoot(row.id, found.kind === "archived" ? "limited" : "forbidden");
         return;
       }
       observeRoot(found.post);
-      setSelection({ id: row.id, row, post: found.post, issue: null });
+      setSelection({ id: row.id, row, visit, post: found.post, issue: null });
     } catch (error) {
       if (signal.aborted) return;
       const issue = workspaceFailure(error, "network");
       if (issue === "session" || issue === "unauthorized") sessionIssue(issue);
       if (issue === "forbidden") hideRoot(row.id, issue);
-      else setSelection({ id: row.id, row, post: null, issue });
+      else {
+        detachVisit();
+        setSelection({ id: row.id, row, post: null, issue });
+      }
     }
   }
   const confirmFollowing = useCallback(
@@ -235,26 +278,73 @@ export function useWorkspaceThreadInbox(
     if (
       !inbox ||
       !selection?.post ||
+      !selection.visit ||
       inbox.isRootUnavailable(selection.id) ||
       !connected.current
     )
       throw Error("No active thread to mark");
     try {
-      const mark = await connection.markFollowedThreadRead(
-        teamId,
-        selection.id,
-        Date.now(),
-        signal,
-      );
-      signal.throwIfAborted();
-      await inbox.confirmRead(mark);
+      const outcome = await selection.visit.auto(signal);
+      if (
+        outcome.kind === "confirmed" &&
+        !inbox.isRootUnavailable(selection.id)
+      )
+        await inbox.confirmRead(outcome.mark);
+      if (outcome.kind === "unknown") {
+        const issue = workspaceFailure(outcome.error, "network");
+        if (
+          !signal.aborted &&
+          (issue === "session" || issue === "unauthorized")
+        )
+          sessionIssue(issue);
+      } else if ("error" in outcome && outcome.error !== undefined) {
+        throw outcome.error;
+      }
     } catch (error) {
       if (!signal.aborted) {
         const issue = workspaceFailure(error, "network");
         if (issue === "session" || issue === "unauthorized")
           sessionIssue(issue);
+        else if (
+          error instanceof ResponseError &&
+          error.response.status === 403
+        )
+          hideRoot(selection.id, "forbidden");
       }
       throw error;
+    }
+  }
+  async function checkView(signal: AbortSignal, onRevoked: () => void) {
+    const visit = selection?.visit;
+    if (
+      !inbox ||
+      !selection ||
+      !visit?.getAutoReview() ||
+      inbox.isRootUnavailable(selection.id)
+    )
+      return;
+    const active = () =>
+      !signal.aborted && currentVisit.current?.visit === visit;
+    try {
+      const { following: _following, ...mark } = await visit.observe(signal);
+      if (active() && !inbox.isRootUnavailable(selection.id))
+        inbox.observeRead(mark);
+    } catch (error) {
+      if (
+        !active() ||
+        (error instanceof DOMException && error.name === "AbortError")
+      )
+        return;
+      const issue = workspaceFailure(error, "network");
+      if (issue === "session" || issue === "unauthorized") sessionIssue(issue);
+      // A missing membership also returns 404. Only 403 revokes this panel's access.
+      else if (
+        error instanceof ResponseError &&
+        error.response.status === 403
+      ) {
+        onRevoked();
+        hideRoot(selection.id, "forbidden");
+      }
     }
   }
   const accessDenied = [state?.page.status, state?.totals.status].some(
@@ -287,6 +377,7 @@ export function useWorkspaceThreadInbox(
     resume,
     choose,
     confirmView,
+    checkView,
     confirmFollowing,
     hideRoot,
   };

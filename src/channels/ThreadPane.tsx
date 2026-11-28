@@ -16,6 +16,7 @@ import {
   teammateName,
 } from "../mattermost/channel-profiles.ts";
 import type { LocalPost } from "../mattermost/local-history.ts";
+import type { ThreadReadVisit } from "../mattermost/thread-read-coordination.ts";
 import type { TimelineMessage } from "./conversation-rows.ts";
 import { showPostArrival } from "./post-arrival.ts";
 import { ThreadFollowButton } from "./ThreadFollowButton.tsx";
@@ -53,6 +54,11 @@ const copy = {
     unavailable: "This thread is no longer available.",
     limited: "This thread is outside the server’s available history.",
     noRoot: "The original message hasn’t been saved on this device.",
+    viewUnconfirmed: "Couldn’t confirm the read status",
+    viewCheck: "Check read status",
+    viewChecking: "Checking read status…",
+    viewCheckedRead: "Checked: the thread isn’t marked unread",
+    viewCheckedUnread: "Checked: the thread is marked unread",
   },
   ru: {
     replies: "Ответы",
@@ -69,6 +75,11 @@ const copy = {
     unavailable: "Это обсуждение больше недоступно.",
     limited: "Обсуждение за пределами доступной истории сервера.",
     noRoot: "Исходное сообщение ещё не сохранено на устройстве.",
+    viewUnconfirmed: "Не удалось подтвердить отметку",
+    viewCheck: "Проверить отметку",
+    viewChecking: "Проверяем отметку…",
+    viewCheckedRead: "Проверили: тред не отмечен непрочитанным",
+    viewCheckedUnread: "Проверили: тред отмечен непрочитанным",
   },
 } as const;
 type Reader = ReturnType<typeof openThreadReplyWindow>;
@@ -101,7 +112,11 @@ type Props = {
   ) => ReactNode;
   lastViewedAt?: number;
   confirmView?: (signal: AbortSignal) => Promise<void>;
+  readVisit?: ThreadReadVisit;
+  checkView?: (signal: AbortSignal, onRevoked: () => void) => Promise<void>;
 };
+const noReview = () => undefined;
+const noSubscription = () => () => {};
 
 export function ThreadPane(props: Props) {
   const {
@@ -182,20 +197,79 @@ function ThreadContent({
   renderComposer,
   onOpened,
   confirmView,
+  readVisit,
+  checkView,
   onUnavailable,
 }: Props & { reader: Reader; following?: Following }) {
   const state = useSyncExternalStore(reader.subscribe, reader.getSnapshot);
+  const review = useSyncExternalStore(
+    readVisit?.subscribeAutoReview ?? noSubscription,
+    readVisit?.getAutoReview ?? noReview,
+  );
   const mark = useEffectEvent((signal: AbortSignal) => confirmView?.(signal));
   const canMark = Boolean(
     confirmView &&
+      !review &&
       state.root &&
       !state.unavailable &&
       (state.up.status === "ready" || state.up.status === "end") &&
       (state.down.status === "ready" || state.down.status === "end"),
   );
   const [readFailed, setReadFailed] = useState(false);
+  const [checkingVisit, setCheckingVisit] = useState<ThreadReadVisit>();
+  const checking = readVisit !== undefined && checkingVisit === readVisit;
+  const checkRequest = useRef<{
+    visit: ThreadReadVisit;
+    controller: AbortController;
+  } | null>(null);
+  const readAction = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(
+    () => () => {
+      const pending = checkRequest.current;
+      if (pending && pending.visit === readVisit) {
+        pending.controller.abort();
+        checkRequest.current = null;
+      }
+    },
+    [readVisit],
+  );
+  function focusHeading() {
+    readAction.current
+      ?.closest("aside")
+      ?.querySelector<HTMLElement>(".thread-heading h2")
+      ?.focus({ preventScroll: true });
+  }
+  async function verifyView() {
+    if (!checkView || !readVisit || checkRequest.current) return;
+    const request = { visit: readVisit, controller: new AbortController() };
+    checkRequest.current = request;
+    setCheckingVisit(readVisit);
+    try {
+      await checkView(request.controller.signal, () => {
+        if (
+          readAction.current
+            ?.closest(".thread-window")
+            ?.contains(document.activeElement)
+        )
+          focusHeading();
+      });
+    } finally {
+      if (checkRequest.current === request) {
+        checkRequest.current = null;
+        setCheckingVisit(undefined);
+      }
+    }
+  }
   const retryRead = useRef<(() => void) | null>(null);
   const marked = useRef(false);
+  const finishMark = useEffectEvent(() => {
+    if (
+      !readVisit?.getAutoReview() &&
+      document.activeElement === readAction.current
+    )
+      focusHeading();
+    setReadFailed(false);
+  });
   useEffect(() => {
     if (!online || !canMark || marked.current) return;
     const lifetime = new AbortController();
@@ -214,7 +288,7 @@ function ThreadContent({
         await mark(lifetime.signal);
         if (!lifetime.signal.aborted) {
           marked.current = true;
-          setReadFailed(false);
+          finishMark();
         }
       } catch {
         if (!lifetime.signal.aborted) setReadFailed(true);
@@ -297,7 +371,13 @@ function ThreadContent({
     root.type !== "burn_on_read" &&
     root.type !== "system_fake_parent_deleted";
   const history = useMemo(() => [...state.replies].reverse(), [state.replies]);
-  const position = reader.getUnreadPosition();
+  const observed = review?.mark;
+  const position =
+    observed?.unreadReplies === 0
+      ? null
+      : reader.getUnreadPosition(
+          observed && { lastViewedAt: observed.lastViewedAt, userId },
+        );
   const firstUnread = position?.kind === "found" ? position.postId : undefined;
   const outgoing = useConversationOutgoing({
     connection,
@@ -450,11 +530,30 @@ function ThreadContent({
             <p className="timeline-empty">{text.empty}</p>
           )}
       </ThreadFeed>
-      {readFailed && (
-        <div className="inbox-status" role="alert">
-          {threadInboxCopy[locale].readError}
-          <button type="button" onClick={() => retryRead.current?.()}>
-            {workspace.retry}
+      {(readFailed || review) && (
+        <div className="thread-view-status">
+          <span role={review ? "status" : "alert"}>
+            {review
+              ? checking
+                ? text.viewChecking
+                : review.kind === "unconfirmed"
+                  ? text.viewUnconfirmed
+                  : review.mark.unreadReplies > 0
+                    ? text.viewCheckedUnread
+                    : text.viewCheckedRead
+              : threadInboxCopy[locale].readError}
+          </span>
+          <button
+            aria-busy={checking}
+            aria-disabled={checking}
+            ref={readAction}
+            type="button"
+            onClick={() => {
+              if (review) void verifyView();
+              else retryRead.current?.();
+            }}
+          >
+            {review ? text.viewCheck : workspace.retry}
           </button>
         </div>
       )}

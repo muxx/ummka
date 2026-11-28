@@ -249,11 +249,12 @@ export function openThreadReplyWindow(
   }
   return {
     getSnapshot: () => state,
-    getUnreadPosition() {
-      if (!unread || lifetime.signal.aborted) return null;
+    getUnreadPosition(boundary = unread) {
+      if (!boundary || lifetime.signal.aborted) return null;
       const first = state.replies.find(
         (row) =>
-          row.createAt > unread.lastViewedAt && row.userId !== unread.userId,
+          row.createAt > boundary.lastViewedAt &&
+          row.userId !== boundary.userId,
       );
       if (first) return { kind: "found" as const, postId: first.id };
       return state.down.status === "end"

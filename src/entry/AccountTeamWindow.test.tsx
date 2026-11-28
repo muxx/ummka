@@ -73,9 +73,11 @@ function fixture(snapshot: JoinedTeams | null) {
   );
   return fake;
 }
+const threadReads = createThreadReadCoordination();
 function view(onSessionEnded = vi.fn(), account = user, siteName?: string) {
   return (
     <AccountTeamWindow
+      threadReads={threadReads}
       language="ru"
       serverUrl={server}
       userId={account}
@@ -580,3 +582,5 @@ test.each(["older succeeds", "older fails"] as const)(
     }
   },
 );
+
+import { createThreadReadCoordination } from "../mattermost/thread-read-coordination.ts";
