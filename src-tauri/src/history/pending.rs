@@ -1,6 +1,6 @@
 use super::{AccountHistory, ComposerDraft, HistoryError, PostRefusal, departure, drafts};
 use crate::rest::{file_upload::UploadedFile, is_mattermost_id};
-use rusqlite::{Row, Transaction, params};
+use rusqlite::{Row, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize, Serializer};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
@@ -173,6 +173,19 @@ impl AccountHistory {
         revision: Option<&str>,
         files: &[UploadedFile],
     ) -> Result<StagePost, HistoryError> {
+        self.stage_post_with_files_guarded(channel, root, revision, files, || Ok(()))
+    }
+
+    /// Ask the caller to claim the operation after the writer is acquired.
+    /// Keep the claim alive until the transaction commits.
+    pub(crate) fn stage_post_with_files_guarded<G>(
+        &mut self,
+        channel: &str,
+        root: Option<&str>,
+        revision: Option<&str>,
+        files: &[UploadedFile],
+        claim: impl FnOnce() -> Result<G, HistoryError>,
+    ) -> Result<StagePost, HistoryError> {
         let root = drafts::root_key(channel, root)?;
         if let Some(revision) = revision {
             drafts::validate_revision(revision)?;
@@ -196,31 +209,37 @@ impl AccountHistory {
             .collect::<Result<Vec<_>, _>>()?;
         let user_id = self.owner.account.user_id().to_owned();
         let generation = self.owner.generation;
-        self.write(|tx| {
-            let draft = drafts::draft(tx, channel, root)?;
-            if draft.command_pending
-                || draft.revision.as_deref() != revision
-                || (files.is_empty() && !has_text(&draft.message))
-                || (!files.is_empty() && departure::is_departed(tx, channel)?)
-            {
-                return Ok(StagePost::NotStaged { draft });
-            }
-            let pending_id = format!("{user_id}:{}", Uuid::new_v4());
-            let mut post = tx.query_row(
-                INSERT,
-                params![pending_id, channel, root, draft.message, generation],
-                post,
-            )?;
-            if !files.is_empty() {
-                let mut store = tx.prepare_cached(INSERT_FILE)?;
-                for (position, file) in (0_i64..).zip(&files) {
-                    store.execute(params![pending_id, position, file.id, file.name, file.size])?;
-                }
-            }
-            post.files = files;
-            let draft = drafts::write_draft(tx, channel, root, "", Some(true), false)?;
-            Ok(StagePost::Created { post, draft })
-        })
+        let (staged, _claim) =
+            self.database
+                .access(&self.owner, TransactionBehavior::Immediate, |tx| {
+                    let claim = claim()?;
+                    let draft = drafts::draft(tx, channel, root)?;
+                    if draft.command_pending
+                        || draft.revision.as_deref() != revision
+                        || (files.is_empty() && !has_text(&draft.message))
+                        || (!files.is_empty() && departure::is_departed(tx, channel)?)
+                    {
+                        return Ok((StagePost::NotStaged { draft }, claim));
+                    }
+                    let pending_id = format!("{user_id}:{}", Uuid::new_v4());
+                    let mut post = tx.query_row(
+                        INSERT,
+                        params![pending_id, channel, root, draft.message, generation],
+                        post,
+                    )?;
+                    if !files.is_empty() {
+                        let mut store = tx.prepare_cached(INSERT_FILE)?;
+                        for (position, file) in (0_i64..).zip(&files) {
+                            store.execute(params![
+                                pending_id, position, file.id, file.name, file.size
+                            ])?;
+                        }
+                    }
+                    post.files = files;
+                    let draft = drafts::write_draft(tx, channel, root, "", Some(true), false)?;
+                    Ok((StagePost::Created { post, draft }, claim))
+                })?;
+        Ok(staged)
     }
 
     pub fn pending_posts(

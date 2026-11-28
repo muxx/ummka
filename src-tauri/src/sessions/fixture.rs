@@ -1,10 +1,12 @@
 use super::*;
+use std::path::PathBuf;
 use tokio::sync::oneshot;
 
 type Gate = (oneshot::Sender<()>, std::sync::mpsc::Receiver<()>);
 
 #[derive(Default)]
 pub(crate) struct TestVault {
+    history: Option<PathBuf>,
     pub(super) rows: Mutex<HashMap<Account, SessionToken>>,
     pub(crate) reads: std::sync::atomic::AtomicUsize,
     pub(crate) saves: std::sync::atomic::AtomicUsize,
@@ -13,14 +15,37 @@ pub(crate) struct TestVault {
     pub(crate) read_gate: Mutex<Option<Gate>>,
 }
 
+impl TestVault {
+    #[cfg(any(
+        all(test, target_os = "macos"),
+        all(feature = "native-http-check", target_os = "android")
+    ))]
+    pub(crate) fn with_history(root: PathBuf) -> Self {
+        Self {
+            history: Some(root),
+            ..Self::default()
+        }
+    }
+}
+
 impl CredentialStore for Arc<TestVault> {
     fn open_history(
         &self,
-        _: &Account,
-        _: &SessionToken,
+        account: &Account,
+        expected: &SessionToken,
     ) -> Result<crate::history::AccountHistory, CredentialError> {
-        // This in-memory vault exercises transport and cancellation. History tests use the platform vault.
-        Err(CredentialError::HistoryStorageUnavailable)
+        let root = self
+            .history
+            .as_deref()
+            .ok_or(CredentialError::HistoryStorageUnavailable)?;
+        let rows = self.rows.lock().unwrap();
+        if rows
+            .get(account)
+            .is_none_or(|token| token.secret() != expected.secret())
+        {
+            return Err(CredentialError::SessionUnavailable);
+        }
+        Ok(crate::history::AccountHistory::open(root, account)?)
     }
 
     fn read(&self, a: &Account) -> Result<Option<SessionToken>, CredentialError> {

@@ -1,8 +1,10 @@
 use super::{
+    stage::stage_in_workspace,
     transfer::{confirm_workspace_upload, start_workspace_upload, workspace_upload_denial},
     *,
 };
 use crate::{
+    history::{DraftSave, PendingPostFile, StagePost},
     native_http::{NativeHttp, TransportError},
     rest::{
         RestConnection,
@@ -157,7 +159,8 @@ fn start(account: &Session, workspace: ResourceId, draft: &DraftAddress, id: Uui
 
 async fn ordering(
     fixture: &Fixture<'_>,
-    account: &Session,
+    account: &Arc<Session>,
+    sessions: &AccountSessions,
     workspace: ResourceId,
     channel: &DraftAddress,
 ) -> Check {
@@ -171,6 +174,12 @@ async fn ordering(
     let (b, _) = fixture
         .select(account, workspace, &right, "thread-b")
         .await?;
+    let mut history = account.http.open_history(sessions).await?;
+    let DraftSave::Saved(draft) =
+        history.save_draft(&channel.channel_id, None, None, "Native file queue")?
+    else {
+        panic!("fixture draft was not saved");
+    };
     assert_eq!(
         start(account, workspace, channel, slow),
         UploadState::Reading {
@@ -182,6 +191,18 @@ async fn ordering(
     assert_eq!(
         start(account, workspace, channel, slow),
         UploadState::Processing { bytes_read: 4 }
+    );
+    assert_eq!(
+        stage_in_workspace(
+            account,
+            sessions,
+            workspace,
+            channel.clone(),
+            draft.revision.clone(),
+            vec![slow, fast],
+        )
+        .await,
+        Err(DraftFilesError::FilesNotReady)
     );
     assert_eq!(
         start_workspace_upload(account, workspace, &left, slow, POLICY),
@@ -234,6 +255,78 @@ async fn ordering(
             .map(|file| file.id)
             .collect::<Vec<_>>(),
         [slow, fast]
+    );
+    let staged = stage_in_workspace(
+        account,
+        sessions,
+        workspace,
+        channel.clone(),
+        draft.revision,
+        vec![slow, fast],
+    )
+    .await
+    .unwrap();
+    let StagePost::Created { post, draft } = staged else {
+        panic!("queue must accept both completed uploads");
+    };
+    assert_eq!(post.message, "Native file queue");
+    assert!(draft.message.is_empty());
+    assert_eq!(
+        post.files,
+        [
+            PendingPostFile {
+                id: "s".repeat(26),
+                name: "slow.txt".into(),
+                size: 4,
+            },
+            PendingPostFile {
+                id: "f".repeat(26),
+                name: "renamed.txt".into(),
+                size: 20,
+            },
+        ]
+    );
+    assert!(
+        list_workspace(account, workspace, channel)
+            .unwrap()
+            .is_empty()
+    );
+    let stage_reply =
+        || stage_in_workspace(account, sessions, workspace, left.clone(), None, vec![a]);
+    let (first, second) = tokio::join!(stage_reply(), stage_reply());
+    let (staged, duplicate) = if first.is_ok() {
+        (first, second)
+    } else {
+        (second, first)
+    };
+    let Ok(StagePost::Created { post: reply, draft }) = staged else {
+        panic!("one file-only reply must be queued");
+    };
+    assert_eq!(duplicate, Err(DraftFilesError::FilesChanged));
+    assert!(reply.message.is_empty());
+    assert!(draft.message.is_empty());
+    assert_eq!(reply.root_id, left.root_id);
+    assert_eq!(reply.files.len(), 1);
+    assert_eq!(reply.files[0].id, "a".repeat(26));
+    assert!(matches!(
+        state(account, workspace, &right, b),
+        UploadState::Ready(_)
+    ));
+    drop(history);
+    let mut reopened = account.http.open_history(sessions).await?;
+    assert_eq!(
+        reopened.pending_posts(&channel.channel_id, None, 0, 10)?,
+        [post]
+    );
+    assert_eq!(
+        reopened.pending_posts(&left.channel_id, left.root_id.as_deref(), 0, 10)?,
+        [reply]
+    );
+    assert!(
+        reopened
+            .read_draft(&channel.channel_id, None)?
+            .message
+            .is_empty()
     );
     fixture.stage("slow", "count", "1").await?;
     fixture.stage("fast", "count", "1").await?;
@@ -567,12 +660,15 @@ async fn exercise(client: &NativeHttp, base: &str, directory: &Path) -> Check {
         directory,
     };
     let installation = format!("{base}/Drafts%20Site//A%2FB");
-    let accounts = using(Arc::new(TestVault::default()));
+    let accounts = using(Arc::new(TestVault::with_history(
+        directory.join("draft-history"),
+    )));
     let member = "a".repeat(26);
-    let account = signed(client, &accounts, &installation, &member, "draft-member").await?;
+    let account =
+        Arc::new(signed(client, &accounts, &installation, &member, "draft-member").await?);
     let workspace = open_workspace(&account).unwrap();
     let channel = draft("c", None);
-    ordering(&fixture, &account, workspace, &channel).await?;
+    ordering(&fixture, &account, &accounts, workspace, &channel).await?;
     outcomes(&fixture, &account, workspace, &channel).await?;
     unavailable_source(&fixture, &account, workspace, &channel).await?;
     access(&fixture, &account, workspace, &channel).await?;
