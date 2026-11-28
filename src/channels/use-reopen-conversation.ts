@@ -20,12 +20,12 @@ export function useReopenConversation({
     };
   }, []);
 
-  async function open(id: string) {
+  async function run(id: string, initialStep: Step) {
     if (!navigator.onLine || inFlight.current.has(id)) return;
     const controller = new AbortController();
     const { signal } = controller;
     inFlight.current.set(id, controller);
-    let step = failures[id] ?? "write";
+    let step = initialStep;
     try {
       if (step === "write") {
         const outcome = await connection.reopenKnownConversation(
@@ -60,5 +60,12 @@ export function useReopenConversation({
       inFlight.current.delete(id);
     }
   }
-  return { open, failures };
+  return {
+    open: (id: string) => run(id, "write"),
+    retry(id: string) {
+      const step = failures[id];
+      if (step) return run(id, step);
+    },
+    failures,
+  };
 }

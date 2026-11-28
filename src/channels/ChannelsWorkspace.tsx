@@ -3193,7 +3193,7 @@ export function ChannelsWorkspace({
               reopenIssue === "refresh" ? text.reopenRefresh : text.reopenWrite,
               online
                 ? () => {
-                    void reopen.open(chosen);
+                    void reopen.retry(chosen);
                   }
                 : undefined,
               true,

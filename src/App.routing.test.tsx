@@ -862,6 +862,64 @@ test.each(["D", "G"] as const)(
   },
 );
 
+test.each(["D", "G"] as const)(
+  "chooses %s again after a confirmed preference was hidden on another device",
+  async (kind) => {
+    const { team, id, peer, rowTitle, saved, connection, pick } =
+      await openHiddenFromFinder(kind);
+    let shownOnServer = false;
+    connection.reopenKnownConversation.mockImplementation(async () => {
+      shownOnServer = true;
+      return "confirmed";
+    });
+    connection.refreshJoinedTeams
+      .mockRejectedValueOnce("network")
+      .mockImplementation(async () => {
+        connection.readWorkspaceSettings.mockResolvedValue({
+          ...saved,
+          preferences: {
+            ...saved.preferences,
+            directShown: kind === "D" && shownOnServer ? { [peer]: true } : {},
+            groupShown: kind === "G" && shownOnServer ? { [id]: true } : {},
+          },
+        });
+        return true;
+      });
+
+    await pick("winter-owl", rowTitle);
+    const failure =
+      "The server saved your change. Couldn’t update the sidebar on this device.";
+    await screen.findByText(failure);
+    expect(shownOnServer).toBe(true);
+    expect(connection.reopenKnownConversation).toHaveBeenCalledTimes(1);
+    expect(connection.refreshJoinedTeams).toHaveBeenCalledTimes(1);
+
+    await pick("#general", "General");
+    shownOnServer = false;
+    expect(screen.queryByRole("button", { name: rowTitle })).toBeNull();
+    await pick("winter-owl", rowTitle);
+    await waitFor(() =>
+      expect(connection.reopenKnownConversation).toHaveBeenCalledTimes(2),
+    );
+    expect(connection.reopenKnownConversation).toHaveBeenLastCalledWith(
+      team.id,
+      id,
+      expect.any(AbortSignal),
+    );
+    await waitFor(() => expect(screen.queryByText(failure)).toBeNull());
+
+    await pick("#general", "General");
+    await screen.findByRole("button", { name: rowTitle });
+    expect(shownOnServer).toBe(true);
+    await pick("winter-owl", rowTitle);
+    await waitFor(() =>
+      expect(connection.selectSidebarChannel).toHaveBeenCalledTimes(5),
+    );
+    expect(connection.reopenKnownConversation).toHaveBeenCalledTimes(2);
+    expect(connection.refreshJoinedTeams).toHaveBeenCalledTimes(2);
+  },
+);
+
 test("retry after an unconfirmed write retries the PUT; confirmed write retries only publishing preferences", async () => {
   const { rowTitle, connection, pick, unmount } =
     await openHiddenFromFinder("D");
@@ -873,6 +931,8 @@ test("retry after an unconfirmed write retries the PUT; confirmed write retries 
   const writeError = await screen.findByText(
     "Couldn’t confirm that this conversation is visible on your other devices.",
   );
+  expect(connection.reopenKnownConversation).toHaveBeenCalledTimes(1);
+  expect(connection.refreshJoinedTeams).not.toHaveBeenCalled();
   fireEvent.click(
     within(writeError.parentElement as HTMLElement).getByRole("button", {
       name: "Try again",
@@ -889,11 +949,12 @@ test("retry after an unconfirmed write retries the PUT; confirmed write retries 
         finish = () => resolve(true);
       }),
   );
-  fireEvent.click(
-    within(readError.parentElement as HTMLElement).getByRole("button", {
-      name: "Try again",
-    }),
+  const retryRead = within(readError.parentElement as HTMLElement).getByRole(
+    "button",
+    { name: "Try again" },
   );
+  fireEvent.click(retryRead);
+  fireEvent.click(retryRead);
   await waitFor(() =>
     expect(connection.refreshJoinedTeams).toHaveBeenCalledTimes(2),
   );
