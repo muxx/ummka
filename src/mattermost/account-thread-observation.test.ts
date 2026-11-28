@@ -24,6 +24,7 @@ const post = {
 };
 const wire = {
   id: target.rootId,
+  delete_at: 0,
   last_viewed_at: 1700000000000,
   unread_replies: 0,
   unread_mentions: 1,
@@ -83,7 +84,9 @@ test.each([
   ["another root", { ...wire, post: { ...post, id: other } }, 200],
   ["another channel", { ...wire, post: { ...post, channel_id: other } }, 200],
   ["reply", { ...wire, post: { ...post, root_id: other } }, 200],
+  ["deleted thread with an active root", { ...wire, delete_at: 1 }, 200],
   ["deleted root", { ...wire, post: { ...post, delete_at: 1 } }, 200],
+  ["missing thread deletion state", { ...wire, delete_at: undefined }, 200],
   ["no root", { ...wire, post: null }, 200],
   [
     "incomplete root",
@@ -91,7 +94,7 @@ test.each([
     200,
   ],
   [
-    "missing deletion state",
+    "missing root deletion state",
     { ...wire, post: { ...post, delete_at: undefined } },
     200,
   ],

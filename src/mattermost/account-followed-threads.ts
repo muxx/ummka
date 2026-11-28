@@ -128,6 +128,7 @@ export function accountFollowedThreads(
         if (
           response.raw.status !== 200 ||
           state.id !== rootId ||
+          row.deleteAt !== 0 ||
           post?.id !== rootId ||
           post.channelId !== channelId ||
           post.rootId !== "" ||

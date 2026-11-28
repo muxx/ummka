@@ -141,6 +141,7 @@ export async function checkThreadObservation(
     assert.deepEqual(await threads.getUserThread(scope), compact);
     for (const result of [compact, expanded]) {
       assert.deepEqual(readState(result), expected);
+      assert.equal(result.deleteAt, 0);
       assert.equal(result.post?.id, scope.threadId);
       assert.equal(result.post.channelId, channelId);
       assert.equal(result.post.rootId, "");

@@ -1144,6 +1144,7 @@ export function webviewServers(
               }
             : {
                 id: observedRoot,
+                delete_at: 0,
                 post: {
                   id: observedRoot,
                   channel_id: direct ? "d".repeat(26) : channelId,
