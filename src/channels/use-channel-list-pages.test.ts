@@ -1,7 +1,9 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
-import { expect, test, vi } from "vitest";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, expect, test, vi } from "vitest";
 import type { ListPage, PageReading } from "./channel-list-reading.ts";
 import { useChannelListPages } from "./use-channel-list-pages.ts";
+
+afterEach(cleanup);
 
 function start(pages: number[]) {
   const channelId = "channel";

@@ -44,8 +44,8 @@ test.each([true, false])(
     const bounds = vi
       .spyOn(HTMLButtonElement.prototype, "getBoundingClientRect")
       .mockReturnValue(new DOMRect(0, outside ? -80 : 20, 20, 40));
+    const view = render(<Boundary read={read} />);
     try {
-      const view = render(<Boundary read={read} />);
       act(() => report(true));
       expect(read).toHaveBeenCalledTimes(outside ? 1 : 0);
       if (!outside) {
@@ -54,6 +54,7 @@ test.each([true, false])(
       }
       expect(read).toHaveBeenCalledExactlyOnceWith(3, view.getByRole("button"));
     } finally {
+      view.unmount();
       bounds.mockRestore();
       vi.unstubAllGlobals();
     }
