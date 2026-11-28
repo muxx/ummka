@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { isAndroid } from "../build-platform.ts";
+import type { IntegrationCard } from "../mattermost/integration-cards.ts";
 import { CodeCopy, CodePreview } from "./PublishedCodeReader.tsx";
 import {
   PublishedLinkNavigation,
@@ -20,7 +21,12 @@ import {
   tableCopy,
   tableOpenLabel,
 } from "./PublishedReaderWindow.tsx";
+import { publishedLinkTarget } from "./published-link-target.ts";
 import { publishedPostDocument } from "./published-post-document.ts";
+import {
+  integrationCardBody,
+  integrationCardTitle,
+} from "./published-post-summary.ts";
 import "./published-post.css";
 
 type Block = ReturnType<typeof publishedPostDocument>[number];
@@ -341,19 +347,51 @@ function blocks(nodes: Block[], locale: Locale, tight = false) {
   ));
 }
 
+function PublishedIntegrationCard({
+  card,
+  locale,
+}: {
+  card: IntegrationCard;
+  locale: Locale;
+}) {
+  const title = integrationCardTitle(card);
+  const body = integrationCardBody(card);
+  if (!title && !body.visible) return null;
+  return (
+    <div className="published-integration-card">
+      {title && (
+        <div className="published-integration-card-title">
+          <PublishedPostLink target={publishedLinkTarget(card.titleLink ?? "")}>
+            {title}
+          </PublishedPostLink>
+        </div>
+      )}
+      {blocks(body.blocks, locale)}
+    </div>
+  );
+}
+
 export const PublishedPostBody = memo(function PublishedPostBody({
   message,
+  cards,
   locale,
   authorName,
   inThread,
 }: {
   message: string;
+  cards?: readonly IntegrationCard[];
   locale: Locale;
 } & ReaderOrigin) {
   const document = useMemo(() => publishedPostDocument({ message }), [message]);
   return (
     <PostReaderOrigin value={{ authorName, inThread }}>
-      <div className="published-post">{blocks(document, locale)}</div>
+      <div className="published-post">
+        {blocks(document, locale)}
+        {cards?.map((card, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: The server orders cards and supplies no identity across edits.
+          <PublishedIntegrationCard key={index} card={card} locale={locale} />
+        ))}
+      </div>
     </PostReaderOrigin>
   );
 });

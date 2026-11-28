@@ -19,9 +19,8 @@ import type { LocalPost } from "../mattermost/local-history.ts";
 import { isMattermostId } from "../mattermost/model-fields.ts";
 import { CollectionMark } from "./PostCollectionPane.tsx";
 import { copyToClipboard, PostActionScope } from "./post-action-scope.ts";
-import { attachmentName, cardFiles } from "./post-attachment-cards.ts";
-import { publishedPostDocument } from "./published-post-document.ts";
-import { publishedPostExcerpt } from "./published-post-excerpt.ts";
+import { attachmentExcerpt } from "./post-attachment-cards.ts";
+import { publishedPostSummary } from "./published-post-summary.ts";
 
 type Scope = NonNullable<ContextType<typeof PostActionScope>>;
 type PostTime = { label: string; dateTime: string; dayLabel: string };
@@ -240,19 +239,13 @@ function ActionDialog({
   const dismissed = useRef(false);
   const copying = useRef(false);
   const title = useId();
-  const { message, attachments } = post;
+  const { message, cards, attachments } = post;
   const showExcerpt = Boolean(postTime);
   const excerpt = useMemo(() => {
     if (!showExcerpt) return "";
-    if (message)
-      return publishedPostExcerpt(publishedPostDocument({ message }));
-    return attachments
-      ? cardFiles(attachments)
-          .map((file, index) => attachmentName(file, index + 1, language))
-          .join(", ")
-          .replace(/\s+/gu, " ")
-      : "";
-  }, [attachments, language, message, showExcerpt]);
+    const summary = publishedPostSummary({ message, cards });
+    return summary ?? attachmentExcerpt(attachments, language);
+  }, [attachments, cards, language, message, showExcerpt]);
   const { close, ownsRoute, text } = scope;
   useLayoutEffect(() => {
     const modal = dialog.current;

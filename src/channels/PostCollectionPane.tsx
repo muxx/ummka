@@ -11,29 +11,34 @@ import { CollectionReadNotice } from "./CollectionReadNotice.tsx";
 import { CollectionScroll, restoreCollectionRow } from "./CollectionScroll.tsx";
 import { collectionCopy } from "./collection-copy.ts";
 import { PaneSizeToggle } from "./PaneWidthControls.tsx";
+import { attachmentExcerpt } from "./post-attachment-cards.ts";
 import {
   newestCollectionItems,
   type openPostCollection,
   returnedPostRemoved,
 } from "./post-collection.ts";
-import { publishedPostDocument } from "./published-post-document.ts";
-import { publishedPostExcerpt } from "./published-post-excerpt.ts";
+import { publishedPostSummary } from "./published-post-summary.ts";
 import "./post-collection-pane.css";
 
 type Model = ReturnType<typeof openPostCollection>;
 type Snapshot = ReturnType<Model["getSnapshot"]>;
 
 function CollectionExcerpt({
-  message,
+  post,
+  language,
   emptyLabel,
 }: {
-  message: string;
+  post: NonNullable<Snapshot["value"]>["items"][number];
+  language: EntryLanguage;
   emptyLabel: string;
 }) {
-  const body = useMemo(
-    () => publishedPostExcerpt(publishedPostDocument({ message })),
-    [message],
-  );
+  const body = useMemo(() => {
+    const summary = publishedPostSummary(post);
+    if (summary !== undefined) return summary;
+    return post.attachments?.files?.some((file) => file.name?.trim())
+      ? attachmentExcerpt(post.attachments, language)
+      : "";
+  }, [post, language]);
   return <span className="collection-excerpt">{body || emptyLabel}</span>;
 }
 
@@ -471,7 +476,8 @@ export function PostCollectionPane({
                         <span className="collection-meta">{place}</span>
                       )}
                       <CollectionExcerpt
-                        message={row.message ?? ""}
+                        post={row}
+                        language={language}
                         emptyLabel={
                           row.fileIds?.length ? text.attachment : text.message
                         }

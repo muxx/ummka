@@ -94,6 +94,17 @@ export function attachmentName(
   return file.name?.trim() || `${attachmentCopy[language].file} ${position}`;
 }
 
+export function attachmentExcerpt(
+  attachments: Observation | undefined,
+  language: EntryLanguage,
+) {
+  if (!attachments) return "";
+  return cardFiles(attachments)
+    .map((file, index) => attachmentName(file, index + 1, language))
+    .join(", ")
+    .replace(/\s+/gu, " ");
+}
+
 const numbers = {
   en: new Intl.NumberFormat("en", { maximumFractionDigits: 1 }),
   ru: new Intl.NumberFormat("ru", { maximumFractionDigits: 1 }),

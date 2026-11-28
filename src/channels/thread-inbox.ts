@@ -31,6 +31,32 @@ const blank = (status: Status = "idle"): Page => ({
   nextBefore: null,
 });
 
+type Root = NonNullable<Row["post"]>;
+
+function withKnownFileNames(post: Root, prior?: Root | null): Root {
+  const files = post.attachments;
+  if (
+    !files?.fileIds?.length ||
+    !prior?.attachments?.files?.length ||
+    prior.channelId !== post.channelId
+  )
+    return post;
+  const observed = new Set(files.files?.map(({ id }) => id));
+  const known = new Map(
+    prior.attachments.files.map((file) => [file.id, file.name]),
+  );
+  const extra = files.fileIds.flatMap((id) => {
+    const name = known.get(id);
+    return !observed.has(id) && name ? [{ id, name }] : [];
+  });
+  return extra.length
+    ? {
+        ...post,
+        attachments: { ...files, files: [...(files.files ?? []), ...extra] },
+      }
+    : post;
+}
+
 export function openThreadInbox(account: Reader, teamId: string) {
   let tab: ThreadInboxTab = "followed";
   let closed = false;
@@ -79,21 +105,40 @@ export function openThreadInbox(account: Reader, teamId: string) {
     roots.clear();
     deniedRoots.clear();
   }
-  function withRootVisibility(rows: Row[]) {
+  function withObservedRoots(rows: Row[]) {
     let current = rows;
     for (let index = 0; index < rows.length; index++) {
       const row = rows[index];
-      if (deniedRoots.has(row.id) && row.post) {
-        if (current === rows) current = rows.slice();
-        current[index] = { ...row, post: null };
-        continue;
-      }
       const root = roots.get(row.id);
-      if (!root || (root.post === null) === (row.post === null)) continue;
+      if (!root || root.post === row.post) continue;
       if (current === rows) current = rows.slice();
       current[index] = { ...row, post: root.post };
     }
     return current;
+  }
+  function observeRoot(id: string, post: Row["post"], order: number) {
+    const prior = roots.get(id);
+    if (deniedRoots.has(id)) return;
+    if (prior && order < prior.order) {
+      // Later visibility wins; two visible roots can also be ordered by their server revisions.
+      if (!post || !prior.post || post.updateAt <= prior.post.updateAt) return;
+      order = prior.order;
+    }
+    if (post && prior?.post) {
+      post =
+        post.updateAt < prior.post.updateAt
+          ? prior.post
+          : withKnownFileNames(post, prior.post);
+    }
+    roots.set(id, { order, post });
+  }
+  function updatePageRoots() {
+    for (const key of tabs) {
+      const page = pages[key];
+      if (!page.rows) continue;
+      const rows = withObservedRoots(page.rows);
+      if (rows !== page.rows) pages[key] = { ...page, rows };
+    }
   }
   function cancelReads() {
     for (const [key, task] of pending) {
@@ -202,21 +247,11 @@ export function openThreadInbox(account: Reader, teamId: string) {
         if (rows.some((row) => row.id === retained.id)) retainedReadId = null;
         else rows = [retained, ...rows];
       }
-      // A later complete observation owns visibility across both lists. Process
-      // overlap before deduplication and never let an older reply expose a root.
-      for (const item of page.items) {
-        const root = roots.get(item.id);
-        if (!root || root.order < order)
-          roots.set(item.id, { order, post: item.post });
-      }
+      // Root content can change on overlapping pages or while a read row is retained.
+      for (const item of page.items) observeRoot(item.id, item.post, order);
       if (nextBefore) cursors[filter].add(nextBefore);
       pages[filter] = { status: "ready", rows, nextBefore };
-      for (const key of tabs) {
-        const page = pages[key];
-        if (!page.rows) continue;
-        const visible = withRootVisibility(page.rows);
-        if (visible !== page.rows) pages[key] = { ...page, rows: visible };
-      }
+      updatePageRoots();
     });
   }
   function show(filter: ThreadInboxTab) {
@@ -256,15 +291,20 @@ export function openThreadInbox(account: Reader, teamId: string) {
     getSnapshot: () => current,
     isRootUnavailable: (id: string) =>
       deniedRoots.has(id) || roots.get(id)?.post === null,
+    beginRootRead() {
+      const order = ++pageReadOrder;
+      return (post: Root) => {
+        if (closed || !showing || !roots.has(post.id)) return;
+        observeRoot(post.id, post, order);
+        updatePageRoots();
+        publish();
+      };
+    },
     revokeRoot(id: string) {
       if (closed || deniedRoots.has(id)) return;
       deniedRoots.add(id);
       roots.set(id, { order: ++pageReadOrder, post: null });
-      for (const filter of tabs) {
-        const page = pages[filter];
-        if (page.rows)
-          pages[filter] = { ...page, rows: withRootVisibility(page.rows) };
-      }
+      updatePageRoots();
       publish();
     },
     hide() {

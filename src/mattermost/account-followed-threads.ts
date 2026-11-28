@@ -4,6 +4,10 @@ import {
   type UserThread,
 } from "../../vendor/mattermost/index.js";
 import { channelPostChange } from "./channel-post-records.ts";
+import {
+  type CardExcerptSource,
+  threadCardExcerpts,
+} from "./integration-cards.ts";
 import type { LocalPost } from "./local-history.ts";
 import { isMattermostId, isMattermostTime } from "./model-fields.ts";
 
@@ -22,7 +26,9 @@ function scope(teamId: string) {
   return { userId: "me", teamId };
 }
 
-function visibleRoot(row: UserThread, id: string): LocalPost | null {
+type ThreadRoot = LocalPost & { excerptCards?: readonly CardExcerptSource[] };
+
+function visibleRoot(row: UserThread, id: string): ThreadRoot | null {
   const { post } = row;
   if (!post || row.deleteAt !== 0) return null;
   if (!isMattermostId(post.channelId))
@@ -35,7 +41,9 @@ function visibleRoot(row: UserThread, id: string): LocalPost | null {
   if (projected.rootId !== null)
     throw new TypeError("Expected a root post in the Mattermost thread list.");
   const { kind: _kind, ...root } = projected;
-  return root;
+  if (root.cards !== undefined) return root;
+  const excerptCards = threadCardExcerpts(post);
+  return excerptCards?.length ? { ...root, excerptCards } : root;
 }
 
 function threadReadState(row: UserThread) {

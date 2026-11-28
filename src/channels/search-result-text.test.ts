@@ -12,13 +12,19 @@ function highlights(parts: ReturnType<typeof markedText>) {
 test("uses the specific post's matches and distinguishes a missing item from an empty list", () => {
   const { post } = searchResultPatterns("экран in:releases -черновик");
   const message = "Экрана хватило · черновик · релизы";
-  expect(highlights(searchPostFragment(message, post(["экрана"])))).toEqual([
-    "Экрана",
-  ]);
-  expect(highlights(searchPostFragment(message, post(undefined)))).toEqual([
-    "Экран",
-  ]);
-  expect(highlights(searchPostFragment(message, post([])))).toEqual([]);
+  expect(
+    highlights(
+      searchPostFragment({ message, cards: [] }, post(["экрана"]), "ru"),
+    ),
+  ).toEqual(["Экрана"]);
+  expect(
+    highlights(
+      searchPostFragment({ message, cards: [] }, post(undefined), "ru"),
+    ),
+  ).toEqual(["Экран"]);
+  expect(
+    highlights(searchPostFragment({ message, cards: [] }, post([]), "ru")),
+  ).toEqual([]);
 });
 
 test("matches a positive quoted phrase through formatting and skips exclusions and filters", () => {
@@ -28,7 +34,13 @@ test("matches a positive quoted phrase through formatting and skips exclusions a
   const message =
     "QUALITY **gates** · quality · in progress · draft · release notes · egor";
   expect(
-    highlights(searchPostFragment(message, post(["quality", "draft"]))),
+    highlights(
+      searchPostFragment(
+        { message, cards: [] },
+        post(["quality", "draft"]),
+        "en",
+      ),
+    ),
   ).toEqual(["QUALITY gates"]);
 });
 
@@ -58,11 +70,55 @@ test("shows a bounded plain text fragment around the first visible match", () =>
   const hiddenLink = message
     .replace("[needle]", "[unrelated]")
     .replace("/hidden", "/needle");
-  const parts = searchPostFragment(hiddenLink, post(undefined));
+  const parts = searchPostFragment(
+    { message: hiddenLink, cards: [] },
+    post(undefined),
+    "en",
+  );
   const text = parts.map((part) => part.text).join("");
   expect(text.startsWith("…")).toBe(true);
   expect(text.endsWith("…")).toBe(true);
   expect(text.length).toBeLessThanOrEqual(182);
   expect(highlights(parts)).toEqual(["NEEDLE"]);
   expect(text).not.toMatch(/\*|https:/u);
+});
+
+test("uses the card title in a result without main text", () => {
+  const cards = [{ title: "Release status", fields: [] }];
+  expect(
+    highlights(searchPostFragment({ message: "", cards }, /status/giu, "en")),
+  ).toEqual(["status"]);
+  expect(
+    highlights(
+      searchPostFragment({ message: "Main message", cards }, /status/giu, "en"),
+    ),
+  ).toEqual([]);
+});
+
+test("shows observed file names or their positions after invisible text and cards", () => {
+  const one = "a".repeat(26),
+    two = "b".repeat(26);
+  const row = {
+    message: "[note]: https://example.test",
+    cards: [{ text: "   ", fields: [] }],
+    attachments: {
+      fileIds: [one, two],
+      files: [{ id: two, name: "release-check.txt" }],
+    },
+  };
+  const parts = searchPostFragment(row, /check/giu, "en");
+  expect(parts.map((p) => p.text).join("")).toBe(
+    "Attachment 1, release-check.txt",
+  );
+  expect(highlights(parts)).toEqual(["check"]);
+  expect(searchPostFragment({ ...row, message: "---" }, null, "en")).toEqual(
+    [],
+  );
+  expect(
+    searchPostFragment(
+      { ...row, attachments: { redactedFileCount: 2 } },
+      null,
+      "en",
+    ),
+  ).toEqual([]);
 });

@@ -725,3 +725,95 @@ test("re-follow refreshes both pages and counts without restoring revoked conten
   expect(view.getSnapshot().page.rows).toEqual([a]);
   expect(view.getSnapshot().totals.value).toEqual(totals);
 });
+
+test("an edited root updates its retained row, keeping only names of files still attached", async () => {
+  const { account, view } = setup();
+  const fileId = "m".repeat(26),
+    newId = "n".repeat(26);
+  const old = {
+    ...visibleA,
+    post: {
+      ...observedRoot,
+      message: "",
+      excerptCards: [{ title: "Old report" }],
+      attachments: { fileIds: [fileId] },
+    },
+  };
+  account.readFollowedThreads
+    .mockResolvedValueOnce(page([old]))
+    .mockResolvedValueOnce(
+      page([
+        {
+          ...old,
+          post: {
+            ...old.post,
+            updateAt: 2,
+            excerptCards: [],
+            attachments: { fileIds: [fileId, newId] },
+          },
+        },
+      ]),
+    );
+  await view.show("unread");
+  view.select(a.id);
+  const confirmRoot = view.beginRootRead();
+  confirmRoot({
+    ...old.post,
+    attachments: {
+      fileIds: [fileId],
+      files: [{ id: fileId, name: "checked.log" }],
+    },
+  });
+  await view.confirmRead({
+    id: a.id,
+    lastViewedAt: 52,
+    unreadReplies: 0,
+    unreadMentions: 0,
+  });
+  await view.show("followed");
+  await view.show("unread");
+  const retained = view.getSnapshot().page.rows?.[0];
+  expect(retained).toMatchObject({
+    id: a.id,
+    unreadReplies: 0,
+    post: {
+      updateAt: 2,
+      excerptCards: [],
+      attachments: {
+        fileIds: [fileId, newId],
+        files: [{ id: fileId, name: "checked.log" }],
+      },
+    },
+  });
+  confirmRoot({ ...old.post, updateAt: 1 });
+  expect(view.getSnapshot().page.rows?.[0]).toBe(retained);
+  view.beginRootRead()({
+    ...observedRoot,
+    updateAt: 3,
+    attachments: { fileIds: [newId] },
+  });
+  expect(view.getSnapshot().page.rows?.[0]?.post?.attachments).toEqual({
+    fileIds: [newId],
+  });
+  expect(account.readFollowedThreads).toHaveBeenCalledTimes(2);
+});
+
+test("a partial list read never replaces a later server edit, even when it arrives last", async () => {
+  const { account, view } = setup();
+  const earlierRequest = deferred<Page>(),
+    laterRequest = deferred<Page>();
+  account.readFollowedThreads
+    .mockReturnValueOnce(earlierRequest.promise)
+    .mockReturnValueOnce(laterRequest.promise);
+  const followed = view.show("followed");
+  await Promise.resolve();
+  const unread = view.show("unread");
+  laterRequest.resolve(page([visibleA]));
+  await unread;
+  const edited = { ...observedRoot, updateAt: 2, message: "Edited on server" };
+  earlierRequest.resolve(page([{ ...visibleA, post: edited }]));
+  await followed;
+  expect(view.getSnapshot().page.rows?.[0].post).toBe(edited);
+  await view.show("followed");
+  expect(view.getSnapshot().page.rows?.[0].post).toBe(edited);
+});

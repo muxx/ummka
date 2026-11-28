@@ -433,6 +433,8 @@ export async function checkDesktopBack(port: string, server: string) {
     throw Error("The desktop channel did not render the fixture message");
   await fixtureStep("copy-desktop-channel-permalink", () => {
     inspectChannelTable(desktopTable(town));
+    within(town).getByText("Workspace release status");
+    within(town).getByText("Current build passed");
     return checkRowPermalink(town, `${server}/browser/pl/${systemRoot}`);
   });
   const channel = await fixtureStep("wait-for-town-draft", () =>
@@ -456,6 +458,8 @@ export async function checkDesktopBack(port: string, server: string) {
       .closest("article");
     if (!reply) throw Error("The desktop reply is outside its published row");
     inspectReplyTable(desktopTable(reply));
+    within(reply).getByText("Thread release status");
+    within(reply).getByText("Reply build passed");
     await checkRowPermalink(reply, `${server}/browser/pl/${systemReply}`, true);
   });
   await verifyWorkspaceBack(host, port, opener, channel);

@@ -1,5 +1,7 @@
-import { publishedPostDocument } from "./published-post-document.ts";
-import { publishedPostExcerpt } from "./published-post-excerpt.ts";
+import type { EntryLanguage } from "../entry/language.ts";
+import type { ReceivedResultPost } from "../mattermost/received-result-post.ts";
+import { attachmentExcerpt } from "./post-attachment-cards.ts";
+import { publishedPostSummary } from "./published-post-summary.ts";
 import { positiveSearchWords } from "./search-conditions.ts";
 
 export function searchResultPatterns(terms: string) {
@@ -28,8 +30,16 @@ function literalPattern(words: readonly string[]) {
   );
 }
 
-export function searchPostFragment(message: string, pattern: RegExp | null) {
-  const text = publishedPostExcerpt(publishedPostDocument({ message }));
+export function searchPostFragment(
+  row: ReceivedResultPost,
+  pattern: RegExp | null,
+  language: EntryLanguage,
+) {
+  const text =
+    publishedPostSummary({
+      message: typeof row.message === "string" ? row.message : undefined,
+      cards: row.cards,
+    }) ?? attachmentExcerpt(row.attachments, language);
   const first = pattern ? text.search(pattern) : -1;
   const from = first < 40 ? 0 : first - 30;
   const start = codePointBoundary(text, from);

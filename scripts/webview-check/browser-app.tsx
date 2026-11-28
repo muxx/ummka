@@ -299,6 +299,8 @@ async function checkBrowserWorkspace(
   const town = ui.getByText("Town fixture message").closest("article");
   if (!town) throw Error("Town post is outside its timeline row");
   inspectChannelTable(within(within(town).getByRole("table")));
+  within(town).getByText("Workspace release status");
+  within(town).getByText("Current build passed");
   if (isAndroid)
     await checkTableReturn(
       host,
@@ -350,6 +352,8 @@ async function checkBrowserWorkspace(
   );
   const replyRow = reply.closest("article");
   if (!replyRow) throw Error("Missing published reply");
+  within(replyRow).getByText("Thread release status");
+  within(replyRow).getByText("Reply build passed");
   if (isAndroid)
     await checkTableReturn(
       host,
