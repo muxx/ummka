@@ -42,6 +42,11 @@
   padding: 8px 14px;
   color: var(--muted);
   text-align: center;
+}
+.timeline-status,
+.timeline-limit,
+.timeline-empty:where(:not(.panel-text--secondary)),
+.timeline-boundary {
   font-size: 0.8125rem;
   line-height: 1.45;
 }

@@ -2420,7 +2420,8 @@ test("shows the cold root and returns to retained replies while the inbox revali
   };
   let pane = await select(/Review this build/);
   expect(await pane.findByText(/Review/)).toBeTruthy();
-  expect(await pane.findByText("Loading replies…")).toBeTruthy();
+  const loading = await pane.findByText("Loading replies…");
+  expect(loading.classList.contains("panel-text--secondary")).toBe(true);
   expect(account.readThreadPage).not.toHaveBeenCalled();
   await act(async () => access.resolve());
   await pane.findByText("Original cached answer");
