@@ -55,6 +55,7 @@ type FrameProps = {
   returnInThread?: boolean;
   composer?: ReactNode;
   draftRef?: RefObject<HTMLElement | null>;
+  focusConversation?: () => boolean;
   inboxPlaceholder?: { title: string; message: string };
   thread?: {
     id: string;
@@ -130,6 +131,7 @@ export function ChannelsFrame({
   returnInThread,
   composer,
   draftRef,
+  focusConversation,
   thread,
   inboxPlaceholder,
 }: FrameProps) {
@@ -224,6 +226,7 @@ export function ChannelsFrame({
         lastConversationControl.current.focus({ preventScroll: true });
         return;
       }
+      if (!openThread && focusConversation?.()) return;
       const field = openThread ? replyRef?.current : draftRef?.current;
       // Compact layouts focus the title so navigating never raises the on-screen keyboard.
       if (field && (root.current?.clientWidth ?? 0) > 740) {
@@ -288,6 +291,7 @@ export function ChannelsFrame({
     channelId,
     openThread,
     draftRef,
+    focusConversation,
     replyRef,
     showingPanel,
     retainOpener,

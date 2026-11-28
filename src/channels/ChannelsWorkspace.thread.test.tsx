@@ -129,6 +129,7 @@ function mount(
     contents?: Pick<LocalPost, "message" | "attachments">;
     viewer?: string;
     coordination?: ReturnType<typeof createThreadReadCoordination>;
+    directoryPermissions?: string[];
   } = {},
 ) {
   const data = projectTeamSidebar({
@@ -273,15 +274,25 @@ function mount(
     refreshTeamSidebar: vi.fn(),
     selectSidebarChannel: vi.fn().mockResolvedValue(true),
     readSavedTeamRoles: vi.fn().mockResolvedValue({
-      systemRoles: "",
+      systemRoles: options.directoryPermissions ? "writer" : "",
       definitions: [
         {
           name: "writer",
-          permissions: options.writable === false ? [] : ["create_post"],
+          permissions: [
+            ...(options.writable === false ? [] : ["create_post"]),
+            ...(options.directoryPermissions ?? []),
+          ],
         },
       ],
     }),
     refreshTeamRoles: vi.fn(),
+    readChannelDirectoryPage: vi
+      .fn<Connection["readChannelDirectoryPage"]>()
+      .mockResolvedValue({ items: [], hasMore: false }),
+    searchChannelDirectory: vi
+      .fn<Connection["searchChannelDirectory"]>()
+      .mockResolvedValue([]),
+    changeOwnMembership: vi.fn<Connection["changeOwnMembership"]>(),
     readSavedProfiles: vi
       .fn()
       .mockResolvedValue({ profiles: {}, usernames: {} }),
@@ -425,6 +436,21 @@ function mount(
               },
             },
           }}
+        />,
+      );
+    },
+    setDirectoryScope(scope: { rid?: number; teamId?: string }) {
+      view.rerender(
+        <ChannelsWorkspace
+          workspace={{
+            ...workspace,
+            connection: {
+              ...workspace.connection,
+              rid: scope.rid ?? connection.rid,
+            },
+            team: { ...team, id: scope.teamId ?? team.id },
+          }}
+          language="en"
         />,
       );
     },
@@ -2953,3 +2979,70 @@ test("a readable direct conversation can follow a root with no replies", async (
 });
 
 import { createThreadReadCoordination } from "../mattermost/thread-read-coordination.ts";
+
+test.each(["list_team_channels", "join_public_channels"])(
+  "the catalogue alone does not grant writes or public discovery with %s",
+  async (permission) => {
+    const account = mount(true, true, { directoryPermissions: [permission] });
+    await screen.findByText(root.message);
+    fireEvent.click(screen.getByRole("button", { name: "Directory" }));
+    await screen.findByRole("searchbox", { name: "Find a channel" });
+    expect(screen.queryByRole("tab", { name: "Available" })).toBeNull();
+    expect(account.readChannelDirectoryPage).not.toHaveBeenCalled();
+    expect(account.searchChannelDirectory).not.toHaveBeenCalled();
+    expect(account.changeOwnMembership).not.toHaveBeenCalled();
+  },
+);
+
+test.each([{ rid: 2 }, { teamId: "n".repeat(26) }])(
+  "a new directory scope starts fresh and ignores an old pending answer (%o)",
+  async (scope) => {
+    const account = mount(true, true, {
+      directoryPermissions: ["list_team_channels", "join_public_channels"],
+    });
+    const old =
+      deferred<Awaited<ReturnType<Connection["readChannelDirectoryPage"]>>>();
+    account.readChannelDirectoryPage.mockImplementationOnce(() => old.promise);
+    await screen.findByText(root.message);
+    const trigger = screen.getByRole("button", { name: "Directory" });
+    fireEvent.click(trigger);
+    fireEvent.click(await screen.findByRole("tab", { name: "Available" }));
+    await waitFor(() =>
+      expect(account.readChannelDirectoryPage).toHaveBeenCalledTimes(1),
+    );
+    account.setDirectoryScope(scope);
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("tab", { name: "My channels" })
+          .getAttribute("aria-selected"),
+      ).toBe("true"),
+    );
+    expect(account.readChannelDirectoryPage.mock.calls[0][1]?.aborted).toBe(
+      true,
+    );
+    fireEvent.click(await screen.findByRole("tab", { name: "Available" }));
+    await screen.findByText("No available channels");
+    expect(account.readChannelDirectoryPage.mock.lastCall?.[0].teamId).toBe(
+      scope.teamId ?? team.id,
+    );
+    await act(async () =>
+      old.resolve({
+        hasMore: false,
+        items: [
+          {
+            id: "a".repeat(26),
+            kind: "O",
+            name: "former",
+            displayName: "Former scope",
+            purpose: "",
+            deleteAt: 0,
+          },
+        ],
+      }),
+    );
+    expect(screen.queryByText("Former scope")).toBeNull();
+    expect(screen.getByText("No available channels")).toBeTruthy();
+    expect(account.changeOwnMembership).not.toHaveBeenCalled();
+  },
+);

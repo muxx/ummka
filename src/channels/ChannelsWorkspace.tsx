@@ -313,6 +313,14 @@ export function ChannelsWorkspace({
   const collectionLabels = collectionCopy[language];
   const channelMenuButton = useRef<HTMLButtonElement>(null);
   const directoryButton = useRef<HTMLButtonElement>(null);
+  const directoryReturn = useRef<() => boolean>(null);
+  const restoreDirectoryControl = useRef(false);
+  const focusDirectory = useCallback(() => {
+    if (!restoreDirectoryControl.current) return false;
+    restoreDirectoryControl.current = false;
+    return directoryReturn.current?.() ?? false;
+  }, []);
+  const directoryScope = JSON.stringify([connection.rid, team.id]);
   const restoreDirectoryFocus = useRef(false);
   const [directoryOpen, setDirectoryOpen] = useState(false);
   const directoryTitle = directoryCopy[language].title;
@@ -412,7 +420,7 @@ export function ChannelsWorkspace({
     (signal: AbortSignal) => connection.refreshTeamSidebar(team.id, signal),
     [connection, team.id],
   );
-  const directory = useWorkspaceRead(team.id, online, read, refresh);
+  const directory = useWorkspaceRead(directoryScope, online, read, refresh);
   const roles = useTeamRoles(
     connection,
     team,
@@ -1166,7 +1174,9 @@ export function ChannelsWorkspace({
           ref={directoryButton}
           aria-current={directoryOpen ? "page" : undefined}
           data-surface={directoryOpen ? "selected-navigation" : undefined}
-          onClick={() => {
+          onClick={(event) => {
+            if (directoryOpen) return;
+            restoreDirectoryControl.current = event.detail === 0;
             search.dismiss();
             workspace.messages.clear();
             collections.close(false);
@@ -2211,6 +2221,7 @@ export function ChannelsWorkspace({
         returnInThread={compact && Boolean(activeThread)}
         accountRef={accountButton}
         draftRef={inbox.visible || directoryOpen ? undefined : draftField}
+        focusConversation={directoryOpen ? focusDirectory : undefined}
         accountName={accountName}
         accountDescription={
           accountName ? undefined : teamChoiceText[language].profilePending
@@ -2419,9 +2430,11 @@ export function ChannelsWorkspace({
             />
           </div>
         )}
-        {directoryOpen && (
+        <div hidden={!directoryOpen} className="workspace-conversation-route">
           <TeamChannelDirectory
-            key={team.id}
+            key={directoryScope}
+            ref={directoryReturn}
+            visible={directoryOpen}
             account={connection}
             teamId={team.id}
             language={language}
@@ -2435,7 +2448,7 @@ export function ChannelsWorkspace({
             refresh={directory.retry}
             sessionIssue={sessionIssue}
           />
-        )}
+        </div>
         <div
           className="workspace-conversation-route"
           hidden={directoryOpen || inbox.visible}
