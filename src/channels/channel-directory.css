@@ -19,17 +19,12 @@
   flex: none;
   color: var(--muted);
 }
-.directory-heading h1 {
-  font-size: 1.09rem;
-}
 .directory-heading > p {
   margin: 2px 0 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--muted);
-  font-size: 0.76rem;
-  line-height: 1.5;
 }
 .directory-column {
   --directory-inset: clamp(14px, 3cqi, 40px);
@@ -72,6 +67,10 @@
   color: var(--text);
   font: inherit;
 }
+.directory-search .panel-text--body {
+  font-size: var(--panel-body-size);
+  line-height: var(--panel-body-line);
+}
 .directory-filter:focus {
   border-color: var(--focus);
 }
@@ -79,33 +78,6 @@
 .directory-channel-info > span,
 .directory-channel-meta {
   color: var(--muted);
-}
-.directory-empty {
-  display: grid;
-  justify-items: start;
-  gap: 8px;
-  box-sizing: border-box;
-  width: fit-content;
-  max-width: min(100%, 460px);
-  margin: 20px auto 8px;
-  padding: 24px 20px;
-}
-.directory-empty > :is(svg, .directory-kind) {
-  width: 27px;
-  height: 27px;
-  margin-block-end: 4px;
-  color: var(--accent);
-}
-.directory-empty :is(h3, p) {
-  margin: 0;
-}
-.directory-empty h3 {
-  font-size: 1rem;
-}
-.directory-empty p {
-  color: var(--muted);
-  font-size: 0.86rem;
-  line-height: 1.5;
 }
 .channel-directory ul {
   margin: 12px 0 0;
@@ -160,26 +132,6 @@
   text-align: center;
   flex: none;
 }
-.workspace-row.directory-trigger {
-  gap: 9px;
-  width: calc(100% - 18px);
-  min-height: 31px;
-  margin-inline: 9px;
-  padding-inline: 9px;
-  border-radius: 5px;
-}
-.workspace-row.directory-trigger > svg {
-  color: var(--navigation-muted);
-}
-.workspace-row.directory-trigger[aria-current="page"] > svg {
-  color: inherit;
-}
-@media (width <= 740px) {
-  .workspace-row.directory-trigger {
-    min-height: 44px;
-  }
-}
-
 .workspace-conversation-route:not([hidden]) {
   display: contents;
 }
@@ -211,20 +163,7 @@
   content: "";
 }
 .directory-tabs [role="tab"] {
-  min-height: 36px;
   padding: 8px 1px;
-  border: 0;
-  border-block-end: 2px solid transparent;
-  background: transparent;
-  color: var(--muted);
-  font-size: 0.84rem;
-  font-weight: 600;
-  cursor: pointer;
-  --focus-offset: -2px;
-}
-.directory-tabs [aria-selected="true"] {
-  color: var(--accent);
-  border-color: var(--accent);
 }
 .directory-scroll {
   flex: 1;
@@ -247,9 +186,6 @@
   .channels-pane-head:has(> .directory-heading) > .channels-mobile-back:hover {
     background: var(--accent-tint);
     color: var(--accent);
-  }
-  .directory-tabs [role="tab"] {
-    min-height: 44px;
   }
   .directory-channel {
     min-height: 44px;

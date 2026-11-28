@@ -15,6 +15,16 @@ People spend hours reading Channels. Make a conversation easy to scan, comfortab
 - Reserve space for attachments as they load. Revealing message actions, loading older history or receiving new posts must preserve the reader’s place.
 - Where a decorative gradient meets a resizable column, blend it into the column color along the shared edge. Keep the blend aligned as the column moves.
 
+## Shared panel components
+
+Use BEM names for shared components: `block`, `block__element` and `block--modifier`. Migrate the parts a change touches and keep existing component names elsewhere. The component stylesheet owns its variants and its hover, focus and disabled treatments. Use the theme's surface and focus roles.
+
+Give headings, tab and navigation labels, body text, and supporting text semantic type roles. Use system type for controls and their labels. Use a persistent fill for the current navigation item and an underline for the selected tab. Keep the label weight steady as a person moves between items.
+
+Use a common state block for first loading, confirmed empty results and failed reads with Retry when available. Keep the existing rows usable while refreshing, and show the refreshing status after one second. Keep pagination and permission states tied to the reading surface that owns them.
+
+[Interactive examples](https://github.com/muxx/ummka-docs/blob/main/prototypes/screens.md#workspace-panel-styles)
+
 ## Interaction and motion
 
 - A link to a post brings its surrounding messages into view and briefly marks the target. Opening a thread from a message moves focus to its reply field on desktop and to its heading on a phone. Arrow keys in a list of threads change the open thread while focus stays in the list. Closing a thread restores focus to the opener, marks it briefly and preserves its position.

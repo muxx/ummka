@@ -8,9 +8,13 @@ import {
 } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
 import { CollectionHeader } from "./CollectionHeader.tsx";
-import { CollectionReadNotice } from "./CollectionReadNotice.tsx";
+import {
+  CollectionReadNotice,
+  useCollectionRefreshVisibility,
+} from "./CollectionReadNotice.tsx";
 import { CollectionScroll, restoreCollectionRow } from "./CollectionScroll.tsx";
 import { collectionCopy } from "./collection-copy.ts";
+import { PanelState } from "./PanelState.tsx";
 import { attachmentExcerpt } from "./post-attachment-cards.ts";
 import {
   newestCollectionItems,
@@ -271,6 +275,9 @@ export function PostCollectionPane({
   const canRead =
     online &&
     !["closed", "unauthorized", "session", "forbidden"].includes(state.status);
+  const showRefresh = useCollectionRefreshVisibility(
+    state.status === "refreshing",
+  );
   const busy = state.status === "loading" || state.status === "refreshing";
   const nextFailed =
     state.continuation === "network" || state.continuation === "storage";
@@ -339,8 +346,8 @@ export function PostCollectionPane({
       <CollectionScroll pane={list} label={collectionCopy[language].content}>
         <CollectionReadNotice
           kind={kind}
-          icon={<CollectionMark kind={kind} />}
           status={state.status}
+          showRefresh={showRefresh}
           hasResponse={state.value !== null}
           online={online}
           language={language}
@@ -361,7 +368,7 @@ export function PostCollectionPane({
           </p>
         )}
         {!online && state.value && state.status !== "network" && (
-          <p role="status">{text.offline}</p>
+          <PanelState variant="stale" role="status" message={text.offline} />
         )}
         {state.status === "forbidden" && <p role="alert">{text.unavailable}</p>}
         {state.value && (
@@ -524,14 +531,16 @@ export function PostCollectionPane({
           !rows.length &&
           state.continuation === "none" &&
           (missingReturn && !missingReturn.id ? (
-            <div className="collection-return-empty">
-              <CollectionMark kind="all" />
-              <h3 ref={returnedEmpty} tabIndex={-1}>
-                {text.emptyReturnedSaved}
-              </h3>
-            </div>
+            <PanelState
+              variant="empty"
+              title={text.emptyReturnedSaved}
+              titleRef={returnedEmpty}
+            />
           ) : (
-            <p>{kind === "all" ? text.emptySaved : text.emptyPins}</p>
+            <PanelState
+              variant="empty"
+              title={kind === "all" ? text.emptySaved : text.emptyPins}
+            />
           ))}
         {Boolean(state.value?.firstInaccessiblePostTime) && (
           <p role="status">{text.unavailableHistory}</p>

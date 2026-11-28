@@ -1,6 +1,5 @@
 import type { ComponentProps, RefObject } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
-import { DirectoryChannelIcon } from "./DirectoryChannelIcon.tsx";
 import "./channel-directory.css";
 
 export const directoryCopy = {
@@ -59,14 +58,21 @@ export function DirectoryHeading({
   teamName: string;
 }) {
   return (
-    <div className="directory-heading">
+    <div className="directory-heading panel-heading">
       <div>
         <DirectoryCompass size={21} />
-        <h1 id={id} ref={heading} tabIndex={-1}>
+        <h1
+          className="panel-heading__title"
+          id={id}
+          ref={heading}
+          tabIndex={-1}
+        >
           {title}
         </h1>
       </div>
-      <p title={teamName}>{teamName}</p>
+      <p className="panel-heading__detail" title={teamName}>
+        {teamName}
+      </p>
     </div>
   );
 }
@@ -89,12 +95,12 @@ export function DirectoryNavigationIcon() {
   );
 }
 
-function SearchMark({ size = 18 }: { size?: number }) {
+function SearchMark() {
   return (
     <svg
       aria-hidden="true"
-      width={size}
-      height={size}
+      width="18"
+      height="18"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -119,33 +125,11 @@ export function DirectorySearch({
       <SearchMark />
       <input
         {...input}
-        className="directory-filter"
+        className="directory-filter panel-text--body"
         type="search"
         aria-label={label}
         placeholder={label}
       />
-    </div>
-  );
-}
-
-export function DirectoryEmpty({
-  title,
-  hint,
-  kind,
-}: {
-  title: string;
-  hint: string;
-  kind: "search" | "channels";
-}) {
-  return (
-    <div className="directory-empty" role="status">
-      {kind === "search" ? (
-        <SearchMark size={27} />
-      ) : (
-        <DirectoryChannelIcon kind="public" size={27} />
-      )}
-      <h3>{title}</h3>
-      <p>{hint}</p>
     </div>
   );
 }
