@@ -117,7 +117,7 @@
   line-height: 1.35;
   letter-spacing: -0.026em;
 }
-.channel-section-header h2 svg {
+.channel-section-header :where(h2) svg {
   flex: none;
   width: 21px;
   height: 21px;
