@@ -29,7 +29,7 @@ type View = { key: number; opener: HTMLButtonElement } & (
   | (Source & { model: ReturnType<typeof openPostCollection> })
   | (Mentions & { model: ReturnType<typeof openMentionList> })
 );
-type RowOrigin = RestoredRow & {
+export type RowOrigin = RestoredRow & {
   channelId: string | null;
   ids: readonly string[];
   partial: boolean;

@@ -1,9 +1,14 @@
 import { createContext, type ReactNode, useContext } from "react";
 import type { publishedLinkTarget } from "./published-link-target.ts";
+import type { PublishedReadingProposal } from "./published-reading-history.ts";
 
 export const PublishedLinkNavigation = createContext<{
   serverUrl: string;
-  open: (href: string, origin: HTMLAnchorElement) => void;
+  open: (
+    href: string,
+    origin: HTMLAnchorElement,
+    reading?: PublishedReadingProposal,
+  ) => void;
 } | null>(null);
 
 export function PublishedPostLink({
@@ -22,6 +27,7 @@ export function PublishedPostLink({
   return (
     <a
       href={href}
+      data-published-link=""
       onClick={(event) => {
         event.preventDefault();
         event.stopPropagation();

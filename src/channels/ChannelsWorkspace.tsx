@@ -2,6 +2,7 @@ import {
   lazy,
   Suspense,
   useCallback,
+  useContext,
   useEffect,
   useId,
   useLayoutEffect,
@@ -16,6 +17,7 @@ import type { TeamWorkspace } from "../entry/AccountTeamWindow.tsx";
 import type { EntryLanguage } from "../entry/language.ts";
 import { TeamSwitchDialog } from "../entry/TeamSwitchDialog.tsx";
 import { teamChoiceText } from "../entry/team-choice-text.ts";
+import type { SystemPostRequest } from "../entry/use-system-permalink.tsx";
 import { savedChannelPermissions } from "../mattermost/channel-permissions.ts";
 import {
   conversationName,
@@ -47,6 +49,7 @@ import {
   useAttachmentWindow,
 } from "./PublishedAttachments.tsx";
 import { PublishedCodeReader } from "./PublishedCodeReader.tsx";
+import { PublishedLinkNavigation } from "./PublishedPostLink.tsx";
 import {
   PublishedReaderWindow,
   PublishedTableScreen,
@@ -54,6 +57,10 @@ import {
 } from "./PublishedReaderWindow.tsx";
 import { PostActionScope, usePostActionScope } from "./post-action-scope.ts";
 import { newestCollectionItems } from "./post-collection.ts";
+import {
+  capturePublishedReadingOrigin,
+  type PublishedReadingOrigin,
+} from "./published-reading-history.ts";
 import type { ReactionThread } from "./submit-channel-reaction.ts";
 import { TeamChannelDirectory } from "./TeamChannelDirectory.tsx";
 import { ThreadInboxPane } from "./ThreadInboxPane.tsx";
@@ -205,6 +212,42 @@ function Notice({
     </div>
   );
 }
+function confirmVisiblePost(
+  request: SystemPostRequest,
+  scene: HTMLElement,
+  control: HTMLElement,
+  inThread: boolean,
+) {
+  if (
+    request.signal.aborted ||
+    document.visibilityState !== "visible" ||
+    !document.hasFocus()
+  )
+    return;
+  // Activating a link can move focus inside the destination before its first visible frame.
+  const row = control.matches("a[href]")
+    ? control.closest<HTMLElement>("[data-post-id]")
+    : control;
+  if (
+    !row ||
+    row.dataset.postId !== request.target.postId ||
+    !scene.contains(row) ||
+    Boolean(row.closest(".thread-feed")) !== inThread
+  )
+    return;
+  const pane = row.closest(".timeline-scroll")?.getBoundingClientRect();
+  const box = row.getBoundingClientRect();
+  const focus = control === row ? box : control.getBoundingClientRect();
+  if (
+    pane &&
+    Math.min(pane.right, box.right, focus.right) >
+      Math.max(pane.left, box.left, focus.left) &&
+    Math.min(pane.bottom, box.bottom, focus.bottom) >
+      Math.max(pane.top, box.top, focus.top)
+  )
+    request.shown(row.dataset.postId);
+}
+
 export function ChannelsWorkspace({
   workspace,
   language,
@@ -212,7 +255,10 @@ export function ChannelsWorkspace({
   workspace: TeamWorkspace;
   language: EntryLanguage;
 }) {
-  const { connection, team, userId, policy, online, sessionIssue } = workspace;
+  const { connection, team, userId, serverUrl, policy, online, sessionIssue } =
+    workspace;
+  const publishedLinks = useContext(PublishedLinkNavigation);
+  const { publishedReading } = workspace.messages;
   const text = workspaceCopy[language];
   const host = useRef<HTMLDivElement>(null);
   const accountButton = useRef<HTMLButtonElement>(null);
@@ -309,10 +355,11 @@ export function ChannelsWorkspace({
     useState<TeamWorkspace["systemPost"]>();
   const [closedRequest, setClosedRequest] = useState<number | null>(null);
   const closeThread = useCallback(() => {
+    publishedReading?.interrupt();
     position?.system?.stop("paused");
     setThread(null);
     setClosedRequest(position?.request.requestId ?? null);
-  }, [position]);
+  }, [position, publishedReading]);
   const [choiceFailed, setChoiceFailed] = useState<{
     exclude?: string;
   } | null>(null);
@@ -1346,44 +1393,11 @@ export function ChannelsWorkspace({
       (timeline.focus.focusedReply && confirmedThread !== request)
     )
       return;
-    const paneClass = timeline.focus.focusedReply
-      ? ".thread-feed"
-      : ".timeline-scroll";
+    const inThread = Boolean(timeline.focus.focusedReply);
     const check = () => {
-      if (
-        request.signal.aborted ||
-        document.visibilityState !== "visible" ||
-        !document.hasFocus()
-      )
-        return;
       const focused = document.activeElement;
-      if (!(focused instanceof HTMLElement)) return;
-      // Clicking an anchor can move focus inside the destination before its first visible frame.
-      const row = focused.matches("a[href]")
-        ? focused.closest<HTMLElement>("[data-post-id]")
-        : focused;
-      if (
-        !row ||
-        row.dataset.postId !== request.target.postId ||
-        !scene.contains(row)
-      )
-        return;
-      if (
-        Boolean(row.closest(".thread-feed")) !==
-        Boolean(timeline.focus?.focusedReply)
-      )
-        return;
-      const pane = row.closest(paneClass)?.getBoundingClientRect();
-      const box = row.getBoundingClientRect();
-      const control = focused === row ? box : focused.getBoundingClientRect();
-      if (
-        pane &&
-        Math.min(pane.right, box.right, control.right) >
-          Math.max(pane.left, box.left, control.left) &&
-        Math.min(pane.bottom, box.bottom, control.bottom) >
-          Math.max(pane.top, box.top, control.top)
-      )
-        request.shown(row.dataset.postId);
+      if (focused instanceof HTMLElement)
+        confirmVisiblePost(request, scene, focused, inThread);
     };
     let frame: number | null = null;
     function cancel() {
@@ -1430,6 +1444,82 @@ export function ChannelsWorkspace({
     timeline.focus,
     timeline.status,
     confirmedThread,
+  ]);
+  const threadRootId = activeThread?.rootId ?? activeThread?.id ?? null;
+  const linkNavigation = useMemo(() => {
+    if (!publishedLinks || !publishedReading) return publishedLinks;
+    return {
+      serverUrl: publishedLinks.serverUrl,
+      open(href: string, anchor: HTMLAnchorElement) {
+        const scene = host.current;
+        const request = position?.system;
+        if (
+          scene &&
+          request?.publishedFromTeam &&
+          timeline.focus &&
+          (!timeline.focus.focusedReply || confirmedThread === request)
+        )
+          confirmVisiblePost(
+            request,
+            scene,
+            anchor,
+            Boolean(timeline.focus.focusedReply),
+          );
+        let collection: PublishedReadingOrigin["collection"];
+        if (position?.saved) {
+          collection = {
+            kind: "saved-team",
+            postId: position.request.post.id,
+            source: position.saved,
+          };
+        } else if (collectionDestination && collectionOrigin) {
+          const source = collectionDestination;
+          collection = {
+            kind: "workspace",
+            row: collectionOrigin,
+            source:
+              source.kind === "all"
+                ? { kind: "all" }
+                : source.kind === "pins"
+                  ? { kind: "pins", channelId: source.channelId }
+                  : {
+                      kind: "mentions",
+                      archivedChannels: source.archivedChannels,
+                      standalone: source.standalone,
+                    },
+          };
+        }
+        const origin =
+          scene?.contains(anchor) && chosen
+            ? capturePublishedReadingOrigin(anchor, {
+                teamId: team.id,
+                channelId: chosen,
+                threadRootId,
+                collection,
+              })
+            : null;
+        publishedLinks.open(
+          href,
+          anchor,
+          origin
+            ? publishedReading.capture(origin, { serverUrl, userId })
+            : undefined,
+        );
+      },
+    };
+  }, [
+    publishedLinks,
+    publishedReading,
+    chosen,
+    team.id,
+    threadRootId,
+    position,
+    timeline.focus,
+    confirmedThread,
+    collectionDestination,
+    collectionOrigin,
+    serverUrl,
+    userId,
   ]);
   function composer(
     rootId?: string,
@@ -1775,6 +1865,7 @@ export function ChannelsWorkspace({
               : "navigation"
         }
         onNavigation={() => {
+          publishedReading?.interrupt();
           workspace.systemPost?.stop("paused");
           restoreDirectoryFocus.current = directoryOpen;
           setDirectoryOpen(false);
@@ -2010,6 +2101,7 @@ export function ChannelsWorkspace({
                     : undefined
                 }
                 onOpenThread={(post) => {
+                  publishedReading?.interrupt();
                   setClosedRequest(position?.request.requestId ?? null);
                   collections.close(false);
                   setThread(post);
@@ -2109,12 +2201,14 @@ export function ChannelsWorkspace({
     </div>
   );
   return (
-    <AttachmentWindow value={attachments}>
-      <PublishedReaderWindow value={reader.value}>
-        <PostActionScope value={actions}>{content}</PostActionScope>
-        <PublishedTableScreen reader={reader} />
-        <PublishedCodeReader reader={reader} />
-      </PublishedReaderWindow>
-    </AttachmentWindow>
+    <PublishedLinkNavigation.Provider value={linkNavigation}>
+      <AttachmentWindow value={attachments}>
+        <PublishedReaderWindow value={reader.value}>
+          <PostActionScope value={actions}>{content}</PostActionScope>
+          <PublishedTableScreen reader={reader} />
+          <PublishedCodeReader reader={reader} />
+        </PublishedReaderWindow>
+      </AttachmentWindow>
+    </PublishedLinkNavigation.Provider>
   );
 }

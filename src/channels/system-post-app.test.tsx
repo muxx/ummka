@@ -9,13 +9,14 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { ResponseError } from "../../vendor/mattermost/index.js";
+import { FetchError, ResponseError } from "../../vendor/mattermost/index.js";
 import { isMobile, usesMacOSOverlay } from "../build-platform.ts";
 import {
   cancelBrowserSignIn,
   signInWithBrowser,
 } from "../mattermost/browser-sign-in.ts";
 import { inspectInstallation } from "../mattermost/inspect-installation.ts";
+import { PostObservationSuperseded } from "../mattermost/message-anchors.ts";
 import {
   getCurrentAccountId,
   openAccountRestConnection,
@@ -31,6 +32,16 @@ import {
   user,
   winter,
 } from "./navigation-app.test-utils.tsx";
+import { createPublishedReadingHistory } from "./published-reading-history.ts";
+
+vi.mock("./published-reading-history.ts", async (actual) => {
+  const module =
+    await actual<typeof import("./published-reading-history.ts")>();
+  return {
+    ...module,
+    createPublishedReadingHistory: vi.fn(module.createPublishedReadingHistory),
+  };
+});
 
 let nativeBack: (() => void) | undefined;
 vi.mock("@tauri-apps/api/app", () => ({
@@ -2509,3 +2520,398 @@ test("a focused published link in the incoming destination allows its visible OS
   ]);
   expect(queue).toEqual([]);
 });
+
+const originPost = { ...root, id: "v".repeat(26), message: "Original source" };
+function publishedConversation(first: string) {
+  const { account, targetInfo, view } = boot();
+  const source = { ...originPost, message: first };
+  const next = {
+    ...reply,
+    message: `[Continue to the root](${href(root.id)})`,
+  };
+  const posts = new Map([source, next, root].map((post) => [post.id, post]));
+  account.readPostAnchor.mockImplementation(async (id) => {
+    const post = posts.get(id);
+    if (!post) throw new ResponseError(new Response(null, { status: 404 }));
+    return { postId: id, rootId: post.rootId, channelId: post.channelId, post };
+  });
+  account.readChannelWindow.mockImplementation(async ({ channelId }) => ({
+    posts: channelId === design ? [source, root] : [],
+    newer: { kind: "end" },
+    older: { kind: "end" },
+    firstInaccessiblePostTime: 0,
+  }));
+  account.readThreadPage.mockResolvedValue({
+    kind: "page",
+    root: { ...root, messageSource: undefined, rootId: "", deleteAt: 0 },
+    replies: [{ ...next, messageSource: undefined, deleteAt: 0 }],
+    next: null,
+  });
+  return { account, targetInfo, view };
+}
+function observedReadingHistory() {
+  const history = vi
+    .mocked(createPublishedReadingHistory)
+    .mock.results.at(-1)?.value;
+  if (!history)
+    throw new Error("Missing reading history for the active account");
+  return history;
+}
+async function openSyntheticDesign() {
+  fireEvent.click(await screen.findByRole("button", { name: /^(# )?Design$/ }));
+}
+async function waitForPublishedReceipt(id: string) {
+  await waitFor(() => {
+    expect((document.activeElement as HTMLElement).dataset.postId).toBe(id);
+    expect(
+      screen.queryByRole("complementary", { name: "Message link" }),
+    ).toBeNull();
+  });
+}
+
+test("successive published links remember the exact channel and thread origins in reverse order", async () => {
+  const sourceHref = href(reply.id);
+  const { account } = publishedConversation(
+    `[First copy](${sourceHref}) [Second copy](${sourceHref})`,
+  );
+  await openSyntheticDesign();
+  const second = await screen.findByRole("link", { name: "Second copy" });
+  const history = observedReadingHistory();
+  const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+  act(() => {
+    fireEvent.click(second);
+    fireEvent.click(second);
+  });
+  const continuation = await screen.findByRole("link", {
+    name: "Continue to the root",
+  });
+  await waitFor(() =>
+    expect(document.activeElement).toBe(continuation.closest("article")),
+  );
+  expect(history.hasPrevious()).toBe(false);
+  expect(account.readPostAnchor.mock.calls.map(([id]) => id)).toEqual([
+    reply.id,
+  ]);
+  hasFocus.mockReturnValue(true);
+  continuation.focus();
+  fireEvent.click(continuation);
+  await waitForPublishedReceipt(root.id);
+  const { signal } = new AbortController();
+  const thread = await history.prepareReturn(signal);
+  expect(thread.kind).toBe("ready");
+  if (thread.kind !== "ready") throw new Error("Thread origin unavailable");
+  expect(thread.origin).toMatchObject({
+    teamId: winter,
+    channelId: design,
+    rootId: root.id,
+    postId: reply.id,
+    link: { href: href(root.id), occurrence: 0 },
+    reading: { anchors: [{ id: reply.id, offset: 20, published: true }] },
+  });
+  expect(thread.post.id).toBe(reply.id);
+  expect(thread.commit()).toBe(true);
+  expect(thread.commit()).toBe(false);
+  const channel = await history.prepareReturn(signal);
+  expect(channel.kind).toBe("ready");
+  if (channel.kind !== "ready") throw new Error("Channel origin unavailable");
+  expect(channel.origin).toMatchObject({
+    teamId: winter,
+    channelId: design,
+    rootId: null,
+    postId: originPost.id,
+    link: { href: sourceHref, occurrence: 1 },
+    reading: { anchors: [{ id: originPost.id, offset: 20, published: true }] },
+  });
+  expect(channel.commit()).toBe(true);
+  expect(await history.prepareReturn(signal)).toEqual({ kind: "empty" });
+  expect(acks).toEqual([]);
+});
+
+test.each(["resolving route", "checking post"] as const)(
+  "a manual channel choice cancels a published link still %s",
+  async (stage) => {
+    const { account, targetInfo } = publishedConversation(
+      `[Open reply](${href(reply.id)})`,
+    );
+    await openSyntheticDesign();
+    const link = await screen.findByRole("link", { name: "Open reply" });
+    const history = observedReadingHistory();
+    let started!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let signal: AbortSignal | undefined;
+    if (stage === "resolving route")
+      vi.mocked(getCurrentAccountId).mockImplementationOnce(async () => {
+        started();
+        await gate;
+        return user;
+      });
+    else
+      account.readPostDestination.mockImplementationOnce(async (id, active) => {
+        signal = active;
+        started();
+        await gate;
+        return { ...targetInfo, postId: id };
+      });
+    fireEvent.click(link);
+    await entered;
+    const designChoice = screen.getByRole("button", { name: /^(# )?Design$/ });
+    fireEvent.click(designChoice);
+    await waitFor(() =>
+      expect(account.selectSidebarChannel).toHaveBeenCalledTimes(2),
+    );
+    // This choice leaves the original link mounted so DOM removal alone cannot cancel it.
+    expect(link.isConnected).toBe(true);
+    if (stage === "checking post") expect(signal?.aborted).toBe(true);
+    await act(async () => release());
+    expect(account.readPostAnchor).not.toHaveBeenCalled();
+    expect(screen.queryByText(reply.message)).toBeNull();
+    expect(
+      screen.queryByRole("complementary", { name: "Message link" }),
+    ).toBeNull();
+    expect(history.hasPrevious()).toBe(false);
+  },
+);
+
+test("returning rechecks a deleted source and account close erases committed origins", async () => {
+  const { account, view } = publishedConversation(
+    `[Open root](${href(root.id)})`,
+  );
+  await openSyntheticDesign();
+  fireEvent.click(await screen.findByRole("link", { name: "Open root" }));
+  await waitForPublishedReceipt(root.id);
+  const history = observedReadingHistory();
+  expect(history.hasPrevious()).toBe(true);
+  const { signal } = new AbortController();
+  account.readPostDestination.mockRejectedValueOnce(
+    new TypeError("Fixture offline"),
+  );
+  expect(await history.prepareReturn(signal)).toEqual({
+    kind: "failed",
+    reason: "network",
+  });
+  expect(history.hasPrevious()).toBe(true);
+  account.readPostAnchor.mockResolvedValueOnce({
+    postId: originPost.id,
+    channelId: design,
+    post: null,
+  });
+  expect(await history.prepareReturn(signal)).toEqual({ kind: "unavailable" });
+  expect(history.hasPrevious()).toBe(false);
+  fireEvent.click(await screen.findByRole("link", { name: "Open root" }));
+  await waitFor(() => expect(history.hasPrevious()).toBe(true));
+  const prepared = await history.prepareReturn(signal);
+  expect(prepared.kind).toBe("ready");
+  view.unmount();
+  if (prepared.kind !== "ready") throw new Error("Expected a live origin");
+  expect(prepared.commit()).toBe(false);
+  expect(await history.prepareReturn(signal)).toEqual({ kind: "empty" });
+});
+
+test.each([
+  "outside",
+  "refused",
+  "cancelled",
+  "incoming",
+  "another account",
+] as const)(
+  "a link %s does not add an origin to the active account",
+  async (path) => {
+    const address =
+      path === "outside"
+        ? foreign
+        : href(root.id, path === "another account" ? nested : base);
+    const { account, targetInfo } = publishedConversation(
+      `[Open link](${address})`,
+    );
+    await openSyntheticDesign();
+    const link = await screen.findByRole("link", { name: "Open link" });
+    const history = observedReadingHistory();
+    if (path === "outside") {
+      const standard = vi.mocked(invoke).getMockImplementation();
+      if (!standard) throw new Error("Missing native fixture");
+      vi.mocked(invoke).mockImplementation((cmd, args, options) =>
+        cmd === "open_external_post_link"
+          ? Promise.resolve()
+          : standard(cmd, args, options),
+      );
+    } else if (path === "refused") {
+      account.readPostDestination.mockRejectedValueOnce(
+        new ResponseError(new Response(null, { status: 403 })),
+      );
+    } else if (path === "cancelled") {
+      account.readPostDestination.mockResolvedValueOnce({
+        ...targetInfo,
+        channel: { ...targetInfo.channel, joined: false, kind: "P" },
+      });
+    } else if (path === "another account") {
+      type Connection = Awaited<ReturnType<typeof openAccountRestConnection>>;
+      vi.mocked(openAccountRestConnection).mockResolvedValueOnce({
+        ...account,
+        rid: 10,
+      } as unknown as Connection);
+    }
+    if (path === "incoming") act(() => enqueue("1", href(root.id)));
+    else fireEvent.click(link);
+    if (path === "outside") {
+      await waitFor(() =>
+        expect(invoke).toHaveBeenCalledWith("open_external_post_link", {
+          href: foreign,
+        }),
+      );
+      expect(account.readPostDestination).not.toHaveBeenCalled();
+    } else if (path === "refused") {
+      fireEvent.click(
+        await within(await screen.findByRole("dialog")).findByRole("button", {
+          name: "OK",
+        }),
+      );
+      expect(document.activeElement).toBe(link);
+    } else if (path === "cancelled") {
+      fireEvent.click(
+        await within(await screen.findByRole("dialog")).findByRole("button", {
+          name: "Cancel",
+        }),
+      );
+      await waitFor(() => expect(document.activeElement).toBe(link));
+      expect(account.changeOwnMembership).not.toHaveBeenCalled();
+    } else {
+      await waitForPublishedReceipt(root.id);
+      if (path === "incoming")
+        expect(acks).toEqual([{ id: "1", row: root.id, thread: false }]);
+      else
+        expect(openAccountRestConnection).toHaveBeenLastCalledWith(
+          nested,
+          otherUser,
+        );
+    }
+    expect(history.hasPrevious()).toBe(false);
+    expect(observedReadingHistory().hasPrevious()).toBe(false);
+  },
+);
+
+test("published reading retains the cross-team Saved return for a restored reply", async () => {
+  const { account } = boot({ cross: true });
+  const continuation = { ...reply, message: `[Open root](${href(root.id)})` };
+  const anchor = account.readPostAnchor.getMockImplementation();
+  if (!anchor) throw new Error("Missing anchor fixture");
+  account.readPostAnchor.mockImplementation(async (id, signal) =>
+    id === reply.id
+      ? { postId: id, channelId: design, rootId: root.id, post: continuation }
+      : anchor(id, signal),
+  );
+  account.readThreadPage.mockResolvedValue({
+    kind: "page",
+    root: { ...root, messageSource: undefined, rootId: "", deleteAt: 0 },
+    replies: [{ ...continuation, messageSource: undefined, deleteAt: 0 }],
+    next: null,
+  });
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Saved messages" }),
+  );
+  fireEvent.click(
+    await within(await savedPanel()).findByRole("button", {
+      name: /Saved reply preview/,
+    }),
+  );
+  const link = await screen.findByRole("link", { name: "Open root" });
+  await savedReturn();
+  fireEvent.click(link);
+  await waitForPublishedReceipt(root.id);
+  const returned = await observedReadingHistory().prepareReturn(
+    new AbortController().signal,
+  );
+  expect(returned.kind).toBe("ready");
+  if (returned.kind !== "ready")
+    throw new Error("Missing collection reading origin");
+  expect(returned.origin.collection).toMatchObject({
+    kind: "saved-team",
+    postId: reply.id,
+    source: { teamId: winter, channelId: home },
+  });
+  expect(returned.origin.rootId).toBe(root.id);
+  expect(account.readSavedPosts).toHaveBeenCalledTimes(1);
+});
+
+test.each([
+  "source",
+  "root",
+  "native account",
+  "closed window",
+  "network",
+  "403",
+] as const)(
+  "a prepared return handles %s changing while its anchor is read",
+  async (change) => {
+    const { account, view } = publishedConversation(
+      `[Open reply](${href(reply.id)})`,
+    );
+    await openSyntheticDesign();
+    fireEvent.click(await screen.findByRole("link", { name: "Open reply" }));
+    await waitForPublishedReceipt(reply.id);
+    fireEvent.click(
+      await screen.findByRole("link", { name: "Continue to the root" }),
+    );
+    await waitForPublishedReceipt(root.id);
+    const history = observedReadingHistory();
+    const readAnchor = account.readPostAnchor.getMockImplementation();
+    if (!readAnchor) throw new Error("Missing anchor fixture");
+    const heldId = change === "source" ? reply.id : root.id;
+    let started!: (signal: AbortSignal | undefined) => void;
+    const entered = new Promise<AbortSignal | undefined>((resolve) => {
+      started = resolve;
+    });
+    let rejectRead!: (cause: unknown) => void;
+    const held = new Promise<
+      Awaited<ReturnType<typeof account.readPostAnchor>>
+    >((_resolve, reject) => {
+      rejectRead = reject;
+    });
+    account.readPostAnchor.mockImplementation(async (id, signal) => {
+      if (id !== heldId) return readAnchor(id, signal);
+      started(signal);
+      return held;
+    });
+    const { signal } = new AbortController();
+    const pending = history.prepareReturn(signal);
+    const active = await entered;
+    expect(active?.aborted).toBe(false);
+    if (change === "closed window") {
+      view.unmount();
+      expect(active?.aborted).toBe(true);
+    }
+    const errors = {
+      source: new PostObservationSuperseded(),
+      root: new PostObservationSuperseded(),
+      "native account": new FetchError(
+        new TypeError("closed", { cause: "unknown_connection" }),
+      ),
+      "closed window": "cancelled",
+      network: new FetchError(new TypeError("Connection lost")),
+      "403": new ResponseError(new Response(null, { status: 403 })),
+    };
+    rejectRead(errors[change]);
+    expect(await pending).toEqual(
+      change === "network"
+        ? { kind: "failed", reason: "network" }
+        : { kind: change === "403" ? "unavailable" : "cancelled" },
+    );
+    account.readPostAnchor.mockImplementation(readAnchor);
+    if (change === "closed window") {
+      expect(await history.prepareReturn(signal)).toEqual({ kind: "empty" });
+      return;
+    }
+    const available = await history.prepareReturn(signal);
+    if (available.kind !== "ready")
+      throw new Error("A previously confirmed origin was lost");
+    expect(available.origin.postId).toBe(
+      change === "403" ? originPost.id : reply.id,
+    );
+    expect(available.commit()).toBe(true);
+  },
+);

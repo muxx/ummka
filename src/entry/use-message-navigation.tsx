@@ -3,10 +3,12 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import { openPostNavigation } from "../channels/post-navigation.ts";
+import { createPublishedReadingHistory } from "../channels/published-reading-history.ts";
 import type { TimelineRequest } from "../channels/timeline-reader.ts";
 import type { TimelinePlace } from "../channels/timeline-viewport.ts";
 import type { WorkspaceConnection } from "../channels/use-workspace-read.ts";
@@ -246,6 +248,7 @@ function DestinationDialog({
 export type MessageNavigation = {
   dialogOpen: boolean;
   position: Position | null;
+  publishedReading: ReturnType<typeof createPublishedReadingHistory> | null;
   open: (
     source: Source,
     signal: AbortSignal,
@@ -275,6 +278,10 @@ export function useMessageNavigation(
   ) => Promise<boolean>,
 ) {
   const [position, setPosition] = useState<Position | null>(null);
+  const publishedReading = useMemo(
+    () => connection && createPublishedReadingHistory(connection),
+    [connection],
+  );
   const [savedReturn, setSavedReturn] = useState<SavedCollectionReturn | null>(
     null,
   );
@@ -293,17 +300,22 @@ export function useMessageNavigation(
       returnFocus.current.focus({ preventScroll: true });
     returnFocus.current = null;
   }, [modal]);
-  const clear = useCallback((connection?: "offline") => {
-    external.current?.stop("paused", connection);
-    external.current = null;
-    current.current?.controller.abort();
-    current.current = null;
-    returnFocus.current = null;
-    setModal(null);
-    setPosition(null);
-    setSavedReturn(null);
-  }, []);
+  const clear = useCallback(
+    (connection?: "offline") => {
+      external.current?.stop("paused", connection);
+      external.current = null;
+      current.current?.controller.abort();
+      current.current = null;
+      returnFocus.current = null;
+      setModal(null);
+      setPosition(null);
+      setSavedReturn(null);
+      publishedReading?.interrupt();
+    },
+    [publishedReading],
+  );
   function captureTeamChange(teamId: string) {
+    publishedReading?.interrupt();
     const previous = counter.current;
     return () => {
       if (counter.current === previous) clear();
@@ -326,8 +338,9 @@ export function useMessageNavigation(
     return () => {
       current.current?.controller.abort();
       savedSurfaces.current.clear();
+      publishedReading?.close();
     };
-  }, [connection]);
+  }, [connection, publishedReading]);
   const revokeSaved = useCallback(
     (currentPosition: Position, activated: boolean) => {
       const saved = currentPosition.saved;
@@ -402,6 +415,7 @@ export function useMessageNavigation(
       current.current.controller.abort();
       setModal(null);
     }
+    if (!system) publishedReading?.interrupt();
     const requestId = ++counter.current;
     external.current = system?.request ?? null;
     const task = new AbortController(),
@@ -556,7 +570,7 @@ export function useMessageNavigation(
       if (
         !(await selectTeam(team, signal, commit, {
           channelId: destination.choosingChannel ? null : target.channelId,
-          fromTeam: saved?.teamId,
+          fromTeam: saved?.teamId ?? system?.request.publishedFromTeam,
         })) &&
         !signal.aborted
       )
@@ -583,6 +597,7 @@ export function useMessageNavigation(
     const task = new AbortController();
     const { signal } = task;
     current.current = { controller: task, kind: "return" };
+    publishedReading?.interrupt();
     counter.current++;
     const text = copy[language];
     const fromTeam = position.request.teamId;
@@ -694,6 +709,7 @@ export function useMessageNavigation(
   return {
     navigation: {
       position,
+      publishedReading,
       savedReturn,
       returnToSaved,
       endSaved,
