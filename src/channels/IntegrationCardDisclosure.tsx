@@ -1,7 +1,5 @@
 import {
-  createContext,
   type ReactNode,
-  useContext,
   useId,
   useLayoutEffect,
   useRef,
@@ -28,17 +26,15 @@ const clipped = "data-card-disclosure-clipped";
 const controls = "a[href], button, input, select, textarea, [tabindex]";
 const textFragment = "data-card-text-fragment";
 const textTail = "data-card-text-tail";
-const CardBody = createContext(false);
 
 // This leaf owns its text node. Measuring the visual line and splitting its
 // inaccessible tail never changes a React-managed child.
-export function PublishedText({ children }: { children: string }) {
-  const cardBody = useContext(CardBody);
+export function CardBodyText({ children }: { children: string }) {
   const ref = useRef<HTMLSpanElement>(null);
   useLayoutEffect(() => {
     if (ref.current) ref.current.textContent = children;
   }, [children]);
-  return cardBody ? <span ref={ref} data-card-text-fragment="" /> : children;
+  return <span ref={ref} data-card-text-fragment="" />;
 }
 
 function wholeLines(content: HTMLElement, top: number) {
@@ -227,7 +223,7 @@ export function IntegrationCardDisclosure({
           style={folded ? { maxBlockSize: height } : undefined}
         >
           <div className="published-card-body" ref={body}>
-            <CardBody value={true}>{children}</CardBody>
+            {children}
           </div>
         </div>
       )}

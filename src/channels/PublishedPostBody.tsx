@@ -11,8 +11,8 @@ import {
 import { isAndroid } from "../build-platform.ts";
 import type { IntegrationCard } from "../mattermost/integration-cards.ts";
 import {
+  CardBodyText,
   IntegrationCardDisclosure,
-  PublishedText,
 } from "./IntegrationCardDisclosure.tsx";
 import { CodeCopy, CodePreview } from "./PublishedCodeReader.tsx";
 import {
@@ -70,9 +70,11 @@ function useHorizontalRegion<T extends HTMLElement>(label: string) {
 function DesktopCode({
   block,
   locale,
+  clipText,
 }: {
   block: Extract<Block, { kind: "codeBlock" }>;
   locale: Locale;
+  clipText?: boolean;
 }) {
   const region = useHorizontalRegion<HTMLPreElement>(
     block.language
@@ -82,7 +84,7 @@ function DesktopCode({
   return (
     <div className="post-code-desktop">
       <pre {...region}>
-        <code>{block.text}</code>
+        <code>{bodyText(block.text, clipText)}</code>
       </pre>
       <CodeCopy source={block.text} locale={locale} />
     </div>
@@ -101,51 +103,60 @@ function MobileCode({
   return <CodePreview source={block} locale={locale} origin={origin} />;
 }
 
-function inlineNode(node: Inline, locale: Locale): React.ReactNode {
+function bodyText(text: string, clipText?: boolean) {
+  return clipText ? <CardBodyText>{text}</CardBodyText> : text;
+}
+
+function inlineNode(
+  node: Inline,
+  locale: Locale,
+  clipText?: boolean,
+): React.ReactNode {
   switch (node.kind) {
     case "text":
-      return <PublishedText>{node.text}</PublishedText>;
+      return bodyText(node.text, clipText);
     case "code":
-      return (
-        <code>
-          <PublishedText>{node.text}</PublishedText>
-        </code>
-      );
+      return <code>{bodyText(node.text, clipText)}</code>;
     case "lineBreak":
       return <br />;
     case "imageDescription":
       return (
         <PublishedPostLink target={node.target}>
-          <PublishedText>{node.text || labels[locale].image}</PublishedText>
+          {bodyText(node.text || labels[locale].image, clipText)}
         </PublishedPostLink>
       );
     case "emphasis":
-      return <em>{inlines(node.children, locale)}</em>;
+      return <em>{inlines(node.children, locale, clipText)}</em>;
     case "strong":
-      return <strong>{inlines(node.children, locale)}</strong>;
+      return <strong>{inlines(node.children, locale, clipText)}</strong>;
     case "strike":
-      return <del>{inlines(node.children, locale)}</del>;
+      return <del>{inlines(node.children, locale, clipText)}</del>;
     case "linkLabel":
       return (
         <PublishedPostLink target={node.target}>
-          {inlines(node.children, locale)}
+          {inlines(node.children, locale, clipText)}
         </PublishedPostLink>
       );
   }
 }
 
-function inlines(nodes: Inline[], locale: Locale) {
+function inlines(nodes: Inline[], locale: Locale, clipText?: boolean) {
   return nodes.map((node, index) => (
     // biome-ignore lint/suspicious/noArrayIndexKey: Document nodes are positional and carry no identity across edits.
-    <Fragment key={index}>{inlineNode(node, locale)}</Fragment>
+    <Fragment key={index}>{inlineNode(node, locale, clipText)}</Fragment>
   ));
 }
 
 type TableBlock = Extract<Block, { kind: "table" }>;
-type TableProps = { table: TableBlock; locale: Locale };
+type TableProps = { table: TableBlock; locale: Locale; clipText?: boolean };
 const PostReaderOrigin = createContext<ReaderOrigin | null>(null);
 
-function TableGrid({ table, locale, limit }: TableProps & { limit?: number }) {
+function TableGrid({
+  table,
+  locale,
+  limit,
+  clipText,
+}: TableProps & { limit?: number }) {
   function row(cells: Inline[][], heading: boolean) {
     const Cell = heading ? "th" : "td";
     return (limit === undefined ? cells : cells.slice(0, limit)).map(
@@ -156,7 +167,7 @@ function TableGrid({ table, locale, limit }: TableProps & { limit?: number }) {
           scope={heading ? "col" : undefined}
           style={{ textAlign: table.align[column] ?? undefined }}
         >
-          {inlines(cell, locale)}
+          {inlines(cell, locale, clipText)}
         </Cell>
       ),
     );
@@ -190,7 +201,7 @@ function InlineTable(props: TableProps) {
   );
 }
 
-function TablePreview({ table, locale }: TableProps) {
+function TablePreview({ table, locale, clipText }: TableProps) {
   const controls = useContext(PublishedReaderWindow);
   const origin = useContext(PostReaderOrigin);
   if (!controls || !origin)
@@ -233,7 +244,12 @@ function TablePreview({ table, locale }: TableProps) {
     <div className="post-table post-table-preview" ref={preview}>
       <div className="post-table-preview-grid">
         <PublishedLinkNavigation.Provider value={null}>
-          <TableGrid table={table} locale={locale} limit={limit} />
+          <TableGrid
+            table={table}
+            locale={locale}
+            limit={limit}
+            clipText={clipText}
+          />
         </PublishedLinkNavigation.Provider>
       </div>
       <button
@@ -275,13 +291,15 @@ function ListItem({
   item,
   loose,
   locale,
+  clipText,
 }: {
   item: ListBlock["items"][number];
   loose: boolean;
   locale: Locale;
+  clipText?: boolean;
 }) {
   if (item.checked === null)
-    return <li>{blocks(item.blocks, locale, !loose)}</li>;
+    return <li>{blocks(item.blocks, locale, { tight: !loose, clipText })}</li>;
   const first = item.blocks[0];
   const hasLabel = first?.kind === "paragraph" && first.children.length > 0;
   const Paragraph = loose ? "p" : Fragment;
@@ -295,49 +313,62 @@ function ListItem({
             disabled
             aria-label={hasLabel ? undefined : labels[locale].task}
           />
-          {hasLabel && inlines(first.children, locale)}
+          {hasLabel && inlines(first.children, locale, clipText)}
         </label>
       </Paragraph>
-      {blocks(hasLabel ? item.blocks.slice(1) : item.blocks, locale, !loose)}
+      {blocks(hasLabel ? item.blocks.slice(1) : item.blocks, locale, {
+        tight: !loose,
+        clipText,
+      })}
     </li>
   );
 }
 
 const headings = ["h1", "h2", "h3", "h4", "h5", "h6"] as const;
-function blockNode(block: Block, locale: Locale): React.ReactNode {
+function blockNode(
+  block: Block,
+  locale: Locale,
+  clipText?: boolean,
+): React.ReactNode {
   switch (block.kind) {
     case "paragraph":
-      return <p>{inlines(block.children, locale)}</p>;
+      return <p>{inlines(block.children, locale, clipText)}</p>;
     case "heading": {
       const Heading = headings[block.level - 1];
-      return <Heading>{inlines(block.children, locale)}</Heading>;
+      return <Heading>{inlines(block.children, locale, clipText)}</Heading>;
     }
     case "quote":
-      return <blockquote>{blocks(block.blocks, locale)}</blockquote>;
+      return (
+        <blockquote>{blocks(block.blocks, locale, { clipText })}</blockquote>
+      );
     case "table":
       return isAndroid ? (
-        <TablePreview table={block} locale={locale} />
+        <TablePreview table={block} locale={locale} clipText={clipText} />
       ) : (
-        <InlineTable table={block} locale={locale} />
+        <InlineTable table={block} locale={locale} clipText={clipText} />
       );
     case "codeBlock":
       return isAndroid ? (
         <MobileCode block={block} locale={locale} />
       ) : (
-        <DesktopCode block={block} locale={locale} />
+        <DesktopCode block={block} locale={locale} clipText={clipText} />
       );
     case "rule":
       return <hr />;
     case "literal":
       return (
-        <div className="post-literal">
-          <PublishedText>{block.text}</PublishedText>
-        </div>
+        <div className="post-literal">{bodyText(block.text, clipText)}</div>
       );
     case "list": {
       const children = block.items.map((item, index) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: The ordered document already owns each item's position.
-        <ListItem key={index} item={item} loose={block.loose} locale={locale} />
+        <ListItem
+          // biome-ignore lint/suspicious/noArrayIndexKey: The ordered document already owns each item's position.
+          key={index}
+          item={item}
+          loose={block.loose}
+          locale={locale}
+          clipText={clipText}
+        />
       ));
       const className = block.loose ? "post-loose-list" : undefined;
       return block.start === null ? (
@@ -350,13 +381,17 @@ function blockNode(block: Block, locale: Locale): React.ReactNode {
     }
   }
 }
-function blocks(nodes: Block[], locale: Locale, tight = false) {
+function blocks(
+  nodes: Block[],
+  locale: Locale,
+  { tight, clipText }: { tight?: boolean; clipText?: boolean } = {},
+) {
   return nodes.map((node, index) => (
     // biome-ignore lint/suspicious/noArrayIndexKey: The ordered document already owns each block's position.
     <Fragment key={index}>
       {tight && node.kind === "paragraph"
-        ? inlines(node.children, locale)
-        : blockNode(node, locale)}
+        ? inlines(node.children, locale, clipText)
+        : blockNode(node, locale, clipText)}
     </Fragment>
   ));
 }
@@ -467,7 +502,9 @@ function PublishedIntegrationCard({
             }
             footer={footer}
           >
-            {body.visible ? blocks(body.blocks, locale) : undefined}
+            {body.visible
+              ? blocks(body.blocks, locale, { clipText: true })
+              : undefined}
           </IntegrationCardDisclosure>
         </div>
       )}

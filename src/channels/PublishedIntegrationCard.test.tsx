@@ -42,6 +42,25 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+test("ordinary messages keep their text nodes without card measurement spans", () => {
+  const { container } = render(
+    <PublishedPostBody
+      message={"An ordinary **bold** paragraph.\n\n- An *emphasized* item"}
+      locale={locale}
+      authorName={authorName}
+    />,
+  );
+  const paragraph = container.querySelector("p");
+  expect(paragraph?.firstChild?.nodeType).toBe(Node.TEXT_NODE);
+  expect(paragraph?.querySelector("strong")?.firstChild?.nodeType).toBe(
+    Node.TEXT_NODE,
+  );
+  expect(container.querySelector("li em")?.firstChild?.nodeType).toBe(
+    Node.TEXT_NODE,
+  );
+  expect(container.querySelector("[data-card-text-fragment]")).toBeNull();
+});
+
 test("renders ordered, structured, linked card text from the cached data", async () => {
   const open = vi.fn();
   const cards: IntegrationCard[] = [
@@ -231,11 +250,11 @@ test("returns to a repeated link in its card section after an edit and rejects a
     fields: [],
     text: `[Same](${url}) · [Same](${url})`,
   };
-  function fixture(cards: IntegrationCard[]) {
+  function fixture(cards: IntegrationCard[], version = 1) {
     return (
       <PublishedLinkNavigation value={{ serverUrl, open: vi.fn() }}>
         <section className="timeline-scroll">
-          <article data-post-id="post">
+          <article data-post-id="post" data-post-version={version}>
             <PublishedPostBody
               message={`[Same](${url})`}
               locale={locale}
@@ -286,7 +305,15 @@ test("returns to a repeated link in its card section after an edit and rejects a
     teamId: "team",
   });
   if (!duplicate) throw Error("Duplicate origin is missing");
-  rerender(fixture([first]));
+  rerender(fixture([{ ...first }, { ...first }]));
+  expect(publishedOriginLink(row, duplicate.link)).toEqual({
+    link: row.querySelectorAll("a")[3],
+  });
+  rerender(fixture([first], 2));
+  expect(publishedOriginLink(row, duplicate.link)).toEqual({
+    notice: "unmatchedLink",
+  });
+  rerender(fixture([first, first], 3));
   expect(publishedOriginLink(row, duplicate.link)).toEqual({
     notice: "unmatchedLink",
   });

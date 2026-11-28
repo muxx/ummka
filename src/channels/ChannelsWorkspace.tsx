@@ -1649,6 +1649,7 @@ export function ChannelsWorkspace({
     const origin = linkPlacement.origin;
     let frame: number;
     let revealed = false;
+    let checkedResize = false;
     let clear: (() => void) | undefined;
     const focus = () => {
       const pane = host.current?.querySelector<HTMLElement>(
@@ -1697,14 +1698,40 @@ export function ChannelsWorkspace({
             : linkBounds.top -
               row.getBoundingClientRect().top -
               origin.link.offsetInPost;
-        const outside =
-          linkBounds.bottom <= paneBounds.top ||
-          linkBounds.top >= paneBounds.bottom;
-        const partlyHidden =
-          linkBounds.top < paneBounds.top ||
-          linkBounds.bottom > paneBounds.bottom;
-        if (outside || (partlyHidden && Math.abs(shift) > 1))
-          visibleLink.scrollIntoView({ block: "nearest", inline: "nearest" });
+        // The thread viewport is clipped by its frame while its ResizeObserver
+        // is still applying the new height after the return bar changes.
+        const frameBounds = pane
+          .closest(".timeline-frame")
+          ?.getBoundingClientRect();
+        const top = Math.max(
+          paneBounds.top,
+          frameBounds?.top ?? paneBounds.top,
+        );
+        const bottom = Math.min(
+          paneBounds.bottom,
+          frameBounds?.bottom ?? paneBounds.bottom,
+        );
+        const outside = linkBounds.bottom <= top || linkBounds.top >= bottom;
+        const partlyHidden = linkBounds.top < top || linkBounds.bottom > bottom;
+        if (outside || (partlyHidden && Math.abs(shift) > 1)) {
+          const targetTop =
+            pane.scrollTop +
+            (linkBounds.top < top
+              ? Math.floor(linkBounds.top - top)
+              : Math.ceil(linkBounds.bottom - bottom));
+          pane.scrollTop = targetTop;
+          if (
+            !checkedResize &&
+            paneBounds.bottom > bottom + 1 &&
+            pane.scrollTop < targetTop - 1
+          ) {
+            // At the end of a thread, the previous feed height can still limit
+            // the scroll range. Give its size observer one rendering step.
+            checkedResize = true;
+            frame = requestAnimationFrame(focus);
+            return;
+          }
+        }
       } else {
         row.tabIndex = -1;
       }

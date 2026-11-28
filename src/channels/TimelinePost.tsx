@@ -213,6 +213,9 @@ export function TimelinePost({
     <article
       className="timeline-post"
       data-post-id={post.id}
+      data-post-version={
+        !post.outgoing && post.cards?.length ? post.updateAt : undefined
+      }
       data-navigation-target={addressed || undefined}
       data-continuation={continuation || undefined}
       data-local-id={post.localId}

@@ -60,6 +60,7 @@ type CardLinkOrigin = {
   label: string;
   count: number;
   ambiguous: boolean;
+  ordered?: { version: string; position: number; signatures: string[] };
 };
 
 const renderedCards = new WeakMap<HTMLElement, IntegrationCard>();
@@ -86,13 +87,38 @@ function cardDetail(card: IntegrationCard) {
   ]);
 }
 
+function cardNodes(row: HTMLElement) {
+  return Array.from(row.querySelectorAll<HTMLElement>("[data-published-card]"));
+}
+
+function cardSignatures(nodes: readonly HTMLElement[]) {
+  return nodes.map((node) => {
+    const card = renderedCards.get(node);
+    return card ? JSON.stringify([cardIdentity(card), cardDetail(card)]) : "";
+  });
+}
+
+function unchangedCard(
+  row: HTMLElement,
+  origin: NonNullable<CardLinkOrigin["ordered"]>,
+) {
+  if (row.dataset.postVersion !== origin.version) return;
+  const nodes = cardNodes(row);
+  const signatures = cardSignatures(nodes);
+  if (
+    signatures.length === origin.signatures.length &&
+    signatures.every(
+      (signature, index) => signature && signature === origin.signatures[index],
+    )
+  )
+    return nodes[origin.position];
+}
+
 function cardMatches(
   row: HTMLElement,
   { identity, detail }: Pick<CardLinkOrigin, "identity" | "detail">,
 ) {
-  return Array.from(
-    row.querySelectorAll<HTMLElement>("[data-published-card]"),
-  ).filter((node) => {
+  return cardNodes(row).filter((node) => {
     const card = renderedCards.get(node);
     return (
       card &&
@@ -148,8 +174,13 @@ export function publishedOriginLink(
     return { notice: sameLink ? "unmatchedLink" : "edited" };
   }
   const matches = cardMatches(row, card);
-  if (card.ambiguous || matches.length !== 1) return unconfirmed();
-  const links = cardLinkMatches(matches[0], card, href);
+  const matchedCard = card.ambiguous
+    ? card.ordered && unchangedCard(row, card.ordered)
+    : matches.length === 1
+      ? matches[0]
+      : undefined;
+  if (!matchedCard) return unconfirmed();
+  const links = cardLinkMatches(matchedCard, card, href);
   if (links.length !== card.count) return unconfirmed();
   return { link: links[occurrence] };
 }
@@ -196,13 +227,24 @@ export function capturePublishedReadingOrigin(
         : undefined;
     const label = anchor.textContent?.trim() ?? "";
     const links = cardLinkMatches(cardNode, { part, label }, href);
+    const ambiguous = cardMatches(row, { identity, detail }).length !== 1;
+    const version = row.dataset.postVersion;
+    const nodes = ambiguous && version ? cardNodes(row) : undefined;
     card = {
       identity,
       detail,
       part,
       label,
       count: links.length,
-      ambiguous: cardMatches(row, { identity, detail }).length !== 1,
+      ambiguous,
+      ...(nodes &&
+        version && {
+          ordered: {
+            version,
+            position: nodes.indexOf(cardNode),
+            signatures: cardSignatures(nodes),
+          },
+        }),
     };
     occurrence = links.indexOf(anchor);
   } else {
