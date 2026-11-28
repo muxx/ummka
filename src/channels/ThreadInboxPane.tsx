@@ -123,6 +123,7 @@ export function ThreadInboxPane({
   );
   const origin = useRef<ThreadInboxPlace | null>(null);
   const restored = useRef<ThreadInboxPlace | undefined>(undefined);
+  const lastSelection = useRef<string | undefined>(undefined);
   useLayoutEffect(() => {
     if (place && restored.current !== place) {
       restored.current = place;
@@ -144,6 +145,7 @@ export function ThreadInboxPane({
         position: listPlace(scroller.current),
       };
     }
+    lastSelection.current = row.id;
     capture?.(origin.current);
     choose(row);
   }
@@ -156,17 +158,24 @@ export function ThreadInboxPane({
     }
     if (page.status === "idle" || page.status === "loading") return;
     origin.current = null;
+    const current = lastSelection.current;
+    lastSelection.current = undefined;
     const list = scroller.current;
     queueMicrotask(() => {
       if (!list?.isConnected) return;
       restoreList(list, place.position);
+      const selectedRow =
+        current === place.id
+          ? undefined
+          : rows.find((row) => row.id === current);
       const target =
+        selectedRow ??
         rows.find((row) => row.id === place.id) ??
         rows[Math.min(place.index, rows.length - 1)];
-      (target
+      const control = target
         ? list.querySelector<HTMLElement>(`[data-inbox-id="${target.id}"]`)
-        : document.getElementById(`${prefix}-${tab}`)
-      )?.focus({ preventScroll: true });
+        : document.getElementById(`${prefix}-${tab}`);
+      control?.focus({ preventScroll: !selectedRow });
     });
   }, [model, page.status, rows, selected, restoring, tab, prefix]);
   const error = !["idle", "loading", "ready"].includes(page.status);
