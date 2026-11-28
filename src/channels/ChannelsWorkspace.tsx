@@ -809,6 +809,17 @@ export function ChannelsWorkspace({
   const collectionDestination = collectionIndex >= 0 ? collections.view : null;
   const savedSource = position?.saved;
   const savedRevoked = position?.savedRevoked;
+  const [savedReminder, setSavedReminder] = useState<{
+    source: NonNullable<typeof savedSource>;
+    sequence: number;
+  }>();
+  if (savedReminder && savedReminder.source !== savedSource)
+    setSavedReminder(undefined);
+  useEffect(() => {
+    if (!savedReminder) return;
+    const timer = window.setTimeout(() => setSavedReminder(undefined), 2600);
+    return () => window.clearTimeout(timer);
+  }, [savedReminder]);
   const [readRevocation, setReadRevocation] = useState<typeof savedRevoked>();
   const revocationActive = savedRevoked && savedRevoked !== readRevocation;
   useEffect(() => {
@@ -1509,6 +1520,12 @@ export function ChannelsWorkspace({
                   backLabel={collectionLabels.savedBack}
                   language={language}
                   sourceTeam={savedSource.teamName}
+                  remind={() =>
+                    setSavedReminder((previous) => ({
+                      source: savedSource,
+                      sequence: (previous?.sequence ?? 0) + 1,
+                    }))
+                  }
                   blocked={!online || workspace.messages.dialogOpen}
                   back={returnToSaved}
                   end={endCollection}
@@ -1834,6 +1851,14 @@ export function ChannelsWorkspace({
       )}
       {(savedSource || savedRevoked) && (
         <div role="status">
+          {savedReminder && savedReminder.source === savedSource && (
+            <span
+              key={savedReminder.sequence}
+              className="post-action-notice saved-return-notice"
+            >
+              {collectionLabels.savedIn(savedReminder.source.teamName)}
+            </span>
+          )}
           {revocationActive && (
             <span className="post-action-notice saved-return-notice">
               {collectionLabels.revokedSource(savedRevoked.name)}
