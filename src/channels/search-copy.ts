@@ -1,3 +1,8 @@
+const searchWhereEn = (team: string | null) =>
+  team === null ? "across all teams" : `in “${team}”`;
+const searchWhereRu = (team: string | null) =>
+  team === null ? "во всех командах" : `в «${team}»`;
+
 export const searchCopy = {
   en: {
     back: "Back to results",
@@ -36,13 +41,19 @@ export const searchCopy = {
     saveError: "Couldn’t save recent searches.",
     readError: "Couldn’t load search settings.",
     results: "Search results",
-    empty: "No matches.",
+    empty: (terms: string) => `No results for “${terms}”`,
+    emptyHint: "Check the spelling or remove a filter.",
+    emptyWithTab: (kind: "posts" | "files") =>
+      `Check the spelling, remove a filter, or switch to ${kind === "posts" ? "Files" : "Messages"}.`,
     emptyQuery: "What are you looking for?",
-    loading: "Searching…",
+    emptyQueryHint: "Open Search, enter a term or filter, and press Enter.",
+    loading: (team: string | null) => `Searching ${searchWhereEn(team)}…`,
+    updating: "Updating the list…",
     retry: "Try again",
     more: "Load more",
     unavailable: "These results are no longer available.",
     failed: "Couldn’t load results.",
+    failedIn: (team: string | null) => `Search ${searchWhereEn(team)} failed`,
     interrupted: "Search interrupted.",
     offline: "You’re offline.",
     retention: "Some older results are unavailable.",
@@ -89,13 +100,21 @@ export const searchCopy = {
     saveError: "Не удалось сохранить недавние запросы.",
     readError: "Не удалось загрузить настройки поиска.",
     results: "Результаты поиска",
-    empty: "Совпадений нет.",
+    empty: (terms: string) => `Нет результатов для «${terms}»`,
+    emptyHint: "Проверьте написание или уберите фильтр.",
+    emptyWithTab: (kind: "posts" | "files") =>
+      `Проверьте написание, уберите фильтр или переключитесь на ${kind === "posts" ? "файлы" : "сообщения"}.`,
     emptyQuery: "Что найти?",
-    loading: "Ищем…",
+    emptyQueryHint:
+      "Откройте поиск в шапке, введите слово или фильтр и нажмите Enter.",
+    loading: (team: string | null) => `Ищем ${searchWhereRu(team)}…`,
+    updating: "Обновляем список…",
     retry: "Повторить",
     more: "Показать ещё",
     unavailable: "Эти результаты больше недоступны.",
     failed: "Не удалось загрузить результаты.",
+    failedIn: (team: string | null) =>
+      `Поиск ${searchWhereRu(team)} не выполнен`,
     interrupted: "Поиск прерван.",
     offline: "Нет соединения.",
     retention: "Часть старых результатов недоступна.",
