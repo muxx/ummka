@@ -9,11 +9,11 @@ import {
 } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
 import type { IntegrationCard } from "../mattermost/integration-cards.ts";
+import { CollectionHeader } from "./CollectionHeader.tsx";
 import { CollectionReadNotice } from "./CollectionReadNotice.tsx";
 import { CollectionScroll, restoreCollectionRow } from "./CollectionScroll.tsx";
 import { collectionCopy } from "./collection-copy.ts";
 import type { openMentionList } from "./mention-list.ts";
-import { PaneSizeToggle } from "./PaneWidthControls.tsx";
 import { publishedPostSummary } from "./published-post-summary.ts";
 import "./mentions.css";
 
@@ -56,23 +56,6 @@ export function MentionMark() {
     </svg>
   );
 }
-function PanelGlyph({ path }: { path: string }) {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d={path} />
-    </svg>
-  );
-}
 
 const MentionExcerpt = memo(function MentionExcerpt({
   message,
@@ -85,6 +68,7 @@ const MentionExcerpt = memo(function MentionExcerpt({
 });
 
 export function MentionsPane({
+  compact,
   state,
   model,
   language,
@@ -97,6 +81,7 @@ export function MentionsPane({
   restore,
   close,
 }: {
+  compact: boolean;
   state: Snapshot;
   model: Model;
   language: EntryLanguage;
@@ -113,7 +98,7 @@ export function MentionsPane({
     common = collectionCopy[language];
   const id = useId();
   const heading = useRef<HTMLHeadingElement>(null);
-  const list = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLElement>(null);
   const edge = useRef<HTMLButtonElement>(null);
   const focusedPage = useRef<number | null>(null);
   const readNext = useCallback(() => {
@@ -177,36 +162,18 @@ export function MentionsPane({
       data-standalone={standalone || undefined}
       aria-labelledby={id}
     >
-      <header className="channels-pane-head mentions-head">
-        <button
-          type="button"
-          className="channels-icon-action mentions-mobile-back"
-          aria-label={text.close}
-          onClick={close}
-        >
-          <PanelGlyph path="m12 5-7 7 7 7M5 12h15" />
-        </button>
-        <div className="mentions-heading">
-          <div>
-            <MentionMark />
-            <h2 ref={heading} tabIndex={-1} id={id}>
-              {text.title}
-            </h2>
-          </div>
-          <p>{team}</p>
-        </div>
-        <PaneSizeToggle />
-        <button
-          type="button"
-          className="channels-icon-action mentions-desktop-action"
-          aria-label={text.close}
-          title={text.close}
-          onClick={close}
-        >
-          <PanelGlyph path="m6 6 12 12M18 6 6 18" />
-        </button>
-      </header>
-      <CollectionScroll pane={list}>
+      <CollectionHeader
+        compact={compact}
+        icon={<MentionMark />}
+        caption={team}
+        closeLabel={text.close}
+        close={close}
+      >
+        <h2 ref={heading} tabIndex={-1} id={id}>
+          {text.title}
+        </h2>
+      </CollectionHeader>
+      <CollectionScroll pane={list} label={collectionCopy[language].content}>
         <CollectionReadNotice
           kind="mentions"
           status={state.status}

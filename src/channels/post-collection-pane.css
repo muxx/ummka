@@ -318,33 +318,6 @@
   background: var(--accent);
   color: var(--on-accent);
 }
-.collection-heading {
-  min-width: 0;
-  flex: 1;
-  padding-block: 0.45rem;
-}
-.collection-heading span {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--muted);
-  font-size: 0.8rem;
-}
-.collection-mobile-close {
-  display: none;
-}
-@container (width <= 740px) {
-  .collection-close {
-    order: -1;
-  }
-  .collection-desktop-close {
-    display: none;
-  }
-  .collection-mobile-close {
-    display: initial;
-  }
-}
 .collection-edge {
   display: flex;
   align-items: center;

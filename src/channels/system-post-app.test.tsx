@@ -2207,13 +2207,17 @@ test("stepping from a local saved post opens the cross-team reply and does not s
     ],
     firstInaccessiblePostTime: 0,
   });
-  fireEvent.click(within(pane).getByRole("button", { name: "Refresh" }));
-  await within(pane).findByText("Saved messages updated");
-  await within(pane).findByRole("button", {
+  fireEvent.click(
+    within(pane).getByRole("button", { name: "Close collection" }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Saved messages" }));
+  const reopened = await savedPanel();
+  await within(reopened).findByText("Saved messages updated");
+  await within(reopened).findByRole("button", {
     name: /Another client saved it again/,
   });
   expect(
-    within(pane).queryByText("This message is no longer saved"),
+    within(reopened).queryByText("This message is no longer saved"),
   ).toBeNull();
 });
 

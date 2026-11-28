@@ -1959,6 +1959,7 @@ export function ChannelsWorkspace({
             !mentionPolicyChanged &&
             collections.view.kind === "mentions" ? (
             <MentionsPane
+              compact={compact}
               key={collections.view.key}
               state={collections.mentionState}
               model={collections.view.model}
@@ -1983,6 +1984,7 @@ export function ChannelsWorkspace({
             collections.state &&
             pinsAvailable ? (
             <PostCollectionPane
+              compact={compact}
               key={collections.view.key}
               model={collections.view.model}
               state={collections.state}
