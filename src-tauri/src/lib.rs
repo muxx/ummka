@@ -138,6 +138,13 @@ fn build<R: Runtime>(builder: Builder<R>, context: Context<R>) -> tauri::Result<
                         r#"{"identifier":"fixture-system-post-window","local":true,"webviews":["main"],"permissions":["allow-check-system-post-window"]}"#,
                     )?;
                 }
+                if std::env::var("UMMKA_CHECK_MACOS_INBOX_FOCUS").as_deref() == Ok("1")
+                    && std::env::var("UMMKA_CHECK_SCENARIO").as_deref() == Ok("thread-inbox")
+                {
+                    app.add_capability(include_str!(
+                        "../../scripts/webview-check/inbox-focus-capability.json"
+                    ))?;
+                }
                 // Setup runs on the main thread. The Tauri window owns this NSWindow.
                 let native = unsafe { &*main.ns_window()?.cast::<objc2_app_kit::NSWindow>() };
                 if std::env::var_os("UMMKA_CHECK_KEY_INPUT").is_some() {
@@ -221,7 +228,11 @@ pub fn run() {
                 assert!(
                     matches!(
                         scenario.as_str(),
-                        "formatting-320" | "formatting-820" | "workspace-back" | "external-handoff"
+                        "formatting-320"
+                            | "formatting-820"
+                            | "workspace-back"
+                            | "thread-inbox"
+                            | "external-handoff"
                     ) || check_link_window
                 );
                 if check_link_window {

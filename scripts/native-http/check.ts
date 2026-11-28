@@ -16,16 +16,16 @@ assert(
   "expected macos or android",
 );
 const workspaceBackOnly = process.argv[3] === "workspace-back";
+const inboxOnly = process.argv[3] === "thread-inbox";
+const fullSuite = !workspaceBackOnly && !inboxOnly;
 assert(
   process.argv.length === 3 ||
-    (process.argv.length === 4 && platform === "macos" && workspaceBackOnly),
-  "expected optionally 'workspace-back' for macOS",
+    (process.argv.length === 4 && platform === "macos" && !fullSuite),
+  "expected optionally 'workspace-back' or 'thread-inbox' for macOS",
 );
 const dir = await mkdtemp(join(tmpdir(), "ummka-http-"));
 const external =
-  platform === "macos" && !workspaceBackOnly
-    ? await macExternalLinkReceiver()
-    : null;
+  platform === "macos" && fullSuite ? await macExternalLinkReceiver() : null;
 try {
   const fixture = await startFixture(dir, external?.receipt);
   try {
@@ -48,7 +48,7 @@ try {
         fixture.webviewProgress,
       );
     else {
-      if (!workspaceBackOnly) {
+      if (fullSuite) {
         const result = await promisify(execFile)(
           "cargo",
           [
@@ -83,14 +83,14 @@ try {
             registerKey: fixture.onMacInputReady,
             progress: fixture.webviewProgress,
           },
-          { workspaceBackOnly, externalHandoff: external !== null },
+          { workspaceBackOnly, inboxOnly, externalHandoff: external !== null },
         );
       } catch (error) {
         console.error("macOS WebView fixture:", fixture.webviewProgress());
         throw error;
       }
     }
-    if (!workspaceBackOnly) {
+    if (fullSuite) {
       external?.verify();
       fixture.verify(platform === "android");
       console.log(

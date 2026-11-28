@@ -648,3 +648,21 @@ test("cancelling a first unread reread preserves the need to fetch past the reta
   await canceled;
   expect(view.getSnapshot().page.rows).toEqual(expected);
 });
+test("leaving the inbox discards a late page and accepts sidebar totals without reading a hidden list", async () => {
+  const { account, view } = setup();
+  const list = deferred<Page>(),
+    counts = deferred<typeof totals>();
+  account.readFollowedThreads.mockReturnValueOnce(list.promise);
+  account.readFollowedThreadTotals.mockReturnValueOnce(counts.promise);
+  const open = view.show("unread");
+  await Promise.resolve();
+  view.hide();
+  expect(account.readFollowedThreads.mock.calls[0][1]?.aborted).toBe(true);
+  counts.resolve(totals);
+  list.resolve(page([a]));
+  await open;
+  expect(view.getSnapshot().totals).toEqual({ status: "ready", value: totals });
+  expect(view.getSnapshot().page.rows).toBeNull();
+  expect(account.readFollowedThreads).toHaveBeenCalledTimes(1);
+  expect(account.readFollowedThreadTotals).toHaveBeenCalledTimes(1);
+});

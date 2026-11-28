@@ -181,9 +181,11 @@ export async function checkMacWebview(
   fixture: InteractiveFixture,
   {
     workspaceBackOnly,
+    inboxOnly,
     externalHandoff,
   }: {
     workspaceBackOnly: boolean;
+    inboxOnly: boolean;
     externalHandoff: boolean;
   },
 ) {
@@ -234,7 +236,7 @@ export async function checkMacWebview(
       UMMKA_CHECK_SEED_ACCOUNTS: "1",
     });
     // A width has its own scrolling tree and dies before the next window opens.
-    if (!workspaceBackOnly) {
+    if (!workspaceBackOnly && !inboxOnly) {
       for (const width of [320, 820])
         await launch(
           `formatting-${width}`,
@@ -246,6 +248,15 @@ export async function checkMacWebview(
           fixture,
         );
       await launch("PASS", { ...env, UMMKA_CHECK_KEY_INPUT: "1" }, fixture);
+    }
+    if (!workspaceBackOnly) {
+      await launch(
+        "thread-inbox",
+        { ...env, UMMKA_CHECK_SCENARIO: "thread-inbox" },
+        fixture,
+        30_000,
+      );
+      if (inboxOnly) return;
     }
     // Back needs an active window and an independent event loop, even after
     // the preceding REST and formatting checks have completed successfully.

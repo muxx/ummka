@@ -259,6 +259,11 @@ pub(crate) fn seed_check_sessions(
                 "fixture-second-session",
             ),
             (
+                &format!("{root}/inbox-window"),
+                "ffffffffffffffffffffffffff",
+                "fixture-browser-action",
+            ),
+            (
                 collections.as_str(),
                 "ffffffffffffffffffffffffff",
                 "fixture-browser-action",
@@ -332,6 +337,7 @@ pub(crate) fn report_check<R: Runtime>(webview: &Webview<R>, url: &tauri::Url) {
             | "formatting-320"
             | "formatting-820"
             | "workspace-back"
+            | "thread-inbox"
             | "external-handoff"),
         ) = url.query()
         {

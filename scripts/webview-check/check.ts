@@ -15,12 +15,12 @@ import { androidFixtureStep, fixtureStep } from "./fixture-step.ts";
 import { checkDesktopFormatting, checkGeneratedRequests } from "./generated.ts";
 import { checkNotificationSoundAssets } from "./notification-sounds.ts";
 import { checkPaletteSurfaces } from "./palette.ts";
-
 import {
   checkSystemPostWindowRestore,
   resumeRegistryCheck,
   seedRegistry,
 } from "./registry.ts";
+import { checkThreadInboxWindow } from "./thread-inbox-window.tsx";
 
 const fetch = window.fetch.bind(window);
 let direct = 0;
@@ -97,6 +97,15 @@ async function checkResources() {
     location.replace(`/ipc-result.html?${scenario}`);
     return;
   }
+  const inboxWindow = () =>
+    fixtureStep("thread-inbox-window", () =>
+      checkThreadInboxWindow(`https://127.0.0.1:${ports[0]}/inbox-window`),
+    );
+  if (scenario === "thread-inbox") {
+    await inboxWindow();
+    location.replace("/ipc-result.html?thread-inbox");
+    return;
+  }
   if (scenario === "workspace-back") {
     await checkBrowserAction(ports[0], ports[1]);
     if (import.meta.env.VITE_UMMKA_CHECK_WORKSPACE_BACK !== true)
@@ -161,6 +170,7 @@ async function checkResources() {
       throw Error("External URL validation failed");
     const android = navigator.userAgent.includes("Android");
     if (android) {
+      await inboxWindow();
       await openExternalPostLink(
         "https://external.ummka.invalid/post/@bear?value=a%2Fb#anchor",
       );
