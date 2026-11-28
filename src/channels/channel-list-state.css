@@ -31,3 +31,47 @@
 .channel-list-more:not([aria-disabled]):hover {
   text-decoration: underline;
 }
+
+.channel-member-results,
+.channel-files-body,
+.channel-bookmark-body {
+  overflow-anchor: none;
+}
+
+.channel-section-detail {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 8px;
+  margin-block-start: 2px;
+}
+.channel-section-detail span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.channel-section-detail .channel-section-retry {
+  position: relative;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: var(--panel-secondary-size);
+  line-height: var(--panel-secondary-line);
+  font-weight: var(--panel-emphasis);
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.channel-section-retry:hover {
+  text-decoration: underline;
+}
+@container (width <= 740px) {
+  .channel-section-retry::before {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    inset-block-end: -4px;
+    min-inline-size: 44px;
+    block-size: max(44px, 100%);
+  }
+}
