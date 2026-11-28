@@ -130,7 +130,15 @@ test("saved reads capture scope, keep server order and request just the first pa
 });
 
 test.each([
-  [new Error("offline"), "network", true],
+  [new Error("unclassified"), "unknown", true],
+  [new TypeError("Invalid Mattermost collection membership."), "unknown", true],
+  [new ResponseError(new Response(null, { status: 503 })), "unknown", true],
+  [
+    new TypeError("Native REST request failed", { cause: "network" }),
+    "network",
+    true,
+  ],
+  ["history_storage_unavailable", "storage", true],
   [
     new ResponseError(new Response(null, { status: 401 })),
     "unauthorized",
@@ -579,7 +587,9 @@ test("suspending saved messages retains the answer, cancels a read and opens fro
   account.readSavedPosts
     .mockResolvedValueOnce(page)
     .mockReturnValueOnce(abandoned.promise)
-    .mockRejectedValueOnce(new TypeError("offline"))
+    .mockRejectedValueOnce(
+      new TypeError("Native REST request failed", { cause: "network" }),
+    )
     .mockResolvedValueOnce(empty);
   const view = openPostCollection(account, { kind: "all" });
   await view.refresh();

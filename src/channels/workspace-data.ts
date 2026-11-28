@@ -21,6 +21,18 @@ const localErrors = new Set([
   "invalid_history_request",
 ]);
 
+function nativeFailureCode(error: unknown) {
+  const native = error instanceof FetchError ? error.cause : error;
+  return native instanceof TypeError ? native.cause : native;
+}
+
+export function collectionReadFailure(error: unknown) {
+  const issue = workspaceFailure(error, "network");
+  return issue === "network" && nativeFailureCode(error) !== "network"
+    ? "unknown"
+    : issue;
+}
+
 export function workspaceFailure(
   error: unknown,
   source: "storage" | "network",
@@ -31,8 +43,7 @@ export function workspaceFailure(
     if (error.response.status === 403 || error.response.status === 404)
       return "forbidden";
   }
-  const native = error instanceof FetchError ? error.cause : error;
-  const code = native instanceof TypeError ? native.cause : native;
+  const code = nativeFailureCode(error);
   if (typeof code === "string") {
     if (
       code === "session_unavailable" ||

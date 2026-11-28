@@ -41,7 +41,7 @@ export class CollectionScroll extends Component<Props> {
     const focused =
       active instanceof HTMLButtonElement &&
       pane?.contains(active) &&
-      active.hasAttribute("data-collection-post")
+      active.matches("[data-collection-post], .collection-read-notice button")
         ? active
         : null;
     if (!pane?.clientHeight || pane.scrollTop <= 1)
