@@ -95,7 +95,7 @@ type InboxWindow = {
   retained?: ParkedThreadWindow;
   restoreFocus?: boolean;
   park?: (window: ParkedThreadWindow) => void;
-  register?: (capture: () => void) => () => void;
+  register?: (id: string, capture: () => void) => () => void;
 };
 type Props = {
   connection: WorkspaceConnection;
@@ -182,7 +182,7 @@ export function ThreadPane(props: Props) {
         )
       : undefined;
     setSession({ reader, following });
-    const unregister = registerWindow?.(() => {
+    const unregister = registerWindow?.(rootId, () => {
       if (!park || prepared) return;
       const place = feed.current?.getReadingPlace();
       const replies = place && reader.retain(place);

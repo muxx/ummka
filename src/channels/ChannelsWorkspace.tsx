@@ -2377,7 +2377,8 @@ export function ChannelsWorkspace({
                   >
                     {selection?.issue === "limited"
                       ? inboxText.limited
-                      : selection?.parked && selection.issue === "forbidden"
+                      : selection?.retainedAccessRevoked &&
+                          selection.issue === "forbidden"
                         ? inboxText.accessRevoked
                         : selection?.issue &&
                             selection.issue !== "network" &&
