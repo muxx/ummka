@@ -13,12 +13,14 @@ import {
   directPartnerId,
   indexChannelProfiles,
 } from "../mattermost/channel-profiles.ts";
+import { parseChannelsLink } from "../mattermost/channels-link.ts";
 import {
   conversationTitleMatch,
   knownConversationTerm,
   prepareKnownConversationSearch,
 } from "../mattermost/known-conversation-search.ts";
 import type { SavedProfiles } from "../mattermost/native-rest.ts";
+import { routeChannelsLink } from "../mattermost/route-channels-link.ts";
 import { sidebarCategoryName } from "../mattermost/sidebar-rows.ts";
 import type { TeamSidebar } from "../mattermost/team-sidebar.ts";
 import type { WorkspacePreferences } from "../mattermost/workspace-preferences.ts";
@@ -32,37 +34,55 @@ const copy = {
   en: {
     open: "Find a channel",
     field: "Find a channel or direct message",
-    placeholder: "Channel or direct message",
+    placeholder: "Channel, direct message or link",
+    link: "Mattermost link",
+    post: "Go to message",
+    room: "Go to conversation",
+    check: "The server will check access",
+    saved: "Open a conversation saved in this team.",
+    missing: "This conversation isn’t saved in this team.",
+    unmatched: "This address doesn’t belong to the current server.",
+    offline: "Connect to the server to open this message.",
     recent: "Recent",
     matches: "Channels and direct messages",
     empty: "No conversations found",
     archived: "Archived",
     unread: "Unread messages",
-    keyboard: "↑ ↓ choose · Enter open · Esc close",
+    keyboard: "↑ ↓ choose · Enter open · Esc close · paste a message link",
     count: (total: number) => `Conversations found: ${total}`,
     loading: "Loading saved conversations…",
-    hint: "Try another name. Use the search in the top bar to find messages.",
+    hint: "Try another name or paste a message link. Use the search in the top bar to find messages.",
     close: "Close",
   },
   ru: {
     open: "Найти канал",
     field: "Найти канал или личную переписку",
-    placeholder: "Канал или личная переписка",
+    placeholder: "Канал, личная переписка или ссылка",
+    link: "Ссылка Mattermost",
+    post: "Перейти к сообщению",
+    room: "Перейти к беседе",
+    check: "Доступ проверит сервер",
+    saved: "Откроется сохранённая беседа этой команды.",
+    missing: "Этой беседы нет в сохранённых каналах команды.",
+    unmatched: "Адрес не относится к текущему серверу.",
+    offline: "Для перехода к сообщению нужно подключение к серверу.",
     recent: "Недавние",
     matches: "Каналы и личные сообщения",
     empty: "Беседа не найдена",
     archived: "В архиве",
     unread: "Есть непрочитанные",
-    keyboard: "↑ ↓ выбрать · Enter открыть · Esc закрыть",
+    keyboard:
+      "↑ ↓ выбрать · Enter открыть · Esc закрыть · ссылку на сообщение можно вставить",
     count: (total: number) => `Нашлось бесед: ${total}`,
     loading: "Загружаем сохранённые беседы…",
-    hint: "Проверьте название. Слова из переписки ищет поле «Поиск» в шапке.",
+    hint: "Проверьте название или вставьте ссылку на сообщение. Слова из переписки ищет поле «Поиск» в шапке.",
     close: "Закрыть",
   },
 };
 
 const icons = {
   close: "M5 5l14 14 M19 5 5 19",
+  link: "M10 13a4 4 0 0 0 6 0l3-3a4 4 0 0 0-6-6l-2 2 M14 11a4 4 0 0 0-6 0l-3 3a4 4 0 0 0 6 6l2-2",
   search: "M20 20l-5-5 M10.5 4a6.5 6.5 0 1 0 0 13a6.5 6.5 0 1 0 0-13Z",
   O: "M5 8h15 M4 16h15 M11 3 7 21 M18 3l-4 18",
   P: "M8 10V7a4 4 0 1 1 8 0v3 M6 10h12v10H6z",
@@ -89,6 +109,9 @@ function SwitchIcon({ kind }: { kind: keyof typeof icons }) {
 
 type Source = {
   connection: Pick<WorkspaceConnection, "readSavedProfiles">;
+  serverUrl: string;
+  teamName: string;
+  online: boolean;
   snapshot: TeamSidebar | null;
   preferences: WorkspacePreferences | null;
   visible: SavedProfiles;
@@ -102,10 +125,12 @@ type Source = {
 function QuickSwitchDialog({
   source,
   choose,
+  openPost,
   dismiss,
 }: {
   source: Source;
   choose: (id: string) => void;
+  openPost: (postId: string) => void;
   dismiss: () => void;
 }) {
   const {
@@ -128,6 +153,13 @@ function QuickSwitchDialog({
   const [term, setTerm] = useState("");
   const [cursor, setCursor] = useState<string | null>(null);
   const channels = snapshot?.data.channels;
+  const catalog = useRef(snapshot);
+  useLayoutEffect(() => {
+    catalog.current = snapshot;
+  }, [snapshot]);
+  const resolving = useRef<AbortController | null>(null);
+  const [linkError, setLinkError] = useState("");
+  useLayoutEffect(() => () => resolving.current?.abort(), []);
   const [local, setLocal] = useState<{
     channels: typeof channels;
     account: Source["connection"];
@@ -208,7 +240,58 @@ function QuickSwitchDialog({
     return titles;
   }, [categories, language]);
   const query = knownConversationTerm(term);
-  const rows = useMemo(() => search?.(term) ?? [], [search, term]);
+  const parsed = useMemo(
+    () => parseChannelsLink(source.serverUrl, term),
+    [source.serverUrl, term],
+  );
+  const link =
+    parsed?.kind === "permalink" ||
+    (parsed?.kind === "conversation" &&
+      parsed.route === "channels" &&
+      parsed.postId === null &&
+      parsed.team === source.teamName)
+      ? parsed
+      : null;
+  const addressInput = /^[a-z][a-z0-9+.-]*:\/\//iu.test(term.trimStart());
+  const rows = useMemo(
+    () => (addressInput ? [] : (search?.(term) ?? [])),
+    [addressInput, search, term],
+  );
+  async function acceptLink() {
+    if (!link || resolving.current) return;
+    const attempt = new AbortController();
+    resolving.current = attempt;
+    setLinkError("");
+    try {
+      const route = await routeChannelsLink(term);
+      if (attempt.signal.aborted) return;
+      if (!route || route.target.serverUrl !== source.serverUrl) {
+        setLinkError(text.unmatched);
+        return;
+      }
+      if (route.status !== "ready" || route.userId !== userId) {
+        sessionIssue("session");
+        return;
+      }
+      if (link.kind === "permalink") {
+        if (!source.online || !navigator.onLine) setLinkError(text.offline);
+        else openPost(link.postId);
+        return;
+      }
+      const room = catalog.current?.data.channels.find(
+        (item) => item.name === link.identifier,
+      );
+      if (room) choose(room.id);
+      else setLinkError(catalog.current ? text.missing : unavailable);
+    } catch (error) {
+      if (attempt.signal.aborted) return;
+      const issue = workspaceFailure(error, "storage");
+      if (issue === "session" || issue === "unauthorized") sessionIssue(issue);
+      else setLinkError(workspace.storage);
+    } finally {
+      if (resolving.current === attempt) resolving.current = null;
+    }
+  }
   const current = rows.find((row) => row.id === cursor) ?? rows[0];
   function move(offset: number) {
     if (!current) return;
@@ -248,13 +331,18 @@ function QuickSwitchDialog({
           aria-label={text.field}
           autoComplete="off"
           enterKeyHint="go"
-          aria-expanded={rows.length > 0}
+          aria-expanded={Boolean(link) || rows.length > 0}
           aria-autocomplete="list"
           aria-controls={list}
-          aria-activedescendant={current ? list + current.id : undefined}
+          aria-activedescendant={
+            link ? list + "-link" : current ? list + current.id : undefined
+          }
           placeholder={text.placeholder}
           value={term}
           onChange={(event) => {
+            resolving.current?.abort();
+            resolving.current = null;
+            setLinkError("");
             setTerm(event.currentTarget.value);
             setCursor(null);
           }}
@@ -267,6 +355,9 @@ function QuickSwitchDialog({
             } else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
               event.preventDefault();
               move(event.key === "ArrowDown" ? 1 : -1);
+            } else if (event.key === "Enter" && link) {
+              event.preventDefault();
+              if (!event.repeat) void acceptLink();
             } else if (event.key === "Enter" && current) {
               event.preventDefault();
               choose(current.id);
@@ -275,13 +366,38 @@ function QuickSwitchDialog({
         />
       </div>
       <div className="quick-switch-results modal-scroll">
-        {rows.length > 0 && <h3>{query ? text.matches : text.recent}</h3>}
+        {(link || rows.length > 0) && (
+          <h3>{link ? text.link : query ? text.matches : text.recent}</h3>
+        )}
         <div
           role="listbox"
           id={list}
           aria-label={text.matches}
           className="quick-switch-list"
         >
+          {link && (
+            <button
+              id={list + "-link"}
+              type="button"
+              role="option"
+              aria-selected="true"
+              tabIndex={-1}
+              aria-label={link.kind === "permalink" ? text.post : text.room}
+              onClick={() => void acceptLink()}
+            >
+              <span className="quick-switch-icon" aria-hidden="true">
+                <SwitchIcon kind="link" />
+              </span>
+              <span className="quick-switch-copy">
+                <strong>
+                  {link.kind === "permalink" ? text.post : text.room}
+                </strong>
+                <small>
+                  {link.kind === "permalink" ? text.check : text.saved}
+                </small>
+              </span>
+            </button>
+          )}
           {rows.map((row) => {
             const range = conversationTitleMatch(row.title, query);
             const detail = row.archived
@@ -350,7 +466,7 @@ function QuickSwitchDialog({
             );
           })}
         </div>
-        {!rows.length && resolved?.profiles !== null && (
+        {!link && !rows.length && resolved?.profiles !== null && (
           <div className="quick-switch-empty" role="status">
             {!search ? (
               unavailable
@@ -365,7 +481,10 @@ function QuickSwitchDialog({
             )}
           </div>
         )}
-        {resolved?.profiles === null && <p role="alert">{workspace.storage}</p>}
+        {linkError && <p role="alert">{linkError}</p>}
+        {!link && resolved?.profiles === null && (
+          <p role="alert">{workspace.storage}</p>
+        )}
         {query && rows.length > 0 && (
           <span className="quick-switch-status" role="status">
             {text.count(rows.length)}
@@ -380,13 +499,21 @@ function QuickSwitchDialog({
 export function useWorkspaceQuickSwitch(
   source: Source,
   choose: (id: string, origin: HTMLElement | null) => void,
+  openPost: (
+    id: string,
+    signal: AbortSignal,
+    origin: HTMLElement,
+  ) => Promise<void>,
 ) {
   const [open, setOpen] = useState(false);
   const opener = useRef<HTMLElement | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const restore = useRef(false);
+  const navigation = useRef<AbortController | null>(null);
+  useLayoutEffect(() => () => navigation.current?.abort(), []);
   const text = copy[source.language];
   const show = useCallback((origin: HTMLElement | null) => {
+    navigation.current?.abort();
     opener.current = origin;
     restore.current = false;
     setOpen(true);
@@ -449,6 +576,16 @@ export function useWorkspaceQuickSwitch(
       <QuickSwitchDialog
         source={source}
         dismiss={dismiss}
+        openPost={(id) => {
+          const origin = opener.current?.isConnected
+            ? opener.current
+            : trigger.current;
+          if (!origin) return;
+          const controller = new AbortController();
+          navigation.current = controller;
+          setOpen(false);
+          void openPost(id, controller.signal, origin);
+        }}
         choose={(id) => {
           setOpen(false);
           choose(id, opener.current);

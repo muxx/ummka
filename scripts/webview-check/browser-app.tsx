@@ -648,6 +648,56 @@ async function checkBrowserSearchAndChannels(
   await ui.findByRole("heading", { name: "Design" });
   openChannelNavigation(host, "Channels");
   await ui.findByRole("button", { name: "fixture-author" }, { timeout: 10000 });
+  flushSync(() =>
+    fireEvent.click(ui.getByRole("button", { name: "Find a channel" })),
+  );
+  const pasted = within(
+    await ui.findByRole("dialog", { name: "Find a channel" }),
+  );
+  const postId = "v".repeat(26);
+  flushSync(() =>
+    fireEvent.input(pasted.getByRole("combobox"), {
+      target: { value: server + "/_redirect/pl/" + postId },
+    }),
+  );
+  flushSync(() =>
+    fireEvent.click(pasted.getByRole("option", { name: "Go to message" })),
+  );
+  await waitFor(
+    () => {
+      const row = ui
+        .getByText("Town fixture message")
+        .closest<HTMLElement>("article");
+      const feed = row?.closest(".timeline-scroll")?.getBoundingClientRect();
+      const box = row?.getBoundingClientRect();
+      if (
+        !row ||
+        row.dataset.navigationTarget === undefined ||
+        row.dataset.postId !== postId ||
+        !box?.height ||
+        !feed ||
+        box.bottom <= feed.top ||
+        box.top >= feed.bottom ||
+        document.activeElement !== row ||
+        ui.queryByRole("dialog") ||
+        ui.queryByRole("button", { name: "Back to results" })
+      ) {
+        throw Error(
+          "The pasted address did not focus the confirmed post in the app",
+        );
+      }
+    },
+    { timeout: 10_000 },
+  );
+  if (
+    townDraft.value !== "Draft from the channel window" ||
+    (
+      await ui.findByRole<HTMLTextAreaElement>("textbox", {
+        name: "Message #Town Square…",
+      })
+    ).value !== townDraft.value
+  )
+    throw Error("Opening the pasted post lost the Town draft");
   if ((await getCurrentAccountId(server)) !== "f".repeat(26))
     throw Error("entry did not retain the signed-in account");
 }

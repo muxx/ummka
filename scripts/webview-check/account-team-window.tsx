@@ -162,6 +162,35 @@ export async function checkSavedTeamWindow(
           "Quick switch did not return focus to the visible conversation",
         );
     });
+    openChannelNavigation(element, "Каналы");
+    flushSync(() =>
+      fireEvent.click(ui.getByRole("button", { name: "Найти канал" })),
+    );
+    const address = within(
+      await ui.findByRole("dialog", { name: "Найти канал" }),
+    );
+    flushSync(() =>
+      fireEvent.input(address.getByRole("combobox"), {
+        target: { value: serverUrl + "/fixture/channels/town-square" },
+      }),
+    );
+    flushSync(() =>
+      fireEvent.click(
+        address.getByRole("option", { name: "Перейти к беседе" }),
+      ),
+    );
+    await waitFor(() => {
+      const title = ui.getByRole("heading", { name: "Town Square" });
+      if (
+        ui.queryByRole("dialog") ||
+        !title.getClientRects().length ||
+        field.value !== "  Черновик канала\n🐻‍❄️ "
+      ) {
+        throw Error(
+          "The saved channel address did not reopen its offline conversation",
+        );
+      }
+    });
     const searchTrigger = ui.getByRole("button", { name: "Поиск" });
     searchTrigger.focus();
     flushSync(() => fireEvent.click(searchTrigger));

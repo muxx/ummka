@@ -490,7 +490,10 @@ export function ChannelsWorkspace({
   const [handoff, setHandoff] = useState({ focusRequest, published, status });
   if (focusRequest !== handoff.focusRequest) {
     setHandoff({ focusRequest, published, status });
-    if (focusRequest) setDirectoryOpen(false);
+    if (focusRequest) {
+      setDirectoryOpen(false);
+      setPage("conversation");
+    }
   }
   const snapshot =
     position &&
@@ -1346,9 +1349,27 @@ export function ChannelsWorkspace({
   const notice = (message: string, retry?: () => void, alert = false) => (
     <Notice message={message} label={text.retry} retry={retry} alert={alert} />
   );
+  function chooseKnownConversation(id: string, origin: HTMLElement | null) {
+    if (search.panel) search.dismiss();
+    if (id === chosen) {
+      closeThread();
+      focusConversation((request) => request + 1);
+    }
+    const room = current?.data.channels.find((row) => row.id === id);
+    choose(id, false, {
+      origin,
+      afterSaved:
+        online && hiddenPreference(room)
+          ? () => void reopen.open(id)
+          : undefined,
+    });
+  }
   const quickSwitch = useWorkspaceQuickSwitch(
     {
       connection,
+      serverUrl: workspace.serverUrl,
+      teamName: team.name,
+      online,
       snapshot: current,
       preferences: settings,
       visible: saved,
@@ -1367,20 +1388,25 @@ export function ChannelsWorkspace({
             ? text.policy
             : text.noPolicy),
     },
-    (id, origin) => {
-      if (search.panel) search.dismiss();
-      if (id === chosen) {
-        closeThread();
-        focusConversation((request) => request + 1);
-      }
-      const room = current?.data.channels.find((row) => row.id === id);
-      choose(id, false, {
+    chooseKnownConversation,
+    (id, signal, origin) => {
+      search.abortPending();
+      collections.abort();
+      return workspace.messages.open(
+        {
+          kind: "post",
+          id,
+          onAccepted: () => {
+            search.leaveResults();
+            collections.close(false);
+            inbox.close();
+            setInfoChannel(null);
+            setChannelMenuOpen(null);
+          },
+        },
+        signal,
         origin,
-        afterSaved:
-          online && hiddenPreference(room)
-            ? () => void reopen.open(id)
-            : undefined,
-      });
+      );
     },
   );
   const nav = (
@@ -1430,6 +1456,7 @@ export function ChannelsWorkspace({
           data-surface={directoryOpen ? "selected-navigation" : undefined}
           onClick={(event) => {
             if (directoryOpen) return;
+            if (position && chosen) setSelected({ id: chosen, focus: true });
             restoreDirectoryControl.current = event.detail === 0;
             search.dismiss();
             workspace.messages.clear();
@@ -2886,7 +2913,7 @@ export function ChannelsWorkspace({
         focusConversation={directoryOpen ? focusDirectory : undefined}
         conversationFocus={conversationFocus}
         focusChannelChange={
-          selected?.id !== chosen || selected?.focus !== false
+          directoryOpen || selected?.id !== chosen || selected?.focus !== false
         }
         accountName={accountName}
         accountDescription={

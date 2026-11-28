@@ -21,10 +21,12 @@ import { getDeviceLaunchContext } from "./mattermost/device-launch";
 import { inspectInstallation } from "./mattermost/inspect-installation";
 import {
   connectInstallation,
+  listInstallations,
   readInstallationSelection,
   selectInstallation,
 } from "./mattermost/installation-registry";
 import {
+  getCurrentAccountId,
   openAccountRestConnection,
   type SavedProfiles,
 } from "./mattermost/native-rest";
@@ -37,9 +39,11 @@ vi.mock("./mattermost/installation-registry", () => ({
   connectInstallation: vi.fn(),
   readInstallationSelection: vi.fn(),
   selectInstallation: vi.fn(),
+  listInstallations: vi.fn(),
 }));
 vi.mock("./mattermost/native-rest", () => ({
   openAccountRestConnection: vi.fn(),
+  getCurrentAccountId: vi.fn(),
 }));
 vi.mock("./mattermost/browser-sign-in", () => ({
   signInWithBrowser: vi.fn(),
@@ -1223,3 +1227,94 @@ test("an explicit device selection completes before another address can be submi
       .getAttribute("aria-current"),
   ).toBe("true");
 });
+
+test("pasted addresses distinguish exact saved channel names from IDs, online-only posts, neighboring teams and nested installations", async () => {
+  const { rooms, channel, connection, channelId } = offlineWorkspace();
+  const slug = "q".repeat(26),
+    target = "w".repeat(26);
+  const unsupported = origin + "/winter/messages/@somebody";
+  rooms.push(
+    { ...channel(target, slug), displayName: "Quiet room" },
+    channel(slug, "other-slug"),
+    { ...channel("z".repeat(26), "literal-address"), displayName: unsupported },
+  );
+  vi.mocked(listInstallations).mockResolvedValue([origin]);
+  vi.mocked(getCurrentAccountId).mockResolvedValue(user);
+  render(<App language="en" />);
+  await screen.findByRole("heading", { name: "General" });
+  const trigger = await screen.findByRole("button", { name: "Find a channel" });
+  fireEvent.click(trigger);
+  const dialog = within(
+    await screen.findByRole("dialog", { name: "Find a channel" }),
+  );
+  const field = dialog.getByRole<HTMLInputElement>("combobox");
+  const change = (address: string) =>
+    fireEvent.change(field, { target: { value: address } });
+  const enter = () => fireEvent.keyDown(field, { key: "Enter" });
+  change(unsupported);
+  enter();
+  expect(dialog.queryByRole("option")).toBeNull();
+  expect(connection.selectSidebarChannel).not.toHaveBeenCalled();
+  change(origin + "/summer/channels/" + slug);
+  expect(dialog.queryByRole("option")).toBeNull();
+  change("https://another.example.test/winter/pl/" + target);
+  expect(dialog.queryByRole("option")).toBeNull();
+  expect(listInstallations).not.toHaveBeenCalled();
+  const message = origin + "/winter/pl/" + target;
+  change(message);
+  enter();
+  await dialog.findByText("Connect to the server to open this message.");
+  expect(field.value).toBe(message);
+  change(origin + "/winter/channels/unknown");
+  enter();
+  await dialog.findByText("This conversation isn’t saved in this team.");
+  expect(connection.selectSidebarChannel).not.toHaveBeenCalled();
+  vi.mocked(listInstallations).mockResolvedValueOnce([
+    origin,
+    origin + "/winter",
+  ]);
+  change(origin + "/winter/channels/" + slug);
+  enter();
+  await dialog.findByText("This address doesn’t belong to the current server.");
+  expect(connection.selectSidebarChannel).not.toHaveBeenCalled();
+  enter();
+  await screen.findByRole("heading", { name: "Quiet room" });
+  expect(connection.selectSidebarChannel).toHaveBeenCalledExactlyOnceWith(
+    "b".repeat(26),
+    target,
+  );
+  expect(connection.selectSidebarChannel).not.toHaveBeenCalledWith(
+    "b".repeat(26),
+    channelId,
+  );
+  expect(connection.refreshChannelHistory).not.toHaveBeenCalled();
+});
+test.each(["edit", "dismiss", "unmount"])(
+  "a delayed pasted address cannot navigate after %s",
+  async (action) => {
+    const { connection } = offlineWorkspace();
+    let complete!: (installs: string[]) => void;
+    vi.mocked(listInstallations).mockReturnValue(
+      new Promise((resolve) => {
+        complete = resolve;
+      }),
+    );
+    vi.mocked(getCurrentAccountId).mockResolvedValue(user);
+    const view = render(<App language="en" />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Find a channel" }),
+    );
+    const field = screen.getByRole("combobox");
+    fireEvent.change(field, {
+      target: { value: origin + "/winter/channels/Design" },
+    });
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(listInstallations).toHaveBeenCalledTimes(1);
+    if (action === "edit")
+      fireEvent.change(field, { target: { value: "General" } });
+    if (action === "dismiss") fireEvent.keyDown(field, { key: "Escape" });
+    if (action === "unmount") view.unmount();
+    await act(async () => complete([origin]));
+    expect(connection.selectSidebarChannel).not.toHaveBeenCalled();
+  },
+);
