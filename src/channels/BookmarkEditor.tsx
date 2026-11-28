@@ -82,6 +82,7 @@ export function BookmarkEditor({
   online,
   authorized,
   language,
+  runWrite,
   close,
   leavePending,
   confirm,
@@ -93,6 +94,10 @@ export function BookmarkEditor({
   online: boolean;
   authorized: boolean;
   language: EntryLanguage;
+  runWrite: <T>(
+    view: AbortSignal,
+    write: (signal: AbortSignal) => Promise<T>,
+  ) => Promise<T>;
   close: (reload: boolean, dismissed?: boolean) => void;
   leavePending: () => void;
   confirm: (item: Bookmark | null, dismissed: boolean) => void;
@@ -191,27 +196,24 @@ export function BookmarkEditor({
     try {
       let updated: Bookmark | null = null;
       if (edit.action === "add")
-        updated = await account.createChannelBookmark(
-          channelId,
-          { type: "link", displayName: label, linkUrl: url },
-          request.signal,
+        updated = await runWrite(request.signal, (signal) =>
+          account.createChannelBookmark(
+            channelId,
+            { type: "link", displayName: label, linkUrl: url },
+            signal,
+          ),
         );
       else if (edit.action === "delete")
-        await account.deleteChannelBookmark(
-          channelId,
-          edit.item,
-          request.signal,
+        await runWrite(request.signal, (signal) =>
+          account.deleteChannelBookmark(channelId, edit.item, signal),
         );
       else {
         const patch: { displayName?: string; linkUrl?: string } = {};
         if (nameChanged) patch.displayName = label;
         if (linkChanged) patch.linkUrl = url;
         updated = (
-          await account.updateChannelBookmark(
-            channelId,
-            edit.item,
-            patch,
-            request.signal,
+          await runWrite(request.signal, (signal) =>
+            account.updateChannelBookmark(channelId, edit.item, patch, signal),
           )
         ).updated;
       }

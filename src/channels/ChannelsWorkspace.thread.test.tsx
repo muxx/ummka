@@ -31,6 +31,7 @@ import {
   workspaceServerPolicy,
 } from "../mattermost/workspace-preferences.ts";
 import { ChannelsWorkspace } from "./ChannelsWorkspace.tsx";
+import { createChannelBookmarkWrites } from "./channel-bookmark-writes.ts";
 import * as workspaceSearch from "./use-workspace-search.tsx";
 import "./workspace-dom.test-utils.ts";
 
@@ -348,6 +349,7 @@ function mount(
   const viewer = options.viewer ?? userId;
   const coordination = options.coordination ?? createThreadReadCoordination();
   const workspace: TeamWorkspace = {
+    bookmarkWrites: createChannelBookmarkWrites(),
     messages: {
       dialogOpen: false,
       open: vi.fn(),

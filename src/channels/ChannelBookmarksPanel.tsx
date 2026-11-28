@@ -1,4 +1,11 @@
-import { useContext, useId, useLayoutEffect, useRef, useState } from "react";
+import {
+  useContext,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { createPortal } from "react-dom";
 import type { EntryLanguage } from "../entry/language.ts";
 import {
@@ -18,6 +25,7 @@ import {
 } from "./ChannelListState.tsx";
 import { ChannelSectionHeader } from "./ChannelSectionHeader.tsx";
 import { useCollectionRefreshVisibility } from "./CollectionReadNotice.tsx";
+import type { ChannelBookmarkWrites } from "./channel-bookmark-writes.ts";
 import {
   AttachmentWindow,
   ChannelFileDetails,
@@ -74,6 +82,7 @@ type Account = BookmarkWrites &
   Pick<WorkspaceConnection, "readChannelBookmarks" | "readChannelFile">;
 type Props = {
   account: Account;
+  writes: ChannelBookmarkWrites;
   can: (
     action: "add" | "edit" | "delete",
     kind?: Bookmark["destination"]["kind"],
@@ -373,6 +382,8 @@ function EditableBookmarks({
   items,
   setItems,
   reading,
+  pendingFromOtherView,
+  panelId,
   reload,
   focusHeading,
   takeRefreshFocus,
@@ -382,6 +393,8 @@ function EditableBookmarks({
   items: Bookmark[];
   setItems: (items: Bookmark[]) => void;
   reading: boolean;
+  pendingFromOtherView: boolean;
+  panelId: string;
   reload: (focus?: BookmarkFocus) => void;
   focusHeading: () => void;
   takeRefreshFocus: () => BookmarkFocus | undefined;
@@ -447,6 +460,7 @@ function EditableBookmarks({
     (edit.action === "add"
       ? props.can("add")
       : props.can(edit.action, edit.item.destination.kind));
+  const saving = pendingFromOtherView || sendingInBackground;
   function confirm(updated: Bookmark | null, dismissed: boolean) {
     if (!edit) return;
     if (edit.action === "add") {
@@ -475,7 +489,7 @@ function EditableBookmarks({
           <button
             type="button"
             className="bookmark-add"
-            disabled={!props.online || reading || sendingInBackground}
+            disabled={!props.online || reading || saving}
             ref={add}
             onClick={() => begin({ action: "add" })}
           >
@@ -483,7 +497,7 @@ function EditableBookmarks({
           </button>
         </div>
       )}
-      {sendingInBackground && (
+      {saving && (
         <p className="bookmark-saving" role="status">
           {w.saving}
         </p>
@@ -495,10 +509,7 @@ function EditableBookmarks({
               key={item.id}
               {...props}
               can={(action, kind) =>
-                props.online &&
-                !reading &&
-                !sendingInBackground &&
-                props.can(action, kind)
+                props.online && !reading && !saving && props.can(action, kind)
               }
               item={item}
               begin={begin}
@@ -515,10 +526,14 @@ function EditableBookmarks({
           online={props.online}
           authorized={authorized}
           language={props.language}
+          runWrite={(view, write) =>
+            props.writes.run(props.channelId, { panel: panelId, view }, write)
+          }
           sessionIssue={props.sessionIssue}
           confirm={confirm}
           leavePending={() => {
             setSendingInBackground(true);
+            setEditorOpen(false);
             focusHeading();
           }}
           close={(refresh, dismissed = false) => {
@@ -560,14 +575,28 @@ export function ChannelBookmarksPanel(props: Props) {
   const retryFocus = useRef(false);
   const hadRefresh = useRef(false);
   const id = useId();
-  const { account, channelId, online, language } = props;
+  const { account, writes, channelId, online, language } = props;
   const t = bookmarkCopy[language];
   const listText = channelListCopy[language];
+  const pending = useSyncExternalStore(writes.subscribe, () =>
+    writes.pending(channelId),
+  );
+  const pendingFromOtherView =
+    pending && (pending.panel !== id || pending.view.aborted) ? pending : null;
+  const [previousWrite, setPreviousWrite] = useState(pendingFromOtherView);
+  const [writeRevision, setWriteRevision] = useState(0);
+  if (previousWrite !== pendingFromOtherView) {
+    setPreviousWrite(pendingFromOtherView);
+    if (previousWrite && !pendingFromOtherView)
+      setWriteRevision(writeRevision + 1);
+  }
   const { value, retry } = useInfoRead(
     channelId,
     online || editorOpen,
     (s, id) => account.readChannelBookmarks(id, s),
     props.sessionIssue,
+    undefined,
+    writeRevision,
   );
   const unlicensed =
     value.status === "ready" && value.value.kind === "unlicensed";
@@ -737,6 +766,8 @@ export function ChannelBookmarksPanel(props: Props) {
             items={visible.current}
             setItems={(current) => setItems({ ...visible, current })}
             reading={refreshing || refreshFailed}
+            pendingFromOtherView={Boolean(pendingFromOtherView)}
+            panelId={id}
             reload={reload}
             setEditorOpen={setEditorOpen}
             focusHeading={focusHeading}

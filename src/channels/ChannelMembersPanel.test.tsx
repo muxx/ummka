@@ -186,3 +186,58 @@ test("an access denial drops previously visible rows; offline and session expiry
   await screen.findByRole("heading", { name: "No access to channel members" });
   expect(props.sessionIssue).toHaveBeenCalledWith("unauthorized");
 });
+
+test.each([true, false])(
+  "keeps filter changes independent of a queued boundary callback (callback first: %s)",
+  async (callbackFirst) => {
+    let queued!: () => void;
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(
+          private readonly intersect: (
+            entries: { isIntersecting: boolean; intersectionRatio: number }[],
+          ) => void,
+        ) {}
+        observe() {
+          queued = () =>
+            this.intersect([{ isIntersecting: true, intersectionRatio: 1 }]);
+        }
+        disconnect() {}
+      },
+    );
+    const { props, read } = setup();
+    let settleOld!: (page: Page) => void;
+    const oldPage = new Promise<Page>((resolve) => {
+      settleOld = resolve;
+    });
+    read.mockImplementation(async (_channel, query) => {
+      if (query.kind === "search") return { members: [], nextPage: null };
+      return query.page === 0 ? { members: [ada], nextPage: 1 } : oldPage;
+    });
+    render(<ChannelMembersPanel {...props} />);
+    await screen.findByRole("button", { name: "Show more members" });
+    const oldBoundary = queued;
+    if (callbackFirst) act(oldBoundary);
+    const search = screen.getByRole("searchbox");
+    fireEvent.change(search, { target: { value: "nobody" } });
+    if (!callbackFirst) act(oldBoundary);
+    await screen.findByRole("heading", { name: "No members match “nobody”" });
+    const oldRequest = read.mock.calls.find(
+      ([, q]) => q.kind === "page" && q.page === 1,
+    );
+    expect(oldRequest?.[2]?.aborted ?? false).toBe(callbackFirst);
+
+    fireEvent.change(search, { target: { value: "" } });
+    await screen.findByText("@ada");
+    act(oldBoundary);
+    await act(async () => settleOld({ members: [lin], nextPage: null }));
+    expect(screen.queryByText("@lin")).toBeNull();
+    expect(read.mock.calls.map(([, q]) => q)).toEqual([
+      { kind: "page", page: 0 },
+      ...(callbackFirst ? [{ kind: "page", page: 1 }] : []),
+      { kind: "search", term: "nobody" },
+      { kind: "page", page: 0 },
+    ]);
+  },
+);

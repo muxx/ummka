@@ -305,6 +305,7 @@ export function ChannelFilesPanel(props: Props) {
         icon={<FileIcon />}
         title={t.title}
         name={props.name}
+        desktopBack={!props.direct}
         backLabel={props.direct ? t.backToChannel : t.back}
         closeLabel={t.close}
         back={props.back}

@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useRef } from "react";
+import { useEffectEvent, useLayoutEffect, useRef } from "react";
 
 export function useNextPageButton(
   next: number | null,
@@ -6,16 +6,20 @@ export function useNextPageButton(
 ) {
   const boundary = useRef<HTMLButtonElement>(null);
   const load = useEffectEvent(read);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const button = boundary.current;
     if (next === null || !button) return;
+    let active = true;
     const observer = new IntersectionObserver(
       (entries) => {
         if (
+          active &&
+          boundary.current === button &&
           entries.some(
             (entry) => entry.isIntersecting && entry.intersectionRatio > 0,
           )
         ) {
+          active = false;
           observer.disconnect();
           load(next, button);
         }
@@ -23,7 +27,10 @@ export function useNextPageButton(
       { root: button.parentElement },
     );
     observer.observe(button);
-    return () => observer.disconnect();
+    return () => {
+      active = false;
+      observer.disconnect();
+    };
   }, [next]);
   return boundary;
 }

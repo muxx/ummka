@@ -89,7 +89,6 @@
   .channel-information .channels-pane-head > button {
     order: -1;
   }
-  .channel-members-panel .channel-members-close,
   .channel-info-close {
     display: none;
   }
@@ -101,16 +100,82 @@
   }
 }
 
+.channel-information .channel-section-header {
+  padding-inline: 17px;
+}
+.channel-section-header .channels-pane-titles {
+  flex: 1;
+  min-width: 0;
+}
+.channel-information .channel-section-header h2 {
+  gap: 7px;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  font-size: 1.09rem;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.026em;
+}
+.channel-section-header h2 svg {
+  flex: none;
+  width: 21px;
+  height: 21px;
+  color: var(--muted);
+}
+.channel-information .channel-section-header p {
+  overflow-wrap: anywhere;
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+.channel-section-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+.channel-section-header .channels-icon-action {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  color: var(--muted);
+}
+@container (width > 740px) {
+  .channel-section-header .channel-section-back:not([data-desktop-back]) {
+    display: none;
+  }
+}
+@container (width <= 740px) {
+  .channel-information .channel-section-header {
+    min-height: 52px;
+    padding: 4px 5px;
+    gap: 0;
+  }
+  .channel-section-header .channels-pane-titles {
+    min-height: 44px;
+    padding-inline-start: 3px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .channel-information .channel-section-header p {
+    font-size: 0.7rem;
+  }
+  .channel-section-header .channel-section-back {
+    width: 44px;
+    height: 44px;
+  }
+  .channel-section-actions {
+    display: none;
+  }
+}
+
 .channel-member-body {
   display: flex;
   flex: 1;
   min-height: 0;
   flex-direction: column;
   padding-block-end: 16px;
-}
-.channel-members-panel .channels-pane-titles {
-  flex: 1;
-  min-width: 0;
 }
 .channel-member-search {
   display: flex;
@@ -129,7 +194,7 @@
 .channel-member-search input {
   width: 100%;
   min-width: 0;
-  min-height: 38px;
+  min-height: 40px;
   box-sizing: border-box;
   padding: 0;
   border: 0;
@@ -168,8 +233,16 @@
 }
 .channel-member-list .timeline-avatar {
   flex: none;
+  width: 29px;
+  height: 29px;
+  border-radius: 8px;
+  background: var(--accent-tint);
+  color: var(--accent);
+  font-size: 0.7rem;
+  font-weight: 680;
 }
 .channel-member-list strong {
+  display: block;
   font-size: 0.87rem;
   font-weight: 620;
 }
@@ -185,10 +258,6 @@
   font-weight: 500;
 }
 
-.channel-files-panel .channels-pane-titles {
-  flex: 1;
-  min-width: 0;
-}
 .channel-files-body {
   min-height: 0;
   overflow: auto;
@@ -209,12 +278,6 @@
 .channel-file-retention {
   margin-inline: 16px;
 }
-@container (width <= 740px) {
-  .channel-context-pane .channel-section-close {
-    display: none;
-  }
-}
-
 .channels-icon-action.channel-member-count {
   width: auto;
   min-width: 32px;

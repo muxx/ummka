@@ -8,6 +8,7 @@ export function ChannelSectionHeader({
   name,
   detailAction,
   detailStatus,
+  desktopBack,
   backLabel,
   closeLabel,
   back,
@@ -20,16 +21,18 @@ export function ChannelSectionHeader({
   name: string;
   detailAction?: ReactNode;
   detailStatus?: string;
+  desktopBack?: boolean;
   backLabel: string;
   closeLabel: string;
   back: () => void;
   close: () => void;
 }) {
   return (
-    <header className="channels-pane-head">
+    <header className="channels-pane-head channel-section-header">
       <button
         type="button"
         className="channels-icon-action channel-section-back"
+        data-desktop-back={desktopBack || undefined}
         aria-label={backLabel}
         onClick={back}
       >
@@ -48,7 +51,7 @@ export function ChannelSectionHeader({
       <div className="channels-pane-titles">
         <h2 id={id} tabIndex={-1} ref={heading}>
           {icon}
-          {title}
+          <span>{title}</span>
         </h2>
         {detailStatus ? (
           <div className="channel-section-detail">
@@ -59,25 +62,27 @@ export function ChannelSectionHeader({
           <p>{name}</p>
         )}
       </div>
-      <PaneSizeToggle />
-      <button
-        type="button"
-        className="channels-icon-action channel-section-close"
-        aria-label={closeLabel}
-        onClick={close}
-      >
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          aria-hidden="true"
+      <div className="channel-section-actions">
+        <PaneSizeToggle />
+        <button
+          type="button"
+          className="channels-icon-action channel-section-close"
+          aria-label={closeLabel}
+          onClick={close}
         >
-          <path d="m6 6 12 12m0-12L6 18" />
-        </svg>
-      </button>
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            aria-hidden="true"
+          >
+            <path d="m6 6 12 12m0-12L6 18" />
+          </svg>
+        </button>
+      </div>
     </header>
   );
 }
