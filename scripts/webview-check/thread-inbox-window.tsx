@@ -116,13 +116,51 @@ export async function checkThreadInboxWindow(url: string) {
       (!compact && document.activeElement !== opener)
     )
       throw Error("Thread list focus or compact layout changed during opening");
+    const toggle = await thread.findByRole("button", {
+      name: "Following",
+      pressed: true,
+    });
+    toggle.focus();
+    click(toggle);
+    await thread.findByRole("button", { name: "Follow", pressed: false });
+    await waitFor(() => {
+      if (
+        opener.isConnected ||
+        field.value !== "Design thread draft" ||
+        document.activeElement !== toggle
+      )
+        throw Error(
+          "Unfollowing did not remove the row or moved the draft or focus",
+        );
+      if (
+        host.querySelector('[role="tab"][id$="-unread"]')?.textContent !==
+        "Unread"
+      )
+        throw Error("Unfollowing did not refresh the unread count");
+    });
+    click(toggle);
+    await thread.findByRole("button", { name: "Following", pressed: true });
+    const restoredRow = await waitFor(() => {
+      const row = host.querySelector<HTMLButtonElement>(
+        `[data-inbox-id="${"s".repeat(26)}"]`,
+      );
+      if (!row?.textContent?.includes("Release checklist"))
+        throw Error("Re-following did not restore the signed server row");
+      return row;
+    });
+    if (
+      field.value !== "Design thread draft" ||
+      !marker.isConnected ||
+      document.activeElement !== toggle
+    )
+      throw Error("Re-following moved the draft, unread marker or focus");
     if (android) await controlStep(url, "inbox-back");
     else click(thread.getByRole("button", { name: "Close thread" }));
     await waitFor(() => {
       if (
         pane.isConnected ||
-        document.activeElement !== opener ||
-        !opener.getClientRects().length
+        document.activeElement !== restoredRow ||
+        !restoredRow.getClientRects().length
       )
         throw Error("Back did not restore the followed thread row");
     });

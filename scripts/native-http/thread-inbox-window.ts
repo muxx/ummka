@@ -44,11 +44,12 @@ export function threadInboxWindowFixture(
   );
   const visits: string[] = [];
   let viewed = 561;
+  let following = true;
   async function serve(req: IncomingMessage, res: ServerResponse, url: URL) {
     if (!url.pathname.startsWith(prefix)) return false;
     const path = url.pathname.slice(prefix.length),
       query = Object.fromEntries(url.searchParams);
-    const unread = viewed < 563 ? 1 : 0;
+    const unread = following && viewed < 563 ? 1 : 0;
     const mark = `users/me/teams/${team}/threads/${root}/read/`;
     function send(body: object, label: string, method = "GET") {
       assert.equal(req.method, method);
@@ -74,7 +75,8 @@ export function threadInboxWindowFixture(
     } else if (path === "system/ping" && query.step === "inbox-verify") {
       assert.equal(req.headers.authorization, undefined);
       for (const key of [
-        "followed",
+        "follow",
+        "unfollow",
         "unread",
         "destination",
         "anchor",
@@ -93,7 +95,12 @@ export function threadInboxWindowFixture(
         isAndroid() ? 1 : 0,
       );
       assert.equal(visits.filter((v) => v === "mark").length, marked ? 1 : 0);
-      assert.equal(visits.filter((v) => v === "totals").length, marked ? 2 : 1);
+      assert.equal(visits.filter((v) => v === "totals").length, marked ? 4 : 3);
+      assert.equal(visits.filter((v) => v === "followed").length, 2);
+      assert(
+        visits.indexOf("unfollow") < visits.indexOf("follow") && following,
+      );
+      assert(visits.lastIndexOf("totals") > visits.indexOf("follow"));
       console.log("Authenticated inbox requests:", visits.join(", "));
       res.writeHead(204).end();
     } else if (path === `users/me/teams/${team}/threads`) {
@@ -101,7 +108,7 @@ export function threadInboxWindowFixture(
         assert.deepEqual(query, { totalsOnly: "true" });
         send(
           {
-            total: 1,
+            total: Number(following),
             total_unread_threads: unread,
             total_unread_mentions: 0,
             total_unread_urgent_mentions: 0,
@@ -136,11 +143,18 @@ export function threadInboxWindowFixture(
                 participants: [{ id: other }],
                 post: original,
               },
-            ].filter(() => unread || query.unread === "false"),
+            ].filter(() => following && (unread || query.unread === "false")),
           },
           query.unread === "true" ? "unread" : "followed",
         );
       }
+    } else if (path === `users/me/teams/${team}/threads/${root}/following`) {
+      const method = req.method;
+      assert(method === "PUT" || method === "DELETE");
+      assert.deepEqual(query, {});
+      assert.equal(await text(req), "");
+      following = method === "PUT";
+      send({ status: "OK" }, following ? "follow" : "unfollow", method);
     } else if (path === `posts/${root}/info`) {
       send(
         {
@@ -166,7 +180,12 @@ export function threadInboxWindowFixture(
         collapsedThreads: "true",
       });
       const rows = up ? [old] : [own, fresh],
-        posts = Object.fromEntries([original, ...rows].map((p) => [p.id, p]));
+        posts = Object.fromEntries(
+          [{ ...original, is_following: following }, ...rows].map((p) => [
+            p.id,
+            p,
+          ]),
+        );
       send(
         {
           order: [root, ...rows.map((p) => p.id)],

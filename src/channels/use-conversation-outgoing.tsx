@@ -30,6 +30,7 @@ type Props = {
   placement: OutgoingPlacement;
   locale: EntryLanguage;
   enabled?: boolean;
+  accepted?: () => void;
   sessionIssue: (issue: "session" | "unauthorized") => void;
 };
 type Slice = {
@@ -76,6 +77,7 @@ export function useConversationOutgoing({
   placement,
   locale,
   enabled = true,
+  accepted,
   sessionIssue,
 }: Props) {
   const [pages, setPages] = useState(1);
@@ -211,6 +213,7 @@ export function useConversationOutgoing({
             resend={connection.resendPost}
             refresh={() => retry.current?.()}
             notify={notify}
+            accepted={accepted}
             sessionIssue={sessionIssue}
           />
         </>

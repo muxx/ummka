@@ -4,6 +4,7 @@ import {
   type ReactNode,
   useEffect,
   useEffectEvent,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -17,6 +18,7 @@ import {
 import type { LocalPost } from "../mattermost/local-history.ts";
 import type { TimelineMessage } from "./conversation-rows.ts";
 import { showPostArrival } from "./post-arrival.ts";
+import { ThreadFollowButton } from "./ThreadFollowButton.tsx";
 import { TimelineDays } from "./TimelineDays.tsx";
 import {
   formatReplyCount,
@@ -24,6 +26,7 @@ import {
   TimelinePost,
   useTimelinePostFormat,
 } from "./TimelinePost.tsx";
+import { openThreadFollowControl } from "./thread-follow-control.ts";
 import { threadInboxCopy } from "./thread-inbox-copy.ts";
 import { openThreadReplyWindow } from "./thread-reply-window.ts";
 import { createTimelinePostTouch } from "./timeline-post-touch.ts";
@@ -69,6 +72,7 @@ const copy = {
   },
 } as const;
 type Reader = ReturnType<typeof openThreadReplyWindow>;
+type Following = ReturnType<typeof openThreadFollowControl>;
 type WindowState = ReturnType<Reader["getSnapshot"]>;
 type Direction = "up" | "down";
 type Props = {
@@ -77,6 +81,9 @@ type Props = {
   post: LocalPost;
   arrivalRequest?: number;
   collapsedThreads: boolean;
+  teamId: string;
+  controlsHost: HTMLSpanElement | null;
+  confirmFollowing: (id: string, following: boolean) => void;
   locale: EntryLanguage;
   online: boolean;
   author: TimelineAuthor;
@@ -84,20 +91,36 @@ type Props = {
   sessionIssue: (issue: "session" | "unauthorized") => void;
   onOpened?: () => void;
   onUnavailable?: (reason: "forbidden" | "limited" | "failed") => void;
-  renderComposer: (rootId: string, reader: Reader) => ReactNode;
+  renderComposer: (
+    rootId: string,
+    reader: Reader,
+    acceptedReply?: () => void,
+  ) => ReactNode;
   lastViewedAt?: number;
   confirmView?: (signal: AbortSignal) => Promise<void>;
 };
 
 export function ThreadPane(props: Props) {
-  const { connection, post, collapsedThreads, lastViewedAt, userId } = props;
-  const [reader, setReader] = useState<Reader | null>(null);
-  useEffect(() => {
-    const window = openThreadReplyWindow(
+  const {
+    connection,
+    post,
+    collapsedThreads,
+    lastViewedAt,
+    userId,
+    teamId,
+    confirmFollowing,
+  } = props;
+  const [session, setSession] = useState<{
+    reader: Reader;
+    following?: Following;
+  } | null>(null);
+  useLayoutEffect(() => {
+    const rootId = post.rootId ?? post.id;
+    const reader = openThreadReplyWindow(
       connection,
       {
         channelId: post.channelId,
-        rootId: post.rootId ?? post.id,
+        rootId,
         collapsedThreads,
       },
       post.rootId
@@ -106,14 +129,37 @@ export function ThreadPane(props: Props) {
           ? { lastViewedAt, userId }
           : undefined,
     );
-    setReader(window);
-    return () => window.close();
-  }, [connection, post, collapsedThreads, lastViewedAt, userId]);
-  return reader ? <ThreadContent {...props} reader={reader} /> : null;
+    const following = collapsedThreads
+      ? openThreadFollowControl(
+          connection,
+          teamId,
+          post.channelId,
+          rootId,
+          reader,
+          confirmFollowing,
+        )
+      : undefined;
+    setSession({ reader, following });
+    return () => {
+      following?.close();
+      reader.close();
+    };
+  }, [
+    connection,
+    post,
+    collapsedThreads,
+    lastViewedAt,
+    userId,
+    teamId,
+    confirmFollowing,
+  ]);
+  return session ? <ThreadContent {...props} {...session} /> : null;
 }
 
 function ThreadContent({
   reader,
+  following,
+  controlsHost,
   collapsedThreads,
   connection,
   userId,
@@ -128,7 +174,7 @@ function ThreadContent({
   onOpened,
   confirmView,
   onUnavailable,
-}: Props & { reader: Reader }) {
+}: Props & { reader: Reader; following?: Following }) {
   const state = useSyncExternalStore(reader.subscribe, reader.getSnapshot);
   const mark = useEffectEvent((signal: AbortSignal) => confirmView?.(signal));
   const canMark = Boolean(
@@ -253,6 +299,7 @@ function ThreadContent({
     placement: state.down.status === "end" ? "timeline" : "afterGap",
     locale,
     enabled: canReply,
+    accepted: following?.acceptedReply,
     sessionIssue,
   });
   const query = {
@@ -401,7 +448,15 @@ function ThreadContent({
           </button>
         </div>
       )}
-      {canReply && renderComposer(root.id, reader)}
+      {canReply && following && controlsHost && (
+        <ThreadFollowButton
+          control={following}
+          host={controlsHost}
+          locale={locale}
+          online={online}
+        />
+      )}
+      {canReply && renderComposer(root.id, reader, following?.acceptedReply)}
     </div>
   );
 }

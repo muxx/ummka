@@ -1133,6 +1133,17 @@ await checkThreadFollow(
   [channelId, dm.id],
   closedPost.id,
   version,
+  (enabled, collapsedThreads) =>
+    fetch(`${base}/api/v4/config/patch`, {
+      method: "PUT",
+      headers: { ...authorization, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ServiceSettings: {
+          ThreadAutoFollow: enabled,
+          CollapsedThreads: collapsedThreads,
+        },
+      }),
+    }),
 );
 // The earlier non-member checks use this private channel before the reader joins.
 await create(`channels/${closed.id}/members`, { user_id: reader.id }, token);

@@ -666,3 +666,62 @@ test("leaving the inbox discards a late page and accepts sidebar totals without 
   expect(account.readFollowedThreads).toHaveBeenCalledTimes(1);
   expect(account.readFollowedThreadTotals).toHaveBeenCalledTimes(1);
 });
+
+test("re-follow refreshes both pages and counts without restoring revoked content from a late read", async () => {
+  const { account, view } = setup();
+  const revoked = {
+    ...b,
+    post: {
+      id: b.id,
+      channelId: "c".repeat(26),
+      rootId: null,
+      userId: "u".repeat(26),
+      message: "No longer available",
+      messageSource: null,
+      type: "",
+      createAt: 1,
+      updateAt: 1,
+      editAt: 0,
+      hashtags: "",
+      isPinned: false,
+    },
+  };
+  account.readFollowedThreads
+    .mockResolvedValueOnce(page([a, revoked], true))
+    .mockResolvedValueOnce(page([a, revoked]));
+  await view.show("followed");
+  await view.show("unread");
+  view.select(a.id);
+  view.revokeRoot(revoked.id);
+  account.readFollowedThreadTotals.mockResolvedValueOnce({
+    ...totals,
+    totalUnreadThreads: 0,
+  });
+  await view.confirmUnfollow(a.id);
+  expect(view.getSnapshot().page.rows).toEqual([b]);
+  await view.show("followed");
+  expect(view.getSnapshot().page.rows).toEqual([b]);
+
+  const old = deferred<Page>();
+  const fresh = deferred<Page>();
+  account.readFollowedThreads
+    .mockReturnValueOnce(old.promise)
+    .mockReturnValueOnce(fresh.promise)
+    .mockResolvedValueOnce(page([a]));
+  const older = view.loadMore();
+  await Promise.resolve();
+  const signal = account.readFollowedThreads.mock.calls.at(-1)?.[1];
+  const refreshed = view.confirmFollow();
+  expect(signal?.aborted).toBe(true);
+  expect(view.getSnapshot().page.rows).toEqual([b]);
+  old.resolve(page([a, revoked, c]));
+  await older;
+  expect(view.getSnapshot().page.rows).toEqual([b]);
+  fresh.resolve(page([a, revoked]));
+  await refreshed;
+  expect(view.getSnapshot().page.rows).toEqual([a, b]);
+  expect(view.isRootUnavailable(revoked.id)).toBe(true);
+  await view.show("unread");
+  expect(view.getSnapshot().page.rows).toEqual([a]);
+  expect(view.getSnapshot().totals.value).toEqual(totals);
+});

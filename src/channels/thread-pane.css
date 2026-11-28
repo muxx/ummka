@@ -26,3 +26,114 @@
   font-size: 0.8125rem;
   font-weight: 600;
 }
+
+.thread-follow-slot {
+  display: contents;
+}
+
+.channels-thread-head:has(.thread-follow-toggle) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  grid-template-rows: auto auto;
+  align-content: center;
+  row-gap: 0;
+}
+.channels-thread-head:has(.thread-follow-toggle) .thread-heading {
+  display: contents;
+}
+.channels-thread-head:has(.thread-follow-toggle) .thread-heading-title {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+}
+.channels-thread-head:has(.thread-follow-toggle) .thread-heading-context {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  margin: 0;
+  line-height: 1.3;
+}
+.channels-thread-head:has(.thread-follow-status)
+  .thread-heading
+  .thread-heading-context {
+  visibility: hidden;
+}
+.thread-follow-status {
+  color: var(--error);
+}
+.channels-thread-head:has(.thread-follow-toggle) .pane-size-toggle {
+  grid-column: 3;
+  grid-row: 1;
+}
+.channels-thread-head:has(.thread-follow-toggle) .thread-close {
+  grid-column: 4;
+  grid-row: 1;
+}
+.channels-thread-head .thread-follow-toggle {
+  position: relative;
+  grid-column: 2;
+  grid-row: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  inline-size: max-content;
+  min-inline-size: 11.5em;
+  block-size: 30px;
+  margin-inline-end: 4px;
+  padding-inline: 9px 11px;
+  border: 1px solid var(--strong-divider);
+  border-radius: 15px;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 640;
+  white-space: nowrap;
+}
+.thread-follow-toggle svg {
+  flex: none;
+}
+.thread-follow-toggle:hover {
+  background: var(--row-hover);
+}
+.thread-follow-toggle[aria-pressed="true"] {
+  border-color: transparent;
+  background: var(--selected);
+  color: var(--on-selected);
+}
+.thread-follow-toggle[aria-pressed="true"] svg {
+  stroke-width: 2.4;
+}
+.thread-follow-toggle[aria-pressed="true"]:hover {
+  background: color-mix(in srgb, var(--selected) 84%, var(--on-selected));
+}
+.thread-follow-toggle[aria-busy="true"] {
+  opacity: 0.8;
+  cursor: progress;
+}
+@container (width <= 740px) {
+  .channels-thread-head:has(.thread-follow-toggle) {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-rows: 38px 14px;
+    padding-block: 0;
+  }
+  .channels-thread-head:has(.thread-follow-toggle) .thread-heading-title {
+    grid-column: 2;
+  }
+  .channels-thread-head:has(.thread-follow-toggle) .thread-heading-context {
+    line-height: 1.25;
+  }
+  .channels-thread-head:has(.thread-follow-toggle) .thread-close {
+    grid-column: 1;
+    align-self: start;
+  }
+  .channels-thread-head .thread-follow-toggle {
+    grid-column: 3;
+    align-self: start;
+    margin-block-start: 7px;
+    margin-inline-end: 0;
+  }
+  .thread-follow-toggle::before {
+    position: absolute;
+    inset: -8px -1px;
+    content: "";
+  }
+}

@@ -20,8 +20,10 @@ export function channelDraftActions(
   collapsedThreads: boolean | null,
   openSearch: OpenCommandSearch,
   thread?: ReactionThread,
+  acceptedReply?: () => void,
 ): DraftSendContext {
   return {
+    acceptedReply,
     post: {
       account: connection,
       channel,
