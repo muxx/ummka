@@ -428,6 +428,7 @@ export function buildSpecification(
         object(object(read("users-12.1.0.yaml")[path], path)[method], id),
       );
     else if (
+      id === "SetThreadUnreadByPostId" ||
       id === "UpdateThreadReadForUser" ||
       id === "UpdateThreadsReadForUser" ||
       id === "StartFollowingThread" ||

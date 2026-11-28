@@ -1069,7 +1069,36 @@ export async function checkGeneratedRequests(ports: string[]) {
         .status === "OK",
       "signed team thread read",
     );
+    const unreadScope = { ...follow, postId: "w".repeat(26) };
+    for (const [selected, boundary, replies, mentions] of [
+      [unreadScope.postId, timestamp - 1, 1, 1],
+      [postId, timestamp - 2, 3, 2],
+    ] as const) {
+      const response = await threads.setThreadUnreadByPostIdRaw({
+        ...follow,
+        postId: selected,
+      });
+      const unread = await response.value();
+      check(
+        response.raw.status === 200 &&
+          unread.id === postId &&
+          unread.post?.id === postId &&
+          unread.lastViewedAt === boundary &&
+          unread.unreadReplies === replies &&
+          unread.unreadMentions === mentions,
+        "signed thread unread from a selected post",
+      );
+    }
     for (const request of [
+      () => guestThreads.setThreadUnreadByPostId(unreadScope),
+      () => threads.setThreadUnreadByPostId({ ...unreadScope, userId }),
+      () =>
+        threads.setThreadUnreadByPostId({ ...unreadScope, postId: "short" }),
+      () =>
+        threads.setThreadUnreadByPostId(unreadScope, {
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        }),
       () => guestThreads.updateThreadReadForUser({ ...follow, timestamp }),
       () => guestThreads.updateThreadsReadForUser({ userId: "me", teamId }),
       () => threads.updateThreadReadForUser({ ...follow, timestamp: 1.5 }),

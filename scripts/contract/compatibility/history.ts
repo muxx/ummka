@@ -113,6 +113,7 @@ import { checkThreadList } from "./thread-list.ts";
 import { checkThreadPageTies } from "./thread-page-ties.ts";
 import { checkThreadReadState } from "./thread-read-state.ts";
 import { checkThreadSummary } from "./thread-summary.ts";
+import { checkThreadUnreadPost } from "./thread-unread-post.ts";
 import { checkThreadWindow } from "./thread-window.ts";
 import { checkUnreadThreadWindow } from "./unread-thread-window.ts";
 import { checkUserNotifications } from "./user-notifications.ts";
@@ -1774,6 +1775,16 @@ await checkThreadReadState(
   { teamId: emptyTeam.id, channelId: threadRoom.id, directId: threadDirect.id },
   { teamId: team.id, channelId },
   version,
+);
+
+await checkThreadUnreadPost(
+  threadReader,
+  otherSaverName,
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  emptyTeam.id,
+  [threadRoom.id, threadDirect.id],
+  version,
+  { teamId: team.id, seed: message },
 );
 
 const hiddenSaved = await (

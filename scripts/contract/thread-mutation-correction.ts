@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { type Fields, object } from "./objects.ts";
 
-// Both servers omit successful response bodies from all four thread mutations.
+// Both OpenAPI versions omit the successful response body for thread mutations.
 // https://github.com/mattermost/mattermost/blob/v10.10.1/server/channels/api4/user.go#L3390-L3561
 // https://github.com/mattermost/mattermost/blob/v12.1.0/server/channels/api4/user.go#L4067-L4247
 export function correctThreadMutation(source: Fields, newer: Fields): Fields {
@@ -9,12 +9,13 @@ export function correctThreadMutation(source: Fields, newer: Fields): Fields {
   const success = { description: "User's thread update successful" };
   if (
     !isDeepStrictEqual(source, newer) ||
+    "requestBody" in source ||
     !isDeepStrictEqual(responses["200"], success)
   )
     throw Error("Review both thread mutation responses before correcting them");
-  const single = source.operationId === "UpdateThreadReadForUser";
+  const byTime = source.operationId === "UpdateThreadReadForUser";
   let parameters = source.parameters;
-  if (single) {
+  if (byTime) {
     // https://github.com/mattermost/mattermost/blob/v10.10.1/server/channels/web/params.go#L201-L205
     // https://github.com/mattermost/mattermost/blob/v12.1.0/server/channels/web/context.go#L377-L386
     const time =
@@ -41,7 +42,10 @@ export function correctThreadMutation(source: Fields, newer: Fields): Fields {
         : p,
     );
   }
-  const model = single ? "UserThread" : "StatusOK";
+  const model =
+    byTime || source.operationId === "SetThreadUnreadByPostId"
+      ? "UserThread"
+      : "StatusOK";
   return {
     ...source,
     parameters,

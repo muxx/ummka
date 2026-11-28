@@ -353,6 +353,13 @@
   },
   {
     "file": "users.yaml",
+    "method": "POST",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/threads/{thread_id}/set_unread/{post_id}",
+    "id": "SetThreadUnreadByPostId",
+    "selfOnly": true
+  },
+  {
+    "file": "users.yaml",
     "method": "PUT",
     "path": "/api/v4/users/{user_id}/teams/{team_id}/threads/read",
     "id": "UpdateThreadsReadForUser",
