@@ -12,16 +12,19 @@ type Account = {
     signal?: AbortSignal,
   ): Promise<DirectoryPage>;
 };
-type Status =
-  | "idle"
-  | "loading"
-  | "ready"
-  | "closed"
-  | ReturnType<typeof workspaceFailure>;
+type Operation = "page" | "refresh";
 type State = {
-  status: Status;
+  status:
+    | "idle"
+    | "loading"
+    | "refreshing"
+    | "ready"
+    | "closed"
+    | ReturnType<typeof workspaceFailure>;
   items: readonly Row[];
+  hasResponse: boolean;
   hasMore: boolean;
+  failed?: Operation;
 };
 
 export function availableDirectoryChannels(
@@ -38,82 +41,120 @@ export function openChannelDirectoryList(
   teamId: string,
   kind: DirectoryPageQuery["kind"],
 ) {
-  const lifetime = new AbortController();
   const listeners = new Set<() => void>();
-  const rowsById = new Map<string, Row>();
-  let state: State = { status: "idle", items: [], hasMore: true };
-  let page = 0;
-  let pending: Promise<void> | undefined;
+  let state: State = {
+    status: "idle",
+    items: [],
+    hasResponse: false,
+    hasMore: true,
+  };
+  let pages = 0;
+  let pending:
+    | { controller: AbortController; result: Promise<void> }
+    | undefined;
 
   function publish(next: State) {
     state = next;
     for (const listener of listeners) listener();
   }
 
-  async function read() {
-    const { signal } = lifetime;
+  async function read(operation: Operation, signal: AbortSignal) {
+    const refresh = operation === "refresh";
+    const items = new Map(
+      refresh ? [] : state.items.map((row) => [row.id, row]),
+    );
+    let page = refresh ? 0 : pages;
+    const until = refresh ? pages : pages + 1;
+    let hasMore = true;
     let next: State;
     try {
-      signal.throwIfAborted();
-      const answer = await account.readChannelDirectoryPage(
-        { teamId, kind, page },
-        signal,
-      );
-      if (signal.aborted) return;
-      // A change on the server can move an already delivered channel into the next page.
-      for (const row of answer.items) rowsById.set(row.id, row);
-      page++;
+      while (hasMore && page < until) {
+        signal.throwIfAborted();
+        const answer = await account.readChannelDirectoryPage(
+          { teamId, kind, page },
+          signal,
+        );
+        if (signal.aborted) return;
+        // An overlap updates the earlier row in place. Refresh publishes only
+        // when the whole confirmed range has been read again.
+        for (const row of answer.items) items.set(row.id, row);
+        hasMore = answer.hasMore;
+        page++;
+      }
+      pages = page;
       next = {
         status: "ready",
-        items: [...rowsById.values()],
-        hasMore: answer.hasMore,
+        items: [...items.values()],
+        hasResponse: true,
+        hasMore,
       };
     } catch (error) {
       if (signal.aborted) return;
       const status = workspaceFailure(error, "network");
-      const retain = mayKeepCache(status);
-      if (!retain) rowsById.clear();
-      next = { status, items: retain ? state.items : [], hasMore: retain };
+      if (mayKeepCache(status)) next = { ...state, status, failed: operation };
+      else {
+        pages = 0;
+        next = { status, items: [], hasResponse: false, hasMore: false };
+      }
     }
     pending = undefined;
     publish(next);
   }
 
-  function load() {
-    if (pending) return pending;
-    // Assign before publishing; a synchronous observer can request the same page.
-    const request = Promise.resolve().then(read);
-    pending = request;
-    publish({ ...state, status: "loading" });
-    return request;
+  function start(operation: Operation) {
+    if (pending) return pending.result;
+    const controller = new AbortController();
+    const result = Promise.resolve().then(() =>
+      read(operation, controller.signal),
+    );
+    pending = { controller, result };
+    publish({
+      ...state,
+      status: operation === "refresh" ? "refreshing" : "loading",
+      failed: undefined,
+    });
+    return result;
+  }
+
+  function cancel() {
+    pending?.controller.abort();
+    pending = undefined;
   }
 
   return {
     getSnapshot: () => state,
     subscribe(listener: () => void) {
-      if (!lifetime.signal.aborted) listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
+      if (state.status !== "closed") listeners.add(listener);
+      return () => listeners.delete(listener);
     },
     more() {
-      if (state.status === "loading") return pending;
+      if (pending) return pending.result;
       return (state.status === "idle" || state.status === "ready") &&
         state.hasMore
-        ? load()
+        ? start("page")
         : undefined;
     },
+    refresh() {
+      if (state.hasResponse) return start("refresh");
+    },
     retry() {
-      return state.status === "network" || state.status === "storage"
-        ? load()
-        : pending;
+      return state.failed ? start(state.failed) : pending?.result;
+    },
+    pause() {
+      if (!pending) return;
+      cancel();
+      publish({ ...state, status: state.hasResponse ? "ready" : "idle" });
     },
     close() {
-      if (lifetime.signal.aborted) return;
-      lifetime.abort();
-      rowsById.clear();
-      pending = undefined;
-      publish({ status: "closed", items: [], hasMore: false });
+      if (state.status === "closed") return;
+      cancel();
+      pages = 0;
+      publish({
+        status: "closed",
+        items: [],
+        hasResponse: false,
+        hasMore: false,
+      });
       listeners.clear();
     },
   };

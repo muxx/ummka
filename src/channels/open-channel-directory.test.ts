@@ -110,7 +110,12 @@ test.each([
   );
   await list.more();
   await list.more();
-  expect(list.getSnapshot()).toEqual({ status, items: [], hasMore: false });
+  expect(list.getSnapshot()).toEqual({
+    status,
+    items: [],
+    hasResponse: false,
+    hasMore: false,
+  });
   await list.more();
   await list.retry();
   expect(readChannelDirectoryPage).toHaveBeenCalledTimes(2);
@@ -151,5 +156,91 @@ test("closing before dispatch or while reading discards the result", async () =>
     items: [],
     hasMore: false,
     status: "closed",
+    hasResponse: false,
+  });
+});
+
+test("return refreshes only the confirmed range and publishes it atomically", async () => {
+  const read = vi
+    .fn()
+    .mockResolvedValueOnce({ items: [row(0)], hasMore: true })
+    .mockResolvedValueOnce({ items: [row(1)], hasMore: true })
+    .mockResolvedValueOnce({ items: [row(2)], hasMore: true });
+  let answer!: (value: {
+    items: ReturnType<typeof row>[];
+    hasMore: boolean;
+  }) => void;
+  read.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+  );
+  const list = openChannelDirectoryList(
+    { readChannelDirectoryPage: read },
+    teamId,
+    "public",
+  );
+  await list.more();
+  await list.more();
+  const refresh = list.refresh();
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(list.getSnapshot()).toMatchObject({
+    status: "refreshing",
+    hasResponse: true,
+    items: [row(0), row(1)],
+  });
+  expect(list.more()).toBe(refresh);
+  expect(list.refresh()).toBe(refresh);
+  answer({ items: [row(3)], hasMore: true });
+  await refresh;
+  expect(list.getSnapshot()).toMatchObject({
+    status: "ready",
+    items: [row(2), row(3)],
+    hasMore: true,
+  });
+  expect(read.mock.calls.map(([query]) => query.page)).toEqual([0, 1, 0, 1]);
+});
+
+test("aborted refresh cannot replace a confirmed empty snapshot or a newer denial", async () => {
+  let answer!: (value: {
+    items: ReturnType<typeof row>[];
+    hasMore: boolean;
+  }) => void;
+  const read = vi
+    .fn()
+    .mockResolvedValueOnce({ items: [], hasMore: false })
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    )
+    .mockRejectedValueOnce(
+      new ResponseError(new Response(null, { status: 403 })),
+    );
+  const list = openChannelDirectoryList(
+    { readChannelDirectoryPage: read },
+    teamId,
+    "public",
+  );
+  await list.more();
+  const old = list.refresh();
+  await Promise.resolve();
+  list.pause();
+  expect(read.mock.calls[1][1].aborted).toBe(true);
+  expect(list.getSnapshot()).toMatchObject({
+    status: "ready",
+    hasResponse: true,
+    items: [],
+  });
+  await list.refresh();
+  answer({ items: [row(9)], hasMore: false });
+  await old;
+  expect(list.getSnapshot()).toMatchObject({
+    status: "forbidden",
+    hasResponse: false,
+    items: [],
   });
 });
