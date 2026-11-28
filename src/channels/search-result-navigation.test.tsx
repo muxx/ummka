@@ -2591,3 +2591,77 @@ test("leaving a channel aborts the pending file read before a late row can appea
   );
   expect(screen.queryByText("old-file.txt")).toBeNull();
 });
+
+function resizeWorkspace(initialWidth: number) {
+  let width = initialWidth;
+  let resize = () => {};
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(private readonly callback: () => void) {}
+      observe(node: HTMLElement) {
+        if (!node.classList.contains("workspace-window")) return;
+        Object.defineProperty(node, "clientWidth", { get: () => width });
+        resize = this.callback;
+        resize();
+      }
+      disconnect() {}
+    },
+  );
+  return (nextWidth: number) => {
+    width = nextWidth;
+    act(resize);
+  };
+}
+
+test("the wide member button shares the overview count and returns focus after resizing", async () => {
+  const resize = resizeWorkspace(901);
+  const { account } = fixture();
+  const header = await screen.findByRole("button", { name: "Members · 7" });
+  const info = screen.getByRole("button", { name: "Channel info" });
+  fireEvent.click(info);
+  const about = await screen.findByRole("complementary", {
+    name: "About this channel",
+  });
+  expect(within(about).getByText("7")).toBeTruthy();
+  expect(account.readChannelMemberCount).toHaveBeenCalledOnce();
+  fireEvent.click(header);
+  const roster = await screen.findByRole("complementary", { name: "Members" });
+  expect(
+    within(roster).queryByRole("button", { name: "Back to channel info" }),
+  ).toBeNull();
+  fireEvent.click(header);
+  expect(roster.isConnected).toBe(false);
+  expect(document.activeElement).toBe(header);
+  fireEvent.click(header);
+  await screen.findByRole("complementary", { name: "Members" });
+  resize(900);
+  expect(header.isConnected).toBe(false);
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(document.activeElement).toBe(info);
+  expect(account.readChannelMemberCount).toHaveBeenCalledOnce();
+});
+
+test.each(["P", "G", "D"] as const)(
+  "wide member entry respects conversation kind %s",
+  async (homeKind) => {
+    resizeWorkspace(1180);
+    const { account } = fixture({ homeKind });
+    const info = await screen.findByRole("button", { name: "Channel info" });
+    if (homeKind === "D") {
+      expect(screen.queryByRole("button", { name: /^Members/ })).toBeNull();
+      expect(account.readChannelMemberCount).not.toHaveBeenCalled();
+      fireEvent.click(info);
+      const about = await screen.findByRole("complementary", {
+        name: "About this channel",
+      });
+      fireEvent.click(within(about).getByRole("button", { name: /^Members/ }));
+    } else {
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Members · 7" }),
+      );
+    }
+    await screen.findByRole("complementary", { name: "Members" });
+    expect(account.readChannelMemberDirectory.mock.calls[0][0]).toBe(home);
+  },
+);

@@ -34,6 +34,7 @@ import { ChannelFilesPanel } from "./ChannelFilesPanel.tsx";
 import {
   ChannelInformationButton,
   ChannelInformationPanel,
+  HeaderMembersButton,
 } from "./ChannelInformationPanel.tsx";
 import { ChannelMembersPanel } from "./ChannelMembersPanel.tsx";
 import { ChannelNotificationsDialog } from "./ChannelNotificationsDialog.tsx";
@@ -93,6 +94,7 @@ import { threadInboxCopy } from "./thread-inbox-copy.ts";
 import type { TimelineRequest } from "./timeline-reader.ts";
 import { measureTimeline, type TimelinePlace } from "./timeline-viewport.ts";
 import { useChannelTimeline } from "./use-channel-timeline.ts";
+import { useInfoRead } from "./use-info-read.ts";
 import { useResultChannelIdentities } from "./use-result-channel-identities.ts";
 import { useWorkspaceBack } from "./use-workspace-back.ts";
 import { useWorkspaceCollections } from "./use-workspace-collections.ts";
@@ -334,7 +336,7 @@ export function ChannelsWorkspace({
   const [infoChannel, setInfoChannel] = useState<{
     id: string;
     opener: HTMLButtonElement;
-    direct?: boolean;
+    direct?: "menu" | "memberCount";
     requestId?: number;
     stage: "overview" | "pins" | "members" | "files";
     fileOrigin?: { postId: string; button: HTMLButtonElement };
@@ -348,6 +350,7 @@ export function ChannelsWorkspace({
     if (fileChannel) return () => fileNavigation.current?.abort();
   }, [fileChannel]);
   const infoButton = useRef<HTMLButtonElement>(null);
+  const membersButton = useRef<HTMLButtonElement>(null);
   const [notification, setNotification] = useState<{
     room: string;
     source: "menu" | "info";
@@ -404,7 +407,10 @@ export function ChannelsWorkspace({
   useLayoutEffect(() => {
     host.current?.querySelector<HTMLButtonElement>(".channels-team")?.focus();
   }, []);
-  const [compact, setCompact] = useState(false);
+  const [widthClass, setWidthClass] = useState<"compact" | "medium" | "wide">(
+    "compact",
+  );
+  const compact = widthClass === "compact";
   useLayoutEffect(() => {
     if (!compact && channelMenuOpen === "quick") {
       setChannelMenuOpen(null);
@@ -452,7 +458,12 @@ export function ChannelsWorkspace({
   useLayoutEffect(() => {
     const node = host.current;
     if (!node) return;
-    const size = () => setCompact(node.clientWidth <= 740);
+    const size = () => {
+      const width = node.clientWidth;
+      setWidthClass(
+        width <= 740 ? "compact" : width <= 900 ? "medium" : "wide",
+      );
+    };
     size();
     const observer = new ResizeObserver(size);
     observer.observe(node);
@@ -1317,9 +1328,30 @@ export function ChannelsWorkspace({
     (Boolean(position) || (!search.panel && !collections.view));
   if (infoChannel !== null && !infoOpen && !pinsFromInfo && !fileDestination)
     setInfoChannel(null);
+  const headerMembers =
+    widthClass === "wide" &&
+    infoAvailable &&
+    (channel.kind === "O" || channel.kind === "P" || channel.kind === "G");
+  const memberCount = useInfoRead(
+    headerMembers || (infoOpen && infoChannel.stage === "overview")
+      ? (channel?.id ?? null)
+      : null,
+    online,
+    (signal, id) => connection.readChannelMemberCount(id, signal),
+    sessionIssue,
+    () => {
+      if (infoOpen) closeInfo();
+      directory.retry();
+    },
+  );
+  const membersFromHeader =
+    infoOpen &&
+    infoChannel.stage === "members" &&
+    infoChannel.direct === "memberCount";
   function openChannelInfo(
     opener: HTMLButtonElement,
     stage: "overview" | "members" | "files" = "overview",
+    direct: "menu" | "memberCount" = "menu",
   ) {
     if (!channel || !infoAvailable || (stage === "files" && !allowChannelFiles))
       return;
@@ -1331,7 +1363,7 @@ export function ChannelsWorkspace({
     setInfoChannel({
       id: channel.id,
       opener,
-      direct: stage !== "overview",
+      direct: stage === "overview" ? undefined : direct,
       requestId: position?.request.requestId,
       stage,
     });
@@ -2144,12 +2176,33 @@ export function ChannelsWorkspace({
           channel &&
           infoAvailable && (
             <>
+              {headerMembers && (
+                <HeaderMembersButton
+                  language={language}
+                  expanded={membersFromHeader}
+                  control={membersButton}
+                  count={
+                    memberCount.value.status === "ready"
+                      ? memberCount.value.value
+                      : null
+                  }
+                  onClick={() => {
+                    if (membersFromHeader) return closeInfo();
+                    if (membersButton.current)
+                      openChannelInfo(
+                        membersButton.current,
+                        "members",
+                        "memberCount",
+                      );
+                  }}
+                />
+              )}
               <ChannelInformationButton
                 language={language}
-                expanded={infoOpen}
+                expanded={infoOpen && !infoChannel.direct}
                 control={infoButton}
                 onClick={() => {
-                  if (infoOpen) return closeInfo();
+                  if (infoOpen && !infoChannel.direct) return closeInfo();
                   if (pinsFromInfo && !collectionDestination)
                     return closeCollection();
                   if (infoButton.current) openChannelInfo(infoButton.current);
@@ -2260,7 +2313,7 @@ export function ChannelsWorkspace({
               language={language}
               online={online}
               back={() => backToInfo("files")}
-              direct={infoChannel.direct}
+              direct={Boolean(infoChannel.direct)}
               close={closeInfo}
               sessionIssue={sessionIssue}
               showMessage={openFileMessage}
@@ -2278,13 +2331,14 @@ export function ChannelsWorkspace({
               language={language}
               online={online}
               nameFormat={settings?.nameFormat ?? "username"}
-              back={() => backToInfo("members")}
-              direct={infoChannel.direct}
+              back={membersFromHeader ? undefined : () => backToInfo("members")}
+              direct={Boolean(infoChannel.direct)}
               close={closeInfo}
               sessionIssue={sessionIssue}
             />
           ) : infoOpen && channel ? (
             <ChannelInformationPanel
+              count={memberCount}
               key={channel.id}
               account={connection}
               channel={channel}

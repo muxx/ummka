@@ -9,9 +9,25 @@ import type { ComponentProps } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { projectTeamSidebar } from "../mattermost/team-sidebar.ts";
 import { ChannelInformationPanel } from "./ChannelInformationPanel.tsx";
+import { useInfoRead } from "./use-info-read.ts";
+import type { WorkspaceConnection } from "./use-workspace-read.ts";
 import "./workspace-dom.test-utils.ts";
 
-type Props = ComponentProps<typeof ChannelInformationPanel>;
+type PanelProps = ComponentProps<typeof ChannelInformationPanel>;
+type Props = Omit<PanelProps, "count" | "account"> & {
+  account: PanelProps["account"] &
+    Pick<WorkspaceConnection, "readChannelMemberCount">;
+};
+function InfoWithCount(props: Props) {
+  const count = useInfoRead(
+    props.channel.id,
+    props.online,
+    (signal) => props.account.readChannelMemberCount(props.channel.id, signal),
+    props.sessionIssue,
+    props.denied,
+  );
+  return <ChannelInformationPanel {...props} count={count} />;
+}
 const teamId = "t".repeat(26),
   channelId = "c".repeat(26),
   userId = "u".repeat(26);
@@ -61,7 +77,7 @@ function setup(props: Partial<Props> = {}) {
     ...props,
   };
   return {
-    view: render(<ChannelInformationPanel {...params} />),
+    view: render(<InfoWithCount {...params} />),
     params,
     read,
     count,
@@ -81,9 +97,7 @@ test("shows metadata, reads the member count once and refreshes the notification
   fireEvent.click(row);
   expect(params.notifications).toHaveBeenCalledWith(row);
   read.mockResolvedValue({ account: {}, channel: { markUnread: "mention" } });
-  view.rerender(
-    <ChannelInformationPanel {...params} notificationRevision={1} />,
-  );
+  view.rerender(<InfoWithCount {...params} notificationRevision={1} />);
   await screen.findByRole("button", { name: /Notifications.*Channel muted/ });
   expect(count).toHaveBeenCalledOnce();
 });
@@ -106,7 +120,7 @@ test("offline keeps metadata and never invents a count; reconnection reads once"
   expect(screen.queryByText("0")).toBeNull();
   expect(count).not.toHaveBeenCalled();
   expect(read).not.toHaveBeenCalled();
-  view.rerender(<ChannelInformationPanel {...params} online />);
+  view.rerender(<InfoWithCount {...params} online />);
   await screen.findByText("7");
   expect(count).toHaveBeenCalledOnce();
 });

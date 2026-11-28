@@ -212,6 +212,33 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
         throw Error("Saved control did not regain focus");
     });
     const info = ui.getByRole("button", { name: "Channel info" });
+    host.style.width = "1180px";
+    const headerMembers = await ui.findByRole("button", {
+      name: "Members · 7",
+    });
+    click(headerMembers);
+    const directMembers = await findPane("Members");
+    await directMembers.findByText("@channel.guest");
+    if (directMembers.queryByRole("button", { name: "Back to channel info" }))
+      throw Error("Direct member navigation opened a nested panel");
+    await back("header-members");
+    await waitFor(() => {
+      if (document.activeElement !== headerMembers)
+        throw Error("Member count did not regain focus");
+    });
+    click(headerMembers);
+    await findPane("Members");
+    host.style.width = "740px";
+    await waitFor(() => {
+      if (headerMembers.isConnected)
+        throw Error("Member count remains visible at compact width");
+    });
+    await back("resized-header-members");
+    await waitFor(() => {
+      if (document.activeElement !== info)
+        throw Error("Hidden opener retained focus");
+    });
+    host.style.removeProperty("width");
     click(info);
     let about = await findPane("About this channel");
     await about.findByText("7", { selector: "[role=status]" });

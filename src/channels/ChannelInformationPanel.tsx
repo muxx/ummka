@@ -1,11 +1,4 @@
-import {
-  useEffect,
-  useEffectEvent,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { useId, useLayoutEffect, useRef } from "react";
 import type { ChannelNotifyProps } from "../../vendor/mattermost/index.js";
 import type { EntryLanguage } from "../entry/language.ts";
 import type { TeamSidebar } from "../mattermost/team-sidebar.ts";
@@ -14,8 +7,8 @@ import { collectionCopy } from "./collection-copy.ts";
 import { PaneSizeToggle } from "./PaneWidthControls.tsx";
 import { CollectionMark } from "./PostCollectionPane.tsx";
 import { PublishedPostBody } from "./PublishedPostBody.tsx";
+import { type SectionValue, useInfoRead } from "./use-info-read.ts";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
-import { workspaceFailure } from "./workspace-data.ts";
 import "./channel-information.css";
 
 const labels = {
@@ -60,10 +53,8 @@ const labels = {
 };
 type Room = TeamSidebar["data"]["channels"][number];
 type Props = {
-  account: Pick<
-    WorkspaceConnection,
-    "readChannelMemberCount" | "readChannelNotifications"
-  >;
+  account: Pick<WorkspaceConnection, "readChannelNotifications">;
+  count: ReturnType<typeof useInfoRead<number>>;
   channel: Room;
   name: string;
   language: EntryLanguage;
@@ -78,61 +69,6 @@ type Props = {
   close: () => void;
   sessionIssue: (reason: "session" | "unauthorized") => void;
 };
-type SectionValue<T> =
-  | { status: "ready"; value: T }
-  | { status: "loading" | "failed" | "offline" };
-function useInfoRead<T>(
-  enabled: boolean,
-  online: boolean,
-  read: (signal: AbortSignal) => Promise<T>,
-  sessionIssue: Props["sessionIssue"],
-  denied: Props["denied"],
-  revision = 0,
-) {
-  const [attempt, setAttempt] = useState(0);
-  const [result, setResult] = useState<
-    (SectionValue<T> & { attempt: number; revision: number }) | null
-  >(null);
-  const start = useEffectEvent(read),
-    session = useEffectEvent(sessionIssue),
-    deny = useEffectEvent(denied);
-  useEffect(() => {
-    if (!enabled || !online) {
-      setResult(null);
-      return;
-    }
-    const controller = new AbortController();
-    setResult({ attempt, revision, status: "loading" });
-    void start(controller.signal).then(
-      (value) => {
-        if (!controller.signal.aborted)
-          setResult({ attempt, revision, status: "ready", value });
-      },
-      (reason) => {
-        if (controller.signal.aborted) return;
-        const issue = workspaceFailure(reason, "network");
-        if (issue === "session" || issue === "unauthorized") {
-          session(issue);
-          return;
-        }
-        if (issue === "forbidden") {
-          deny();
-          return;
-        }
-        setResult({ attempt, revision, status: "failed" });
-      },
-    );
-    return () => controller.abort();
-  }, [enabled, online, attempt, revision]);
-  return {
-    value: online
-      ? result?.attempt === attempt && result.revision === revision
-        ? result
-        : { status: "loading" as const }
-      : { status: "offline" as const },
-    retry: () => setAttempt((n) => n + 1),
-  };
-}
 function summary(
   p: ChannelNotifyProps,
   group: boolean,
@@ -172,6 +108,35 @@ export function MembersIcon() {
   );
 }
 
+export function HeaderMembersButton({
+  language,
+  expanded,
+  control,
+  count,
+  onClick,
+}: {
+  language: EntryLanguage;
+  expanded: boolean;
+  control: React.RefObject<HTMLButtonElement | null>;
+  count: number | null;
+  onClick: () => void;
+}) {
+  const label = labels[language].members;
+  return (
+    <button
+      ref={control}
+      type="button"
+      className="channels-icon-action channel-member-count"
+      aria-expanded={expanded}
+      aria-label={count === null ? label : `${label} · ${count}`}
+      title={label}
+      onClick={onClick}
+    >
+      <MembersIcon />
+      {count !== null && <span>{count}</span>}
+    </button>
+  );
+}
 function InformationIcon() {
   return (
     <svg
@@ -215,6 +180,7 @@ export function ChannelInformationButton({
 }
 export function ChannelInformationPanel({
   account,
+  count,
   channel,
   name,
   language,
@@ -235,15 +201,8 @@ export function ChannelInformationPanel({
     pins = useRef<HTMLButtonElement>(null),
     files = useRef<HTMLButtonElement>(null),
     members = useRef<HTMLButtonElement>(null);
-  const count = useInfoRead(
-    true,
-    online,
-    (s) => account.readChannelMemberCount(channel.id, s),
-    sessionIssue,
-    denied,
-  );
   const rule = useInfoRead(
-    Boolean(notifications),
+    notifications ? channel.id : null,
     online,
     (s) => account.readChannelNotifications(channel.id, s),
     sessionIssue,

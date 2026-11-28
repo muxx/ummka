@@ -303,6 +303,7 @@ export async function respondToWorkspace(
       : path === `channels/${design}/posts`
         ? design
         : null;
+  const countRoom = joinedIds.find((id) => path === `channels/${id}/stats`);
   const listRooms = path === `teams/${team}/channels`;
   const queryRooms = path === `teams/${team}/channels/autocomplete`;
   const joinRoom = path === `channels/${publicRoom.id}/members`;
@@ -325,6 +326,7 @@ export async function respondToWorkspace(
     !routes.has(path) &&
     !anchors.has(path) &&
     !channelId &&
+    !countRoom &&
     !listRooms &&
     !queryRooms &&
     !joinedPosts &&
@@ -341,6 +343,13 @@ export async function respondToWorkspace(
   );
   assert.equal(req.headers.cookie, undefined);
   assert.equal(req.method, post ? "POST" : "GET");
+  if (countRoom) {
+    assert.equal(url.search, "?exclude_files_count=true");
+    return json(
+      { channel_id: countRoom, member_count: countRoom === town ? 30 : 7 },
+      "info-channel-members",
+    );
+  }
   if (listRooms || queryRooms) {
     assert.deepEqual(
       Object.fromEntries(url.searchParams),

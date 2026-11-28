@@ -59,7 +59,7 @@ type Props = {
   language: EntryLanguage;
   nameFormat: NameFormat;
   online: boolean;
-  back: () => void;
+  back?: () => void;
   direct?: boolean;
   close: () => void;
   sessionIssue: (reason: "session" | "unauthorized") => void;
@@ -235,14 +235,16 @@ export function ChannelMembersPanel(props: Props) {
       aria-labelledby={title}
     >
       <header className="channels-pane-head">
-        <button
-          className="channels-icon-action"
-          type="button"
-          aria-label={props.direct ? t.backToChannel : t.back}
-          onClick={back}
-        >
-          ←
-        </button>
+        {back && (
+          <button
+            className="channels-icon-action"
+            type="button"
+            aria-label={props.direct ? t.backToChannel : t.back}
+            onClick={back}
+          >
+            ←
+          </button>
+        )}
         <div className="channels-pane-titles">
           <h2 ref={heading} tabIndex={-1} id={title}>
             <MembersIcon />
@@ -252,12 +254,28 @@ export function ChannelMembersPanel(props: Props) {
         </div>
         <PaneSizeToggle />
         <button
-          className="channels-icon-action channel-members-close"
+          className={
+            back
+              ? "channels-icon-action channel-members-close"
+              : "channels-icon-action"
+          }
           type="button"
           aria-label={t.close}
           onClick={close}
         >
-          ×
+          <svg
+            aria-hidden="true"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+          >
+            <path className="channel-info-close" d="m6 6 12 12m0-12L6 18" />
+            <path className="channel-info-back" d="m11 5-7 7 7 7M4 12h16" />
+          </svg>
         </button>
       </header>
       <div className="channel-member-body">

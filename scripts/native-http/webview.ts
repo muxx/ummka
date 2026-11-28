@@ -153,6 +153,8 @@ export function webviewServers(
   const collectionBackSteps = [
     "collection-back-saved-reply",
     "collection-back-saved-list",
+    "collection-back-header-members",
+    "collection-back-resized-header-members",
     "collection-back-info-members",
     "collection-back-file-details",
     "collection-back-file-message",
@@ -1261,22 +1263,6 @@ export function webviewServers(
       return;
     }
     const notificationRoom = "c".repeat(26);
-    if (
-      url.pathname ===
-      `/browser-action-check/api/v4/channels/${notificationRoom}/stats`
-    ) {
-      assert.equal(req.method, "GET");
-      assert.equal(url.search, "?exclude_files_count=true");
-      assert.equal(req.headers.authorization, "Bearer fixture-browser-action");
-      assert.equal(req.headers.cookie, undefined);
-      res
-        .writeHead(200, { "Content-Type": "application/json" })
-        .end(
-          JSON.stringify({ channel_id: notificationRoom, member_count: 30 }),
-        );
-      visits.push("info-channel-members");
-      return;
-    }
     const memberPath = `/browser-action-check/api/v4/channels/${notificationRoom}/members/me`;
     if (
       url.pathname === memberPath ||
@@ -1331,7 +1317,12 @@ export function webviewServers(
       },
     );
     if (workspace) {
-      if (workspace !== "background-thread-totals") visits.push(workspace);
+      // Viewing a wide channel also reads its count. Route checks apply to every request.
+      if (
+        workspace !== "background-thread-totals" &&
+        (workspace !== "info-channel-members" || !visits.includes(workspace))
+      )
+        visits.push(workspace);
       return;
     }
     const account = respondToAccount(
