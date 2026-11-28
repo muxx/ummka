@@ -1810,6 +1810,8 @@ export function webviewServers(
     connections++;
   });
   const control = https.createServer(trusted, async (req, res) => {
+    // Control receipts may be separated by long pauses in the data scenarios.
+    res.setHeader("Connection", "close");
     const url = new URL(req.url ?? "/", "https://localhost");
     assert.equal(url.pathname, "/api/v4/system/ping");
     const step = url.searchParams.get("step");
