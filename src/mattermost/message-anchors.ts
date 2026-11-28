@@ -7,6 +7,12 @@ import { channelPostChange } from "./channel-post-records.ts";
 import { isMattermostId } from "./model-fields.ts";
 import { receivedFileDetails } from "./received-file.ts";
 
+export class PostObservationSuperseded extends Error {
+  constructor() {
+    super("Post observation superseded by a local history change.");
+  }
+}
+
 export async function readPostAnchor(
   posts: Pick<PostsApi, "getPost">,
   postId: string,

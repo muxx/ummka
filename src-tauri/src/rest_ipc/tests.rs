@@ -96,7 +96,7 @@ fn cached_post_observation_is_consumed_even_when_ipc_payload_is_invalid() {
             LOCAL,
             json!({ "rid": rid, "load": load, "observation": observation }),
         )
-        .map(|response| response.deserialize::<bool>().unwrap())
+        .map(|response| response.deserialize::<Value>().unwrap())
     };
     let priority = || {
         invoke(
@@ -122,7 +122,7 @@ fn cached_post_observation_is_consumed_even_when_ipc_payload_is_invalid() {
     assert_eq!(error, json!("invalid_history_request"));
 
     let cancelled = begin();
-    assert_eq!(finish(cancelled, Value::Null), Ok(false));
+    assert_eq!(finish(cancelled, Value::Null), Ok(Value::Null));
     assert_eq!(
         finish(cancelled, valid.clone()),
         Err(json!("unknown_history_load"))
@@ -130,7 +130,10 @@ fn cached_post_observation_is_consumed_even_when_ipc_payload_is_invalid() {
     assert_eq!(priority(), json!("urgent"));
 
     let completed = begin();
-    assert_eq!(finish(completed, valid), Ok(true));
+    assert_eq!(
+        finish(completed, valid),
+        Ok(json!({"kind": "cached", "changed": true, "cards": null}))
+    );
     assert_eq!(
         finish(completed, Value::Null),
         Err(json!("unknown_history_load"))

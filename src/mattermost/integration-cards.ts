@@ -21,7 +21,7 @@ type IntegrationCardImage = Readonly<{
   }>;
 }>;
 
-type IntegrationCard = Readonly<{
+export type IntegrationCard = Readonly<{
   fallback?: string;
   color?: string;
   pretext?: string;
@@ -38,7 +38,10 @@ type IntegrationCard = Readonly<{
   footerIcon?: IntegrationCardImage;
 }>;
 
-type EmbedCoverage = "complete" | "partial";
+export type EmbedCoverage = "complete" | "partial";
+export type CardRevision = Readonly<{ updateAt: number; dispatch: number }>;
+export type CardSnapshot = CardRevision &
+  Readonly<{ cards: readonly IntegrationCard[] }>;
 const emptyCards: readonly IntegrationCard[] = Object.freeze([]);
 
 function record(value: unknown): Record<string, unknown> | undefined {

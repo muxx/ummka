@@ -38,6 +38,7 @@ fn save(id: &str, stamp: i64) -> PostChange {
         ai_attribution: None,
         thread_summary: None,
         attachments: None,
+        cards: None,
     }))
 }
 

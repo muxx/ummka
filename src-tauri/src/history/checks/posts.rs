@@ -40,6 +40,7 @@ fn save(id: &str, channel: &str, root: Option<&str>, version: i64, text: &str) -
         ai_attribution: None,
         thread_summary: None,
         attachments: None,
+        cards: None,
     }))
 }
 

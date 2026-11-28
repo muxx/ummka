@@ -1,4 +1,6 @@
 mod attachments;
+#[cfg(test)]
+mod cards;
 pub(crate) mod departure;
 mod departure_schema;
 pub(crate) mod migrations;

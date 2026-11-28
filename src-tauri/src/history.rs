@@ -8,6 +8,7 @@ pub(crate) mod checks;
 
 mod attachments;
 mod attempts;
+mod cards;
 pub use attempts::{PostRefusal, RefusalScope, RetryPost};
 mod departure;
 pub use departure::ChannelMembershipUpdate;
@@ -27,7 +28,7 @@ mod thread_summary;
 pub use profiles::{ChannelProfile, ProfileLookup, ProfileQuery};
 mod reclamation;
 pub use lifecycle::AccountHistory;
-pub(crate) use posts::{CachedPostObservation, PostObservation};
+pub(crate) use posts::{CachedPostObservation, CachedPostRead, PostObservation};
 pub use posts::{ChannelPostLoad, PageWrite, PostChange, StoredPost};
 mod schema;
 mod settings;

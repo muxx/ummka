@@ -29,6 +29,7 @@ function visibleRoot(row: UserThread, id: string): LocalPost | null {
     throw new TypeError("Invalid Mattermost thread root channel.");
   const projected = channelPostChange(post.channelId, id, post, {
     priority: "partial",
+    embeds: "partial",
   });
   if (projected.kind === "remove") return null;
   if (projected.rootId !== null)

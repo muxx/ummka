@@ -26,6 +26,7 @@ import { respondToGroupAssociations } from "./group-associations.ts";
 import { respondToGroupAudience } from "./group-audience.ts";
 import { respondToHistory } from "./history.ts";
 import { historyRefreshFixture } from "./history-refresh.ts";
+import { integrationCardRaceFixture } from "./integration-card-race.ts";
 import { collectionFixture } from "./post-collections.ts";
 import { respondToPostContext } from "./post-context.ts";
 import { respondToPostMutation } from "./post-mutations.ts";
@@ -74,6 +75,10 @@ export function webviewServers(
     "account-retire",
     ...pendingProfileImages.values(),
     "refresh-late",
+    "card-race-thread",
+    "card-race-point",
+    "card-race-delete",
+    "card-race-first",
     "submit-post",
     "recipient-hold",
   ];
@@ -208,6 +213,9 @@ export function webviewServers(
   );
   const refresh = historyRefreshFixture(userId, () =>
     events.emit("refresh-late-received"),
+  );
+  const cardRace = integrationCardRaceFixture(userId, (name) =>
+    events.emit(`${name}-received`),
   );
   const teamId = "Team0123456789012345678901";
   const channelId = "c".repeat(26);
@@ -913,6 +921,7 @@ export function webviewServers(
       return;
     }
     if (refresh.handle(req, res, url)) return;
+    if (cardRace.handle(req, res, url)) return;
     if (url.pathname === "/team/chat/api/v4/roles/names") {
       assert.equal(req.method, "POST");
       assert.equal(url.search, "");
@@ -1975,7 +1984,8 @@ export function webviewServers(
           "Verified native code-block and table scrolling at both widths.",
         );
     } else if (step === "release-history") {
-      refresh.release();
+      if (name && name !== "refresh-late") cardRace.release(name);
+      else refresh.release();
     } else if (step === "release-submission") {
       submissions.release();
     } else if (step === "disconnect") {
@@ -2070,6 +2080,7 @@ export function webviewServers(
 
       assert(linkActivated, "Missing native link activation");
       refresh.verify();
+      cardRace.verify();
       for (const read of [
         "live-search-destination",
         "live-search-post-anchor",

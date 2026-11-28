@@ -57,8 +57,8 @@ describe("channel post records", () => {
         message_source: undefined,
         hashtags: "#sky",
         is_pinned: false,
-        props: undefined,
-        metadata: {},
+        props: { attachments: [{ title: "Release reply", text: "**Ready**" }] },
+        metadata: { embeds: [{ type: "message_attachment" }] },
       },
       [removed]: { ...post, id: removed, delete_at: 123 },
     };
@@ -78,6 +78,27 @@ describe("channel post records", () => {
     ).toEqual({ ...windowPage, changes: expected });
     expect(changes({})).toEqual([]);
     expect(() => channelPostChanges(channel, {})).toThrow(TypeError);
+  });
+  it("distinguishes a full root outside order from a partial read of the same post", () => {
+    const wire = {
+      ...post,
+      message: "",
+      props: { attachments: [{ title: "Release candidate" }] },
+      metadata: { embeds: [{ type: "message_attachment" }] },
+    };
+    const page = PostListFromJSON({ order: [reply], posts: { [root]: wire } });
+    expect(channelPostChanges(channel, page)[0]).toMatchObject({
+      kind: "save",
+      cards: [{ title: "Release candidate" }],
+    });
+    expect(
+      channelPostChange(
+        channel,
+        root,
+        { ...page.posts?.[root], metadata: {} },
+        { embeds: "partial" },
+      ),
+    ).not.toHaveProperty("cards");
   });
   it.each([
     [undefined, false],

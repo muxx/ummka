@@ -21,6 +21,7 @@ pub enum WindowSource {
     After { post_id: String },
     Focused { post_id: String },
     Since { since: i64 },
+    Thread { root_id: String },
 }
 
 /// A normalized page from the channel reader. Extra posts can be absent from the visible order.
@@ -112,8 +113,25 @@ impl ChannelHistoryPage {
             {
                 Err(HistoryError::InvalidPost)
             }
+            WindowSource::Thread { root_id } => self.validate_thread(root_id),
             _ => Ok(()),
         }
+    }
+
+    fn validate_thread(&self, root_id: &str) -> Result<(), HistoryError> {
+        if self.collapsed_threads
+            || !self.order.is_empty()
+            || self.prev_post_id.is_some()
+            || self.next_post_id.is_some()
+            || self.first_inaccessible_post_time.is_some()
+            || !matches!(self.changes.first(), Some(PostChange::Save(post)) if post.id == root_id && post.root_id.is_none())
+            || self.changes[1..].iter().any(|change| {
+                !matches!(change, PostChange::Save(post) if post.root_id.as_deref() == Some(root_id))
+            })
+        {
+            return Err(HistoryError::InvalidPost);
+        }
+        Ok(())
     }
 }
 

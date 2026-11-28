@@ -19,6 +19,7 @@ export function expectedNavigationPost(
 ) {
   return {
     attachments,
+    cards: [],
     id: row.id,
     channelId: row.channelId,
     rootId: row.rootId || null,

@@ -1,3 +1,4 @@
+import { PostObservationSuperseded } from "../mattermost/message-anchors.ts";
 import type { openAccountRestConnection } from "../mattermost/native-rest.ts";
 import type { MembershipTarget } from "../mattermost/own-membership.ts";
 import { inspectPostTarget } from "./inspect-post-target.ts";
@@ -33,6 +34,8 @@ export function openPostNavigation(
         step = await inspectPostTarget(account, origin, selectedTeamId, signal);
       } catch (error) {
         signal?.throwIfAborted();
+        if (error instanceof PostObservationSuperseded)
+          return { target: { kind: "cancelled" } as const, joined };
         if (joined.length === 0) throw error;
         const reason = workspaceFailure(error, "network");
         if (reason === "session" || reason === "unauthorized") throw error;
