@@ -163,41 +163,27 @@ export function CollectionChannelMenu({
   const menuTrigger = quick ? quickTrigger : trigger;
   const labels = channelMenuCopy[language];
   const actions = [
+    { key: "info", icon: "info", label: labels.info, run: onInfo },
+    { key: "members", icon: "members", label: labels.members, run: onMembers },
+    { key: "pins", icon: "pin", label: text.pins, run: onPins },
     {
-      key: "info",
-      icon: "info",
-      label: quick ? labels.details : labels.info,
-      run: onInfo,
+      key: "files",
+      icon: <FileIcon />,
+      label: filePanelCopy[language].title,
+      run: onFiles,
     },
-    ...(!quick
-      ? [
-          {
-            key: "members",
-            icon: "members",
-            label: labels.members,
-            run: onMembers,
-          } as const,
-          { key: "pins", icon: "pin", label: text.pins, run: onPins } as const,
-          {
-            key: "files",
-            icon: <FileIcon />,
-            label: filePanelCopy[language].title,
-            run: onFiles,
-          } as const,
-          {
-            key: "bookmarks",
-            icon: <BookmarkIcon />,
-            label: bookmarkCopy[language].title,
-            run: onBookmarks,
-          } as const,
-          {
-            key: "notifications",
-            icon: "bell",
-            label: notificationCopy[language].title,
-            run: onNotifications,
-          } as const,
-        ]
-      : []),
+    {
+      key: "bookmarks",
+      icon: <BookmarkIcon />,
+      label: bookmarkCopy[language].title,
+      run: onBookmarks,
+    },
+    {
+      key: "notifications",
+      icon: "bell",
+      label: notificationCopy[language].title,
+      run: onNotifications,
+    },
   ] as const;
   useLayoutEffect(() => {
     if (compact || !open) return;
@@ -262,12 +248,12 @@ export function CollectionChannelMenu({
     setOpen(null);
     menuTrigger.current?.focus({ preventScroll: true });
   }
-  const content = open && (
+  const menu = open && (
     <div
       ref={actionList}
       id={id}
       role="menu"
-      aria-label={quick ? labels.details : text.menu}
+      aria-label={text.menu}
       className={
         compact ? "collection-sheet-actions" : "collection-channel-actions"
       }
@@ -324,9 +310,24 @@ export function CollectionChannelMenu({
       )}
     </div>
   );
+  const quickActions = onInfo && (
+    <div ref={actionList} className="collection-sheet-actions">
+      <button
+        type="button"
+        className="collection-channel-action"
+        onClick={() => {
+          const opener = quickTrigger.current;
+          if (opener) onInfo(opener);
+        }}
+      >
+        <SheetIcon name="info" />
+        {labels.details}
+      </button>
+    </div>
+  );
   const menuHeader = (
     <header>
-      <SheetIcon className="collection-sheet-mark" name={mark} />
+      {!quick && <SheetIcon className="collection-sheet-mark" name={mark} />}
       <h2 id={`${id}-heading`}>{title}</h2>
       <button
         type="button"
@@ -425,12 +426,12 @@ export function CollectionChannelMenu({
           }}
         >
           {menuHeader}
-          {content}
+          {quick ? quickActions : menu}
         </dialog>
       ) : open ? (
         <div ref={popover} className="collection-channel-popover">
           {menuHeader}
-          {content}
+          {menu}
         </div>
       ) : null}
     </div>

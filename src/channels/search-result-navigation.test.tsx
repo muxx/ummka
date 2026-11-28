@@ -1311,15 +1311,23 @@ test("opens channel information from the header, saves notifications and returns
 });
 
 test.each([
-  ["Channel menu, Home", "Conversation info"],
-  ["Channel actions", "Info"],
-])(
+  ["Channel menu, Home", "menuitem", "Conversation info"],
+  ["Channel actions", "button", "Info"],
+] as const)(
   "opens channel information from %s and restores its own button",
-  async (name, item) => {
+  async (name, role, item) => {
     const { account } = fixture();
     const opener = await screen.findByRole("button", { name });
     fireEvent.click(opener);
-    const action = await screen.findByRole("menuitem", { name: item });
+    const dialog = await screen.findByRole("dialog", { name: "Home" });
+    const action = await within(dialog).findByRole(role, { name: item });
+    if (role === "button") {
+      expect(within(dialog).getAllByRole("button")).toHaveLength(2);
+      expect(within(dialog).queryByRole("menu")).toBeNull();
+      expect(dialog.querySelector(".collection-sheet-mark")).toBeNull();
+    } else {
+      expect(dialog.querySelector(".collection-sheet-mark")).not.toBeNull();
+    }
     expect(document.activeElement).toBe(action);
     expect(account.readChannelMemberCount).not.toHaveBeenCalled();
     expect(account.readChannelMemberDirectory).not.toHaveBeenCalled();
