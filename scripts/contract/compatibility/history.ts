@@ -1699,9 +1699,12 @@ await checkEventStream(
   reader.id,
   team.id,
   channelId,
+  memberPosts,
+  token,
+  user.id,
 );
 console.log(
-  `Mattermost ${version} verified an ordinary author's pending_post_id in posted, command replies and post replay after reconnect.`,
+  `Mattermost ${version} verified two-way root, reply, edit and zero-delete_at deletion addresses, a private command reply and replay after reconnect.`,
 );
 
 // Two ordinary users share a previously empty team and a new DM. Existing

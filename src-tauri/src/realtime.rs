@@ -10,8 +10,10 @@ mod connection;
 mod route;
 pub(crate) use route::{ClientEventAddress, EventRoute};
 mod delivery;
+mod post_change;
 mod typing;
 pub use connection::{EventConnectionError, EventReader, EventSettings};
+pub use post_change::{ChannelPostChange, PostChangeKind};
 pub use typing::TypingEvent;
 
 use crate::rest::is_mattermost_id;

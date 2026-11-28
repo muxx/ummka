@@ -148,8 +148,15 @@ export function eventFixture() {
           ? {
               event: "posted",
               seq: 1,
-              data: { post: "fixture" },
-              broadcast: {},
+              data: {
+                post: JSON.stringify({
+                  id: "p".repeat(26),
+                  channel_id: "c".repeat(26),
+                  root_id: "r".repeat(26),
+                  message: "Private reply",
+                }),
+              },
+              broadcast: { channel_id: "c".repeat(26) },
             }
           : {
               event: "hello",

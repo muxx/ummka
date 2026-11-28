@@ -1,4 +1,4 @@
-use super::{EventConnectionError, ServerEvent, StreamError};
+use super::{EventConnectionError, ServerEvent};
 use crate::history::{AccountHistory, DeliveryPost, DeliverySource};
 use serde::Deserialize;
 
@@ -25,23 +25,9 @@ impl ServerEvent {
         if self.name != "posted" {
             return Ok(false);
         }
-        let malformed = || EventConnectionError::Protocol(StreamError::InvalidFrame);
-        let json = self
-            .data
-            .get("post")
-            .and_then(|value| value.as_str())
-            .ok_or_else(malformed)?;
-        // A Mattermost post is a JSON object. Serde also accepts positional arrays for structs.
-        if !json.trim_start().starts_with('{') {
-            return Err(malformed());
-        }
-        let post: Posted = serde_json::from_str(json).map_err(|_| malformed())?;
-        let address = |field: &str| match self.broadcast.get(field) {
-            Some(value) => value.as_str().ok_or_else(malformed),
-            None => Ok(""),
-        };
-        let channel = address("channel_id")?;
-        let recipient = address("user_id")?;
+        let post: Posted = self.decode_post()?;
+        let channel = self.broadcast_address("channel_id")?;
+        let recipient = self.broadcast_address("user_id")?;
         if post.pending_post_id.is_empty()
             || post.delete_at != 0
             || (channel.is_empty() && recipient.is_empty())
