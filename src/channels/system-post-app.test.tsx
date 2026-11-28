@@ -1613,6 +1613,13 @@ const savedReturn = () =>
   screen.findByRole("button", {
     name: "Back to saved messages in team “Winter”",
   });
+function focusedSavedPost(id: string, feed = ".thread-feed") {
+  return waitFor(() => {
+    const post = document.querySelector(`${feed} [data-post-id="${id}"]`);
+    expect(post).not.toBeNull();
+    expect(document.activeElement).toBe(post);
+  });
+}
 async function visitSavedReply() {
   fireEvent.click(
     await screen.findByRole("button", { name: "Saved messages" }),
@@ -1621,12 +1628,8 @@ async function visitSavedReply() {
     name: /Saved reply preview/,
   });
   fireEvent.click(row);
+  await focusedSavedPost(reply.id);
   await savedReturn();
-  await waitFor(() =>
-    expect(document.activeElement).toBe(
-      document.querySelector(`.thread-feed [data-post-id="${reply.id}"]`),
-    ),
-  );
 }
 
 test("cross-team saved reply returns to the same ID in a fresh list and keeps the original draft", async () => {
@@ -1673,6 +1676,7 @@ test("cross-team saved reply returns to the same ID in a fresh list and keeps th
   );
   fireEvent.click(returnButton);
   const pane = within(await savedPanel());
+  await waitFor(() => expect(fresh).toBeTypeOf("function"));
   expect(pane.queryByText("Saved reply preview")).toBeNull();
   expect(account.readSavedPosts).toHaveBeenCalledTimes(before + 1);
   await act(async () => fresh?.());
@@ -1780,6 +1784,7 @@ test("a refused destination team leaves its previous channel untouched", async (
   );
   expect(document.activeElement).toBe(row);
   fireEvent.click(row);
+  await focusedSavedPost(reply.id);
   await savedReturn();
   expect(account.selectSidebarChannel).toHaveBeenCalledExactlyOnceWith(
     summer,
@@ -2074,6 +2079,14 @@ test("a late saved team write cannot replace the manually selected channel", asy
 test("stepping from a local saved post opens the cross-team reply and does not substitute a removed row on return", async () => {
   const { account, targetInfo } = boot({ cross: true });
   const local = { ...root, id: "l".repeat(26), channelId: home };
+  const readWindow = account.readChannelWindow.getMockImplementation();
+  if (!readWindow) throw new Error("Missing channel fixture");
+  account.readChannelWindow.mockImplementation(async (read) => {
+    const page = await readWindow(read);
+    return page && read.kind === "around" && read.postId === local.id
+      ? { ...page, posts: [local] }
+      : page;
+  });
   account.readPostDestination.mockResolvedValueOnce({
     postId: local.id,
     channel: { ...targetInfo.channel, id: home, displayName: "Home" },
@@ -2106,21 +2119,17 @@ test("stepping from a local saved post opens the cross-team reply and does not s
     }),
   );
   await screen.findByText("1 of 2");
-  fireEvent.keyDown(document.body, {
-    code: "KeyG",
-    ctrlKey: !usesMacOSOverlay,
-    metaKey: usesMacOSOverlay,
-  });
+  await focusedSavedPost(local.id, ".channels-conversation .timeline-scroll");
+  const keyboard = userEvent.setup();
+  const next = usesMacOSOverlay ? "{Meta>}g{/Meta}" : "{Control>}g{/Control}";
+  await keyboard.keyboard(next);
+  await focusedSavedPost(reply.id);
   await savedReturn();
   expect(account.readPostAnchor.mock.calls.map(([id]) => id)).toEqual([
     local.id,
     reply.id,
   ]);
-  fireEvent.keyDown(document.body, {
-    code: "KeyG",
-    ctrlKey: !usesMacOSOverlay,
-    metaKey: usesMacOSOverlay,
-  });
+  await keyboard.keyboard(next);
   await screen.findByText(/The list is in team “Winter”/);
   expect(account.readPostAnchor).toHaveBeenCalledTimes(2);
   account.readSavedPosts.mockResolvedValueOnce({
@@ -2138,13 +2147,12 @@ test("stepping from a local saved post opens the cross-team reply and does not s
   const previous = await within(pane).findByRole("button", {
     name: /Remaining local saved post/,
   });
+  const removed = await within(pane).findByText(
+    "This message is no longer saved",
+  );
   expect(pane.querySelector("[aria-current]")).toBeNull();
   expect(document.activeElement).toBe(previous);
-  expect(
-    within(pane)
-      .getByText("This message is no longer saved")
-      .getAttribute("role"),
-  ).toBe("status");
+  expect(removed.getAttribute("role")).toBe("status");
   let completeRemoval: (() => void) | undefined;
   account.writeSavedPost.mockImplementationOnce(
     () =>
