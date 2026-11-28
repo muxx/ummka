@@ -31,6 +31,48 @@ function checkOverviewRowGap(overview: HTMLElement) {
   );
 }
 
+function checkOverviewRows(overview: HTMLElement, compact: boolean) {
+  const actions = within(overview);
+  const rows = [
+    { name: /^Members\b/, detail: true },
+    { name: "Pinned messages" },
+    { name: "Channel files" },
+    { name: "Channel bookmarks" },
+    { name: /^Notifications\b/, detail: true },
+  ];
+  let previous: DOMRect | undefined;
+  for (const { name, detail } of rows) {
+    const row = actions.getByRole("button", { name });
+    const label = row.querySelector("strong");
+    const subtitle = row.querySelector("small");
+    const icon = row.querySelector("svg");
+    if (!label || !icon || Boolean(subtitle) !== Boolean(detail))
+      throw Error(`Wrong label or detail for overview row ${name}`);
+    const bounds = row.getBoundingClientRect();
+    const title = label.getBoundingClientRect();
+    const textHeight = subtitle
+      ? subtitle.getBoundingClientRect().bottom - title.top
+      : title.height;
+    // System text scaling can make the measured text taller than the minimum.
+    const contentHeight = Math.max(
+      textHeight,
+      icon.getBoundingClientRect().height,
+    );
+    checkPixels(
+      `Height of the overview action ${name}`,
+      bounds.height,
+      Math.max(compact || detail ? 44 : 32, contentHeight + 8),
+    );
+    if (previous)
+      checkPixels(
+        `Gap above the overview action ${name}`,
+        bounds.top - previous.bottom,
+        0,
+      );
+    previous = bounds;
+  }
+}
+
 async function checkOverviewActions(overview: HTMLElement, compact: boolean) {
   const heading = within(overview).getByRole("heading", {
     name: "About this channel",
@@ -362,8 +404,10 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
     await about.findByText("7", { selector: "[role=status]" });
     checkOverviewRowGap(overview);
     await checkOverviewActions(overview, false);
+    checkOverviewRows(overview, false);
     host.style.width = "390px";
     await checkOverviewActions(overview, true);
+    checkOverviewRows(overview, true);
     host.style.removeProperty("width");
     click(about.getByRole("button", { name: /^Members/ }));
     const roster = await findPane("Members");
