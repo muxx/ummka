@@ -2393,6 +2393,30 @@ test("members open from details, restore the opening row and cancel a pending re
   expect(screen.queryByRole("complementary", { name: "Members" })).toBeNull();
 });
 
+test("members in the channel menu are loaded only by selecting the item and Back returns to the title", async () => {
+  const { account } = fixture();
+  const menu = await screen.findByRole("button", {
+    name: "Channel menu, Home",
+  });
+  fireEvent.click(menu);
+  const action = screen.getByRole("menuitem", { name: "Members" });
+  expect(account.readChannelMemberDirectory).not.toHaveBeenCalled();
+  fireEvent.click(action);
+  const panel = await screen.findByRole("complementary", { name: "Members" });
+  await within(panel).findByText("No members to show");
+  expect(account.readChannelMemberDirectory).toHaveBeenCalledWith(
+    home,
+    { kind: "page", page: 0 },
+    expect.any(AbortSignal),
+  );
+  expect(account.readChannelMemberCount).not.toHaveBeenCalled();
+  fireEvent.click(
+    within(panel).getByRole("button", { name: "Back to conversation" }),
+  );
+  expect(screen.queryByRole("complementary")).toBeNull();
+  expect(document.activeElement).toBe(menu);
+});
+
 test("opens scoped files from channel info and returns from the message to the same file and list", async () => {
   const { account } = fixture();
   fireEvent.click(await screen.findByRole("button", { name: "Design" }));

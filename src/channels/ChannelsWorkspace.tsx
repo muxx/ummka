@@ -334,6 +334,7 @@ export function ChannelsWorkspace({
   const [infoChannel, setInfoChannel] = useState<{
     id: string;
     opener: HTMLButtonElement;
+    direct?: boolean;
     requestId?: number;
     stage: "overview" | "pins" | "members" | "files";
     fileOrigin?: { postId: string; button: HTMLButtonElement };
@@ -1316,7 +1317,10 @@ export function ChannelsWorkspace({
     (Boolean(position) || (!search.panel && !collections.view));
   if (infoChannel !== null && !infoOpen && !pinsFromInfo && !fileDestination)
     setInfoChannel(null);
-  function openChannelInfo(opener: HTMLButtonElement) {
+  function openChannelInfo(
+    opener: HTMLButtonElement,
+    stage: "overview" | "members" = "overview",
+  ) {
     if (!channel || !infoAvailable) return;
     if (!position) {
       collections.close(false);
@@ -1326,8 +1330,9 @@ export function ChannelsWorkspace({
     setInfoChannel({
       id: channel.id,
       opener,
+      direct: stage !== "overview",
       requestId: position?.request.requestId,
-      stage: "overview",
+      stage,
     });
   }
   function openFileMessage(postId: string, button: HTMLButtonElement) {
@@ -1348,6 +1353,7 @@ export function ChannelsWorkspace({
     choose(id, true);
   }
   function backToInfo(focusRow: "members" | "files") {
+    if (infoChannel?.direct) return closeInfo();
     if (infoChannel)
       setInfoChannel({
         ...infoChannel,
@@ -2187,6 +2193,11 @@ export function ChannelsWorkspace({
                     trigger={channelMenuButton}
                     quickTrigger={quickActionsButton}
                     onInfo={infoAvailable ? openChannelInfo : undefined}
+                    onMembers={
+                      infoAvailable
+                        ? (opener) => openChannelInfo(opener, "members")
+                        : undefined
+                    }
                     open={channelMenuOpen}
                     setOpen={setChannelMenuOpen}
                     onNotifications={
@@ -2261,6 +2272,7 @@ export function ChannelsWorkspace({
               online={online}
               nameFormat={settings?.nameFormat ?? "username"}
               back={() => backToInfo("members")}
+              direct={infoChannel.direct}
               close={closeInfo}
               sessionIssue={sessionIssue}
             />

@@ -22,6 +22,7 @@ const copy = {
   en: {
     title: "Members",
     back: "Back to channel info",
+    backToChannel: "Back to conversation",
     close: "Close members",
     search: "Find a member",
     guest: "Guest",
@@ -37,6 +38,7 @@ const copy = {
   ru: {
     title: "Участники",
     back: "Вернуться к сведениям о канале",
+    backToChannel: "Вернуться в беседу",
     close: "Закрыть участников",
     search: "Найти участника",
     guest: "Гость",
@@ -58,6 +60,7 @@ type Props = {
   nameFormat: NameFormat;
   online: boolean;
   back: () => void;
+  direct?: boolean;
   close: () => void;
   sessionIssue: (reason: "session" | "unauthorized") => void;
 };
@@ -235,7 +238,7 @@ export function ChannelMembersPanel(props: Props) {
         <button
           className="channels-icon-action"
           type="button"
-          aria-label={t.back}
+          aria-label={props.direct ? t.backToChannel : t.back}
           onClick={back}
         >
           ←

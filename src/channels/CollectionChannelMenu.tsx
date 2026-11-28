@@ -19,6 +19,8 @@ const sheetIconPaths = {
     "M5 7a4 4 0 1 0 8 0a4 4 0 1 0-8 0 M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2 M16 3.13a4 4 0 0 1 0 7.75 M21 21v-2a4 4 0 0 0-3-3.85",
   message:
     "M3 20l1.3-3.9c-2.324-3.437-1.426-7.872 2.1-10.374c3.526-2.501 8.59-2.296 11.845.48c3.255 2.777 3.695 7.266 1.029 10.501c-2.666 3.235-7.615 4.215-11.574 2.293L3 20",
+  members:
+    "M9 6a3 3 0 1 0 0 6a3 3 0 0 0 0-6M3 20v-1a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v1M17 6a3 3 0 0 1 0 6M21 20v-1a4 4 0 0 0-4-4",
   info: "M12 7.5v.2M12 11v6M21 12a9 9 0 1 1-18 0a9 9 0 1 1 18 0",
   pin: "M15 4.5l-4 4-4 1.5-1.5 1.5 7 7 1.5-1.5 1.5-4 4-4 M9 15l-4.5 4.5 M14.5 4l5.5 5.5",
 } as const;
@@ -56,12 +58,14 @@ const channelMenuCopy = {
   en: {
     info: "Conversation info",
     details: "Info",
+    members: "Members",
     actions: "Channel actions",
     chatActions: "Conversation actions",
   },
   ru: {
     info: "Сведения о беседе",
     details: "Сведения",
+    members: "Участники",
     actions: "Действия с каналом",
     chatActions: "Действия с беседой",
   },
@@ -122,6 +126,7 @@ export function CollectionChannelMenu({
   open,
   setOpen,
   onInfo,
+  onMembers,
   onPins,
   onNotifications,
 }: {
@@ -138,6 +143,7 @@ export function CollectionChannelMenu({
   open: ChannelMenu;
   setOpen: (value: ChannelMenu) => void;
   onInfo?: (trigger: HTMLButtonElement) => void;
+  onMembers?: (trigger: HTMLButtonElement) => void;
   onPins: (trigger: HTMLButtonElement) => void;
   onNotifications?: () => void;
 }) {
@@ -163,6 +169,12 @@ export function CollectionChannelMenu({
     },
     ...(!quick
       ? [
+          {
+            key: "members",
+            icon: "members",
+            label: labels.members,
+            run: onMembers,
+          } as const,
           { key: "pins", icon: "pin", label: text.pins, run: onPins } as const,
           {
             key: "notifications",
