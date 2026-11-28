@@ -21,10 +21,18 @@ function account() {
   return {
     readSavedProfiles:
       vi.fn<(q: VisibleProfileQuery) => Promise<SavedProfiles>>(),
-    refreshSavedProfiles: vi.fn().mockResolvedValue(undefined),
+    refreshSavedProfiles: vi.fn().mockResolvedValue([]),
   };
 }
 const sessionIssue = vi.fn();
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 
 test("keeps only shared sidebar identities while the next timeline loads and adopts a subsequent removal", async () => {
   const connection = account();
@@ -96,4 +104,202 @@ test("clears retained profiles when access is refused on the same connection", a
   await waitFor(() => expect(view.result.current).toEqual(rows));
   view.rerender(next);
   await waitFor(() => expect(view.result.current).toEqual(empty));
+});
+
+test("returns to a known author before the next SQLite read completes", async () => {
+  const connection = account();
+  let resume!: (value: SavedProfiles) => void;
+  connection.readSavedProfiles
+    .mockResolvedValueOnce(rows)
+    .mockResolvedValueOnce(empty)
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resume = resolve;
+        }),
+    );
+  const view = renderHook(
+    (query: VisibleProfileQuery) =>
+      useWorkspaceProfiles(connection, query, false, sessionIssue),
+    { initialProps: initial },
+  );
+  await waitFor(() =>
+    expect(view.result.current.profiles[oldAuthor.id]).toBe(oldAuthor),
+  );
+  view.rerender({ ids: ["b".repeat(26)], usernames: [] });
+  await waitFor(() => expect(view.result.current).toEqual(empty));
+  view.rerender(initial);
+  expect(view.result.current.profiles[oldAuthor.id]).toBe(oldAuthor);
+  const changed = { ...oldAuthor, firstName: "Renamed", isGuest: true };
+  await act(async () =>
+    resume({ profiles: { [oldAuthor.id]: changed }, usernames: {} }),
+  );
+  expect(view.result.current.profiles[oldAuthor.id]).toBe(changed);
+});
+
+test("a partial server result hides only the unreturned author's stale SQLite row", async () => {
+  const connection = account();
+  const { ids } = initial;
+  const renamed = { ...peer, firstName: "New", isBot: true };
+  const saved = {
+    profiles: { [peer.id]: renamed, [oldAuthor.id]: oldAuthor },
+    usernames: {},
+  };
+  const reread = deferred<SavedProfiles>();
+  connection.readSavedProfiles
+    .mockResolvedValueOnce(saved)
+    .mockReturnValueOnce(reread.promise)
+    .mockResolvedValue(saved);
+  connection.refreshSavedProfiles.mockResolvedValue([renamed]);
+  const view = renderHook(
+    ({ query, online }: { query: VisibleProfileQuery; online: boolean }) =>
+      useWorkspaceProfiles(connection, query, online, sessionIssue),
+    { initialProps: { query: { ids, usernames: [] }, online: true } },
+  );
+  await waitFor(() =>
+    expect(view.result.current.profiles).toEqual({ [peer.id]: renamed }),
+  );
+  expect(connection.refreshSavedProfiles).toHaveBeenCalledTimes(1);
+  expect(connection.readSavedProfiles).toHaveBeenCalledTimes(2);
+  await act(async () => reread.resolve(saved));
+  view.rerender({ query: { ids: [], usernames: [] }, online: false });
+  await act(async () => {});
+  view.rerender({ query: { ids, usernames: [] }, online: false });
+  expect(view.result.current.profiles).toEqual({ [peer.id]: renamed });
+  await act(async () => {});
+  expect(view.result.current.profiles).toEqual({ [peer.id]: renamed });
+  expect(connection.refreshSavedProfiles).toHaveBeenCalledTimes(1);
+});
+
+test("a 403 in another view clears the common author, while a network failure keeps previously read profiles", async () => {
+  const connection = account();
+  connection.readSavedProfiles.mockResolvedValue(rows);
+  const view = renderHook(() =>
+    useWorkspaceProfiles(connection, initial, false, sessionIssue),
+  );
+  await waitFor(() =>
+    expect(view.result.current.profiles[oldAuthor.id]).toBe(oldAuthor),
+  );
+  connection.readSavedProfiles
+    .mockRejectedValueOnce(new TypeError("Network interrupted"))
+    .mockRejectedValueOnce(
+      new ResponseError(new Response(null, { status: 403 })),
+    );
+  const query = { ids: [oldAuthor.id], usernames: [] };
+  const second = renderHook(() =>
+    useWorkspaceProfiles(connection, query, false, sessionIssue),
+  );
+  await act(async () => {});
+  expect(second.result.current.profiles[oldAuthor.id]).toBe(oldAuthor);
+  second.unmount();
+  const third = renderHook(() =>
+    useWorkspaceProfiles(connection, query, false, sessionIssue),
+  );
+  await waitFor(() => expect(third.result.current.profiles).toEqual({}));
+  expect(view.result.current.profiles).toEqual({
+    [peer.id]: peer,
+    [member.id]: member,
+  });
+});
+
+test("retains an ID without making its previous username lookup available", async () => {
+  const connection = account();
+  const pending = deferred<SavedProfiles>();
+  connection.readSavedProfiles
+    .mockResolvedValueOnce(rows)
+    .mockReturnValueOnce(pending.promise);
+  const earlier = renderHook(() =>
+    useWorkspaceProfiles(connection, initial, false, sessionIssue),
+  );
+  await waitFor(() =>
+    expect(earlier.result.current.profiles[oldAuthor.id]).toBe(oldAuthor),
+  );
+  earlier.unmount();
+  const next = renderHook(() =>
+    useWorkspaceProfiles(
+      connection,
+      { ids: [], usernames: [oldAuthor.username, member.username] },
+      false,
+      sessionIssue,
+    ),
+  );
+  expect(next.result.current).toEqual(empty);
+  await act(async () => pending.resolve(empty));
+  expect(next.result.current).toEqual(empty);
+});
+
+test("publishes a rename to an overlapping view before releasing the older read", async () => {
+  const connection = account();
+  const newer = { ...oldAuthor, firstName: "Current", isBot: true };
+  const delayed = deferred<SavedProfiles>();
+  connection.readSavedProfiles
+    .mockResolvedValueOnce({
+      profiles: { [oldAuthor.id]: oldAuthor },
+      usernames: {},
+    })
+    .mockReturnValueOnce(delayed.promise)
+    .mockResolvedValueOnce({
+      profiles: { [oldAuthor.id]: newer },
+      usernames: {},
+    });
+  const shared = { ids: [oldAuthor.id], usernames: [] };
+  const first = renderHook(
+    (query: VisibleProfileQuery) =>
+      useWorkspaceProfiles(connection, query, false, sessionIssue),
+    { initialProps: shared },
+  );
+  await waitFor(() =>
+    expect(first.result.current.profiles[oldAuthor.id]).toBe(oldAuthor),
+  );
+  first.rerender({ ids: [oldAuthor.id, peer.id], usernames: [] });
+  const second = renderHook(() =>
+    useWorkspaceProfiles(connection, shared, false, sessionIssue),
+  );
+  await waitFor(() =>
+    expect(second.result.current.profiles[oldAuthor.id]).toBe(newer),
+  );
+  expect(first.result.current.profiles[oldAuthor.id]).toBe(newer);
+  await act(async () => delayed.resolve(rows));
+  expect(first.result.current.profiles).toEqual({
+    [oldAuthor.id]: newer,
+    [peer.id]: peer,
+  });
+  expect(second.result.current.profiles).toEqual({ [oldAuthor.id]: newer });
+});
+
+test("uses the latest server fields at equal versions across an offline cycle", async () => {
+  const connection = account();
+  const row = { ...oldAuthor, firstName: "Stored", updateAt: 100 };
+  const hidden = { ...row, firstName: "" };
+  const allowed = { ...row, firstName: "Allowed again" };
+  const savedRows = (row: typeof oldAuthor) => ({
+    profiles: { [row.id]: row },
+    usernames: {},
+  });
+  const query = { ids: [row.id], usernames: [] };
+  connection.readSavedProfiles.mockResolvedValue(savedRows(row));
+  connection.refreshSavedProfiles
+    .mockResolvedValueOnce([hidden])
+    .mockResolvedValueOnce([allowed]);
+  const view = renderHook(
+    (online: boolean) =>
+      useWorkspaceProfiles(connection, query, online, sessionIssue),
+    { initialProps: true },
+  );
+  await waitFor(() =>
+    expect(view.result.current.profiles[row.id]).toBe(hidden),
+  );
+  view.rerender(false);
+  await act(async () => {});
+  expect(view.result.current.profiles[row.id]).toBe(hidden);
+  view.rerender(true);
+  await waitFor(() =>
+    expect(view.result.current.profiles[row.id]).toBe(allowed),
+  );
+  expect(connection.refreshSavedProfiles).toHaveBeenCalledTimes(2);
+  const later = { ...row, firstName: "New SQLite version", updateAt: 101 };
+  connection.readSavedProfiles.mockResolvedValue(savedRows(later));
+  view.rerender(false);
+  await waitFor(() => expect(view.result.current.profiles[row.id]).toBe(later));
+  expect(connection.refreshSavedProfiles).toHaveBeenCalledTimes(2);
 });

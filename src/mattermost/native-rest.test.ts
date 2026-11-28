@@ -526,6 +526,10 @@ test("reports a native write failure and cancellation after a committed profile 
     .spyOn(profiles, "loadVisibleProfiles")
     .mockResolvedValue([record]);
   try {
+    ipc.mockResolvedValueOnce(undefined);
+    await expect(account.refreshSavedProfiles(query)).resolves.toEqual([
+      record,
+    ]);
     ipc.mockRejectedValueOnce("history_storage_unavailable");
     await expect(account.refreshSavedProfiles(query)).rejects.toBe(
       "history_storage_unavailable",

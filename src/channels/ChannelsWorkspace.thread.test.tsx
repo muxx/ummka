@@ -306,7 +306,9 @@ function mount(
           }
         : { profiles: {}, usernames: {} },
     ),
-    refreshSavedProfiles: vi.fn(),
+    refreshSavedProfiles: vi
+      .fn<Connection["refreshSavedProfiles"]>()
+      .mockResolvedValue(options.directProfile ? [options.directProfile] : []),
     readChannelWindow: vi.fn<Connection["readChannelWindow"]>(
       async ({ channelId }) => ({
         posts: channelId === general ? rows : [],
@@ -951,16 +953,18 @@ test.each([0, 86400000])(
   "a confirmed own reply across a gap of %i ms keeps its day, row and focus",
   async (dayOffset) => {
     const connection = mount(true);
+    const author = channelProfile({
+      id: userId,
+      username: "ada",
+      firstName: "Ada",
+    });
     connection.readSavedProfiles.mockResolvedValue({
-      profiles: {
-        [userId]: channelProfile({
-          id: userId,
-          username: "ada",
-          firstName: "Ada",
-        }),
-      },
+      profiles: { [userId]: author },
       usernames: { ada: userId },
     });
+    connection.refreshSavedProfiles.mockImplementation(async ({ ids }) =>
+      ids.includes(userId) ? [author] : [],
+    );
     const canonical = {
       ...reply,
       id: "n".repeat(26),
@@ -1354,10 +1358,14 @@ test("a cold direct message keeps its initial empty until the profile is availab
   expect(account.refreshSavedProfiles).not.toHaveBeenCalled();
 
   const peer = "v".repeat(26);
+  const profile = channelProfile({ id: peer, username: "vera" });
   account.readSavedProfiles.mockResolvedValue({
-    profiles: { [peer]: channelProfile({ id: peer, username: "vera" }) },
+    profiles: { [peer]: profile },
     usernames: { vera: peer },
   });
+  account.refreshSavedProfiles.mockImplementation(async ({ ids }) =>
+    ids.includes(peer) ? [profile] : [],
+  );
   account.setOnline(true);
   expect(
     await sidebar.findByRole("button", { name: "vera", current: "page" }),
