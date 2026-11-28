@@ -113,6 +113,11 @@ export function PublishedReadingReturn({
             aria-disabled={blocked || busy || undefined}
             aria-describedby={notice && !busy ? status : undefined}
             aria-keyshortcuts={isAndroid ? undefined : shortcut}
+            tabIndex={blocked ? -1 : undefined}
+            onPointerDown={(event) => {
+              // A blocked return must not take focus from the incoming post.
+              if (blocked) event.preventDefault();
+            }}
             onClick={run}
           >
             <svg

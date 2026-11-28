@@ -2645,6 +2645,63 @@ test("successive published links remember the exact channel and thread origins i
 const readingBack = () =>
   screen.findByRole("button", { name: /^Back to link/ });
 
+test.each(["published", "system"] as const)(
+  "Back to link cannot use its previous source while a %s destination awaits acknowledgement",
+  async (kind) => {
+    const { account } = publishedConversation(
+      `[Start reading](${href(reply.id)})`,
+    );
+    await openSyntheticDesign();
+    fireEvent.click(await screen.findByRole("link", { name: "Start reading" }));
+    await waitForPublishedReceipt(reply.id);
+    expect((await readingBack()).getAttribute("aria-disabled")).toBeNull();
+
+    const focus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    if (kind === "published") {
+      fireEvent.click(
+        screen.getByRole("link", { name: "Continue to the root" }),
+      );
+    } else enqueue("1", href(root.id));
+    await waitFor(() =>
+      expect((document.activeElement as HTMLElement).dataset.postId).toBe(
+        root.id,
+      ),
+    );
+    const back = await readingBack();
+    expect(back.getAttribute("aria-disabled")).toBe("true");
+    expect(back.tabIndex).toBe(-1);
+    expect(fireEvent.pointerDown(back)).toBe(false);
+    const reads = account.readPostDestination.mock.calls.length;
+    await act(async () => {
+      fireEvent.click(back);
+      if (usesMacOSOverlay)
+        fireEvent.keyDown(window, { metaKey: true, code: "BracketLeft" });
+      else if (process.env.TAURI_ENV_PLATFORM === "android") nativeBack?.();
+      else fireEvent.keyDown(window, { altKey: true, key: "ArrowLeft" });
+    });
+    expect(account.readPostDestination).toHaveBeenCalledTimes(reads);
+    expect(acks).toEqual([]);
+
+    focus.mockReturnValue(true);
+    fireEvent(window, new Event("focus"));
+    await waitForPublishedReceipt(root.id);
+    if (kind === "system")
+      await waitFor(() =>
+        expect(acks).toEqual([{ id: "1", row: root.id, thread: false }]),
+      );
+    const ready = await readingBack();
+    expect(ready.getAttribute("aria-disabled")).toBeNull();
+    fireEvent.click(ready);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("link", {
+          name: kind === "published" ? "Continue to the root" : "Start reading",
+        }),
+      ),
+    );
+  },
+);
+
 test("the reading action restores the reply and exact duplicate link, with both drafts", async () => {
   const destination = href(reply.id);
   const { account } = publishedConversation(

@@ -1434,8 +1434,9 @@ export function ChannelsWorkspace({
     Boolean(attachments.selected) ||
     Boolean(reader.opening) ||
     Boolean(actions.anchor);
+  const readingBlocked = overlayOpen || Boolean(workspace.systemPost);
   function backToReading() {
-    if (settings && !overlayOpen)
+    if (settings && !readingBlocked)
       readingReturn?.back(settings.collapsedThreads);
   }
   const backWorkspace = workspaceBack();
@@ -1820,7 +1821,7 @@ export function ChannelsWorkspace({
       source={readingLabel}
       notice={readingReturn?.notice}
       language={language}
-      blocked={overlayOpen || !settings}
+      blocked={readingBlocked || !settings}
       back={backToReading}
     >
       {(!readingInThread || compact) && savedLinkButton}
