@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { isAndroid } from "../build-platform.ts";
 import type { IntegrationCard } from "../mattermost/integration-cards.ts";
@@ -26,7 +27,10 @@ import {
   tableOpenLabel,
 } from "./PublishedReaderWindow.tsx";
 import { publishedLinkTarget } from "./published-link-target.ts";
-import { publishedPostDocument } from "./published-post-document.ts";
+import {
+  publishedEmojiPattern,
+  publishedPostDocument,
+} from "./published-post-document.ts";
 import {
   integrationCardBody,
   integrationCardTitle,
@@ -107,6 +111,40 @@ function bodyText(text: string, clipText?: boolean) {
   return clipText ? <CardBodyText>{text}</CardBodyText> : text;
 }
 
+type EmojiLookup =
+  typeof import("../mattermost/standard-emoji.ts").findStandardEmoji;
+let emojiLookup: EmojiLookup | undefined;
+let loadingEmoji = false;
+const emojiListeners = new Set<() => void>();
+
+function subscribeEmoji(listener: () => void) {
+  if (!emojiLookup) {
+    emojiListeners.add(listener);
+    if (!loadingEmoji) {
+      loadingEmoji = true;
+      void import("../mattermost/standard-emoji.ts").then(
+        ({ findStandardEmoji }) => {
+          emojiLookup = findStandardEmoji;
+          for (const changed of emojiListeners) changed();
+          emojiListeners.clear();
+        },
+      );
+    }
+  }
+  return () => emojiListeners.delete(listener);
+}
+
+function InlineEmojiText({ text }: { text: string }) {
+  const findEmoji = useSyncExternalStore(subscribeEmoji, () => emojiLookup);
+  return findEmoji
+    ? text.replace(
+        publishedEmojiPattern,
+        (original, name: string) =>
+          findEmoji(name.toLowerCase())?.glyph ?? original,
+      )
+    : text;
+}
+
 function inlineNode(
   node: Inline,
   locale: Locale,
@@ -115,6 +153,8 @@ function inlineNode(
   switch (node.kind) {
     case "text":
       return bodyText(node.text, clipText);
+    case "emojiText":
+      return <InlineEmojiText text={node.text} />;
     case "code":
       return <code>{bodyText(node.text, clipText)}</code>;
     case "lineBreak":
@@ -541,14 +581,19 @@ export const PublishedPostCards = memo(function PublishedPostCards({
 
 export const PublishedPostBody = memo(function PublishedPostBody({
   message,
+  inlineEmoji,
   locale,
   authorName,
   inThread,
 }: {
   message: string;
+  inlineEmoji?: boolean;
   locale: Locale;
 } & ReaderOrigin) {
-  const document = useMemo(() => publishedPostDocument({ message }), [message]);
+  const document = useMemo(
+    () => publishedPostDocument({ message, inlineEmoji }),
+    [message, inlineEmoji],
+  );
   if (!document.length) return null;
   return (
     <PostReaderOrigin value={{ authorName, inThread }}>

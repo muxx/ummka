@@ -338,6 +338,7 @@ export function TimelinePost({
           <PostBodyDisclosure locale={locale}>
             <PublishedPostBody
               message={post.message}
+              inlineEmoji
               locale={locale}
               authorName={name}
               inThread={inThread}
