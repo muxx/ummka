@@ -311,43 +311,156 @@ test("preserves server order at both edges and the focus command while advancing
   expect(view.result.current.focus).toBeNull();
 });
 
-test.each(["network", "superseded", "offline"] as const)(
+test.each([
+  ["network", "unknown"],
+  ["server", "server"],
+  ["superseded", "unknown"],
+  ["offline", "offline"],
+] as const)(
   "retries the same failed edge after %s, keeping the last visible page",
-  async (reason) => {
+  async (failure, reason) => {
     const native = account(),
       initial = page(root),
       advanced = page(root, old);
     native.readChannelWindow.mockResolvedValue(initial);
-    if (reason === "network")
+    if (failure === "network")
       native.refreshChannelHistory.mockRejectedValueOnce(Error("unreachable"));
-    if (reason === "superseded")
+    if (failure === "server")
+      native.refreshChannelHistory.mockRejectedValueOnce(denied(503));
+    if (failure === "superseded")
       native.refreshChannelHistory.mockResolvedValueOnce({
         kind: "superseded",
       });
     const view = open(native, {
       request: focus(),
-      online: reason !== "offline",
+      online: failure !== "offline",
     });
     await waitFor(() => expect(view.result.current.page).toBe(initial));
     await act(async () => view.result.current.loadEdge("older", old.id));
     expect(view.result.current).toMatchObject({
       page: initial,
-      notice: reason,
+      notice: null,
+      edges: { older: { status: "error", reason, postId: old.id } },
       focus: { requestId: 1, anchorId: root.id },
     });
     expect(native.readChannelWindow).toHaveBeenCalledTimes(2);
+    if (failure === "offline") {
+      view.rerender({ request: focus(), online: true });
+      expect(native.refreshChannelHistory).not.toHaveBeenCalled();
+    }
     native.readChannelWindow
       .mockResolvedValueOnce(initial)
       .mockResolvedValue(advanced);
-    if (reason === "offline") view.rerender({ request: focus(), online: true });
-    else await act(async () => view.result.current.retry());
+    await act(async () => view.result.current.loadEdge("older", old.id));
     await waitFor(() => expect(view.result.current.page).toBe(advanced));
-    expect(view.result.current.notice).toBeNull();
+    expect(view.result.current.edges).toEqual({});
     expect(
       native.refreshChannelHistory.mock.calls.map(([q]) => q.kind),
-    ).toEqual(reason === "offline" ? ["before"] : ["before", "before"]);
+    ).toEqual(failure === "offline" ? ["before"] : ["before", "before"]);
   },
 );
+
+test("advances to an already saved edge window while offline", async () => {
+  const native = account();
+  const initial = page(root);
+  const advanced = page(root, old);
+  native.readChannelWindow
+    .mockResolvedValueOnce(initial)
+    .mockResolvedValueOnce(advanced);
+  const view = open(native, { request: focus(), online: false });
+  await waitFor(() => expect(view.result.current.page).toBe(initial));
+  await act(async () => view.result.current.loadEdge("older", old.id));
+  expect(view.result.current.page).toBe(advanced);
+  expect(view.result.current.edges).toEqual({});
+  expect(native.refreshChannelHistory).not.toHaveBeenCalled();
+});
+
+test("serializes channel edges and keeps a failure until its cursor changes", async () => {
+  const native = account();
+  const initial = page(root);
+  const held =
+    deferred<Awaited<ReturnType<TimelineAccount["refreshChannelHistory"]>>>();
+  native.readChannelWindow.mockResolvedValue(initial);
+  native.refreshChannelHistory.mockReturnValueOnce(held.promise);
+  const view = open(native, { request: focus() });
+  await waitFor(() => expect(view.result.current.page).toBe(initial));
+
+  let pending: Promise<void> | undefined;
+  act(() => {
+    pending = view.result.current.loadEdge("older", old.id);
+  });
+  expect(view.result.current.edges).toEqual({
+    older: { postId: old.id, status: "loading" },
+  });
+  await act(async () => {
+    await view.result.current.loadEdge("older", old.id);
+    await view.result.current.loadEdge("newer", newer.id);
+    await view.result.current.retry();
+  });
+  expect(native.refreshChannelHistory).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    held.reject(denied(503));
+    await pending;
+  });
+  const failed = view.result.current.edges.older;
+
+  const second = page(newer, root);
+  native.readChannelWindow.mockResolvedValueOnce(second);
+  await act(async () => view.result.current.loadEdge("newer", newer.id));
+  expect(view.result.current.edges).toEqual({ older: failed });
+
+  const replacement = {
+    ...page(newer, root, old),
+    older: { kind: "end" as const },
+    newer: { kind: "end" as const },
+  };
+  native.readChannelWindow
+    .mockResolvedValueOnce(second)
+    .mockResolvedValueOnce(replacement);
+  await act(async () => view.result.current.loadEdge("newer", newer.id));
+  expect(view.result.current.page).toBe(replacement);
+  expect(view.result.current.edges).toEqual({});
+  await act(async () => view.result.current.loadEdge("older", old.id));
+  expect(
+    native.refreshChannelHistory.mock.calls.map(([query]) => query.kind),
+  ).toEqual(["before", "after"]);
+});
+
+test("losing the connection cancels only the active page and keeps the explicit retry on reconnect", async () => {
+  const native = account();
+  const initial = page(root);
+  const held =
+    deferred<Awaited<ReturnType<TimelineAccount["refreshChannelHistory"]>>>();
+  native.readChannelWindow.mockResolvedValue(initial);
+  native.refreshChannelHistory.mockReturnValueOnce(held.promise);
+  const view = open(native, { request: focus() });
+  await waitFor(() => expect(view.result.current.page).toBe(initial));
+  let pending: Promise<void> | undefined;
+  act(() => {
+    pending = view.result.current.loadEdge("older", old.id);
+  });
+  await waitFor(() =>
+    expect(native.refreshChannelHistory).toHaveBeenCalledTimes(1),
+  );
+  view.rerender({ request: focus(), online: false });
+  expect(native.refreshChannelHistory.mock.lastCall?.[1]?.aborted).toBe(true);
+  expect(view.result.current.edges.older).toMatchObject({
+    status: "error",
+    reason: "offline",
+  });
+
+  view.rerender({ request: focus(), online: true });
+  await act(async () => {
+    held.resolve({ kind: "applied" });
+    await pending;
+  });
+  expect(native.refreshChannelHistory).toHaveBeenCalledTimes(1);
+  expect(view.result.current.page).toBe(initial);
+  expect(view.result.current.edges.older).toMatchObject({
+    status: "error",
+    reason: "offline",
+  });
+});
 
 test.each(["focus", "edge"] as const)(
   "retains the cutoff and closes the %s when the server archives its entire window",

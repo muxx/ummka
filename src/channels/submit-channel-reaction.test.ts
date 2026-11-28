@@ -208,7 +208,9 @@ test.each<[Partial<ThreadState>, string]>([
   [{ replies: [system] }, "applied"],
   [{ replies: [system], up: { status: "ready" } }, "historyUnknown"],
   [
-    { down: { status: "error", error: new Error("offline") } },
+    {
+      down: { status: "error", error: new Error("offline"), reason: "offline" },
+    },
     "historyUnknown",
   ],
   [{ root: null }, "historyUnknown"],

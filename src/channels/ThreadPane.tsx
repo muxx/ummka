@@ -20,6 +20,7 @@ import {
 import type { LocalPost } from "../mattermost/local-history.ts";
 import type { ThreadReadVisit } from "../mattermost/thread-read-coordination.ts";
 import type { TimelineMessage } from "./conversation-rows.ts";
+import { HistoryPageEdge, historyPageError } from "./HistoryPageEdge.tsx";
 import { showPostArrival } from "./post-arrival.ts";
 import { ThreadFollowButton } from "./ThreadFollowButton.tsx";
 import { TimelineDays } from "./TimelineDays.tsx";
@@ -34,6 +35,10 @@ import type { ParkedThreadWindow, ThreadReadingPlace } from "./thread-inbox.ts";
 import { threadInboxCopy } from "./thread-inbox-copy.ts";
 import { openThreadReplyWindow } from "./thread-reply-window.ts";
 import { createTimelinePostTouch } from "./timeline-post-touch.ts";
+import {
+  restoreTimelineAnchor,
+  type TimelineScrollCorrection,
+} from "./timeline-viewport.ts";
 import { useConversationOutgoing } from "./use-conversation-outgoing.tsx";
 import { useWorkspaceProfiles } from "./use-workspace-profiles.ts";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
@@ -50,10 +55,10 @@ const copy = {
     up: "Earlier replies haven’t been loaded.",
     down: "Later replies haven’t been loaded.",
     gap: "Replies between these messages haven’t been loaded.",
-    gapError: "Couldn’t load the replies between these messages.",
+    gapError: "Couldn’t load the replies between these messages",
     more: "Show replies",
-    upError: "Couldn’t load earlier replies.",
-    downError: "Couldn’t load later replies.",
+    upError: "Couldn’t load earlier replies",
+    downError: "Couldn’t load later replies",
     unavailable: "This thread is no longer available.",
     limited: "This thread is outside the server’s available history.",
     noRoot: "The original message hasn’t been saved on this device.",
@@ -71,10 +76,10 @@ const copy = {
     up: "Ответы выше ещё не загружены.",
     down: "Ответы ниже ещё не загружены.",
     gap: "Ответы между этими ещё не загружены.",
-    gapError: "Ответы между этими не загрузились.",
+    gapError: "Ответы между этими не загрузились",
     more: "Показать ответы",
-    upError: "Не удалось загрузить ответы выше.",
-    downError: "Не удалось загрузить ответы ниже.",
+    upError: "Ответы выше не загрузились",
+    downError: "Ответы ниже не загрузились",
     unavailable: "Это обсуждение больше недоступно.",
     limited: "Обсуждение за пределами доступной истории сервера.",
     noRoot: "Исходное сообщение ещё не сохранено на устройстве.",
@@ -771,41 +776,38 @@ function ThreadEdge({
     edge.status === "loading"
       ? text.loading
       : failed
-        ? gap
-          ? text.gapError
-          : direction === "up"
-            ? text.upError
-            : text.downError
+        ? historyPageError(
+            locale,
+            gap
+              ? text.gapError
+              : direction === "up"
+                ? text.upError
+                : text.downError,
+            edge.reason,
+          )
         : gap
           ? text.gap
           : text[direction];
   return (
-    <div
-      ref={marker}
-      className="timeline-boundary thread-edge"
-      data-thread-edge={direction}
-      tabIndex={-1}
-    >
-      <span role="status">{description}</span>
-      {online && (failed || edge.status === "ready") && (
-        <button
-          type="button"
-          aria-label={
-            description +
-            " " +
-            (failed ? workspaceCopy[locale].retry : text.more)
-          }
-          onClick={(event) => {
-            if (event.detail === 0)
-              marker.current?.focus({ preventScroll: true });
-            if (failed) void reader.retry(direction);
-            else void reader.more(direction);
-          }}
-        >
-          {failed ? workspaceCopy[locale].retry : text.more}
-        </button>
-      )}
-    </div>
+    <HistoryPageEdge
+      marker={marker}
+      direction={direction}
+      locale={locale}
+      description={description}
+      loading={edge.status === "loading"}
+      failed={failed}
+      action={
+        failed || (online && gap && edge.status === "ready")
+          ? {
+              label: text.more,
+              run: () => {
+                if (failed) void reader.retry(direction);
+                else void reader.more(direction);
+              },
+            }
+          : undefined
+      }
+    />
   );
 }
 
@@ -827,6 +829,7 @@ class ThreadFeed extends Component<FeedProps> {
   private readonly pane = createRef<HTMLElement>();
   private clearArrival?: () => void;
   private lastArrival?: number;
+  private lastCorrection?: TimelineScrollCorrection;
 
   private positionOpeningReply = true;
   private placedUnread = false;
@@ -967,12 +970,17 @@ class ThreadFeed extends Component<FeedProps> {
       pane.querySelector<HTMLElement>(
         `[data-post-id="${CSS.escape(place.id)}"],[data-local-id="${CSS.escape(place.id)}"]`,
       );
-    if (row)
-      pane.scrollTop +=
-        row.getBoundingClientRect().top -
-        pane.getBoundingClientRect().top -
-        (place.offset ?? 0);
-    else pane.scrollTop = place.top;
+    if (row) {
+      this.lastCorrection = restoreTimelineAnchor(
+        pane,
+        row,
+        { top: place.top, offset: place.offset ?? 0 },
+        this.lastCorrection,
+      );
+    } else {
+      this.lastCorrection = undefined;
+      pane.scrollTop = place.top;
+    }
   }
 
   componentDidUpdate(
@@ -987,9 +995,10 @@ class ThreadFeed extends Component<FeedProps> {
       state.newReplyId &&
       state.newReplyId !== previous.state.newReplyId &&
       this.followsEnd(place)
-    )
+    ) {
+      this.lastCorrection = undefined;
       pane.scrollTop = pane.scrollHeight;
-    else this.restorePlace(pane, place);
+    } else this.restorePlace(pane, place);
     if (
       this.props.arrivalRequest !== undefined &&
       this.lastArrival !== this.props.arrivalRequest

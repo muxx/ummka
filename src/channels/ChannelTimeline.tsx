@@ -5,6 +5,7 @@ import type {
   LocalPost,
 } from "../mattermost/local-history.ts";
 import type { TimelineMessage } from "./conversation-rows.ts";
+import { HistoryPageEdge, historyPageError } from "./HistoryPageEdge.tsx";
 import { showPostArrival } from "./post-arrival.ts";
 import { TimelineDays } from "./TimelineDays.tsx";
 import {
@@ -13,9 +14,15 @@ import {
   useTimelinePostFormat,
 } from "./TimelinePost.tsx";
 import { createTimelinePostTouch } from "./timeline-post-touch.ts";
+import type {
+  TimelineDirection,
+  TimelineEdgeReads,
+} from "./timeline-reader.ts";
 import {
   measureTimeline,
+  restoreTimelineAnchor,
   type TimelinePlace,
+  type TimelineScrollCorrection,
   type TimelineViewport,
 } from "./timeline-viewport.ts";
 import "./timeline.css";
@@ -30,6 +37,11 @@ const copy = {
     empty: "There are no messages in this channel yet.",
     partial: "No messages in this part of the history.",
     limited: "Earlier messages are unavailable on this server.",
+    loading: "Loading messages…",
+    failed: {
+      older: "Couldn’t load earlier messages",
+      newer: "Couldn’t load later messages",
+    },
     older: "Earlier messages have not been loaded.",
     newer: "Later messages have not been loaded.",
     readOlder: "Show earlier messages",
@@ -44,13 +56,20 @@ const copy = {
     empty: "В этом канале пока нет сообщений.",
     partial: "В этом участке истории нет сообщений.",
     limited: "Более ранние сообщения недоступны на сервере.",
+    loading: "Загружаем ленту…",
+    failed: {
+      older: "Лента выше не загрузилась",
+      newer: "Лента ниже не загрузилась",
+    },
     older: "Лента выше ещё не загружена.",
     newer: "Лента ниже ещё не загружена.",
     readOlder: "Показать более ранние сообщения",
     readNewer: "Показать более новые сообщения",
   },
 } as const;
-type Direction = "older" | "newer";
+const noEdgeReads: TimelineEdgeReads = {};
+const edgeLoading = (edges: TimelineEdgeReads) =>
+  edges.older?.status === "loading" || edges.newer?.status === "loading";
 export type TimelineProps = {
   viewport?: TimelineViewport;
   channelId: string;
@@ -65,7 +84,8 @@ export type TimelineProps = {
   collapsedThreads?: boolean;
   address?: { requestId: number; anchorId: string };
   restoredPosition?: { requestId: number; place: TimelinePlace };
-  onReadEdge?: (direction: Direction, postId: string) => void;
+  edgeReads?: TimelineEdgeReads;
+  onReadEdge?: (direction: TimelineDirection, postId: string) => void;
   messages?: readonly TimelineMessage[];
   renderOutgoing?: (post: PendingPost) => ReactNode;
   ownName?: string;
@@ -79,9 +99,16 @@ type ScrollProps = {
   children: ReactNode;
   viewport?: TimelineViewport;
   historical: boolean;
+  page: LocalChannelWindow | null;
+  edgeReads: TimelineEdgeReads;
   hasRows: boolean;
   restoredPosition?: TimelineProps["restoredPosition"];
 };
+type ScrollSnapshot = {
+  place: TimelinePlace | null;
+  edge?: TimelineDirection;
+};
+
 class TimelineScroller extends Component<ScrollProps> {
   private readonly pane = createRef<HTMLElement>();
   private readonly postTouch = createTimelinePostTouch();
@@ -112,7 +139,7 @@ class TimelineScroller extends Component<ScrollProps> {
   }
   private restoredRequest?: number;
   private hiddenPlace: TimelinePlace | null | undefined = null;
-  private lastCorrection?: { top: number; remainder: number };
+  private lastCorrection?: TimelineScrollCorrection;
   private followedEndAt?: number;
 
   componentDidMount() {
@@ -137,7 +164,10 @@ class TimelineScroller extends Component<ScrollProps> {
     const inline = `${width}px`;
     const block = `${height}px`;
     if (pane.style.width === inline && pane.style.height === block) return;
-    const place = this.place(pane, this.props.historical);
+    const place = this.place(
+      pane,
+      this.props.historical || edgeLoading(this.props.edgeReads),
+    );
     pane.style.width = inline;
     pane.style.height = block;
     this.restore(pane, place);
@@ -150,13 +180,26 @@ class TimelineScroller extends Component<ScrollProps> {
   }
 
   // Measure the previous DOM immediately before React replaces it. Scrolling itself needs no listener.
-  getSnapshotBeforeUpdate(
-    previous: ScrollProps,
-  ): TimelinePlace | null | "hidden" {
+  getSnapshotBeforeUpdate(previous: ScrollProps): ScrollSnapshot | "hidden" {
     const pane = this.pane.current;
-    if (!pane || previous.channelId !== this.props.channelId) return null;
+    if (!pane || previous.channelId !== this.props.channelId)
+      return { place: null };
     if (!pane.clientHeight) return "hidden";
-    return this.place(pane, previous.historical);
+    const focused = document.activeElement;
+    const direction =
+      focused instanceof HTMLElement && pane.contains(focused)
+        ? focused.dataset.channelEdge
+        : undefined;
+    return {
+      place: this.place(
+        pane,
+        previous.historical ||
+          edgeLoading(previous.edgeReads) ||
+          edgeLoading(this.props.edgeReads),
+      ),
+      edge:
+        direction === "older" || direction === "newer" ? direction : undefined,
+    };
   }
 
   private place(pane: HTMLElement, historical: boolean) {
@@ -177,7 +220,7 @@ class TimelineScroller extends Component<ScrollProps> {
   componentDidUpdate(
     previous: ScrollProps,
     _state: unknown,
-    snapshot: TimelinePlace | null | "hidden",
+    snapshot: ScrollSnapshot | "hidden",
   ) {
     const pane = this.pane.current;
     if (previous.viewport !== this.props.viewport) {
@@ -187,12 +230,48 @@ class TimelineScroller extends Component<ScrollProps> {
     if (!pane) return;
     if (!pane.clientHeight) {
       // The compact frame hides the channel while its thread or navigation is visible.
-      if (snapshot !== "hidden") this.hiddenPlace = snapshot;
+      if (snapshot !== "hidden") this.hiddenPlace = snapshot.place;
       return;
     }
-    const place = snapshot === "hidden" ? this.hiddenPlace : snapshot;
+    const place = snapshot === "hidden" ? this.hiddenPlace : snapshot.place;
     this.hiddenPlace = undefined;
     if (place !== undefined) this.restore(pane, place);
+    if (snapshot !== "hidden" && snapshot.edge)
+      this.restoreEdgeFocus(pane, snapshot.edge, previous);
+  }
+
+  private restoreEdgeFocus(
+    pane: HTMLElement,
+    direction: TimelineDirection,
+    previous: ScrollProps,
+  ) {
+    const { page, edgeReads } = this.props;
+    const read = edgeReads[direction];
+    if (read?.status === "loading") return;
+    if (read?.status === "error") {
+      pane
+        .querySelector<HTMLButtonElement>(
+          `[data-channel-edge="${direction}"] button`,
+        )
+        ?.focus({ preventScroll: true });
+      return;
+    }
+    if (!page || page === previous.page) return;
+    const older = direction === "older";
+    const boundary = older
+      ? previous.page?.posts.at(-1)
+      : previous.page?.posts[0];
+    const index = page.posts.findIndex((post) => post.id === boundary?.id);
+    const nearest =
+      index < 0
+        ? undefined
+        : (page.posts[index + (older ? 1 : -1)] ?? boundary);
+    const row =
+      nearest &&
+      pane.querySelector<HTMLElement>(
+        `[data-post-id="${CSS.escape(nearest.id)}"]`,
+      );
+    (row || pane).focus({ preventScroll: true });
   }
 
   private restore(pane: HTMLElement, place: TimelinePlace | null) {
@@ -211,28 +290,17 @@ class TimelineScroller extends Component<ScrollProps> {
       return;
     }
     this.followedEndAt = undefined;
-    const top = pane.getBoundingClientRect().top;
     for (const anchor of place.anchors) {
       const row = pane.querySelector<HTMLElement>(
         `[data-post-id="${CSS.escape(anchor.id)}"],[data-local-id="${CSS.escape(anchor.id)}"]`,
       );
       if (row) {
-        // WebKit quantizes scrollTop. Carry the unapplied fraction while the reader stays put.
-        const remainder =
-          correction?.top === place.top ? correction.remainder : 0;
-        const desired =
-          pane.scrollTop +
-          row.getBoundingClientRect().top -
-          top -
-          anchor.offset +
-          remainder;
-        const target = Math.min(
-          Math.max(0, desired),
-          pane.scrollHeight - pane.clientHeight,
+        this.lastCorrection = restoreTimelineAnchor(
+          pane,
+          row,
+          { top: place.top, offset: anchor.offset },
+          correction,
         );
-        pane.scrollTop = target;
-        const actual = pane.scrollTop;
-        this.lastCorrection = { top: actual, remainder: target - actual };
         return;
       }
     }
@@ -274,6 +342,7 @@ export function ChannelTimeline({
   collapsedThreads,
   address,
   restoredPosition,
+  edgeReads = noEdgeReads,
   onReadEdge,
   messages,
   renderOutgoing,
@@ -301,23 +370,35 @@ export function ChannelTimeline({
   const limited = Boolean(
     inaccessibleBefore || page?.firstInaccessiblePostTime,
   );
-  function boundary(direction: Direction) {
+  function boundary(direction: TimelineDirection) {
     const edge = page?.[direction];
     if (!edge || edge.kind === "end") return null;
-    const action = edge.kind === "more" && onReadEdge;
+    const read = edgeReads[direction];
+    const action =
+      edge.kind === "more" && onReadEdge
+        ? {
+            label: direction === "older" ? text.readOlder : text.readNewer,
+            disabled: edgeLoading(edgeReads),
+            run: () => onReadEdge(direction, edge.postId),
+          }
+        : undefined;
+    const description =
+      read?.status === "loading"
+        ? text.loading
+        : read?.status === "error"
+          ? historyPageError(locale, text.failed[direction], read.reason)
+          : action
+            ? undefined
+            : text[direction];
     return (
-      <div className="timeline-boundary">
-        {action ? (
-          <button
-            type="button"
-            onClick={() => onReadEdge?.(direction, edge.postId)}
-          >
-            {direction === "older" ? text.readOlder : text.readNewer}
-          </button>
-        ) : (
-          <span>{text[direction]}</span>
-        )}
-      </div>
+      <HistoryPageEdge
+        direction={direction}
+        locale={locale}
+        description={description}
+        loading={read?.status === "loading"}
+        failed={read?.status === "error"}
+        action={action}
+      />
     );
   }
   const ordered: readonly TimelineMessage[] =
@@ -337,6 +418,8 @@ export function ChannelTimeline({
         label={text.history}
         viewport={viewport}
         restoredPosition={restoredPosition}
+        page={page}
+        edgeReads={edgeReads}
         hasRows={ordered.length > 0}
         historical={!!page && page.newer.kind !== "end"}
       >
@@ -356,7 +439,7 @@ export function ChannelTimeline({
               post={post}
               continuation={continuation}
               addressed={address?.anchorId === post.id}
-              focusable={address?.anchorId === post.id}
+              focusable
               locale={locale}
               author={author}
               time={time.clock}
