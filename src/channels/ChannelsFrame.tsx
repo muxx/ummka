@@ -60,6 +60,7 @@ type FrameProps = {
     id: string;
     title: string;
     subtitle?: string;
+    unavailable?: boolean;
     controlsRef?: (node: HTMLSpanElement | null) => void;
     retainOpener?: boolean;
     content: ReactNode;
@@ -175,6 +176,17 @@ export function ChannelsFrame({
       "--right-choice": `${panes.expanded ? geometry.right.expanded : geometry.right.width}px`,
     } as CSSProperties);
   const previous = useRef({ page, channelId, openThread, inboxSingle });
+  const unavailableThread = thread?.unavailable;
+
+  useLayoutEffect(() => {
+    if (
+      unavailableThread &&
+      lastFocus.current &&
+      !lastFocus.current.isConnected &&
+      document.activeElement === document.body
+    )
+      threadHeading.current?.focus({ preventScroll: true });
+  }, [unavailableThread]);
 
   useLayoutEffect(() => {
     const control = lastFocus.current;

@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useRef,
   useState,
@@ -13,7 +14,11 @@ import type {
   ThreadReadVisit,
 } from "../mattermost/thread-read-coordination.ts";
 import { inspectPostTarget } from "./inspect-post-target.ts";
-import { openThreadInbox, type ThreadInboxPlace } from "./thread-inbox.ts";
+import {
+  openThreadInbox,
+  type ParkedThreadWindow,
+  type ThreadInboxPlace,
+} from "./thread-inbox.ts";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
 import { workspaceFailure } from "./workspace-data.ts";
 
@@ -26,6 +31,11 @@ type Selection = {
   row?: ThreadInboxRow;
   visit?: ThreadReadVisit;
   post: LocalPost | null;
+  opening?: boolean;
+  confirmedRoot?: LocalPost;
+  parked?: ParkedThreadWindow;
+  refreshing?: boolean;
+  restoreFocus?: boolean;
   issue: ReturnType<typeof workspaceFailure> | "limited" | null;
 };
 const noSubscription = () => () => {};
@@ -45,7 +55,15 @@ export function useWorkspaceThreadInbox(
   const [restoring, setRestoring] = useState<ThreadInboxPlace>();
   const previousRestoreRowCount = useRef(0);
   const [selection, setSelection] = useState<Selection | null>(null);
+  const [slowRoot, setSlowRoot] = useState<string>();
   const opening = useRef<AbortController | null>(null);
+  const parkCurrent = useRef<(() => void) | null>(null);
+  const registerWindow = useCallback((capture: () => void) => {
+    parkCurrent.current = capture;
+    return () => {
+      if (parkCurrent.current === capture) parkCurrent.current = null;
+    };
+  }, []);
   const currentVisit = useRef<{
     rootId: string;
     visit: ThreadReadVisit;
@@ -84,6 +102,7 @@ export function useWorkspaceThreadInbox(
         },
       },
       teamId,
+      connection.subscribeToChannelHistory,
     );
     setModel(next);
     return () => {
@@ -110,6 +129,14 @@ export function useWorkspaceThreadInbox(
       );
     },
     [detachVisit, inbox],
+  );
+  const invalidateChannel = useCallback(
+    (channelId: string) => {
+      inbox?.discardChannelWindows(channelId);
+      if (selection?.post?.channelId === channelId)
+        hideRoot(selection.id, "forbidden");
+    },
+    [inbox, selection?.post?.channelId, selection?.id, hideRoot],
   );
   useLayoutEffect(() => {
     if (!denied) return;
@@ -143,6 +170,7 @@ export function useWorkspaceThreadInbox(
     }
   }, [state?.page.status, state?.totals.status, sessionIssue, detachVisit]);
   const closeThread = useCallback(() => {
+    parkCurrent.current?.();
     opening.current?.abort();
     detachVisit();
     setSelection(null);
@@ -156,12 +184,16 @@ export function useWorkspaceThreadInbox(
     setPaused(false);
   }
   function pause() {
+    parkCurrent.current?.();
     opening.current?.abort();
     setPaused(true);
   }
   function resume(post: LocalPost, place: ThreadInboxPlace) {
     if (!inbox || inbox.isRootUnavailable(post.id)) return false;
-    if (selection?.id !== post.id) detachVisit();
+    if (selection?.id !== post.id) {
+      parkCurrent.current?.();
+      detachVisit();
+    }
     if (!visible || selection?.id !== post.id) {
       previousRestoreRowCount.current = 0;
       setRestoring(place);
@@ -171,14 +203,14 @@ export function useWorkspaceThreadInbox(
       void inbox.show(place.tab);
     }
     // The point read verified the thread. The list may exclude it after it was read.
+    const prior = visible && selection?.id === post.id ? selection : null;
     setSelection({
       id: post.id,
-      ...(visible &&
-        selection?.id === post.id && {
-          row: selection.row,
-          visit: selection.visit,
-        }),
+      ...(prior && { row: prior.row, visit: prior.visit }),
       post,
+      confirmedRoot: post,
+      parked: inbox.takeWindow(post.channelId, post.id) ?? prior?.parked,
+      restoreFocus: true,
       issue: null,
     });
     setPaused(false);
@@ -219,6 +251,8 @@ export function useWorkspaceThreadInbox(
   }
   async function choose(row: ThreadInboxRow) {
     if (!inbox || !row.post || inbox.isRootUnavailable(row.id)) return;
+    if (selection?.id === row.id && selection.row && !selection.issue) return;
+    parkCurrent.current?.();
     opening.current?.abort();
     detachVisit();
     setRestoring(undefined);
@@ -227,6 +261,9 @@ export function useWorkspaceThreadInbox(
     const { signal } = controller;
     inbox.select(row.id);
     const observeRoot = inbox.beginRootRead();
+    const parked =
+      inbox.takeWindow(row.post.channelId, row.id) ??
+      (selection?.id === row.id ? selection.parked : undefined);
     try {
       const visit = threadReads.visit({
         teamId,
@@ -234,7 +271,15 @@ export function useWorkspaceThreadInbox(
         rootId: row.id,
       });
       currentVisit.current = { rootId: row.id, visit };
-      setSelection({ id: row.id, row, visit, post: null, issue: null });
+      setSelection({
+        id: row.id,
+        row,
+        visit,
+        post: row.post,
+        parked,
+        opening: true,
+        issue: null,
+      });
       if (!connected.current) throw Error("Offline");
       const found = await inspectPostTarget(
         connection,
@@ -255,7 +300,15 @@ export function useWorkspaceThreadInbox(
         return;
       }
       observeRoot(found.post);
-      setSelection({ id: row.id, row, visit, post: found.post, issue: null });
+      setSelection({
+        id: row.id,
+        row,
+        visit,
+        post: row.post,
+        confirmedRoot: found.post,
+        parked,
+        issue: null,
+      });
     } catch (error) {
       if (signal.aborted) return;
       const issue = workspaceFailure(error, "network");
@@ -263,7 +316,16 @@ export function useWorkspaceThreadInbox(
       if (issue === "forbidden") hideRoot(row.id, issue);
       else {
         detachVisit();
-        setSelection({ id: row.id, row, post: null, issue });
+        if (parked && (issue === "network" || issue === "storage"))
+          setSelection({
+            id: row.id,
+            row,
+            post: row.post,
+            parked,
+            refreshing: false,
+            issue,
+          });
+        else setSelection({ id: row.id, row, post: null, issue });
       }
     }
   }
@@ -278,6 +340,7 @@ export function useWorkspaceThreadInbox(
     if (
       !inbox ||
       !selection?.post ||
+      selection.opening ||
       !selection.visit ||
       inbox.isRootUnavailable(selection.id) ||
       !connected.current
@@ -355,6 +418,31 @@ export function useWorkspaceThreadInbox(
   );
   const active =
     inbox && visible && !paused && !accessDenied ? selection : null;
+  const resumeAccessRead = useEffectEvent(() => {
+    if (active?.parked && active.issue === "network" && active.row)
+      void choose(active.row);
+  });
+  useEffect(() => {
+    if (online) resumeAccessRead();
+  }, [online]);
+  const refreshing =
+    active?.parked && active.refreshing !== false ? active.id : undefined;
+  useEffect(() => {
+    if (!refreshing) return;
+    const timer = setTimeout(() => setSlowRoot(refreshing), 1_000);
+    return () => {
+      clearTimeout(timer);
+      setSlowRoot(undefined);
+    };
+  }, [refreshing]);
+  const finishOpening = useCallback((id: string) => {
+    setSlowRoot(undefined);
+    setSelection((prior) =>
+      prior?.id === id && prior.parked && prior.refreshing !== false
+        ? { ...prior, refreshing: false }
+        : prior,
+    );
+  }, []);
   return {
     model: inbox,
     state,
@@ -378,7 +466,11 @@ export function useWorkspaceThreadInbox(
     choose,
     confirmView,
     checkView,
+    slow: active?.id !== undefined && active.id === slowRoot,
+    finishOpening,
+    registerWindow,
     confirmFollowing,
     hideRoot,
+    invalidateChannel,
   };
 }

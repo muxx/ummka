@@ -3,6 +3,7 @@ import type {
   PostsApi,
 } from "../../vendor/mattermost/index.js";
 import { channelHistoryPage } from "./channel-history-page.ts";
+import type { ChannelPostChange } from "./channel-post-records.ts";
 import {
   assembleFocusedHistory,
   readFocusedNeighbors,
@@ -110,6 +111,7 @@ export async function refreshChannelHistory(
   writer: ChannelHistoryWriter,
   input: ChannelRefreshRequest,
   signal?: AbortSignal,
+  committed?: (posts: readonly ChannelPostChange[]) => void,
 ): Promise<ChannelRefreshResult> {
   signal?.throwIfAborted();
   const request = { ...input };
@@ -132,5 +134,7 @@ export async function refreshChannelHistory(
     signal?.removeEventListener("abort", abort);
   }
   // The host consumes a ticket before parsing the page and owns this transaction to completion.
-  return writer.store(load, page);
+  const result = await writer.store(load, page);
+  if (result.kind !== "superseded") committed?.(page.changes);
+  return result;
 }

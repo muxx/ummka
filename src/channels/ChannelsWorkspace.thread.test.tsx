@@ -16,6 +16,7 @@ import * as clipboardPolicy from "../device/clipboard-policy.ts";
 import type { TeamWorkspace } from "../entry/AccountTeamWindow.tsx";
 import type { PendingPost } from "../mattermost/account-delivery.ts";
 import { createChannelHistoryChanges } from "../mattermost/channel-history-changes.ts";
+import { channelPostChange } from "../mattermost/channel-post-records.ts";
 import { channelProfile } from "../mattermost/channel-profiles.ts";
 import type { LocalPost } from "../mattermost/local-history.ts";
 import type {
@@ -334,6 +335,7 @@ function mount(
     subscribeToPostActivity: vi.fn(() => () => {}),
   };
   const viewer = options.viewer ?? userId;
+  const coordination = options.coordination ?? createThreadReadCoordination();
   const workspace: TeamWorkspace = {
     messages: {
       dialogOpen: false,
@@ -349,7 +351,7 @@ function mount(
       enqueue: (work) => work(),
     },
     connection: connection as unknown as Connection,
-    threadReads: (options.coordination ?? createThreadReadCoordination()).bind(
+    threadReads: coordination.bind(
       "https://chat.example.test/team/chat",
       viewer,
       connection as unknown as Connection,
@@ -386,6 +388,19 @@ function mount(
     writeSavedPost,
     unmount: view.unmount,
     closeConnection: workspace.threadReads.close,
+    replaceRid(rid: number) {
+      const next = { ...connection, rid } as unknown as Connection;
+      view.rerender(
+        <ChannelsWorkspace
+          workspace={{
+            ...workspace,
+            connection: next,
+            threadReads: coordination.bind(workspace.serverUrl, viewer, next),
+          }}
+          language="en"
+        />,
+      );
+    },
     setPosition(
       position: Omit<
         NonNullable<TeamWorkspace["messages"]["position"]>,
@@ -2148,7 +2163,11 @@ test("an unconfirmed view can be checked explicitly without another write", asyn
   await act(async () => window.dispatchEvent(new Event("focus")));
   expect(account.markFollowedThreadRead).toHaveBeenCalledOnce();
   expect(account.readFollowedThreadState).not.toHaveBeenCalled();
-  expect(account.readThreadPage.mock.calls.length).toBeGreaterThanOrEqual(4);
+  expect(account.readThreadPage).toHaveBeenCalledTimes(3);
+  expect(account.readThreadPage.mock.lastCall?.[0]).toMatchObject({
+    direction: "down",
+    cursor: { id: reply.id, createAt: 202 },
+  });
 
   const button = await within(reopened).findByRole("button", {
     name: "Check read status",
@@ -2255,7 +2274,7 @@ test("an unconfirmed view can be checked explicitly without another write", asyn
   revoked.focus();
   await event.keyboard("{Enter}");
   await within(openedRead).findByText(
-    "This discussion is no longer available.",
+    "You don’t have access to this discussion",
   );
   expect(within(openedRead).queryByRole("textbox")).toBeNull();
   expect(within(openedRead).queryByText("Unread proof")).toBeNull();
@@ -2264,6 +2283,257 @@ test("an unconfirmed view can be checked explicitly without another write", asyn
   );
   expect(account.readFollowedThreadState).toHaveBeenCalledTimes(4);
   expect(account.markFollowedThreadRead).toHaveBeenCalledOnce();
+});
+
+test("shows the cold root and returns to retained replies while the inbox revalidates", async () => {
+  const account = mount(true);
+  const first = inboxRow(account);
+  const second = {
+    ...first,
+    id: "y".repeat(26),
+    message: "Second inbox discussion",
+  };
+  const fixture = (
+    await account.readFollowedThreads({ teamId: team.id, unread: false })
+  ).items[0];
+  account.readFollowedThreads.mockClear();
+  account.readFollowedThreads.mockResolvedValue({
+    items: [first, second].map((post) => ({
+      ...fixture,
+      id: post.id,
+      post,
+      unreadReplies: 0,
+    })),
+    nextBefore: null,
+  });
+  const access = deferred<void>();
+  const warm = deferred<void>();
+  const revoked = deferred<void>();
+  const newest = deferred<void>();
+  const byId = new Map([
+    [first.id, first],
+    [second.id, second],
+  ]);
+  const destination = await account.readPostDestination(first.id);
+  account.readPostDestination.mockClear();
+  let selectFirst = 0;
+  account.readPostDestination.mockImplementation(async (id) => {
+    if (id === first.id) {
+      selectFirst++;
+      if (selectFirst === 1) await access.promise;
+      if (selectFirst === 2) await warm.promise;
+      if (selectFirst === 3) {
+        await revoked.promise;
+        throw new ResponseError(new Response(null, { status: 403 }), "Revoked");
+      }
+    }
+    return { ...destination, postId: id };
+  });
+  account.readPostAnchor.mockImplementation(async (id) => {
+    const post = byId.get(id);
+    if (!post) throw Error("Unknown fixture post");
+    return { postId: id, channelId: design, rootId: null, post };
+  });
+  const originalA = {
+    ...reply,
+    id: "k".repeat(26),
+    rootId: first.id,
+    channelId: design,
+    message: "Original cached answer",
+    userId: foreign,
+  };
+  const deletedA = {
+    ...originalA,
+    id: "j".repeat(26),
+    message: "Reply awaiting deletion",
+    createAt: originalA.createAt - 1,
+    updateAt: originalA.updateAt - 1,
+  };
+  const unobservedA = {
+    ...deletedA,
+    id: "i".repeat(26),
+    message: "Reply outside the partial update",
+    createAt: deletedA.createAt - 1,
+    updateAt: deletedA.updateAt - 1,
+  };
+  const freshA = {
+    ...originalA,
+    id: "l".repeat(26),
+    message: "Late additional answer",
+    createAt: 222,
+    updateAt: 222,
+  };
+  account.readThreadPage.mockImplementation(async (query) => {
+    const post = byId.get(query.rootId);
+    if (!post) throw Error("Unknown fixture root");
+    if (query.cursor && query.rootId === first.id) await newest.promise;
+    const replies =
+      query.rootId === first.id
+        ? query.cursor
+          ? [freshA]
+          : [unobservedA, deletedA, originalA]
+        : [
+            {
+              ...originalA,
+              id: "q".repeat(26),
+              rootId: second.id,
+              message: "Answer from second discussion",
+            },
+          ];
+    return {
+      kind: "page",
+      root: { ...post, rootId: "", messageSource: undefined },
+      replies,
+      next: null,
+    };
+  });
+  fireEvent.click(await screen.findByRole("button", { name: /^Threads/ }));
+  const select = async (pattern: RegExp) => {
+    await userEvent.click(await screen.findByRole("button", { name: pattern }));
+    return within(await screen.findByRole("complementary", { name: "Thread" }));
+  };
+  let pane = await select(/Review this build/);
+  expect(await pane.findByText(/Review/)).toBeTruthy();
+  expect(await pane.findByText("Loading replies…")).toBeTruthy();
+  expect(account.readThreadPage).not.toHaveBeenCalled();
+  await act(async () => access.resolve());
+  await pane.findByText("Original cached answer");
+  const editor = await pane.findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Reply in thread…",
+  });
+  fireEvent.change(editor, { target: { value: "Keep this thread draft" } });
+  await waitFor(() => expect(account.saveDraft).toHaveBeenCalled());
+  pane = await select(/Second inbox discussion/);
+  await pane.findByText("Answer from second discussion");
+  const editedA = {
+    ...originalA,
+    updateAt: originalA.updateAt + 1,
+    message: "Confirmed edit while parked",
+  };
+  act(() =>
+    account.notifyChannelHistoryChanged(design, undefined, [
+      channelPostChange(design, editedA.id, editedA),
+      channelPostChange(design, deletedA.id, { ...deletedA, deleteAt: 221 }),
+    ]),
+  );
+  act(() =>
+    account.notifyChannelHistoryChanged(design, undefined, [
+      channelPostChange(design, originalA.id, originalA),
+      channelPostChange(design, deletedA.id, deletedA),
+    ]),
+  );
+
+  pane = await select(/Review this build/);
+  const originalLine = await pane.findByText("Confirmed edit while parked");
+  expect(pane.queryByText("Original cached answer")).toBeNull();
+  expect(pane.queryByText("Reply awaiting deletion")).toBeNull();
+  expect(pane.getByText("Reply outside the partial update")).toBeTruthy();
+  expect(pane.queryByText("Loading replies…")).toBeNull();
+  expect(account.readThreadPage).toHaveBeenCalledTimes(2);
+  await act(async () => warm.resolve());
+  await waitFor(() => expect(account.readThreadPage).toHaveBeenCalledTimes(3));
+  expect(account.readThreadPage.mock.lastCall?.[0]).toMatchObject({
+    direction: "down",
+    cursor: { id: originalA.id, createAt: originalA.createAt },
+  });
+  await pane.findByText("Updating…", {}, { timeout: 1800 });
+  await act(async () => newest.resolve());
+  expect(await pane.findByText("Late additional answer")).toBeTruthy();
+  expect(originalLine.isConnected).toBe(true);
+  expect(pane.queryByText("Updating…")).toBeNull();
+  expect(
+    (
+      await pane.findByRole<HTMLTextAreaElement>("textbox", {
+        name: "Reply in thread…",
+      })
+    ).value,
+  ).toBe("Keep this thread draft");
+  pane = await select(/Second inbox discussion/);
+  await pane.findByText("Answer from second discussion");
+  pane = await select(/Review this build/);
+  await pane.findByText("Late additional answer");
+  await userEvent.click(
+    await pane.findByRole("textbox", { name: "Reply in thread…" }),
+  );
+  await act(async () => revoked.resolve());
+  await pane.findByText("You don’t have access to this discussion");
+  expect(pane.queryByText("Confirmed edit while parked")).toBeNull();
+  expect(pane.queryByText("Reply outside the partial update")).toBeNull();
+  expect(pane.queryByText("Late additional answer")).toBeNull();
+  expect(pane.queryByRole("textbox")).toBeNull();
+  expect(document.activeElement).toBe(
+    pane.getByRole("heading", { name: "Thread" }),
+  );
+  expect(
+    account.readThreadPage.mock.calls.filter(
+      ([query]) => query.rootId === first.id,
+    ),
+  ).toHaveLength(2);
+  expect(account.markFollowedThreadRead).not.toHaveBeenCalled();
+});
+
+test("a replacement RID opens cold and discards the old window's late reply", async () => {
+  const account = mount(true);
+  const source = unreadInbox(account);
+  const prior = {
+    ...reply,
+    id: "z".repeat(26),
+    message: "Only on the closed RID",
+    rootId: source.id,
+    channelId: design,
+    userId: foreign,
+    createAt: 204,
+    updateAt: 204,
+  };
+  const newest = {
+    ...prior,
+    id: "y".repeat(26),
+    message: "Only on the new RID",
+    createAt: 206,
+    updateAt: 206,
+  };
+  const delayed = deferred<void>();
+  const cold = deferred<void>();
+  let replacement = false;
+  let oldSignal: AbortSignal | undefined;
+  account.readThreadPage.mockImplementation(async (query, signal) => {
+    if (query.cursor) {
+      oldSignal = signal;
+      await delayed.promise;
+    } else if (replacement) await cold.promise;
+    return {
+      kind: "page",
+      root: { ...source, rootId: "", messageSource: undefined },
+      replies: query.direction === "down" ? [replacement ? newest : prior] : [],
+      next: null,
+    };
+  });
+  const list = async () =>
+    fireEvent.click(await screen.findByRole("button", { name: /^Threads/ }));
+  const open = async () => {
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Review this build/ }),
+    );
+    return within(await screen.findByRole("complementary", { name: "Thread" }));
+  };
+  await list();
+  let pane = await open();
+  await pane.findByText("Only on the closed RID");
+  handleEscape();
+  pane = await open();
+  await pane.findByText("Only on the closed RID");
+  await waitFor(() => expect(oldSignal).toBeDefined());
+  replacement = true;
+  account.replaceRid(2);
+  expect(oldSignal?.aborted).toBe(true);
+  await list();
+  pane = await open();
+  await pane.findByText("Loading replies…");
+  expect(pane.queryByText("Only on the closed RID")).toBeNull();
+  await act(async () => delayed.resolve());
+  expect(pane.queryByText("Only on the new RID")).toBeNull();
+  await act(async () => cold.resolve());
+  await pane.findByText("Only on the new RID");
 });
 
 test("an automatic mark that failed before dispatch can be retried from the pane", async () => {
