@@ -254,3 +254,37 @@ test.each(["page", "totals"] as const)(
     }
   },
 );
+
+test("keeps thread-list display fields separate from a complete integration-card observation", async () => {
+  const { account, fetchApi } = fixture();
+  const raw = thread(first);
+  fetchApi.mockResolvedValueOnce(
+    Response.json({
+      ...zero,
+      threads: [
+        {
+          ...raw,
+          post: {
+            ...raw.post,
+            props: {
+              attachments: [
+                { title: "Published check", context: "secret" },
+                { text: "**Second** result" },
+                null,
+              ],
+            },
+            file_ids: [second],
+          },
+        },
+      ],
+    }),
+  );
+  const { items } = await account.readFollowedThreads(query);
+  expect(items[0].post?.excerptCards).toEqual([
+    { title: "Published check" },
+    { text: "**Second** result" },
+  ]);
+  expect(items[0].post?.cards).toBeUndefined();
+  expect(items[0].post?.attachments).toEqual({ fileIds: [second] });
+  expect(fetchApi).toHaveBeenCalledTimes(1);
+});

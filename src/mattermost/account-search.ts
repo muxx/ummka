@@ -3,10 +3,9 @@ import {
   FilesApi,
   PostsApi,
 } from "../../vendor/mattermost/index.js";
-import { postWithIntegrationCards } from "./integration-cards.ts";
 import { isMattermostId, isMattermostTime } from "./model-fields.ts";
-
 import { orderedItems } from "./ordered-items.ts";
+import { receivedResultPost } from "./received-result-post.ts";
 
 type SearchPageRequest = {
   teamId: string | null;
@@ -67,7 +66,7 @@ export function accountSearch(
               );
         signal?.throwIfAborted();
         const items = orderedItems(result.order, result.posts).map(
-          postWithIntegrationCards,
+          receivedResultPost,
         );
         const { matches } = result;
         if (

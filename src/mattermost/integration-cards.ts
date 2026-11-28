@@ -93,6 +93,24 @@ function cardImage(
   };
 }
 
+export type CardExcerptSource = Pick<IntegrationCard, "title" | "text">;
+
+function excerptSource(card: Record<string, unknown>): CardExcerptSource {
+  return { title: sourceText(card.title), text: sourceText(card.text) };
+}
+
+/** The thread list sends these display fields even when the root has no embed metadata. */
+export function threadCardExcerpts(
+  post: Post,
+): CardExcerptSource[] | undefined {
+  const attachments = record(post.props)?.attachments;
+  if (!Array.isArray(attachments)) return undefined;
+  return attachments.flatMap((item) => {
+    const card = record(item);
+    return card ? [excerptSource(card)] : [];
+  });
+}
+
 /** A read without complete embed metadata can leave the card list unobserved. */
 export function receivedIntegrationCards(
   post: Post,
@@ -125,9 +143,8 @@ export function receivedIntegrationCards(post: Post, coverage: EmbedCoverage) {
       authorName: sourceText(card.author_name),
       authorLink: sourceText(card.author_link),
       authorIcon: cardImage(card.author_icon, images),
-      title: sourceText(card.title),
+      ...excerptSource(card),
       titleLink: sourceText(card.title_link),
-      text: sourceText(card.text),
       fields: cardFields(card.fields),
       image: cardImage(card.image_url, images),
       thumbnail: cardImage(card.thumb_url, images),
@@ -136,10 +153,4 @@ export function receivedIntegrationCards(post: Post, coverage: EmbedCoverage) {
     });
   }
   return cards;
-}
-
-export function postWithIntegrationCards<T extends Post>(
-  post: T,
-): T & { readonly cards: readonly IntegrationCard[] } {
-  return { ...post, cards: receivedIntegrationCards(post, "complete") };
 }

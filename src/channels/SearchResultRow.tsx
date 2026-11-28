@@ -1,6 +1,7 @@
 import { Fragment, useId, useMemo } from "react";
-import type { FileInfo, Post } from "../../vendor/mattermost/index.js";
+import type { FileInfo } from "../../vendor/mattermost/index.js";
 import type { EntryLanguage } from "../entry/language.ts";
+import type { ReceivedResultPost } from "../mattermost/received-result-post.ts";
 import { initials } from "./profile-initials.ts";
 import { searchCopy } from "./search-copy.ts";
 import { markedText, searchPostFragment } from "./search-result-text.ts";
@@ -69,7 +70,7 @@ export function SearchPostResult({
   restored,
   open,
 }: ResultContext & {
-  row: Post & { id: string };
+  row: ReceivedResultPost & { id: string };
   pattern: (matches: readonly string[] | undefined) => RegExp | null;
   matches?: readonly string[];
   online: boolean;
@@ -78,13 +79,9 @@ export function SearchPostResult({
 }) {
   const id = useId();
   const text = searchCopy[language];
-  const message =
-    typeof row.message === "string" && row.message
-      ? row.message
-      : text.attachment;
   const parts = useMemo(
-    () => searchPostFragment(message, pattern(matches)),
-    [message, pattern, matches],
+    () => searchPostFragment(row, pattern(matches), language),
+    [row, pattern, matches, language],
   );
   const visible = parts.map((part) => part.text).join("") || text.attachment;
   const date = resultDate(row.createAt);

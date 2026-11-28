@@ -8,8 +8,8 @@ import {
   useState,
 } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
-import { publishedPostDocument } from "./published-post-document.ts";
-import { publishedPostExcerpt } from "./published-post-excerpt.ts";
+import { attachmentExcerpt } from "./post-attachment-cards.ts";
+import { publishedPostSummary } from "./published-post-summary.ts";
 import { formatReplyCount, type TimelineAuthor } from "./TimelinePost.tsx";
 import type { ThreadInboxPlace } from "./thread-inbox.ts";
 import { threadInboxCopy } from "./thread-inbox-copy.ts";
@@ -48,15 +48,19 @@ function restoreList(list: HTMLElement, place?: ScrollPlace) {
 }
 const tabs = ["followed", "unread"] as const;
 const Summary = memo(function Summary({
-  message,
+  post,
   locale,
 }: {
-  message: string;
+  post: NonNullable<ThreadInboxRow["post"]>;
   locale: EntryLanguage;
 }) {
   const value = useMemo(
-    () => publishedPostExcerpt(publishedPostDocument({ message })),
-    [message],
+    () =>
+      publishedPostSummary({
+        message: post.message,
+        cards: post.cards ?? post.excerptCards,
+      }) ?? attachmentExcerpt(post.attachments, locale),
+    [post, locale],
   );
   return (
     <span className="inbox-excerpt">
@@ -420,7 +424,7 @@ export function ThreadInboxPane({
                           </time>
                         )}
                     </span>
-                    <Summary message={post.message} locale={locale} />
+                    <Summary post={post} locale={locale} />
                     <span className="inbox-replies">
                       <span
                         className="timeline-participants"

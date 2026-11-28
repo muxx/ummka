@@ -193,6 +193,7 @@ export function useWorkspaceThreadInbox(
     opening.current = controller;
     const { signal } = controller;
     inbox.select(row.id);
+    const observeRoot = inbox.beginRootRead();
     setSelection({ id: row.id, row, post: null, issue: null });
     try {
       if (!connected.current) throw Error("Offline");
@@ -213,6 +214,7 @@ export function useWorkspaceThreadInbox(
         hideRoot(row.id, found.kind === "archived" ? "limited" : "forbidden");
         return;
       }
+      observeRoot(found.post);
       setSelection({ id: row.id, row, post: found.post, issue: null });
     } catch (error) {
       if (signal.aborted) return;

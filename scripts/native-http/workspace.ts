@@ -15,6 +15,7 @@ const design = "d".repeat(26);
 const member = "f".repeat(26);
 const townMessage =
   "Town fixture message\n\n| Name | Score |\n| :- | -: |\n| Aurora | 17 |";
+const cardEmbed = { embeds: [{ type: "message_attachment" }] };
 
 const publicRoom = {
   id: "z".repeat(26),
@@ -65,7 +66,18 @@ function postList(
           userId === member &&
           id === townRoot && {
             file_ids: [townFile],
+            ...(message === townMessage && {
+              props: {
+                attachments: [
+                  {
+                    title: "Workspace release status",
+                    text: "**Current build passed**",
+                  },
+                ],
+              },
+            }),
             metadata: {
+              ...(message === townMessage && cardEmbed),
               files: [
                 {
                   id: townFile,
@@ -223,7 +235,20 @@ export async function respondToWorkspace(
         ].join("\n")
       : "Reply visible only inside Town’s thread\n\n| Reply col |\n| :- |\n| First | **Exact overflow cell** |",
     file_ids: [replyFile],
+    ...(systemLinks
+      ? {}
+      : {
+          props: {
+            attachments: [
+              {
+                title: "Thread release status",
+                text: "**Reply build passed**",
+              },
+            ],
+          },
+        }),
     metadata: {
+      ...(systemLinks ? {} : cardEmbed),
       files: [
         {
           id: replyFile,
@@ -240,6 +265,7 @@ export async function respondToWorkspace(
     create_at: 560,
     update_at: 560,
     message: "Earlier reply by the same author.",
+    props: undefined,
     file_ids: [],
     metadata: undefined,
   };

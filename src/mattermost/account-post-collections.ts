@@ -5,9 +5,9 @@ import {
   PostsApi,
   PreferencesApi,
 } from "../../vendor/mattermost/index.js";
-import { postWithIntegrationCards } from "./integration-cards.ts";
 import { isMattermostId, isMattermostTime } from "./model-fields.ts";
 import { orderedItems } from "./ordered-items.ts";
+import { receivedResultPost } from "./received-result-post.ts";
 import {
   createSavedPostState,
   projectSavedPostMembership,
@@ -42,7 +42,7 @@ function collection(list: PostList, channelId?: string) {
     seen.add(row.id);
   }
   return {
-    items: items.map(postWithIntegrationCards),
+    items: items.map(receivedResultPost),
     firstInaccessiblePostTime,
   };
 }

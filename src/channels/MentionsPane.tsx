@@ -8,13 +8,13 @@ import {
   useRef,
 } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
+import type { IntegrationCard } from "../mattermost/integration-cards.ts";
 import { CollectionReadNotice } from "./CollectionReadNotice.tsx";
 import { CollectionScroll, restoreCollectionRow } from "./CollectionScroll.tsx";
 import { collectionCopy } from "./collection-copy.ts";
 import type { openMentionList } from "./mention-list.ts";
 import { PaneSizeToggle } from "./PaneWidthControls.tsx";
-import { publishedPostDocument } from "./published-post-document.ts";
-import { publishedPostExcerpt } from "./published-post-excerpt.ts";
+import { publishedPostSummary } from "./published-post-summary.ts";
 import "./mentions.css";
 
 type Model = ReturnType<typeof openMentionList>;
@@ -76,12 +76,12 @@ function PanelGlyph({ path }: { path: string }) {
 
 const MentionExcerpt = memo(function MentionExcerpt({
   message,
+  cards,
 }: {
-  message: string;
+  message?: string;
+  cards?: readonly IntegrationCard[];
 }) {
-  return (
-    <small>{publishedPostExcerpt(publishedPostDocument({ message }))}</small>
-  );
+  return <small>{publishedPostSummary({ message, cards })}</small>;
 });
 
 export function MentionsPane({
@@ -246,7 +246,7 @@ export function MentionsPane({
                   {post.rootId &&
                     ` · ${common.reply.toLocaleLowerCase(language)}`}
                 </strong>
-                <MentionExcerpt message={post.message || ""} />
+                <MentionExcerpt message={post.message} cards={post.cards} />
               </span>
               {post.createAt !== undefined && (
                 <time dateTime={new Date(post.createAt).toISOString()}>

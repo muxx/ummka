@@ -6,6 +6,21 @@
   overflow-wrap: anywhere;
   user-select: text;
 }
+.published-post > .published-integration-card {
+  border-inline-start: 3px solid var(--strong-divider);
+  margin-block: 4px;
+  max-inline-size: 65ch;
+  padding-block: 4px;
+  padding-inline-start: 11px;
+}
+.published-integration-card > :not(.published-integration-card-title) + * {
+  margin-block-start: 0.48em;
+}
+.published-integration-card-title {
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+
 .published-post :where(p, h1, h2, h3, h4, h5, h6, blockquote, pre, ol, ul, hr) {
   margin: 0;
 }

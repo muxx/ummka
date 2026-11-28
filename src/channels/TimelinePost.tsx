@@ -335,6 +335,7 @@ export function TimelinePost({
           <PostBodyDisclosure locale={locale}>
             <PublishedPostBody
               message={post.message}
+              cards={post.cards}
               locale={locale}
               authorName={name}
               inThread={inThread}

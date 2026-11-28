@@ -6,7 +6,9 @@ import {
   within,
 } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
-import { ResponseError } from "../../vendor/mattermost/index.js";
+import { Configuration, ResponseError } from "../../vendor/mattermost/index.js";
+import { accountPostCollections } from "../mattermost/account-post-collections.ts";
+import { accountSearch } from "../mattermost/account-search.ts";
 import { channelProfile } from "../mattermost/channel-profiles.ts";
 import "../empty-link-inbox.test-utils.ts";
 import {
@@ -973,6 +975,128 @@ test("labels empty published bodies and attachments in saved rows", async () => 
   );
   expect(await pane.findByText("Attachment")).toBeTruthy();
   expect(pane.getByText("Message")).toBeTruthy();
+});
+
+test.each(["search", "saved"] as const)(
+  "%s rejects a malformed result page before display and retries the same query with partial file details",
+  async (source) => {
+    const { account } = fixture();
+    const fetchApi = vi.fn<typeof fetch>();
+    const config = new Configuration({
+      basePath: "https://fixture.test/site",
+      fetchApi,
+    });
+    const named = {
+      id: root.id,
+      channel_id: design,
+      message: "[note]: https://example.test",
+      file_ids: [bookmark],
+      metadata: {
+        files: [
+          {
+            id: bookmark,
+            post_id: root.id,
+            channel_id: design,
+            name: "verified.log",
+          },
+        ],
+      },
+    };
+    const partial = {
+      id: reply.id,
+      channel_id: design,
+      message: "",
+      file_ids: [firstFile],
+    };
+    const page = (second: typeof partial & { metadata?: object }) =>
+      Response.json({
+        order: [root.id, reply.id],
+        posts: { [root.id]: named, [reply.id]: second },
+        matches: {},
+        first_inaccessible_post_time: 0,
+      });
+    fetchApi
+      .mockResolvedValueOnce(
+        page({
+          ...partial,
+          message: "Visible text cannot mask a corrupt file",
+          metadata: {
+            files: [{ id: firstFile, post_id: root.id, name: "foreign.log" }],
+          },
+        }),
+      )
+      .mockResolvedValueOnce(page(partial));
+    let panel: ReturnType<typeof within>;
+    if (source === "search") {
+      account.readPostSearchPage.mockImplementation(
+        accountSearch(config, (read) => read()).readPostSearchPage,
+      );
+      panel = await search();
+    } else {
+      account.readSavedPosts.mockImplementation(
+        accountPostCollections(config, user, (read) => read()).readSavedPosts,
+      );
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Saved messages" }),
+      );
+      panel = within(
+        await screen.findByRole("complementary", { name: "Saved messages" }),
+      );
+    }
+    const retry = await panel.findByRole("button", { name: "Try again" });
+    expect(panel.queryByText("verified.log")).toBeNull();
+    expect(panel.queryByText("foreign.log")).toBeNull();
+    expect(
+      panel.queryByText("Visible text cannot mask a corrupt file"),
+    ).toBeNull();
+    fireEvent.click(retry);
+    expect(await panel.findByText("verified.log")).toBeTruthy();
+    expect(
+      panel.getByText(source === "search" ? "Attachment 1" : "Attachment"),
+    ).toBeTruthy();
+    expect(panel.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(fetchApi).toHaveBeenCalledTimes(2);
+    const first = fetchApi.mock.calls[0],
+      second = fetchApi.mock.calls[1];
+    expect(second[0]).toEqual(first[0]);
+    expect(second[1]?.body).toEqual(first[1]?.body);
+  },
+);
+
+test("saved rows use the current card title and reveal an available filename after the cards are cleared", async () => {
+  const { account } = fixture();
+  const trigger = await screen.findByRole("button", { name: "Saved messages" });
+  const source = {
+    id: root.id,
+    channelId: design,
+    message: "",
+    fileIds: [bookmark],
+    attachments: {
+      fileIds: [bookmark],
+      files: [{ id: bookmark, name: "release-notes.txt" }],
+    },
+  };
+  async function show(cards: [{ title: string; fields: [] }] | []) {
+    account.readSavedPosts.mockResolvedValue({
+      items: [{ ...source, cards }],
+      firstInaccessiblePostTime: 0,
+    });
+    fireEvent.click(trigger);
+    return within(
+      await screen.findByRole("complementary", { name: "Saved messages" }),
+    );
+  }
+  let pane = await show([{ title: "Original release", fields: [] }]);
+  expect(await pane.findByText("Original release")).toBeTruthy();
+  expect(pane.queryByText("release-notes.txt")).toBeNull();
+  fireEvent.click(pane.getByRole("button", { name: "Close collection" }));
+  pane = await show([{ title: "Updated release", fields: [] }]);
+  expect(await pane.findByText("Updated release")).toBeTruthy();
+  expect(pane.queryByText("Original release")).toBeNull();
+  fireEvent.click(pane.getByRole("button", { name: "Close collection" }));
+  pane = await show([]);
+  expect(await pane.findByText("release-notes.txt")).toBeTruthy();
+  expect(pane.queryByText("Updated release")).toBeNull();
 });
 
 test("a hidden saved page remains traversable, preserves the previous rows on retry, and discards a revoked response", async () => {
