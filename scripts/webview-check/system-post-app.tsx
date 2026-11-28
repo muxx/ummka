@@ -423,6 +423,42 @@ async function checkPublishedLinks(host: HTMLElement, server: string) {
           "Android Back did not close the thread after the last step",
         );
     });
+  } else {
+    const back = await waitFor(() => {
+      // The focused reply can precede the acknowledgement that records its source.
+      if (host.querySelector(".system-post-notice"))
+        throw Error("The linked reply was not acknowledged");
+      const button = page.getByRole<HTMLButtonElement>("button", {
+        name: /^Back to link/,
+      });
+      const box = button.getBoundingClientRect();
+      const hit = document.elementFromPoint(
+        box.left + box.width / 2,
+        box.top + box.height / 2,
+      );
+      if (
+        !document.hasFocus() ||
+        document.visibilityState !== "visible" ||
+        !box.width ||
+        !box.height ||
+        !button.contains(hit) ||
+        button.disabled ||
+        button.getAttribute("aria-disabled") === "true"
+      )
+        throw Error("Back to link was not available in the foreground window");
+      return button;
+    });
+    back.click();
+    await waitFor(() => {
+      const currentRoot = channelRoot();
+      if (!currentRoot || host.querySelector(".thread-feed"))
+        throw Error("Back to link did not return from the thread to the feed");
+      const link = within(currentRoot).getByRole("link", {
+        name: "Open published reply",
+      });
+      if (!shown(link))
+        throw Error("Back to link did not focus the visible source link");
+    });
   }
   if (await invoke("pending_channels_link"))
     throw Error("A published link entered the operating-system queue");
