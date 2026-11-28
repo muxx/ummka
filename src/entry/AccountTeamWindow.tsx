@@ -8,6 +8,10 @@ import {
   useRef,
   useState,
 } from "react";
+import {
+  type ChannelBookmarkWrites,
+  createChannelBookmarkWrites,
+} from "../channels/channel-bookmark-writes.ts";
 import { useWorkspaceBack } from "../channels/use-workspace-back.ts";
 import {
   useAccountPolicy,
@@ -54,6 +58,7 @@ export type TeamWorkspace = {
   userId: string;
   team: JoinedTeam;
   connection: Connection;
+  bookmarkWrites: ChannelBookmarkWrites;
   threadReads: AccountThreadReads;
   directoryNotice: Issue | null;
   directoryCode?: string;
@@ -180,6 +185,7 @@ function AccountWindow({
   const [needsTeam, setNeedsTeam] = useState<SystemPostRequest | null>(null);
   const picker = systemPost !== undefined && needsTeam === systemPost;
   const connection = useRef<Connection | null>(null);
+  const [bookmarkWrites] = useState(createChannelBookmarkWrites);
   const readScope = useRef<AccountThreadReads | null>(null);
   const exiting = useRef<"working" | "cleanup" | null>(null);
   const [cleanup, setCleanup] = useState<SessionCleanup | null>(null);
@@ -248,6 +254,7 @@ function AccountWindow({
     let acquired: Connection | null = null;
     let initial: JoinedTeams | null | undefined;
     function withdraw() {
+      bookmarkWrites.abort();
       readScope.current?.close();
       readScope.current = null;
       connection.current = null;
@@ -401,13 +408,14 @@ function AccountWindow({
       window.removeEventListener("online", reconnect);
       invalidation.current = null;
       controller.abort();
+      bookmarkWrites.abort();
       readScope.current?.close();
       readScope.current = null;
       readVersion.current++;
       connection.current = null;
       if (acquired) void acquired.close().catch(() => {});
     };
-  }, [serverUrl, userId, read, threadReads]);
+  }, [serverUrl, userId, read, threadReads, bookmarkWrites]);
 
   async function runExit(
     mode: "server" | "device",
@@ -690,6 +698,7 @@ function AccountWindow({
           userId,
           team: selected,
           connection: connection.current,
+          bookmarkWrites,
           threadReads: readScope.current,
           online,
           policy,

@@ -10,6 +10,7 @@ import {
 import { afterEach, expect, test, vi } from "vitest";
 import { ResponseError } from "../../vendor/mattermost/index.js";
 import { ChannelBookmarksPanel } from "./ChannelBookmarksPanel.tsx";
+import { createChannelBookmarkWrites } from "./channel-bookmark-writes.ts";
 import {
   AttachmentWindow,
   useAttachmentWindow,
@@ -42,6 +43,7 @@ function fixture() {
     back = vi.fn();
   return {
     account,
+    writes: createChannelBookmarkWrites(),
     open,
     sessionIssue,
     back,
@@ -54,7 +56,7 @@ function fixture() {
   };
 }
 function Panel({
-  ctx: { account, open, sessionIssue, back, can },
+  ctx: { account, writes, open, sessionIssue, back, can },
   id = channel,
   online = true,
 }: {
@@ -76,6 +78,7 @@ function Panel({
         <ChannelBookmarksPanel
           key={id}
           account={account}
+          writes={writes}
           can={can}
           channelId={id}
           name="# Releases"
@@ -595,7 +598,7 @@ test("a late confirmation from another channel does not update the current bookm
   const row = await screen.findByRole("button", { name: current.name });
   row.focus();
   expect(ctx.account.createChannelBookmark.mock.calls[0][2]?.aborted).toBe(
-    true,
+    false,
   );
   await act(async () => finish(original));
   expect(screen.queryByRole("button", { name: original.name })).toBeNull();
@@ -933,3 +936,89 @@ test("a revoked edit with a lost response holds writes until a fresh list return
       .disabled,
   ).toBe(false);
 });
+
+test("dismissing a submitted editor offline hides the list without applying its late confirmation", async () => {
+  const ctx = fixture();
+  ctx.can.mockReturnValue(true);
+  const result = heldBookmarkResult<typeof nextLink>();
+  ctx.account.readChannelBookmarks.mockResolvedValue({
+    kind: "available",
+    bookmarks: [editableLink],
+  });
+  ctx.account.createChannelBookmark.mockReturnValue(result.promise);
+  const app = render(<Panel ctx={ctx} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Add link" }));
+  const editor = within(screen.getByRole("dialog", { name: "Add link" }));
+  fireEvent.change(editor.getByLabelText("Name"), {
+    target: { value: nextLink.name },
+  });
+  fireEvent.change(editor.getByLabelText("Link address"), {
+    target: { value: nextLink.destination.href },
+  });
+  fireEvent.click(editor.getByRole("button", { name: "Save" }));
+  app.rerender(<Panel ctx={ctx} online={false} />);
+  fireEvent.click(editor.getByRole("button", { name: "Close" }));
+  await screen.findByRole("heading", { name: "No connection" });
+  expect(screen.queryByRole("button", { name: editableLink.name })).toBeNull();
+  await act(async () => result.resolve(nextLink));
+  expect(screen.queryByRole("button", { name: nextLink.name })).toBeNull();
+  expect(ctx.account.readChannelBookmarks).toHaveBeenCalledTimes(1);
+});
+
+test.each(["confirmed", "uncertain"] as const)(
+  "blocks another write until a reopened channel list reconciles an %s result",
+  async (outcome) => {
+    const ctx = fixture();
+    ctx.can.mockReturnValue(true);
+    const operation = heldBookmarkResult<typeof nextLink>();
+    const reread =
+      heldBookmarkResult<
+        Awaited<ReturnType<WorkspaceConnection["readChannelBookmarks"]>>
+      >();
+    ctx.account.readChannelBookmarks
+      .mockResolvedValueOnce({ kind: "available", bookmarks: [editableLink] })
+      .mockResolvedValueOnce({ kind: "available", bookmarks: [editableLink] })
+      .mockReturnValueOnce(reread.promise);
+    ctx.account.createChannelBookmark.mockReturnValue(operation.promise);
+
+    const app = render(<Panel ctx={ctx} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add link" }));
+    const editor = within(screen.getByRole("dialog", { name: "Add link" }));
+    fireEvent.change(editor.getByLabelText("Name"), {
+      target: { value: nextLink.name },
+    });
+    fireEvent.change(editor.getByLabelText("Link address"), {
+      target: { value: nextLink.destination.href },
+    });
+    fireEvent.click(editor.getByRole("button", { name: "Save" }));
+    fireEvent.click(editor.getByRole("button", { name: "Close" }));
+    app.rerender(<></>);
+    expect(ctx.account.createChannelBookmark.mock.calls[0][2]?.aborted).toBe(
+      false,
+    );
+
+    app.rerender(<Panel ctx={ctx} />);
+    const add = await screen.findByRole<HTMLButtonElement>("button", {
+      name: "Add link",
+    });
+    expect(add.disabled).toBe(true);
+    await screen.findByText("Saving bookmark…");
+    fireEvent.click(add);
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    await act(async () => {
+      if (outcome === "confirmed") operation.resolve(nextLink);
+      else operation.reject(new TypeError("lost response"));
+    });
+    expect(ctx.account.readChannelBookmarks).toHaveBeenCalledTimes(3);
+    expect(add.disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: nextLink.name })).toBeNull();
+
+    await act(async () =>
+      reread.resolve({ kind: "available", bookmarks: [nextLink] }),
+    );
+    await screen.findByRole("button", { name: nextLink.name });
+    expect(add.disabled).toBe(false);
+    expect(ctx.account.createChannelBookmark).toHaveBeenCalledTimes(1);
+  },
+);

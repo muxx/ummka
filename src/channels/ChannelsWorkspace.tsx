@@ -2575,6 +2575,7 @@ export function ChannelsWorkspace({
             <ChannelBookmarksPanel
               key={`${serverUrl}:${userId}:${channel.id}`}
               account={connection}
+              writes={workspace.bookmarkWrites}
               channelId={channel.id}
               can={(action, kind) =>
                 channelBookmarkAccess(
