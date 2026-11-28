@@ -120,6 +120,7 @@ async function checkThreadReply(
   const { pane, thread, field } = await findThreadDraft(host);
   if (document.activeElement === field || field.value)
     throw Error("Opening the compact thread focused or populated its editor");
+  await thread.findByRole("button", { name: "Follow", pressed: false });
   const message = "Posted from the thread window";
   field.focus();
   flushSync(() => fireEvent.input(field, { target: { value: message } }));
@@ -144,6 +145,11 @@ async function checkThreadReply(
           "The phone did not show one confirmed reply and preserve the channel draft",
         );
     },
+    { timeout: 10_000 },
+  );
+  await thread.findByRole(
+    "button",
+    { name: "Following", pressed: true },
     { timeout: 10_000 },
   );
   flushSync(() =>
