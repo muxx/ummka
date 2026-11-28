@@ -1301,6 +1301,63 @@ test("reopening Saved keeps the previous rows through a failed refresh and retri
   );
 });
 
+test.each([false, true])(
+  "a late denial after the Saved retry control appears respects the current attempt (retried: %s)",
+  async (retried) => {
+    const { account } = fixture();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Saved messages" }),
+    );
+    const pane = within(
+      await screen.findByRole("complementary", { name: "Saved messages" }),
+    );
+    await pane.findByText("Saved root preview");
+    let refuse!: (error: Error) => void;
+    account.readPreferences.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          refuse = reject;
+        }),
+    );
+    account.readSavedPosts.mockRejectedValueOnce(
+      new ResponseError(new Response(null, { status: 503 })),
+    );
+    fireEvent.click(pane.getByRole("button", { name: "Refresh" }));
+    const retry = await pane.findByRole("button", {
+      name: "Retry update: Saved messages",
+    });
+    expect(
+      pane.getByText(
+        "Saved messages couldn’t update. Showing the previous response",
+      ),
+    ).toBeTruthy();
+    retry.focus();
+    if (retried) {
+      fireEvent.click(retry);
+      await pane.findByText("Saved messages updated");
+    }
+    await act(async () =>
+      refuse(new ResponseError(new Response(null, { status: 403 }))),
+    );
+    if (retried) {
+      expect(pane.getByText("Saved root preview")).toBeTruthy();
+      expect(
+        pane.queryByText("This collection is no longer available."),
+      ).toBeNull();
+    } else {
+      expect(pane.getByRole("alert").textContent).toBe(
+        "This collection is no longer available.",
+      );
+      expect(pane.queryByText("Saved root preview")).toBeNull();
+      expect(pane.queryByText(/showing the previous response/i)).toBeNull();
+      expect(document.activeElement).toBe(
+        pane.getByRole("heading", { name: "Saved messages" }),
+      );
+    }
+    expect(account.readSavedPosts).toHaveBeenCalledTimes(retried ? 3 : 2);
+  },
+);
+
 test("closing the collection cancels its pending read including a late unauthorized response", async () => {
   const { account } = fixture();
   const trigger = await screen.findByRole("button", { name: "Saved messages" });

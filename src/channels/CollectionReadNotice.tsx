@@ -76,7 +76,7 @@ export function CollectionReadNotice({
       setAnnouncement(text.updated(name));
     else if (before === "refreshing" && hasResponse && failed)
       setAnnouncement(text.updateFailedAnnouncement(name, reason));
-    else if (loading || refreshing) setAnnouncement("");
+    else if (loading || refreshing || !hasResponse) setAnnouncement("");
   }, [name, status, text, hasResponse, failed, loading, reason, refreshing]);
   useLayoutEffect(() => {
     if (!waitingFocus.current || loading || refreshing) return;

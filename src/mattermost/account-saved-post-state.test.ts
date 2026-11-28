@@ -367,6 +367,217 @@ test("a direct change and removal from Saved share one in-flight write for the s
   );
 });
 
+for (const deniedRead of ["page", "preferences"] as const) {
+  for (const code of [401, 403]) {
+    test.each(["before", "after"] as const)(
+      `Saved hides cached rows when the ${deniedRead} returns ${code} %s a malformed peer`,
+      async (order) => {
+        const device = fixture();
+        const account = await device.open();
+        const collection = openPostCollection(account, { kind: "all" });
+        device.read(first);
+        device.hold("GET", flagged()).respond({ body: page(first) });
+        await collection.refresh(first);
+        expect(visible(collection)).toEqual([first]);
+
+        const pageRead = vi.spyOn(account, "readSavedPosts");
+        const membershipRead = vi.spyOn(account, "readSavedPostPreferences");
+        const posts = device.hold("GET", flagged());
+        const membership = device.hold("GET");
+        const reading = collection.refresh(first);
+        await Promise.all([posts.started, membership.started]);
+        const denial = deniedRead === "page" ? posts : membership;
+        const peer = deniedRead === "page" ? membership : posts;
+        const peerPromise =
+          deniedRead === "page"
+            ? membershipRead.mock.results[0].value
+            : pageRead.mock.results[0].value;
+        const malformed =
+          deniedRead === "page"
+            ? flags(otherOwner, first)
+            : { ...page(), order: [first] };
+
+        const denialPromise =
+          deniedRead === "page"
+            ? pageRead.mock.results[0].value
+            : membershipRead.mock.results[0].value;
+        if (order === "after") {
+          peer.respond({ body: malformed });
+          await expect(peerPromise).rejects.toThrow("Invalid Mattermost");
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          expect(collection.getSnapshot().status).toBe("unknown");
+          expect(visible(collection)).toEqual([first]);
+          await reading;
+        }
+        denial.respond({ status: code });
+        await expect(denialPromise).rejects.toMatchObject({
+          response: { status: code },
+        });
+        await reading;
+        expect(collection.getSnapshot()).toMatchObject({
+          status: code === 401 ? "unauthorized" : "forbidden",
+          value: null,
+          continuation: "none",
+        });
+        expect(collection.getSnapshot().returnedPost).toBeUndefined();
+        expect(pageRead.mock.calls[0][2]?.aborted).toBe(true);
+        expect(membershipRead.mock.calls[0][0]?.aborted).toBe(true);
+
+        device.read(second);
+        device.hold("GET", flagged()).respond({ body: page(second) });
+        await collection.refresh(second);
+        if (order === "before") {
+          peer.respond({ body: malformed });
+          await expect(peerPromise).rejects.toBeDefined();
+        }
+        expect(collection.getSnapshot()).toMatchObject({
+          status: "ready",
+          returnedPost: { id: second, saved: true },
+        });
+        expect(visible(collection)).toEqual([second]);
+        expect(device.requests).toHaveLength(6);
+        collection.close();
+      },
+    );
+  }
+}
+
+test.each(["page", "preferences"] as const)(
+  "retry after a 503 from %s retires the hanging GET and preserves an independent write",
+  async (failingSource) => {
+    const device = fixture();
+    const account = await device.open();
+    const collection = openPostCollection(account, { kind: "all" });
+    device.read(first, second);
+    device.hold("GET", flagged()).respond({ body: page(first, second) });
+    await collection.refresh();
+
+    const removal = device.hold("POST", deletion);
+    const removing = collection.remove(first);
+    await removal.started;
+    const posts = device.hold("GET", flagged());
+    const membership = device.hold("GET");
+    const pageRead = vi.spyOn(account, "readSavedPosts");
+    const prefRead = vi.spyOn(account, "readSavedPostPreferences");
+    const failed = collection.refresh();
+    await Promise.all([posts.started, membership.started]);
+    const pageFails = failingSource === "page";
+    const failedCall = pageFails
+      ? pageRead.mock.results[0]
+      : prefRead.mock.results[0];
+    (pageFails ? posts : membership).respond({ status: 503 });
+    await expect(failedCall.value).rejects.toMatchObject({
+      response: { status: 503 },
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(collection.getSnapshot().status).toBe("unknown");
+    await failed;
+
+    const staleRead = pageFails
+      ? prefRead.mock.results[0]
+      : pageRead.mock.results[0];
+    const freshPage = device.hold("GET", flagged());
+    const freshPrefs = device.hold("GET");
+    const retry = collection.refresh();
+    expect(collection.refresh()).toBe(retry);
+    await Promise.all([freshPage.started, freshPrefs.started]);
+    expect(pageRead.mock.calls[0][2]?.aborted).toBe(true);
+    expect(prefRead.mock.calls[0][0]?.aborted).toBe(true);
+    await expect(staleRead.value).rejects.toBeDefined();
+    (pageFails ? membership : posts).respond({ status: pageFails ? 401 : 403 });
+    expect(collection.getSnapshot()).toMatchObject({
+      status: "refreshing",
+      removing: [first],
+    });
+    removal.respond({ body: { status: "OK" } });
+    await expect(removing).resolves.toBe("removed");
+    freshPrefs.respond({ body: flags(owner, first, third) });
+    freshPage.respond({ body: page(first, third) });
+    await retry;
+    expect(collection.getSnapshot()).toMatchObject({
+      status: "ready",
+      removing: [],
+    });
+    expect(visible(collection)).toEqual([third]);
+    expect(
+      device.requests.filter(({ method }) => method === "GET"),
+    ).toHaveLength(6);
+    collection.close();
+  },
+);
+
+test("suspending a Saved read with a malformed page settles it and isolates a subsequent retry", async () => {
+  const device = fixture();
+  const account = await device.open();
+  const collection = openPostCollection(account, { kind: "all" });
+  const pageRead = vi.spyOn(account, "readSavedPosts");
+  const posts = device.hold("GET", flagged());
+  const membership = device.hold("GET");
+  const reading = collection.refresh();
+  await Promise.all([posts.started, membership.started]);
+  posts.respond({ body: { ...page(), order: [first] } });
+  await expect(pageRead.mock.results[0].value).rejects.toThrow(
+    "Invalid Mattermost",
+  );
+  collection.suspend();
+  await reading;
+  expect(collection.getSnapshot()).toMatchObject({
+    status: "idle",
+    value: null,
+  });
+
+  device.read(second);
+  device.hold("GET", flagged()).respond({ body: page(second) });
+  await collection.refresh();
+  membership.respond({ status: 401 });
+  expect(collection.getSnapshot().status).toBe("ready");
+  expect(visible(collection)).toEqual([second]);
+  collection.close();
+});
+
+test.each([true, false])(
+  "a successful Saved continuation preserves the failed first page until explicit retry (visible edge: %s)",
+  async (visibleEdge) => {
+    const device = fixture();
+    const account = await device.open();
+    const collection = openPostCollection(account, { kind: "all" });
+    const ids = postIds(61);
+    device.read(...ids);
+    device.hold("GET", flagged()).respond({ body: page(...ids.slice(0, 60)) });
+    await collection.refresh();
+
+    device.read(...ids);
+    device.hold("GET", flagged()).respond({ status: 503 });
+    await collection.refresh();
+    expect(collection.getSnapshot()).toMatchObject({
+      status: "unknown",
+      continuation: "available",
+    });
+    if (visibleEdge) {
+      device.hold("GET", flagged(60)).respond({ body: page(ids[60]) });
+      await collection.loadMore();
+    }
+    expect(collection.getSnapshot().status).toBe("unknown");
+    expect(visible(collection)).toEqual(visibleEdge ? ids : ids.slice(0, 60));
+    expect(device.requests.filter(({ url }) => url === flagged())).toHaveLength(
+      2,
+    );
+    expect(
+      device.requests.filter(({ url }) => url === flagged(60)),
+    ).toHaveLength(Number(visibleEdge));
+
+    device.read(second);
+    device.hold("GET", flagged()).respond({ body: page(second) });
+    await collection.refresh();
+    expect(collection.getSnapshot()).toMatchObject({
+      status: "ready",
+      continuation: "none",
+    });
+    expect(visible(collection)).toEqual([second]);
+    collection.close();
+  },
+);
+
 test("a shared confirmed removal overrides both old GETs, and a fresh page can show the post again", async () => {
   const device = fixture();
   const account = await device.open();

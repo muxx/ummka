@@ -38,6 +38,10 @@ type Removal =
 type Continuation = "none" | "available" | "loading" | "network" | "storage";
 type Refresh = { result: Promise<void>; writes?: Map<string, boolean> };
 
+function canRetainRows(status: ReturnType<typeof collectionReadFailure>) {
+  return status === "unknown" || mayKeepCache(status);
+}
+
 export function newestCollectionItems(items: Collection["items"]) {
   return [...items].sort((a, b) => (b.createAt ?? 0) - (a.createAt ?? 0));
 }
@@ -75,7 +79,8 @@ export function openPostCollection(account: Account, source: Source) {
     value: null,
     removing: [],
   };
-  let requests = new AbortController();
+  let writeRequests = new AbortController();
+  let readRequest: AbortController | undefined;
   let pending: Refresh | undefined;
   let displayed = false;
   let suspended = true;
@@ -98,11 +103,29 @@ export function openPostCollection(account: Account, source: Source) {
 
   function cancelRequests() {
     cancelNextPage();
-    requests.abort();
-    requests = new AbortController();
+    readRequest?.abort();
+    writeRequests.abort();
+    writeRequests = new AbortController();
     pending = undefined;
     removals.clear();
     savesAwaitingRead.clear();
+  }
+
+  function denyRead(status: ReturnType<typeof collectionReadFailure>) {
+    cursor = undefined;
+    cancelRequests();
+    publish({ status, value: null });
+  }
+
+  function observeSavedAccess<T>(read: Promise<T>, signal: AbortSignal) {
+    return read.catch((error: unknown) => {
+      // The other GET may have already shown Retry while this one was in flight.
+      if (!signal.aborted) {
+        const status = collectionReadFailure(error);
+        if (!canRetainRows(status)) denyRead(status);
+      }
+      throw error;
+    });
   }
 
   function applyRemoval(postId: string): ReadState | undefined {
@@ -196,8 +219,14 @@ export function openPostCollection(account: Account, source: Source) {
               undefined,
             ] as const)
           : await Promise.all([
-              account.readSavedPosts(scope, 0, signal),
-              account.readSavedPostPreferences(signal),
+              observeSavedAccess(
+                account.readSavedPosts(scope, 0, signal),
+                signal,
+              ),
+              observeSavedAccess(
+                account.readSavedPostPreferences(signal),
+                signal,
+              ),
             ]);
       if (signal.aborted) return;
       let value = initial;
@@ -284,14 +313,9 @@ export function openPostCollection(account: Account, source: Source) {
     } catch (error) {
       if (signal.aborted) return;
       const status = collectionReadFailure(error);
-      const retain = status === "unknown" || mayKeepCache(status);
-      next = { status, value: retain ? state.value : null };
-      if (!retain) {
-        readCursor = undefined;
-        cancelRequests();
-      } else {
-        readCursor = cursor;
-      }
+      if (!canRetainRows(status)) return denyRead(status);
+      next = { status, value: state.value };
+      readCursor = cursor;
     }
     pending = undefined;
     const refresh = refreshVisible(next);
@@ -303,7 +327,9 @@ export function openPostCollection(account: Account, source: Source) {
   function startRead(returnedPostId?: string, interim?: ReadState, depth = 0) {
     if (pending) return pending.result;
     cancelNextPage();
-    const { signal } = requests;
+    readRequest?.abort();
+    readRequest = new AbortController();
+    const { signal } = readRequest;
     const result = Promise.resolve().then(() =>
       read(signal, returnedPostId, depth),
     );
@@ -335,7 +361,7 @@ export function openPostCollection(account: Account, source: Source) {
       nextPage = undefined;
       pageIssue = undefined;
       publish({
-        status: "ready",
+        status: state.status,
         returnedPost: state.returnedPost && {
           id: state.returnedPost.id,
           saved: account.getSavedPostState(state.returnedPost.id),
@@ -433,7 +459,7 @@ export function openPostCollection(account: Account, source: Source) {
       if (existing) return existing;
       if (!state.value?.items.some((row) => row.id === postId))
         return Promise.resolve("unavailable");
-      const { signal } = requests;
+      const { signal } = writeRequests;
       const result = Promise.resolve().then(() => remove(postId, signal));
       removals.set(postId, result);
       publish(state);
