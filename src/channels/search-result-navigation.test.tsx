@@ -2614,6 +2614,44 @@ function resizeWorkspace(initialWidth: number) {
   };
 }
 
+test("the title menu keeps the keyboard choice when switching between the desktop popover and mobile sheet", async () => {
+  const resize = resizeWorkspace(820);
+  const { account } = fixture();
+  const opener = await screen.findByRole("button", {
+    name: "Channel menu, Home",
+  });
+  fireEvent.click(opener);
+  const popover = screen.getByRole("menu");
+  expect(screen.getByRole("heading", { name: "Home", level: 2 })).toBeTruthy();
+  const items = within(popover).getAllByRole("menuitem");
+  expect(
+    items.every((item) => item.querySelector('svg[aria-hidden="true"]')),
+  ).toBe(true);
+  expect(document.activeElement).toBe(items[0]);
+  fireEvent.keyDown(items[0], { key: "ArrowDown" });
+  expect(document.activeElement).toBe(items[1]);
+
+  resize(390);
+  const sheet = within(screen.getByRole("dialog", { name: "Home" }));
+  expect(document.activeElement).toBe(
+    sheet.getByRole("menuitem", { name: "Members" }),
+  );
+  resize(820);
+  expect(document.activeElement).toBe(
+    screen.getByRole("menuitem", { name: "Members" }),
+  );
+
+  const close = screen.getByRole("button", { name: "Close channel menu" });
+  act(() => close.focus());
+  expect(screen.getByRole("menu")).toBeTruthy();
+  fireEvent.click(close);
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(document.activeElement).toBe(opener);
+  expect(account.readChannelMemberCount).not.toHaveBeenCalled();
+  expect(account.readChannelMemberDirectory).not.toHaveBeenCalled();
+  expect(account.readFileSearchPage).not.toHaveBeenCalled();
+});
+
 test("the wide member button shares the overview count and returns focus after resizing", async () => {
   const resize = resizeWorkspace(901);
   const { account } = fixture();

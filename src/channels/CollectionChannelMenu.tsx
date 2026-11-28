@@ -1,10 +1,4 @@
-import {
-  type RefObject,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-} from "react";
+import { type RefObject, useId, useLayoutEffect, useRef } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
 import { BookmarkIcon, bookmarkCopy } from "./ChannelBookmarksPanel.tsx";
 import { FileIcon, filePanelCopy } from "./ChannelFilesPanel.tsx";
@@ -161,7 +155,9 @@ export function CollectionChannelMenu({
       ? channelKindIcons[kind]
       : "hash";
   const actionList = useRef<HTMLDivElement>(null);
+  const popover = useRef<HTMLDivElement>(null);
   const sheet = useRef<HTMLDialogElement>(null);
+  const titleLabel = useRef<HTMLElement>(null);
   const selected = useRef("info");
   const quick = open === "quick";
   const menuTrigger = quick ? quickTrigger : trigger;
@@ -204,6 +200,32 @@ export function CollectionChannelMenu({
       : []),
   ] as const;
   useLayoutEffect(() => {
+    if (compact || !open) return;
+    const menu = popover.current;
+    const anchor = titleLabel.current;
+    if (!menu || !anchor) return;
+    const position = () => {
+      const rect = anchor.getBoundingClientRect();
+      const { width, height } = menu.getBoundingClientRect();
+      const below = window.innerHeight - rect.bottom;
+      const top =
+        below >= height + 8 || below >= rect.top
+          ? rect.bottom + 4
+          : rect.top - height - 4;
+      menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))}px`;
+      menu.style.top = `${Math.max(8, Math.min(top, window.innerHeight - height - 8))}px`;
+    };
+    position();
+    const observer = new ResizeObserver(position);
+    observer.observe(anchor);
+    observer.observe(menu);
+    window.addEventListener("resize", position);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", position);
+    };
+  }, [compact, open]);
+  useLayoutEffect(() => {
     if (!open) return;
     const modal = compact ? sheet.current : null;
     modal?.showModal();
@@ -217,13 +239,14 @@ export function CollectionChannelMenu({
     item?.focus({ preventScroll: true });
     return () => modal?.close();
   }, [compact, open, quick]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open || compact) return;
+    const opener = open === "title" ? headingRef : menuTrigger;
     function outside(event: Event) {
       if (
         event.target instanceof Node &&
-        !menuTrigger.current?.contains(event.target) &&
-        !actionList.current?.contains(event.target)
+        !opener.current?.contains(event.target) &&
+        !popover.current?.contains(event.target)
       )
         setOpen(null);
     }
@@ -233,8 +256,8 @@ export function CollectionChannelMenu({
       document.removeEventListener("pointerdown", outside);
       document.removeEventListener("focusin", outside);
     };
-  }, [compact, open, setOpen, menuTrigger]);
-  function dismissSheet() {
+  }, [compact, headingRef, menuTrigger, open, setOpen]);
+  function dismissMenu() {
     sheet.current?.close();
     setOpen(null);
     menuTrigger.current?.focus({ preventScroll: true });
@@ -294,13 +317,37 @@ export function CollectionChannelMenu({
                 run(opener);
               }}
             >
-              {compact &&
-                (typeof icon === "string" ? <SheetIcon name={icon} /> : icon)}
+              {typeof icon === "string" ? <SheetIcon name={icon} /> : icon}
               {label}
             </button>
           ),
       )}
     </div>
+  );
+  const menuHeader = (
+    <header>
+      <SheetIcon className="collection-sheet-mark" name={mark} />
+      <h2 id={`${id}-heading`}>{title}</h2>
+      <button
+        type="button"
+        className="channels-icon-action"
+        aria-label={text.closeMenu}
+        onClick={dismissMenu}
+      >
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 24 24"
+          width="18"
+          height="18"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.65"
+          strokeLinecap="round"
+        >
+          <path d="m6 6 12 12M6 18 18 6" />
+        </svg>
+      </button>
+    </header>
   );
   const topic = (
     <span
@@ -327,13 +374,14 @@ export function CollectionChannelMenu({
           aria-haspopup={compact ? "dialog" : "menu"}
           onClick={(event) => {
             selected.current = "info";
-            if (compact) event.currentTarget.focus({ preventScroll: true });
+            if (compact || open === "title")
+              event.currentTarget.focus({ preventScroll: true });
             setOpen(open === "title" ? null : "title");
           }}
         >
           <span className="conversation-heading-title">
             <SheetIcon className="conversation-heading-mark" name={mark} />
-            <bdi>{title}</bdi>
+            <bdi ref={titleLabel}>{title}</bdi>
             <svg
               className="conversation-heading-chevron"
               width="13"
@@ -360,7 +408,7 @@ export function CollectionChannelMenu({
           aria-labelledby={`${id}-heading`}
           onCancel={(event) => {
             event.preventDefault();
-            dismissSheet();
+            dismissMenu();
           }}
           onClick={(event) => {
             if (event.target !== event.currentTarget || event.detail === 0)
@@ -373,37 +421,18 @@ export function CollectionChannelMenu({
               event.clientY < top ||
               event.clientY > bottom
             )
-              dismissSheet();
+              dismissMenu();
           }}
         >
-          <header>
-            <SheetIcon className="collection-sheet-mark" name={mark} />
-            <h2 id={`${id}-heading`}>{title}</h2>
-            <button
-              type="button"
-              className="channels-icon-action"
-              aria-label={text.closeMenu}
-              onClick={dismissSheet}
-            >
-              <svg
-                aria-hidden="true"
-                viewBox="0 0 24 24"
-                width="18"
-                height="18"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.65"
-                strokeLinecap="round"
-              >
-                <path d="m6 6 12 12M6 18 18 6" />
-              </svg>
-            </button>
-          </header>
+          {menuHeader}
           {content}
         </dialog>
-      ) : (
-        content
-      )}
+      ) : open ? (
+        <div ref={popover} className="collection-channel-popover">
+          {menuHeader}
+          {content}
+        </div>
+      ) : null}
     </div>
   );
 }
