@@ -19,6 +19,7 @@ const sheetIconPaths = {
     "M5 7a4 4 0 1 0 8 0a4 4 0 1 0-8 0 M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2 M16 3.13a4 4 0 0 1 0 7.75 M21 21v-2a4 4 0 0 0-3-3.85",
   message:
     "M3 20l1.3-3.9c-2.324-3.437-1.426-7.872 2.1-10.374c3.526-2.501 8.59-2.296 11.845.48c3.255 2.777 3.695 7.266 1.029 10.501c-2.666 3.235-7.615 4.215-11.574 2.293L3 20",
+  info: "M12 7.5v.2M12 11v6M21 12a9 9 0 1 1-18 0a9 9 0 1 1 18 0",
   pin: "M15 4.5l-4 4-4 1.5-1.5 1.5 7 7 1.5-1.5 1.5-4 4-4 M9 15l-4.5 4.5 M14.5 4l5.5 5.5",
 } as const;
 
@@ -49,6 +50,64 @@ function SheetIcon({
   );
 }
 
+export type ChannelMenu = "title" | "quick" | null;
+
+const channelMenuCopy = {
+  en: {
+    info: "Conversation info",
+    details: "Info",
+    actions: "Channel actions",
+    chatActions: "Conversation actions",
+  },
+  ru: {
+    info: "Сведения о беседе",
+    details: "Сведения",
+    actions: "Действия с каналом",
+    chatActions: "Действия с беседой",
+  },
+};
+
+export function ChannelQuickActionsButton({
+  kind,
+  language,
+  button,
+  open,
+  show,
+}: {
+  kind: string;
+  language: EntryLanguage;
+  button: RefObject<HTMLButtonElement | null>;
+  open: boolean;
+  show: () => void;
+}) {
+  const t = channelMenuCopy[language];
+  const label = kind === "D" || kind === "G" ? t.chatActions : t.actions;
+  return (
+    <button
+      ref={button}
+      type="button"
+      className="channels-icon-action channel-quick-actions"
+      aria-label={label}
+      title={label}
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      onClick={show}
+    >
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        fill="currentColor"
+      >
+        <circle cx="5" cy="12" r="1.4" />
+        <circle cx="12" cy="12" r="1.4" />
+        <circle cx="19" cy="12" r="1.4" />
+      </svg>
+    </button>
+  );
+}
+
 export function CollectionChannelMenu({
   headingId,
   headingRef,
@@ -59,8 +118,10 @@ export function CollectionChannelMenu({
   language,
   compact,
   trigger,
+  quickTrigger,
   open,
   setOpen,
+  onInfo,
   onPins,
   onNotifications,
 }: {
@@ -73,8 +134,10 @@ export function CollectionChannelMenu({
   language: EntryLanguage;
   compact: boolean;
   trigger: RefObject<HTMLButtonElement | null>;
-  open: boolean;
-  setOpen: (value: boolean) => void;
+  quickTrigger: RefObject<HTMLButtonElement | null>;
+  open: ChannelMenu;
+  setOpen: (value: ChannelMenu) => void;
+  onInfo?: (trigger: HTMLButtonElement) => void;
   onPins: (trigger: HTMLButtonElement) => void;
   onNotifications?: () => void;
 }) {
@@ -87,26 +150,52 @@ export function CollectionChannelMenu({
       : "hash";
   const actionList = useRef<HTMLDivElement>(null);
   const sheet = useRef<HTMLDialogElement>(null);
-  const pins = useRef<HTMLButtonElement>(null);
-  const notifications = useRef<HTMLButtonElement>(null);
-  const selected = useRef<"pins" | "notifications">("pins");
+  const selected = useRef("info");
+  const quick = open === "quick";
+  const menuTrigger = quick ? quickTrigger : trigger;
+  const labels = channelMenuCopy[language];
+  const actions = [
+    {
+      key: "info",
+      icon: "info",
+      label: quick ? labels.details : labels.info,
+      run: onInfo,
+    },
+    ...(!quick
+      ? [
+          { key: "pins", icon: "pin", label: text.pins, run: onPins } as const,
+          {
+            key: "notifications",
+            icon: "bell",
+            label: notificationCopy[language].title,
+            run: onNotifications,
+          } as const,
+        ]
+      : []),
+  ] as const;
   useLayoutEffect(() => {
     if (!open) return;
     const modal = compact ? sheet.current : null;
     modal?.showModal();
-    const item = selected.current === "notifications" && notifications.current;
-    (item || pins.current)?.focus({ preventScroll: true });
+    const items = Array.from(
+      actionList.current?.querySelectorAll<HTMLButtonElement>("button") ?? [],
+    );
+    const item = quick
+      ? items[0]
+      : (items.find((entry) => entry.dataset.action === selected.current) ??
+        items[0]);
+    item?.focus({ preventScroll: true });
     return () => modal?.close();
-  }, [compact, open]);
+  }, [compact, open, quick]);
   useEffect(() => {
     if (!open || compact) return;
     function outside(event: Event) {
       if (
         event.target instanceof Node &&
-        !trigger.current?.contains(event.target) &&
+        !menuTrigger.current?.contains(event.target) &&
         !actionList.current?.contains(event.target)
       )
-        setOpen(false);
+        setOpen(null);
     }
     document.addEventListener("pointerdown", outside);
     document.addEventListener("focusin", outside);
@@ -114,24 +203,22 @@ export function CollectionChannelMenu({
       document.removeEventListener("pointerdown", outside);
       document.removeEventListener("focusin", outside);
     };
-  }, [compact, open, setOpen, trigger]);
+  }, [compact, open, setOpen, menuTrigger]);
   function dismissSheet() {
     sheet.current?.close();
-    setOpen(false);
-    trigger.current?.focus({ preventScroll: true });
+    setOpen(null);
+    menuTrigger.current?.focus({ preventScroll: true });
   }
-  const actions = open && (
+  const content = open && (
     <div
       ref={actionList}
       id={id}
       role="menu"
-      aria-label={text.menu}
+      aria-label={quick ? labels.details : text.menu}
       className={
         compact ? "collection-sheet-actions" : "collection-channel-actions"
       }
       onKeyDown={(event) => {
-        const first = pins.current,
-          last = notifications.current ?? first;
         const key = event.key;
         if (
           key !== "ArrowDown" &&
@@ -140,44 +227,47 @@ export function CollectionChannelMenu({
           key !== "End"
         )
           return;
+        const items = Array.from(
+          event.currentTarget.querySelectorAll<HTMLButtonElement>("button"),
+        );
+        if (!items.length) return;
         event.preventDefault();
-        if (key === "Home") first?.focus();
-        else if (key === "End") last?.focus();
-        else (document.activeElement === first ? last : first)?.focus();
+        const index = items.indexOf(
+          document.activeElement as HTMLButtonElement,
+        );
+        const next =
+          key === "Home"
+            ? 0
+            : key === "End"
+              ? items.length - 1
+              : (index + (key === "ArrowDown" ? 1 : -1) + items.length) %
+                items.length;
+        items[next]?.focus();
       }}
     >
-      <button
-        type="button"
-        role="menuitem"
-        className="collection-channel-action"
-        ref={pins}
-        onFocus={() => {
-          selected.current = "pins";
-        }}
-        onClick={() => {
-          if (trigger.current) onPins(trigger.current);
-        }}
-      >
-        {compact && <SheetIcon name="pin" />}
-        {text.pins}
-      </button>
-      {onNotifications && (
-        <button
-          type="button"
-          role="menuitem"
-          className="collection-channel-action"
-          ref={notifications}
-          onFocus={() => {
-            selected.current = "notifications";
-          }}
-          onClick={() => {
-            selected.current = "notifications";
-            onNotifications();
-          }}
-        >
-          {compact && <SheetIcon name="bell" />}
-          {notificationCopy[language].title}
-        </button>
+      {actions.map(
+        ({ key, icon, label, run }) =>
+          run && (
+            <button
+              type="button"
+              key={key}
+              role="menuitem"
+              className="collection-channel-action"
+              data-action={key}
+              onFocus={() => {
+                selected.current = key;
+              }}
+              onClick={() => {
+                const opener = menuTrigger.current;
+                if (!opener) return;
+                selected.current = key;
+                run(opener);
+              }}
+            >
+              {compact && <SheetIcon name={icon} />}
+              {label}
+            </button>
+          ),
       )}
     </div>
   );
@@ -199,13 +289,15 @@ export function CollectionChannelMenu({
           className="collection-channel-trigger"
           aria-label={`${text.menu}, ${title}`}
           aria-describedby={`${id}-description`}
-          aria-controls={open ? (compact ? `${id}-sheet` : id) : undefined}
-          aria-expanded={open}
+          aria-controls={
+            open === "title" ? (compact ? `${id}-sheet` : id) : undefined
+          }
+          aria-expanded={open === "title"}
           aria-haspopup={compact ? "dialog" : "menu"}
           onClick={(event) => {
-            selected.current = "pins";
+            selected.current = "info";
             if (compact) event.currentTarget.focus({ preventScroll: true });
-            setOpen(!open);
+            setOpen(open === "title" ? null : "title");
           }}
         >
           <span className="conversation-heading-title">
@@ -276,10 +368,10 @@ export function CollectionChannelMenu({
               </svg>
             </button>
           </header>
-          {actions}
+          {content}
         </dialog>
       ) : (
-        actions
+        content
       )}
     </div>
   );

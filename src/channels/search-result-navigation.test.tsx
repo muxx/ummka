@@ -747,7 +747,9 @@ test("opens pins in the selected channel, distinguishes a confirmed personal mar
   const pins = async () => {
     fireEvent.click(menu);
     const item = screen.getByRole("menuitem", { name: "Pinned messages" });
-    expect(document.activeElement).toBe(item);
+    expect(document.activeElement).toBe(
+      screen.getByRole("menuitem", { name: "Conversation info" }),
+    );
     fireEvent.click(item);
     return within(
       await screen.findByRole("complementary", { name: "Pinned messages" }),
@@ -1307,6 +1309,34 @@ test("opens channel information from the header, saves notifications and returns
   expect(document.activeElement).toBe(info);
   expect(account.readChannelMemberCount).toHaveBeenCalledOnce();
 });
+
+test.each([
+  ["Channel menu, Home", "Conversation info"],
+  ["Channel actions", "Info"],
+])(
+  "opens channel information from %s and restores its own button",
+  async (name, item) => {
+    const { account } = fixture();
+    const opener = await screen.findByRole("button", { name });
+    fireEvent.click(opener);
+    const action = await screen.findByRole("menuitem", { name: item });
+    expect(document.activeElement).toBe(action);
+    expect(account.readChannelMemberCount).not.toHaveBeenCalled();
+    expect(account.readChannelMemberDirectory).not.toHaveBeenCalled();
+    expect(account.readFileSearchPage).not.toHaveBeenCalled();
+    fireEvent.click(action);
+    const about = await screen.findByRole("complementary", {
+      name: "About this channel",
+    });
+    await within(about).findByText("7");
+    expect(screen.queryByRole("menu")).toBeNull();
+    const close = within(about).getByRole("button", {
+      name: "Close channel info",
+    });
+    fireEvent.click(close);
+    expect(document.activeElement).toBe(opener);
+  },
+);
 
 test("pins opened from channel details restore the post, the pins action and the header in order", async () => {
   const { account } = fixture();

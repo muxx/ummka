@@ -38,7 +38,11 @@ import {
 import { ChannelMembersPanel } from "./ChannelMembersPanel.tsx";
 import { ChannelNotificationsDialog } from "./ChannelNotificationsDialog.tsx";
 import { ChannelsFrame, ThreadMark } from "./ChannelsFrame.tsx";
-import { CollectionChannelMenu } from "./CollectionChannelMenu.tsx";
+import {
+  type ChannelMenu,
+  ChannelQuickActionsButton,
+  CollectionChannelMenu,
+} from "./CollectionChannelMenu.tsx";
 import { CollectionResultSteps } from "./CollectionResultSteps.tsx";
 import { ComposerAccessNotice } from "./ComposerAccessNotice.tsx";
 import { ConversationTimeline } from "./ConversationTimeline.tsx";
@@ -314,6 +318,7 @@ export function ChannelsWorkspace({
   const allowChannelFiles = policy.server.value?.search?.files === true;
   const collectionLabels = collectionCopy[language];
   const channelMenuButton = useRef<HTMLButtonElement>(null);
+  const quickActionsButton = useRef<HTMLButtonElement>(null);
   const directoryButton = useRef<HTMLButtonElement>(null);
   const restoreDirectoryFocus = useRef(false);
   const [directoryOpen, setDirectoryOpen] = useState(false);
@@ -325,9 +330,10 @@ export function ChannelsWorkspace({
       directoryButton.current?.focus();
     }
   }, [directoryOpen]);
-  const [channelMenuOpen, setChannelMenuOpen] = useState(false);
+  const [channelMenuOpen, setChannelMenuOpen] = useState<ChannelMenu>(null);
   const [infoChannel, setInfoChannel] = useState<{
     id: string;
+    opener: HTMLButtonElement;
     requestId?: number;
     stage: "overview" | "pins" | "members" | "files";
     fileOrigin?: { postId: string; button: HTMLButtonElement };
@@ -357,16 +363,18 @@ export function ChannelsWorkspace({
     )
       return;
     focusAfterClose.current = null;
-    if (target.isConnected) target.focus({ preventScroll: true });
+    (target.isConnected ? target : infoButton.current)?.focus({
+      preventScroll: true,
+    });
   }, [notification, infoChannel]);
   function closeInfo() {
-    focusAfterClose.current = infoButton.current;
+    focusAfterClose.current = infoChannel?.opener ?? null;
     setInfoChannel(null);
   }
   function closeNotification(backToSource: boolean) {
     if (!notification) return;
     if (backToSource && notification.source === "menu")
-      setChannelMenuOpen(true);
+      setChannelMenuOpen("title");
     else focusAfterClose.current = notification.opener;
     setNotification(null);
   }
@@ -396,6 +404,13 @@ export function ChannelsWorkspace({
     host.current?.querySelector<HTMLButtonElement>(".channels-team")?.focus();
   }, []);
   const [compact, setCompact] = useState(false);
+  useLayoutEffect(() => {
+    if (!compact && channelMenuOpen === "quick") {
+      setChannelMenuOpen(null);
+      infoButton.current?.focus({ preventScroll: true });
+    }
+  }, [compact, channelMenuOpen]);
+
   const [page, setPage] = useState<"navigation" | "conversation">(
     "conversation",
   );
@@ -685,7 +700,7 @@ export function ChannelsWorkspace({
       beforeOpen: () => {
         setInfoChannel(null);
         collections.close(false);
-        setChannelMenuOpen(false);
+        setChannelMenuOpen(null);
       },
     },
   );
@@ -894,7 +909,7 @@ export function ChannelsWorkspace({
       collections.close(false);
       restoreConversation(id, main?.channelId === id ? main.reading : null);
     }
-    setChannelMenuOpen(false);
+    setChannelMenuOpen(null);
     if (!returning && (position || search.origin)) search.dismiss();
     workspace.messages.clear();
     if (id !== chosen) closeThread();
@@ -1008,7 +1023,7 @@ export function ChannelsWorkspace({
   ) {
     inbox.close();
     setInfoChannel(null);
-    setChannelMenuOpen(false);
+    setChannelMenuOpen(null);
     if (
       source.kind !== "pins" &&
       collections.view?.kind === source.kind &&
@@ -1215,7 +1230,7 @@ export function ChannelsWorkspace({
           search.dismiss();
           workspace.messages.clear();
           collections.close(false);
-          setChannelMenuOpen(false);
+          setChannelMenuOpen(null);
           closeThread();
           inbox.close();
           setDirectoryOpen(true);
@@ -1301,6 +1316,20 @@ export function ChannelsWorkspace({
     (Boolean(position) || (!search.panel && !collections.view));
   if (infoChannel !== null && !infoOpen && !pinsFromInfo && !fileDestination)
     setInfoChannel(null);
+  function openChannelInfo(opener: HTMLButtonElement) {
+    if (!channel || !infoAvailable) return;
+    if (!position) {
+      collections.close(false);
+      search.dismiss();
+    }
+    setChannelMenuOpen(null);
+    setInfoChannel({
+      id: channel.id,
+      opener,
+      requestId: position?.request.requestId,
+      stage: "overview",
+    });
+  }
   function openFileMessage(postId: string, button: HTMLButtonElement) {
     if (infoChannel?.stage !== "files") return;
     fileNavigation.current?.abort();
@@ -1433,8 +1462,11 @@ export function ChannelsWorkspace({
     if (appearanceOpen) return () => setAppearanceOpen(false);
     if (channelMenuOpen)
       return () => {
-        setChannelMenuOpen(false);
-        channelMenuButton.current?.focus();
+        setChannelMenuOpen(null);
+        (channelMenuOpen === "quick"
+          ? quickActionsButton
+          : channelMenuButton
+        ).current?.focus();
       };
     if (
       search.dialog ||
@@ -2104,26 +2136,28 @@ export function ChannelsWorkspace({
         informationButton={
           channel &&
           infoAvailable && (
-            <ChannelInformationButton
-              language={language}
-              expanded={infoOpen}
-              control={infoButton}
-              onClick={() => {
-                if (infoOpen) return closeInfo();
-                if (pinsFromInfo && !collectionDestination)
-                  return closeCollection();
-                if (!position) {
-                  collections.close(false);
-                  search.dismiss();
-                }
-                setChannelMenuOpen(false);
-                setInfoChannel({
-                  id: channel.id,
-                  requestId: position?.request.requestId,
-                  stage: "overview",
-                });
-              }}
-            />
+            <>
+              <ChannelInformationButton
+                language={language}
+                expanded={infoOpen}
+                control={infoButton}
+                onClick={() => {
+                  if (infoOpen) return closeInfo();
+                  if (pinsFromInfo && !collectionDestination)
+                    return closeCollection();
+                  if (infoButton.current) openChannelInfo(infoButton.current);
+                }}
+              />
+              {compact && (
+                <ChannelQuickActionsButton
+                  kind={channel.kind}
+                  language={language}
+                  button={quickActionsButton}
+                  open={channelMenuOpen === "quick"}
+                  show={() => setChannelMenuOpen("quick")}
+                />
+              )}
+            </>
           )
         }
         channelHeading={
@@ -2151,12 +2185,14 @@ export function ChannelsWorkspace({
                     language={language}
                     compact={compact}
                     trigger={channelMenuButton}
+                    quickTrigger={quickActionsButton}
+                    onInfo={infoAvailable ? openChannelInfo : undefined}
                     open={channelMenuOpen}
                     setOpen={setChannelMenuOpen}
                     onNotifications={
                       notificationKind
                         ? () => {
-                            setChannelMenuOpen(false);
+                            setChannelMenuOpen(null);
                             const opener = channelMenuButton.current;
                             if (opener)
                               setNotification({
@@ -2252,12 +2288,11 @@ export function ChannelsWorkspace({
                 setInfoChannel({ ...infoChannel, stage: "members" })
               }
               openPins={() => {
-                if (!infoButton.current) return;
                 setInfoChannel({ ...infoChannel, stage: "pins" });
                 collectionReading.current = readChannelPlace();
                 collections.open(
                   { kind: "pins", channelId: channel.id },
-                  infoButton.current,
+                  infoChannel.opener,
                 );
               }}
               notificationRevision={notificationRevision}
