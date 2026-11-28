@@ -112,6 +112,8 @@ test.each([
         }).value,
       ).toBe("Original unfinished draft"),
     );
+    expect(account.selectSidebarChannel).toHaveBeenCalledWith(winter, home);
+    expect(account.reopenKnownConversation).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(restored);
   },
 );
@@ -1441,7 +1443,11 @@ test.each([
 ] as const)(
   "describes a %s conversation with no saved topic",
   async (homeKind, description, title) => {
-    fixture({ homeKind, homeHeader: " \n " });
+    fixture({
+      homeKind,
+      homeHeader: " \n ",
+      homeName: homeKind === "G" ? "group-wire-name" : undefined,
+    });
     const button = await screen.findByRole("button", {
       name: `Channel menu, ${title}`,
       description,

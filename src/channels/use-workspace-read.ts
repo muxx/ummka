@@ -89,6 +89,7 @@ export function useAccountPolicy(
     server: server.state,
     user: user.state.value,
     userReadFailed: user.state.status === "storage",
+    reloadUser: user.retry,
     retry: () => {
       server.retry();
       user.retry();

@@ -249,6 +249,7 @@ export function webviewServers(
   const channelId = "c".repeat(26);
   const groupId = "g".repeat(26);
   let groupOpenedAt: string | undefined;
+  const liveVisibility: { selfOpenedAt?: string } = {};
   const collections = collectionFixture(channelId, userId);
   const teamReads = new Map<
     string,
@@ -1456,6 +1457,7 @@ export function webviewServers(
       {
         joinedPublicRoom: visits.includes("directory-join"),
         acceptedThreadReply: visits.includes("live-window-send-reply"),
+        visible: liveVisibility,
       },
     );
     if (workspace) {
@@ -2688,6 +2690,12 @@ export function webviewServers(
           "live-channels",
           "live-members",
           "live-categories",
+          "live-show-personal-conversation",
+          "live-posts-" + "s".repeat(26),
+          "live-posts-" + "d".repeat(26),
+          "browser-entry-users/me/teams",
+          "browser-entry-users/me/teams/members",
+          "browser-entry-users/me/preferences",
           "live-window-send",
           "live-window-thread",
           ...clipboardPolicySteps.map((action) => `copy-${action}`),

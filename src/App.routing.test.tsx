@@ -481,6 +481,7 @@ function offlineWorkspace() {
     urgentMentionCount: 0,
   });
   const rooms = [channel(channelId, "General"), channel(otherId, "Design")];
+  const directIds: string[] = [];
   let selected = channelId;
   const connection = {
     readWorkspaceSettings: vi.fn().mockResolvedValue({
@@ -515,6 +516,19 @@ function offlineWorkspace() {
             sorting: "manual",
             channelIds: [channelId, otherId],
           },
+          ...(directIds.length
+            ? [
+                {
+                  id: "direct-category",
+                  kind: "direct_messages",
+                  displayName: "Direct messages",
+                  collapsed: false,
+                  muted: false,
+                  sorting: "recent",
+                  channelIds: directIds,
+                },
+              ]
+            : []),
         ],
       },
     })),
@@ -590,6 +604,14 @@ function offlineWorkspace() {
     readJoinedTeams: vi
       .fn()
       .mockResolvedValue({ teams: [team], selectedTeam: team.id }),
+    reopenKnownConversation:
+      vi.fn<
+        (
+          teamId: string,
+          id: string,
+          signal?: AbortSignal,
+        ) => Promise<"confirmed" | "alreadyShown">
+      >(),
     selectJoinedTeam: vi.fn().mockResolvedValue(true),
     refreshJoinedTeams: vi.fn(),
     close: vi.fn().mockResolvedValue(undefined),
@@ -605,6 +627,7 @@ function offlineWorkspace() {
     otherId,
     connection,
     rooms,
+    directIds,
     channel,
     get selected() {
       return selected;
@@ -720,8 +743,210 @@ test("opens a hidden known conversation offline and returns to its draft selecti
   expect(document.activeElement).toBe(trigger);
   expect(connection.refreshSavedProfiles).not.toHaveBeenCalled();
   expect(connection.refreshTeamSidebar).not.toHaveBeenCalled();
+  expect(connection.reopenKnownConversation).not.toHaveBeenCalled();
 });
 
+async function openHiddenFromFinder(kind: "D" | "G") {
+  const { team, channelId, rooms, directIds, channel, connection } =
+    offlineWorkspace();
+  vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
+  const id = "f".repeat(26),
+    peer = "e".repeat(26);
+  const rowTitle = kind === "D" ? "winter-owl" : "winter-owl, cloud";
+  rooms.push({
+    ...channel(id, kind === "D" ? `${user}__${peer}` : "group-key"),
+    displayName: kind === "D" ? "" : rowTitle,
+    kind,
+    roles: "writer",
+  });
+  directIds.push(id);
+  const saved = await connection.readWorkspaceSettings();
+  const person = channelProfile({
+    id: peer,
+    username: "winter-owl",
+    deleteAt: 0,
+  });
+  connection.readSavedProfiles.mockResolvedValue({
+    profiles: { [peer]: person },
+    usernames: { "winter-owl": peer },
+  });
+  connection.refreshJoinedTeams.mockResolvedValue(true);
+  const view = render(<App language="en" />);
+  const field = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Message #General…",
+  });
+  await waitFor(() => expect(connection.refreshJoinedTeams).toHaveBeenCalled());
+  connection.refreshJoinedTeams.mockClear();
+  const pick = async (term: string, title: string) => {
+    fireEvent.click(screen.getByRole("button", { name: "Find a channel" }));
+    const popup = within(await screen.findByRole("dialog"));
+    fireEvent.change(popup.getByRole("combobox"), { target: { value: term } });
+    fireEvent.click(await popup.findByRole("option", { name: title }));
+    await screen.findByRole("heading", { name: title });
+  };
+  return {
+    team,
+    channelId,
+    id,
+    peer,
+    rowTitle,
+    saved,
+    field,
+    connection,
+    pick,
+    unmount: view.unmount,
+  };
+}
+
+test.each(["D", "G"] as const)(
+  "returns hidden %s to the personal sidebar after choosing a different channel",
+  async (kind) => {
+    const { team, id, peer, rowTitle, saved, field, connection, pick } =
+      await openHiddenFromFinder(kind);
+    let confirm!: () => void;
+    connection.reopenKnownConversation.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          confirm = () => resolve("confirmed");
+        }),
+    );
+    let publish!: () => void;
+    connection.refreshJoinedTeams.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          publish = () => {
+            connection.readWorkspaceSettings.mockResolvedValue({
+              ...saved,
+              preferences: {
+                ...saved.preferences,
+                directShown: kind === "D" ? { [peer]: true } : {},
+                groupShown: kind === "G" ? { [id]: true } : {},
+              },
+            });
+            resolve(true);
+          };
+        }),
+    );
+    field.setSelectionRange(2, 5, "backward");
+    expect(screen.queryByRole("button", { name: rowTitle })).toBeNull();
+    await pick("winter-owl", rowTitle);
+    await waitFor(() =>
+      expect(connection.reopenKnownConversation).toHaveBeenCalledWith(
+        team.id,
+        id,
+        expect.any(AbortSignal),
+      ),
+    );
+    expect(connection.selectSidebarChannel).toHaveBeenCalledWith(team.id, id);
+    await pick("#general", "General");
+    expect(screen.queryByRole("button", { name: rowTitle })).toBeNull();
+    await act(async () => confirm());
+    expect(connection.refreshJoinedTeams).toHaveBeenCalledTimes(1);
+    await act(async () => publish());
+    await screen.findByRole("button", { name: rowTitle });
+    const draft = screen.getByRole<HTMLTextAreaElement>("textbox", {
+      name: "Message #General…",
+    });
+    expect(draft.value).toBe("Text saved on this device");
+    expect([draft.selectionStart, draft.selectionEnd]).toEqual([2, 5]);
+    await pick("winter-owl", rowTitle);
+    await waitFor(() =>
+      expect(connection.selectSidebarChannel).toHaveBeenCalledTimes(3),
+    );
+    expect(connection.reopenKnownConversation).toHaveBeenCalledTimes(1);
+    expect(connection.saveDraft).not.toHaveBeenCalled();
+  },
+);
+
+test("retry after an unconfirmed write retries the PUT; confirmed write retries only publishing preferences", async () => {
+  const { rowTitle, connection, pick, unmount } =
+    await openHiddenFromFinder("D");
+  connection.reopenKnownConversation
+    .mockRejectedValueOnce("network")
+    .mockResolvedValueOnce("confirmed");
+  connection.refreshJoinedTeams.mockRejectedValueOnce("network");
+  await pick("winter-owl", rowTitle);
+  const writeError = await screen.findByText(
+    "Couldn’t confirm that this conversation is visible on your other devices.",
+  );
+  fireEvent.click(
+    within(writeError.parentElement as HTMLElement).getByRole("button", {
+      name: "Try again",
+    }),
+  );
+  const readError = await screen.findByText(
+    "The server saved your change. Couldn’t update the sidebar on this device.",
+  );
+  expect(connection.reopenKnownConversation).toHaveBeenCalledTimes(2);
+  let finish!: () => void;
+  connection.refreshJoinedTeams.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = () => resolve(true);
+      }),
+  );
+  fireEvent.click(
+    within(readError.parentElement as HTMLElement).getByRole("button", {
+      name: "Try again",
+    }),
+  );
+  await waitFor(() =>
+    expect(connection.refreshJoinedTeams).toHaveBeenCalledTimes(2),
+  );
+  const reads = connection.readWorkspaceSettings.mock.calls.length;
+  const signal = connection.refreshJoinedTeams.mock
+    .lastCall?.[0] as AbortSignal;
+  unmount();
+  expect(signal.aborted).toBe(true);
+  const secondUser = "t".repeat(26);
+  const second = offlineWorkspace().connection;
+  launch.mockResolvedValue({
+    status: "ready",
+    serverUrl: origin,
+    userId: secondUser,
+    installations: [origin],
+  });
+  render(<App language="en" />);
+  await screen.findByRole("heading", { name: "General" });
+  expect(openAccountRestConnection).toHaveBeenLastCalledWith(
+    origin,
+    secondUser,
+  );
+  const secondReads = second.readWorkspaceSettings.mock.calls.length;
+  await act(async () => finish());
+  expect(connection.readWorkspaceSettings).toHaveBeenCalledTimes(reads);
+  expect(connection.reopenKnownConversation).toHaveBeenCalledTimes(2);
+  expect(second.readWorkspaceSettings).toHaveBeenCalledTimes(secondReads);
+  expect(second.reopenKnownConversation).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: rowTitle })).toBeNull();
+});
+
+test("going offline while SQLite saves an explicit hidden choice does not enqueue a later PUT", async () => {
+  const { rowTitle, connection, pick } = await openHiddenFromFinder("D");
+  let finish!: () => void;
+  connection.selectSidebarChannel.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = () => resolve(true);
+      }),
+  );
+  await pick("winter-owl", rowTitle);
+  vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+  await act(async () => finish());
+  expect(connection.reopenKnownConversation).not.toHaveBeenCalled();
+  vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
+  fireEvent(window, new Event("online"));
+  await waitFor(() => expect(connection.refreshJoinedTeams).toHaveBeenCalled());
+  expect(connection.reopenKnownConversation).not.toHaveBeenCalled();
+});
+
+test("local selection failure cannot write personal visibility", async () => {
+  const { rowTitle, connection, pick } = await openHiddenFromFinder("D");
+  connection.selectSidebarChannel.mockResolvedValueOnce(false);
+  await pick("winter-owl", rowTitle);
+  await screen.findByText("Couldn’t save the selected channel.");
+  expect(connection.reopenKnownConversation).not.toHaveBeenCalled();
+});
 test("keeps a typed quick-switch query when saved profile lookup fails", async () => {
   const { rooms, channel, connection } = offlineWorkspace();
   const peer = "e".repeat(26);

@@ -106,6 +106,7 @@ import type {
 import { measureTimeline, type TimelinePlace } from "./timeline-viewport.ts";
 import { useChannelTimeline } from "./use-channel-timeline.ts";
 import { useInfoRead } from "./use-info-read.ts";
+import { useReopenConversation } from "./use-reopen-conversation.ts";
 import { useResultChannelIdentities } from "./use-result-channel-identities.ts";
 import { useWorkspaceBack } from "./use-workspace-back.ts";
 import { useWorkspaceCollections } from "./use-workspace-collections.ts";
@@ -959,10 +960,11 @@ export function ChannelsWorkspace({
     roles.state.status,
   ]);
 
+  const reopen = useReopenConversation(workspace);
   function choose(
     id: string,
     returning = false,
-    quickOrigin?: HTMLElement | null,
+    quick?: { origin: HTMLElement | null; afterSaved?: () => void },
   ) {
     const main = inbox.visible ? inboxMain.current : undefined;
     const switchingChannel = id !== chosen;
@@ -1020,14 +1022,16 @@ export function ChannelsWorkspace({
               : null,
           );
         },
-        () => quickOrigin != null && document.activeElement === quickOrigin,
+        () => quick?.origin != null && document.activeElement === quick.origin,
+        quick?.afterSaved,
       );
-    } else chooseChannel(id);
+    } else chooseChannel(id, undefined, undefined, quick?.afterSaved);
   }
   function chooseChannel(
     id: string,
     outcome?: (accepted: boolean) => void,
     focusOnCommit = () => true,
+    afterSaved?: () => void,
   ) {
     const version = ++choice.current;
     const owner = active.current;
@@ -1043,6 +1047,7 @@ export function ChannelsWorkspace({
       } catch {
         /* The local choice is acknowledged only by SQLite. */
       }
+      if (accepted && active.current === owner) afterSaved?.();
       if (active.current === owner && version === choice.current) {
         if (!accepted) {
           setSelected(null);
@@ -1116,6 +1121,15 @@ export function ChannelsWorkspace({
   const policyIssue =
     error(policy.server.status) ||
     (policy.userReadFailed ? text.storage : null);
+  function hiddenPreference(room: typeof channel | undefined) {
+    if (!settings || !room) return false;
+    if (room.kind === "G") return !settings.groupShown[room.id];
+    if (room.kind !== "D") return false;
+    const peer = directPartnerId(room.name, userId);
+    return Boolean(peer && !settings.directShown[peer]);
+  }
+  const reopenIssue =
+    chosen && hiddenPreference(channel) ? reopen.failures[chosen] : undefined;
   const own = profiles.byId.get(userId);
   const accountName = own
     ? teammateName(own, settings?.nameFormat ?? "full_name")
@@ -1359,7 +1373,14 @@ export function ChannelsWorkspace({
         closeThread();
         focusConversation((request) => request + 1);
       }
-      choose(id, false, origin);
+      const room = current?.data.channels.find((row) => row.id === id);
+      choose(id, false, {
+        origin,
+        afterSaved:
+          online && hiddenPreference(room)
+            ? () => void reopen.open(id)
+            : undefined,
+      });
     },
   );
   const nav = (
@@ -3139,6 +3160,17 @@ export function ChannelsWorkspace({
           className="workspace-conversation-route"
           hidden={directoryOpen || inbox.visible}
         >
+          {chosen &&
+            reopenIssue &&
+            notice(
+              reopenIssue === "refresh" ? text.reopenRefresh : text.reopenWrite,
+              online
+                ? () => {
+                    void reopen.open(chosen);
+                  }
+                : undefined,
+              true,
+            )}
           {timeline.status === "positionLost" && (
             <Notice
               message={text.positionLost}

@@ -400,6 +400,7 @@ function mount(
       },
       user: sidebarPreferences(viewer, []),
       userReadFailed: false,
+      reloadUser: vi.fn(),
       retry: vi.fn(),
     },
   };

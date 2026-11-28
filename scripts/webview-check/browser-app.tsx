@@ -625,6 +625,29 @@ async function checkBrowserSearchAndChannels(
   if (!savedDesignPost)
     throw Error("The saved Design post is outside its timeline row");
   await within(savedDesignPost).findByText("fixture-author");
+  openChannelNavigation(host, "Channels");
+  if (ui.queryByRole("button", { name: "fixture-author" }))
+    throw Error("The hidden personal conversation is already in the sidebar");
+  flushSync(() =>
+    fireEvent.click(ui.getByRole("button", { name: "Find a channel" })),
+  );
+  const finder = within(
+    await ui.findByRole("dialog", { name: "Find a channel" }),
+  );
+  const filter = finder.getByRole("combobox");
+  flushSync(() =>
+    fireEvent.input(filter, { target: { value: "@fixture-author" } }),
+  );
+  const personal = await finder.findByRole("option", {
+    name: "fixture-author",
+  });
+  flushSync(() => fireEvent.click(personal));
+  await ui.findByText("Personal fixture message", {}, { timeout: 10000 });
+  openChannelNavigation(host, "Channels");
+  flushSync(() => fireEvent.click(ui.getByRole("button", { name: "Design" })));
+  await ui.findByRole("heading", { name: "Design" });
+  openChannelNavigation(host, "Channels");
+  await ui.findByRole("button", { name: "fixture-author" }, { timeout: 10000 });
   if ((await getCurrentAccountId(server)) !== "f".repeat(26))
     throw Error("entry did not retain the signed-in account");
 }
