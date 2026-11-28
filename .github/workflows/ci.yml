@@ -7,12 +7,11 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: native-host-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   mattermost:
+    concurrency:
+      group: native-host-mattermost-${{ matrix.version }}-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     strategy:
@@ -31,6 +30,9 @@ jobs:
       - run: make check-mattermost-${{ matrix.version }}
 
   macos:
+    concurrency:
+      group: native-host-macos-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: macos-26
     timeout-minutes: 35
     env:
@@ -77,6 +79,10 @@ jobs:
           if-no-files-found: error
 
   android:
+    concurrency:
+      # Every master revision publishes an APK. Other checks follow the newest ref.
+      group: native-host-${{ matrix.task }}-${{ github.event_name == 'push' && matrix.task == 'check-android-package' && github.sha || github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
