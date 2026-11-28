@@ -7,15 +7,25 @@ import {
 } from "../../vendor/mattermost/index.js";
 import { isMattermostId } from "./model-fields.ts";
 
+export function parseBookmarkUrl(value: unknown) {
+  if (
+    typeof value !== "string" ||
+    !(value.startsWith("http://") || value.startsWith("https://"))
+  )
+    return null;
+  try {
+    const url = new URL(value);
+    return url.hostname ? url : null;
+  } catch {
+    return null;
+  }
+}
+
 function bookmarkDestination(bookmark: ChannelBookmarkWithFileInfo) {
   switch (bookmark.type) {
     case "link": {
       const href = bookmark.linkUrl;
-      if (
-        typeof href === "string" &&
-        (href.startsWith("http://") || href.startsWith("https://")) &&
-        new URL(href).hostname
-      )
+      if (typeof href === "string" && parseBookmarkUrl(href))
         return { kind: "link" as const, href };
       break;
     }
@@ -53,6 +63,48 @@ function bookmarkDestination(bookmark: ChannelBookmarkWithFileInfo) {
   throw TypeError("Invalid Mattermost channel bookmark destination.");
 }
 
+export function activeChannelBookmark(
+  row: ChannelBookmarkWithFileInfo,
+  channelId: string,
+) {
+  if (
+    !row ||
+    !isMattermostId(row.id) ||
+    row.channelId !== channelId ||
+    row.deleteAt !== 0 ||
+    typeof row.displayName !== "string" ||
+    !row.displayName ||
+    (row.emoji !== undefined && typeof row.emoji !== "string") ||
+    (row.imageUrl !== undefined &&
+      row.imageUrl !== "" &&
+      !parseBookmarkUrl(row.imageUrl))
+  )
+    throw TypeError("Invalid active Mattermost channel bookmark.");
+  return {
+    id: row.id,
+    name: row.displayName,
+    destination: bookmarkDestination(row),
+    ...(row.emoji ? { emoji: row.emoji } : {}),
+    ...(row.imageUrl ? { imageUrl: row.imageUrl } : {}),
+  };
+}
+
+export function activeChannelBookmarks(
+  rows: ChannelBookmarkWithFileInfo[],
+  channelId: string,
+) {
+  if (!Array.isArray(rows))
+    throw TypeError("Invalid Mattermost channel bookmark list.");
+  const ids = new Set<string>();
+  return rows.map((row) => {
+    const item = activeChannelBookmark(row, channelId);
+    if (ids.has(item.id))
+      throw TypeError("Duplicate Mattermost channel bookmark.");
+    ids.add(item.id);
+    return item;
+  });
+}
+
 export async function readChannelBookmarks(
   config: Configuration,
   channelId: string,
@@ -88,24 +140,8 @@ export async function readChannelBookmarks(
     throw error;
   }
   signal?.throwIfAborted();
-  const ids = new Set<string>();
-  const bookmarks = rows.map((row) => {
-    if (
-      !row ||
-      !isMattermostId(row.id) ||
-      ids.has(row.id) ||
-      row.channelId !== channelId ||
-      row.deleteAt !== 0 ||
-      typeof row.displayName !== "string" ||
-      !row.displayName
-    )
-      throw TypeError("Invalid active Mattermost channel bookmark.");
-    ids.add(row.id);
-    return {
-      id: row.id,
-      name: row.displayName,
-      destination: bookmarkDestination(row),
-    };
-  });
-  return { kind: "available" as const, bookmarks };
+  return {
+    kind: "available" as const,
+    bookmarks: activeChannelBookmarks(rows, channelId),
+  };
 }

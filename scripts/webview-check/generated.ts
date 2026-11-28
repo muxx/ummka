@@ -240,6 +240,74 @@ export async function checkGeneratedRequests(ports: string[]) {
         "signed channel bookmark creation",
       );
     });
+    await fixtureStep("mutate-account-bookmarks", async () => {
+      const channelId = "w".repeat(26);
+      const linkUrl = "https://example.invalid/guide";
+      const created = await accountPrefix.createChannelBookmark(channelId, {
+        type: "link",
+        displayName: "Guide",
+        linkUrl,
+      });
+      check(created.id === "k".repeat(26), "account bookmark created ID");
+      const own = await accountPrefix.updateChannelBookmark(
+        channelId,
+        created,
+        {
+          imageUrl: "",
+          emoji: "",
+        },
+      );
+      check(
+        own.updated.id === created.id && own.removedId === null,
+        "own bookmark keeps its ID",
+      );
+      const foreign = { ...created, id: "v".repeat(26) };
+      const change = await accountPrefix.updateChannelBookmark(
+        channelId,
+        foreign,
+        {
+          displayName: "Revised",
+        },
+      );
+      check(
+        change.updated.id === "r".repeat(26) &&
+          change.updated.name === "Revised" &&
+          change.removedId === foreign.id,
+        "foreign bookmark replaced",
+      );
+      const board = "b".repeat(26);
+      const sorted = await accountPrefix.moveChannelBookmark(
+        channelId,
+        board,
+        0,
+      );
+      check(
+        sorted.length === 2 &&
+          sorted[0].id === board &&
+          sorted[1].id === created.id,
+        "account bookmark board moved to zero",
+      );
+      check(
+        (await accountPrefix.deleteChannelBookmark(
+          channelId,
+          change.updated,
+        )) === change.updated.id,
+        "account bookmark confirmed deletion",
+      );
+      const refusal = await rejected(
+        accountPrefix.deleteChannelBookmark(channelId, {
+          ...created,
+          id: "d".repeat(26),
+        }),
+      );
+      check(
+        refusal instanceof ResponseError &&
+          refusal.response.status === 403 &&
+          (await refusal.response.json()).id ===
+            "api.context.permissions.app_error",
+        "account bookmark preserves the server's permission refusal",
+      );
+    });
     if (isAndroid) {
       const times = await androidFixtureStep("message-formatting", () =>
         checkFormatting(observed),

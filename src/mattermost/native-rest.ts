@@ -9,6 +9,7 @@ import {
   UsersApi,
 } from "../../vendor/mattermost/index.js";
 import { isAndroid } from "../build-platform.ts";
+import { accountBookmarkChanges } from "./account-bookmark-changes.ts";
 import { accountChannelReadState } from "./account-channel-read-state.ts";
 import { readCustomEmoji } from "./account-custom-emoji.ts";
 import { accountDelivery } from "./account-delivery.ts";
@@ -199,7 +200,7 @@ export async function openAccountRestConnection(
   const activity = createPostActivity();
   const historyChanges = createChannelHistoryChanges();
   const savedPosts = createSavedPostState();
-  const recipientLifetime = new AbortController();
+  const accountLifetime = new AbortController();
   let retired:
     | "unknown_connection"
     | "cancelled"
@@ -207,7 +208,7 @@ export async function openAccountRestConnection(
     | undefined;
   function retire(reason: NonNullable<typeof retired>) {
     retired = reason;
-    recipientLifetime.abort("cancelled");
+    accountLifetime.abort("cancelled");
     activity.close();
     historyChanges.close();
     savedPosts.close();
@@ -222,13 +223,13 @@ export async function openAccountRestConnection(
     signal?.throwIfAborted();
     return result;
   }
-  function readRecipientWhileOpen<T>(
+  function withAccountLifetime<T>(
     read: (signal: AbortSignal) => Promise<T>,
     signal?: AbortSignal,
   ) {
     const active = signal
-      ? AbortSignal.any([signal, recipientLifetime.signal])
-      : recipientLifetime.signal;
+      ? AbortSignal.any([signal, accountLifetime.signal])
+      : accountLifetime.signal;
     return readWhileOpen(() => read(active), active);
   }
   const readTeamSidebar = (teamId: string) =>
@@ -283,6 +284,7 @@ export async function openAccountRestConnection(
     getSavedPostPresentation: savedPosts.getPresentation,
     isSavedPostPending: savedPosts.isPending,
     subscribeToSavedPostState: savedPosts.subscribe,
+    ...accountBookmarkChanges(config, userId, withAccountLifetime),
     ...accountPostReactions(config, userId, readWhileOpen),
     ...search,
     openRecentMentions(includeDeletedChannels: boolean, signal?: AbortSignal) {
@@ -536,7 +538,7 @@ export async function openAccountRestConnection(
       target: ConversationRecipientTarget,
       signal?: AbortSignal,
     ) {
-      return readRecipientWhileOpen(
+      return withAccountLifetime(
         (active) =>
           readConversationRecipient(
             new UsersApi(config),
@@ -573,7 +575,7 @@ export async function openAccountRestConnection(
       recipientIds: readonly string[],
       signal?: AbortSignal,
     ) {
-      return readRecipientWhileOpen(
+      return withAccountLifetime(
         (active) =>
           openRecipientConversation(config, userId, recipientIds, active),
         signal,
@@ -732,7 +734,7 @@ export async function openAccountRestConnection(
       query: RecipientQuery,
       signal?: AbortSignal,
     ) {
-      return readRecipientWhileOpen(
+      return withAccountLifetime(
         (active) =>
           readConversationRecipients(
             config,

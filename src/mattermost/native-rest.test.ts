@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, expect, expectTypeOf, test, vi } from "vitest";
 import {
+  type ApiResponse,
   BookmarksApi,
   type ChannelBookmarkWithFileInfo,
   ChannelsApi,
@@ -558,6 +559,13 @@ test("passes the canonical installation and closes the exact native handle", asy
   expect("signOut" in connection).toBe(false);
   expect("readChannelWindow" in connection).toBe(false);
   expect("stagePost" in connection).toBe(false);
+  for (const write of [
+    "createChannelBookmark",
+    "updateChannelBookmark",
+    "deleteChannelBookmark",
+    "moveChannelBookmark",
+  ])
+    expect(write in connection).toBe(false);
   expect("readPostEditHistory" in connection).toBe(false);
   expect("readConversationRecipient" in connection).toBe(false);
   expect("editOwnPostMessage" in connection).toBe(false);
@@ -611,6 +619,8 @@ test("opens a native account by installation and user ID", async () => {
     "changeOwnMembership",
     "close",
     "confirmPostDelivery",
+    "createChannelBookmark",
+    "deleteChannelBookmark",
     "deleteOwnPost",
     "dismissPendingPost",
     "editOwnPostMessage",
@@ -628,6 +638,7 @@ test("opens a native account by installation and user ID", async () => {
     "markPostUnread",
     "markTeamThreadsRead",
     "markThreadUnreadFromPost",
+    "moveChannelBookmark",
     "notifyChannelHistoryChanged",
     "openRecentMentions",
     "openRecipientConversation",
@@ -709,6 +720,7 @@ test("opens a native account by installation and user ID", async () => {
     "subscribeToSavedPostState",
     "subscribeToSavedPostWrites",
     "transitionDraftCommand",
+    "updateChannelBookmark",
     "updateChannelNotifications",
     "viewChannel",
   ]);
@@ -1432,6 +1444,126 @@ test("closing an account during the group hash never prepares a REST request", a
     ]);
   } finally {
     digest.mockRestore();
+  }
+});
+
+test.each([
+  ["close", "headers"],
+  ["close", "body"],
+  ["abort", "headers"],
+  ["abort", "body"],
+  ["device sign-out", "body"],
+] as const)(
+  "%s during bookmark %s discards late success",
+  async (mode, phase) => {
+    ipc.mockResolvedValueOnce(42);
+    const account = await openAccountRestConnection(
+      "https://fixture.test",
+      "u".repeat(26),
+    );
+    const channelId = "c".repeat(26);
+    const target = {
+      id: "b".repeat(26),
+      destination: { kind: "link" as const, href: "https://example.org/" },
+    };
+    let finishHeaders!: (
+      value: ApiResponse<ChannelBookmarkWithFileInfo>,
+    ) => void;
+    let finishBody!: (value: ChannelBookmarkWithFileInfo) => void;
+    let beginBody!: () => void;
+    const headers = new Promise<ApiResponse<ChannelBookmarkWithFileInfo>>(
+      (resolve) => {
+        finishHeaders = resolve;
+      },
+    );
+    const body = new Promise<ChannelBookmarkWithFileInfo>((resolve) => {
+      finishBody = resolve;
+    });
+    const ready = new Promise<void>((resolve) => {
+      beginBody = resolve;
+    });
+    const completed = {
+      raw: new Response(null, { status: 200 }),
+      value() {
+        beginBody();
+        return body;
+      },
+    };
+    const call = vi
+      .spyOn(BookmarksApi.prototype, "deleteChannelBookmarkRaw")
+      .mockReturnValueOnce(headers);
+    const controller = new AbortController();
+    try {
+      const pending = account.deleteChannelBookmark(
+        channelId,
+        target,
+        controller.signal,
+      );
+      expect(call).toHaveBeenCalledWith(
+        { channelId, bookmarkId: target.id },
+        { signal: expect.any(AbortSignal) },
+      );
+      const active = (call.mock.calls[0][1] as RequestInit).signal;
+      expect(active?.aborted).toBe(false);
+      if (phase === "body") {
+        finishHeaders(completed);
+        await ready;
+      }
+      if (mode === "close") await account.close();
+      else if (mode === "device sign-out") {
+        ipc.mockResolvedValueOnce("removed");
+        await account.signOutOnDevice();
+      } else controller.abort("cancelled");
+      expect(active?.aborted).toBe(true);
+      finishHeaders(completed);
+      finishBody({
+        id: target.id,
+        channelId,
+        type: "link",
+        deleteAt: 100,
+      });
+      await expect(pending).rejects.toBe("cancelled");
+      if (mode === "close")
+        await expect(
+          account.deleteChannelBookmark(channelId, target),
+        ).rejects.toBe("unknown_connection");
+      if (mode === "device sign-out")
+        await expect(
+          account.deleteChannelBookmark(channelId, target),
+        ).rejects.toBe("cancelled");
+      expect(call).toHaveBeenCalledTimes(1);
+    } finally {
+      call.mockRestore();
+    }
+  },
+);
+
+test("bookmark preflight prevents calling the SDK after abort or with invalid arguments", async () => {
+  ipc.mockResolvedValueOnce(42);
+  const account = await openAccountRestConnection(
+    "https://fixture.test",
+    "u".repeat(26),
+  );
+  const call = vi.spyOn(BookmarksApi.prototype, "createChannelBookmarkRaw");
+  try {
+    const draft = {
+      type: "link" as const,
+      displayName: "Guide",
+      linkUrl: "https://example.test/",
+    };
+    await expect(account.createChannelBookmark("bad", draft)).rejects.toThrow(
+      TypeError,
+    );
+    await expect(
+      account.createChannelBookmark(
+        "c".repeat(26),
+        draft,
+        AbortSignal.abort("cancelled"),
+      ),
+    ).rejects.toBe("cancelled");
+    expect(call).not.toHaveBeenCalled();
+  } finally {
+    call.mockRestore();
   }
 });
 

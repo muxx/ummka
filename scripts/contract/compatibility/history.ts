@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { latestReactionTarget } from "../../../src/channels/latest-reaction-target.ts";
 import { nextPostDestinationStep } from "../../../src/channels/post-destination-step.ts";
+import { accountBookmarkChanges } from "../../../src/mattermost/account-bookmark-changes.ts";
 import { accountChannelReadState } from "../../../src/mattermost/account-channel-read-state.ts";
 import { readChannelBookmarks } from "../../../src/mattermost/channel-bookmarks.ts";
 import { channelHistoryPage } from "../../../src/mattermost/channel-history-page.ts";
@@ -473,6 +474,40 @@ for (const request of [
 }
 console.log(
   `Mattermost ${version} verified the license response for reading, creating, editing, sorting and deleting channel bookmarks.`,
+);
+const accountBookmarks = accountBookmarkChanges(
+  new Configuration({ basePath: base, accessToken: readerToken }),
+  reader.id,
+  (operation, signal) => operation(signal ?? new AbortController().signal),
+);
+const linkUrl = "https://example.org/guide";
+const accountBookmark = {
+  id: bookmarkTarget.bookmarkId,
+  destination: { kind: "link" as const, href: linkUrl },
+};
+for (const mutate of [
+  () =>
+    accountBookmarks.createChannelBookmark(dm.id, {
+      type: "link",
+      displayName: "Guide",
+      linkUrl,
+    }),
+  () =>
+    accountBookmarks.updateChannelBookmark(dm.id, accountBookmark, {
+      emoji: "",
+    }),
+  () => accountBookmarks.moveChannelBookmark(dm.id, accountBookmark.id, 0),
+  () => accountBookmarks.deleteChannelBookmark(dm.id, accountBookmark),
+]) {
+  const failure = await mutate().catch((cause: unknown) => cause);
+  assert.ok(failure instanceof ResponseError);
+  assert.equal(failure.response.status, 501);
+  const body = await failure.response.json();
+  assert.equal(body.status_code, 501);
+  assert.equal(body.id, "api.channel.bookmark.channel_bookmark.license.error");
+}
+console.log(
+  `Mattermost ${version} verified 501 status and license code through all four account bookmark commands.`,
 );
 assert.deepEqual(
   await readChannelBookmarks(
