@@ -672,6 +672,11 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
     });
     if (document.activeElement !== pin)
       throw Error("Reopening Pins did not focus the remembered pinned row");
+    // A cached row is visible before the initial reread settles. Keep that
+    // request separate from the reconnect read for which the fixture arms 503.
+    await pins.findByText("Pinned messages updated", {}, { timeout: 10000 });
+    if (!pin.isConnected || document.activeElement !== pin)
+      throw Error("The warm Pins response moved focus from the remembered row");
     // An open Pins view rereads the same list when connectivity returns.
     const previousOnline = Object.getOwnPropertyDescriptor(navigator, "onLine");
     Object.defineProperty(navigator, "onLine", {
