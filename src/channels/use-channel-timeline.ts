@@ -6,6 +6,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import {
+  type ChannelHistoryAccess,
   createTimelineReader,
   type TimelineAccount,
   type TimelineRequest,
@@ -19,6 +20,7 @@ export function useChannelTimeline(
   online: boolean,
   sessionIssue: (issue: "session" | "unauthorized") => void,
   request?: TimelineRequest,
+  rememberedAccess?: ChannelHistoryAccess,
 ) {
   const focus = request?.kind === "focus" ? request : undefined;
   const key = JSON.stringify([
@@ -42,6 +44,7 @@ export function useChannelTimeline(
       channelId,
       collapsed,
       request,
+      rememberedAccess,
     ),
   });
   const [current, setCurrent] = useState(owner);

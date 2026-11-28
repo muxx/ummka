@@ -22,7 +22,8 @@ export type ChannelRefreshRequest = {
 );
 
 export type ChannelRefreshResult =
-  | { kind: "applied" | "superseded" }
+  | { kind: "applied"; firstInaccessiblePostTime?: number }
+  | { kind: "superseded" }
   | { kind: "inaccessible"; firstInaccessiblePostTime: number };
 
 interface ChannelHistoryWriter {
@@ -136,5 +137,8 @@ export async function refreshChannelHistory(
   // The host consumes a ticket before parsing the page and owns this transaction to completion.
   const result = await writer.store(load, page);
   if (result.kind !== "superseded") committed?.(page.changes);
-  return result;
+  // An entirely inaccessible recent page can leave a populated window in SQLite.
+  return result.kind === "applied" && page.firstInaccessiblePostTime
+    ? { ...result, firstInaccessiblePostTime: page.firstInaccessiblePostTime }
+    : result;
 }

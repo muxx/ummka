@@ -10,6 +10,7 @@ import { readCommittedTimeline } from "./timeline-reprojection.ts";
 import {
   type ReadingPosition,
   readingPosition,
+  type TimelinePlace,
   type TimelineViewport,
 } from "./timeline-viewport.ts";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
@@ -31,7 +32,23 @@ export type TimelineRequest =
       prepared?: PreparedConversation;
     }
   | { kind: "latest"; requestId: number }
-  | { kind: "restore"; requestId: number; position: readonly string[] };
+  | { kind: "restore"; requestId: number; position: readonly string[] }
+  | {
+      kind: "return";
+      requestId: number;
+      rid: number;
+      teamId: string;
+      collapsedThreads: boolean;
+      window?: RetainedChannelWindow;
+    };
+
+export type RetainedChannelWindow = {
+  page: LocalChannelWindow;
+  place: TimelinePlace;
+  composerHeight?: number;
+};
+export type ChannelHistoryAccess = { revoked: boolean; cutoff: number };
+
 export type TimelineAccount = Pick<
   WorkspaceConnection,
   | "rid"
@@ -74,6 +91,33 @@ function empty(status: Status, latest = false, canRetry = true): Snapshot {
   };
 }
 
+function sameReading(before: ReadingPosition, after: ReadingPosition) {
+  return before === "latest" || after === "latest"
+    ? before === after
+    : before.length === after.length &&
+        before.every((id, index) => after[index] === id);
+}
+
+function restrictedPage(
+  page: LocalChannelWindow,
+  cutoff: number,
+): LocalChannelWindow {
+  if (!cutoff && !page.firstInaccessiblePostTime) return page;
+  const boundary = Math.max(cutoff, page.firstInaccessiblePostTime);
+  const posts = page.posts.filter((post) => post.createAt > boundary);
+  if (
+    posts.length === page.posts.length &&
+    boundary === page.firstInaccessiblePostTime
+  )
+    return page;
+  return {
+    ...page,
+    posts,
+    firstInaccessiblePostTime: boundary,
+    older: posts.length < page.posts.length ? { kind: "end" } : page.older,
+  };
+}
+
 // One reader owns one route and one position command. All publications belong to its current operation.
 export function createTimelineReader(
   account: TimelineAccount,
@@ -81,20 +125,46 @@ export function createTimelineReader(
   channelId: string | null,
   collapsedThreads: boolean | null,
   request?: TimelineRequest,
+  rememberedAccess?: ChannelHistoryAccess,
 ) {
   let target = request?.kind === "focus" ? request : undefined;
   let prepared = target?.prepared;
   let restored = request?.kind === "restore" ? request.position : undefined;
+  const returning = request?.kind === "return" ? request : undefined;
   const eligible =
-    !target ||
-    (target.rid === account.rid &&
-      target.teamId === teamId &&
-      target.post.channelId === channelId);
+    (!target ||
+      (target.rid === account.rid &&
+        target.teamId === teamId &&
+        target.post.channelId === channelId)) &&
+    (!returning ||
+      (returning.rid === account.rid &&
+        returning.teamId === teamId &&
+        returning.collapsedThreads === collapsedThreads &&
+        returning.window?.page.posts.every(
+          (post) => post.channelId === channelId,
+        ) === true));
+  let needsProof = !target && rememberedAccess?.revoked === true;
+  const retained = eligible && !needsProof ? returning?.window : undefined;
+  let returnPlace = retained?.place;
+  let confirmedCutoff = Math.max(
+    retained?.page.firstInaccessiblePostTime ?? 0,
+    !target ? (rememberedAccess?.cutoff ?? 0) : 0,
+  );
   let state = empty(
     eligible ? "loading" : "unavailable",
     !target && !!channelId,
     eligible,
   );
+  if (needsProof) state = { ...state, notice: "forbidden" };
+  if (retained) {
+    const page = restrictedPage(retained.page, confirmedCutoff);
+    state = {
+      ...state,
+      page,
+      latest: page.newer.kind === "end",
+      firstInaccessiblePostTime: page.firstInaccessiblePostTime,
+    };
+  }
   const listeners = new Set<() => void>();
   let online: boolean | undefined;
   let pending: AbortController | undefined;
@@ -127,6 +197,7 @@ export function createTimelineReader(
   async function readChanges() {
     if (
       !changed ||
+      needsProof ||
       projection ||
       pending ||
       online === undefined ||
@@ -166,13 +237,7 @@ export function createTimelineReader(
         return;
       }
       const after = position(pane);
-      if (
-        before === "latest"
-          ? after !== "latest"
-          : after === "latest" ||
-            before.length !== after.length ||
-            before.some((id, index) => after[index] !== id)
-      ) {
+      if (!sameReading(before, after)) {
         changed = true;
         return;
       }
@@ -209,12 +274,25 @@ export function createTimelineReader(
   }
 
   function publish(next: Snapshot) {
+    if (next.page && confirmedCutoff) {
+      const page = restrictedPage(next.page, confirmedCutoff);
+      if (!page.posts.length) {
+        clearPage("inaccessible", confirmedCutoff);
+        return;
+      }
+      next = {
+        ...next,
+        page,
+        firstInaccessiblePostTime: page.firstInaccessiblePostTime,
+      };
+    }
     state = next;
     for (const listener of listeners) listener();
   }
 
   function clearPage(status: Status, cutoff = 0) {
     edge = undefined;
+    returnPlace = undefined;
     publish({
       ...empty(status),
       // A denied or missing destination needs a newly resolved position. A local retry might resurrect its cached row.
@@ -224,10 +302,11 @@ export function createTimelineReader(
         status === "storage" ||
         status === "network",
       firstInaccessiblePostTime: cutoff,
-      notice:
-        status === "superseded" ||
-        status === "offline" ||
-        status === "unavailable"
+      notice: needsProof
+        ? "forbidden"
+        : status === "superseded" ||
+            status === "offline" ||
+            status === "unavailable"
           ? status
           : null,
     });
@@ -314,6 +393,64 @@ export function createTimelineReader(
               : 0,
           );
         }
+      } else if (returnPlace || needsProof || confirmedCutoff) {
+        if (needsProof && !online) {
+          publish({ ...empty("offline"), notice: "forbidden" });
+          return;
+        }
+        const refresh = online
+          ? await account.refreshChannelHistory(
+              { ...scope, kind: "latest", perPage: channelPageSize },
+              signal,
+            )
+          : undefined;
+        if (signal.aborted) return;
+        if (refresh) needsProof = false;
+        if (refresh?.kind === "applied" || refresh?.kind === "inaccessible") {
+          const cutoff = refresh.firstInaccessiblePostTime ?? 0;
+          if (cutoff > confirmedCutoff) {
+            confirmedCutoff = cutoff;
+            publish(state);
+            if (!state.canRetry) return;
+          }
+        }
+        const place = returnPlace;
+        const saved: ReadingPosition =
+          !place || (place.atBottom && state.latest)
+            ? "latest"
+            : place.anchors
+                .filter(({ published }) => published)
+                .map(({ id }) => id);
+        const before = place && pane?.clientHeight ? position(pane) : saved;
+        const result = await readCommittedTimeline(
+          account,
+          scope,
+          before,
+          signal,
+        );
+        if (signal.aborted) return;
+        if (
+          place &&
+          pane?.clientHeight &&
+          !sameReading(before, position(pane))
+        ) {
+          changed = true;
+          return;
+        }
+        if (result.positionLost || !result.page) clearPage("positionLost");
+        else {
+          const { page } = result;
+          confirmedCutoff = Math.max(
+            confirmedCutoff,
+            page.firstInaccessiblePostTime,
+          );
+          paged = before !== "latest";
+          publish({
+            ...empty(online ? "ready" : "offline", page.newer.kind === "end"),
+            page,
+            firstInaccessiblePostTime: page.firstInaccessiblePostTime,
+          });
+        }
       } else if (restored) {
         const result = await readCommittedTimeline(
           account,
@@ -363,7 +500,10 @@ export function createTimelineReader(
     } catch (error) {
       if (signal.aborted) return;
       const failure = workspaceFailure(error, "network");
-      if (edge && (failure === "network" || failure === "storage"))
+      if (
+        (edge || returnPlace) &&
+        (failure === "network" || failure === "storage")
+      )
         publish({ ...state, notice: failure });
       else clearPage(failure);
     } finally {
@@ -397,6 +537,7 @@ export function createTimelineReader(
         !pending &&
         !edge &&
         paged &&
+        !returnPlace &&
         state.page &&
         state.status === "offline"
       ) {
@@ -437,6 +578,7 @@ export function createTimelineReader(
       if (state.status !== "positionLost") return;
       target = undefined;
       restored = undefined;
+      returnPlace = undefined;
       paged = false;
       publish(empty("loading", true));
       return read();

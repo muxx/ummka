@@ -1,4 +1,5 @@
 import {
+  type CSSProperties,
   lazy,
   Suspense,
   useCallback,
@@ -80,7 +81,11 @@ import { ThreadInboxPane } from "./ThreadInboxPane.tsx";
 import { ThreadPane } from "./ThreadPane.tsx";
 import type { ThreadInboxPlace } from "./thread-inbox.ts";
 import { threadInboxCopy } from "./thread-inbox-copy.ts";
-import type { TimelineRequest } from "./timeline-reader.ts";
+import type {
+  ChannelHistoryAccess,
+  RetainedChannelWindow,
+  TimelineRequest,
+} from "./timeline-reader.ts";
 import { measureTimeline, type TimelinePlace } from "./timeline-viewport.ts";
 import { useChannelTimeline } from "./use-channel-timeline.ts";
 import { useResultChannelIdentities } from "./use-result-channel-identities.ts";
@@ -395,14 +400,16 @@ export function ChannelsWorkspace({
   const suppressLatest = useRef(Boolean(workspace.systemPost));
   if (!workspace.systemPost || position?.system) suppressLatest.current = false;
   const choice = useRef(0);
-  const active = useRef(false);
+  const active = useRef<{ connection: typeof connection; teamId: string }>(
+    null,
+  );
   useLayoutEffect(() => {
-    active.current = true;
+    active.current = { connection, teamId: team.id };
     return () => {
-      active.current = false;
+      active.current = null;
       choice.current++;
     };
-  }, []);
+  }, [connection, team.id]);
   useLayoutEffect(() => {
     const node = host.current;
     if (!node) return;
@@ -497,6 +504,17 @@ export function ChannelsWorkspace({
         : null,
     [policy.user, policy.server.value],
   );
+  const historyScope = useMemo(
+    () => ({
+      connection,
+      teamId: team.id,
+      collapsedThreads: settings?.collapsedThreads,
+      windows: new Map<string, RetainedChannelWindow>(),
+      access: new Map<string, ChannelHistoryAccess>(),
+    }),
+    [connection, team.id, settings?.collapsedThreads],
+  );
+  const retainedChannels = historyScope.windows;
   const inbox = useWorkspaceThreadInbox(
     connection,
     workspace.threadReads,
@@ -566,8 +584,10 @@ export function ChannelsWorkspace({
   const restoreVersion = useRef(0);
   const [restoredChannel, setRestoredChannel] = useState<{
     channelId: string;
-    request: Extract<TimelineRequest, { kind: "restore" }>;
-    place: TimelinePlace;
+    request: Extract<TimelineRequest, { kind: "restore" | "return" }>;
+    place?: TimelinePlace;
+    composerHeight?: number;
+    owner?: typeof retainedChannels;
   } | null>(null);
   const appliedSavedReturn =
     useRef<TeamWorkspace["messages"]["savedReturn"]>(null);
@@ -602,9 +622,15 @@ export function ChannelsWorkspace({
     collections.open({ kind: "all", returnRow: place }, savedButton.current);
   });
   const restoration =
-    (!position || readingInbox) && restoredChannel?.channelId === chosen
+    (!position || readingInbox) &&
+    restoredChannel?.channelId === chosen &&
+    (!restoredChannel.owner ||
+      (restoredChannel.owner === retainedChannels &&
+        !["forbidden", "unauthorized", "session"].includes(status) &&
+        published?.data.channels.some(({ id }) => id === chosen)))
       ? restoredChannel
       : null;
+  const returningComposerHeight = restoration?.composerHeight;
   const timeline = useChannelTimeline(
     connection,
     team.id,
@@ -613,7 +639,18 @@ export function ChannelsWorkspace({
     online,
     sessionIssue,
     (!readingInbox ? position?.request : undefined) ?? restoration?.request,
+    chosen ? historyScope.access.get(chosen) : undefined,
   );
+  useLayoutEffect(() => {
+    // The reader has taken this snapshot. Keep the route and coordinates,
+    // without holding another copy of the messages in navigation state.
+    if (restoration?.request.kind !== "return" || !restoration.request.window)
+      return;
+    const request = { ...restoration.request, window: undefined };
+    setRestoredChannel((current) =>
+      current === restoration ? { ...current, request } : current,
+    );
+  }, [restoration]);
   const current = useMemo(
     () =>
       snapshot
@@ -850,33 +887,69 @@ export function ChannelsWorkspace({
 
   function choose(id: string, returning = false) {
     const main = inbox.visible ? inboxMain.current : undefined;
+    if (!returning && !inbox.visible) rememberChannelReading();
+    const retained = !returning && settings && retainedChannels.get(id);
     inbox.close();
     setDirectoryOpen(false);
     search.abortPending();
     if (!returning) {
       collections.close(false);
-      restoreConversation(id, main?.channelId === id ? main.reading : null);
+      if (!retained)
+        restoreConversation(id, main?.channelId === id ? main.reading : null);
     }
     setChannelMenuOpen(false);
     if (!returning && (position || search.origin)) search.dismiss();
     workspace.messages.clear();
     if (id !== chosen) closeThread();
-    chooseChannel(id);
+    if (retained) {
+      chooseChannel(
+        id,
+        (accepted) => {
+          if (!accepted) {
+            retainedChannels.delete(id);
+            return;
+          }
+          retainedChannels.delete(id);
+          setRestoredChannel({
+            channelId: id,
+            request: {
+              kind: "return",
+              requestId: ++restoreVersion.current,
+              rid: connection.rid,
+              teamId: team.id,
+              collapsedThreads: settings.collapsedThreads,
+              window: retained,
+            },
+            place: retained.place,
+            composerHeight: retained.composerHeight,
+            owner: retainedChannels,
+          });
+          setPage("conversation");
+        },
+        true,
+      );
+    } else chooseChannel(id);
   }
-  function chooseChannel(id: string, outcome?: (accepted: boolean) => void) {
+  function chooseChannel(
+    id: string,
+    outcome?: (accepted: boolean) => void,
+    deferConversation = false,
+  ) {
     const version = ++choice.current;
+    const owner = active.current;
     if (!outcome) setSelected(id);
-    setPage("conversation");
+    if (!deferConversation) setPage("conversation");
     setChoiceFailed(null);
     void workspace.messages.enqueue(async () => {
-      if (!active.current || version !== choice.current) return false;
+      if (!owner || active.current !== owner || version !== choice.current)
+        return false;
       let accepted = false;
       try {
         accepted = await connection.selectSidebarChannel(team.id, id);
       } catch {
         /* The local choice is acknowledged only by SQLite. */
       }
-      if (active.current && version === choice.current) {
+      if (active.current === owner && version === choice.current) {
         if (!accepted) {
           setSelected(null);
           setChoiceFailed(outcome ? { exclude: id } : {});
@@ -984,6 +1057,32 @@ export function ChannelsWorkspace({
     setDirectoryOpen(false);
     collectionReading.current = readChannelPlace();
     collections.open(source, opener);
+  }
+  function rememberChannelReading() {
+    if (
+      !chosen ||
+      !settings ||
+      position ||
+      directoryOpen ||
+      !timeline.page?.posts.length ||
+      (timeline.status !== "ready" && timeline.status !== "offline") ||
+      timeline.notice === "forbidden"
+    )
+      return;
+    const pane = timeline.viewport.current;
+    if (!pane?.clientHeight) return;
+    retainedChannels.delete(chosen);
+    retainedChannels.set(chosen, {
+      page: timeline.page,
+      place: measureTimeline(pane, timeline.latest),
+      composerHeight: draftField.current
+        ?.closest(".draft-wrap")
+        ?.getBoundingClientRect().height,
+    });
+    if (retainedChannels.size > 4) {
+      const oldest = retainedChannels.keys().next();
+      if (!oldest.done) retainedChannels.delete(oldest.value);
+    }
   }
   function rememberInboxChannel() {
     const feed = timeline.viewport.current;
@@ -1235,6 +1334,56 @@ export function ChannelsWorkspace({
   useLayoutEffect(() => {
     if (chosen && channelHistoryForbidden) invalidateChannel(chosen);
   }, [chosen, channelHistoryForbidden, invalidateChannel]);
+  useLayoutEffect(() => {
+    if (
+      status === "unauthorized" ||
+      status === "session" ||
+      status === "forbidden"
+    ) {
+      retainedChannels.clear();
+      historyScope.access.clear();
+      return;
+    }
+    if (chosen && (historyDenied || timeline.status === "inaccessible")) {
+      retainedChannels.delete(chosen);
+      setRestoredChannel((current) =>
+        current?.owner === retainedChannels &&
+        current.channelId === chosen &&
+        current.place
+          ? { ...current, place: undefined, composerHeight: undefined }
+          : current,
+      );
+    }
+    if (chosen) {
+      const previous = historyScope.access.get(chosen);
+      const cutoff = Math.max(
+        previous?.cutoff ?? 0,
+        timeline.firstInaccessiblePostTime,
+      );
+      const revoked =
+        historyDenied ||
+        (previous?.revoked === true && timeline.status !== "ready");
+      if (revoked || cutoff)
+        historyScope.access.set(chosen, { revoked, cutoff });
+      else if (previous) historyScope.access.delete(chosen);
+    }
+    if (status === "ready" && published) {
+      const ids = new Set(published.data.channels.map((room) => room.id));
+      for (const id of retainedChannels.keys())
+        if (!ids.has(id)) retainedChannels.delete(id);
+      for (const id of historyScope.access.keys())
+        if (!ids.has(id)) historyScope.access.delete(id);
+    }
+  }, [
+    chosen,
+    historyDenied,
+    historyScope,
+    published,
+    retainedChannels,
+    status,
+    timeline.firstInaccessiblePostTime,
+    timeline.status,
+  ]);
   const notificationKind =
     !historyDenied &&
     channel?.deleteAt === 0 &&
@@ -2258,7 +2407,10 @@ export function ChannelsWorkspace({
               : "navigation"
         }
         onNavigation={() => {
-          if (!inbox.visible && !inbox.paused) rememberInboxChannel();
+          if (!inbox.visible && !inbox.paused) {
+            rememberChannelReading();
+            rememberInboxChannel();
+          }
           publishedReading?.interrupt();
           workspace.systemPost?.stop("paused");
           restoreDirectoryFocus.current = directoryOpen;
@@ -2440,8 +2592,15 @@ export function ChannelsWorkspace({
         }
         composer={
           <div
-            className="workspace-conversation-route"
+            className="workspace-conversation-route channel-composer"
             hidden={directoryOpen || inbox.visible}
+            style={
+              returningComposerHeight
+                ? ({
+                    "--retained-channel-composer-height": `${returningComposerHeight}px`,
+                  } as CSSProperties)
+                : undefined
+            }
           >
             {composer()}
           </div>
@@ -2515,7 +2674,7 @@ export function ChannelsWorkspace({
                 sessionIssue={sessionIssue}
                 page={timeline.page}
                 restoredPosition={
-                  restoration && timeline.page
+                  restoration?.place && timeline.page
                     ? {
                         requestId: restoration.request.requestId,
                         place: restoration.place,

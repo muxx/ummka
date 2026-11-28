@@ -6,7 +6,11 @@ import type {
   LocalChannelWindow,
   LocalPost,
 } from "../mattermost/local-history.ts";
-import type { TimelineAccount, TimelineRequest } from "./timeline-reader.ts";
+import type {
+  ChannelHistoryAccess,
+  TimelineAccount,
+  TimelineRequest,
+} from "./timeline-reader.ts";
 import { useChannelTimeline } from "./use-channel-timeline.ts";
 
 afterEach(cleanup);
@@ -61,6 +65,7 @@ function account(rid = 1) {
 }
 type Props = {
   request?: TimelineRequest;
+  access?: ChannelHistoryAccess;
   collapsed?: boolean;
   online?: boolean;
   teamId?: string;
@@ -79,6 +84,7 @@ function open(native: TimelineAccount, props: Props = {}) {
         p.online ?? true,
         ended,
         p.request,
+        p.access,
       ),
     { initialProps: props },
   );
@@ -738,4 +744,181 @@ test("retrying an unavailable local store keeps the same reading position and us
     postId: root.id,
   });
   expect(native.refreshChannelHistory).not.toHaveBeenCalled();
+});
+
+function retained(
+  previous: LocalChannelWindow,
+  anchors = previous.posts.slice(0, 1),
+): TimelineRequest {
+  return {
+    kind: "return",
+    requestId: 1,
+    rid: 1,
+    teamId,
+    collapsedThreads: true,
+    window: {
+      page: previous,
+      place: {
+        atBottom: !anchors.length,
+        top: 132,
+        anchors: anchors.map(({ id }) => ({ id, offset: 12, published: true })),
+      },
+    },
+  };
+}
+
+test("returns the same local rows before either refresh finishes and updates around the saved post", async () => {
+  const native = account();
+  const response =
+    deferred<Awaited<ReturnType<TimelineAccount["refreshChannelHistory"]>>>();
+  const saved = deferred<LocalChannelWindow>();
+  const previous = page(root, old);
+  native.refreshChannelHistory.mockReturnValueOnce(response.promise);
+  native.readChannelWindow.mockReturnValueOnce(saved.promise);
+  const view = open(native, { request: retained(previous) });
+  expect(view.result.current.page).toBe(previous);
+  expect(native.readChannelWindow).not.toHaveBeenCalled();
+  await act(async () => response.resolve({ kind: "applied" }));
+  expect(native.readChannelWindow.mock.calls).toEqual([
+    [
+      {
+        kind: "around",
+        channelId,
+        collapsedThreads: true,
+        postId: root.id,
+        newer: 30,
+        older: 30,
+      },
+    ],
+  ]);
+  expect(view.result.current.page).toBe(previous);
+  const edited = { ...root, message: "new text", updateAt: 200 };
+  await act(async () => saved.resolve(page(newer, edited)));
+  expect(view.result.current).toMatchObject({
+    status: "ready",
+    page: page(newer, edited),
+  });
+});
+
+test("offline resume uses the current local window and refreshes the same place on reconnect", async () => {
+  const native = account();
+  const current = { ...page(root), newer: { kind: "end" } as const };
+  native.readChannelWindow.mockResolvedValue(current);
+  const request = retained(current, []);
+  const view = open(native, { request, online: false });
+  expect(view.result.current.page).toBe(current);
+  await waitFor(() => expect(view.result.current.status).toBe("offline"));
+  expect(native.refreshChannelHistory).not.toHaveBeenCalled();
+  view.rerender({ request, online: true });
+  await waitFor(() => expect(view.result.current.status).toBe("ready"));
+  expect(native.refreshChannelHistory).toHaveBeenCalledOnce();
+  expect(
+    native.readChannelWindow.mock.calls.map(([query]) => query.kind),
+  ).toEqual(["latest", "latest"]);
+});
+
+test("a refused return cannot expose cached rows after a late response or a scope change", async () => {
+  const native = account();
+  const history =
+    deferred<Awaited<ReturnType<TimelineAccount["refreshChannelHistory"]>>>();
+  native.refreshChannelHistory.mockReturnValueOnce(history.promise);
+  const previous = page(root);
+  const request = retained(previous);
+  const view = open(native, { request });
+  expect(view.result.current.page).toBe(previous);
+  view.rerender({ request, account: account(2) });
+  expect(view.result.current).toMatchObject({
+    status: "unavailable",
+    page: null,
+  });
+  await act(async () => history.resolve({ kind: "applied" }));
+  expect(native.readChannelWindow).not.toHaveBeenCalled();
+  expect(view.result.current.page).toBeNull();
+
+  view.rerender({ request, collapsed: false });
+  expect(view.result.current).toMatchObject({
+    status: "unavailable",
+    page: null,
+  });
+  native.refreshChannelHistory.mockRejectedValueOnce(denied(403));
+  view.rerender({ request });
+  await waitFor(() => expect(view.result.current.status).toBe("forbidden"));
+  expect(view.result.current.page).toBeNull();
+  expect(native.readChannelWindow).not.toHaveBeenCalled();
+});
+
+test("removes newly inaccessible posts before the delayed storage result and keeps them out of it", async () => {
+  const native = account();
+  const local = deferred<LocalChannelWindow>();
+  const previous = page({ ...newer, createAt: 200 }, root);
+  native.refreshChannelHistory.mockResolvedValueOnce({
+    kind: "applied",
+    firstInaccessiblePostTime: root.createAt,
+  });
+  native.readChannelWindow.mockReturnValueOnce(local.promise);
+  const view = open(native, { request: retained(previous) });
+  expect(view.result.current.page).toBe(previous);
+  await waitFor(() =>
+    expect(view.result.current.page?.posts).toEqual([previous.posts[0]]),
+  );
+  await act(async () => local.resolve(previous));
+  expect(view.result.current).toMatchObject({
+    status: "ready",
+    firstInaccessiblePostTime: root.createAt,
+    page: { posts: [previous.posts[0]] },
+  });
+});
+
+test("an already refused channel cannot reappear from SQLite before a signed read", async () => {
+  const native = account();
+  const proof =
+    deferred<Awaited<ReturnType<TimelineAccount["refreshChannelHistory"]>>>();
+  native.refreshChannelHistory.mockReturnValueOnce(proof.promise);
+  native.readChannelWindow.mockResolvedValue(page(root));
+  const access = { revoked: true, cutoff: 0 };
+  const view = open(native, { online: false, access });
+  expect(view.result.current).toMatchObject({
+    page: null,
+    status: "offline",
+    notice: "forbidden",
+  });
+  act(() => native.notify(channelId));
+  expect(native.readChannelWindow).not.toHaveBeenCalled();
+  expect(native.refreshChannelHistory).not.toHaveBeenCalled();
+  view.rerender({ online: true, access });
+  expect(view.result.current.page).toBeNull();
+  expect(native.readChannelWindow).not.toHaveBeenCalled();
+  await act(async () => proof.resolve({ kind: "applied" }));
+  await waitFor(() => expect(view.result.current.status).toBe("ready"));
+  expect(view.result.current.page?.posts).toEqual([root]);
+  expect(view.result.current.notice).toBeNull();
+});
+
+test("an addressed arrival in the same channel takes priority over its parked reader", async () => {
+  const native = account();
+  const warmRead =
+    deferred<Awaited<ReturnType<TimelineAccount["refreshChannelHistory"]>>>();
+  native.refreshChannelHistory.mockReturnValueOnce(warmRead.promise);
+  native.readChannelWindow.mockResolvedValue(page(newer));
+  const view = open(native, { request: retained(page(root)) });
+  expect(view.result.current.page?.posts).toEqual([root]);
+  view.rerender({ request: focus(newer, 2) });
+  await waitFor(() =>
+    expect(view.result.current.focus).toMatchObject({
+      anchorId: newer.id,
+      requestId: 2,
+    }),
+  );
+  await act(async () => warmRead.resolve({ kind: "applied" }));
+  expect(view.result.current.page?.posts).toEqual([newer]);
+  expect(native.readChannelWindow.mock.calls.map(([query]) => query)).toEqual([
+    {
+      kind: "around",
+      channelId,
+      collapsedThreads: true,
+      postId: newer.id,
+      newer: 30,
+      older: 30,
+    },
+  ]);
 });
