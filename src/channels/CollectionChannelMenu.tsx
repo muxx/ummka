@@ -6,19 +6,17 @@ import {
   useRef,
 } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
+import { channelKindIconPaths } from "./channel-kind-icon-paths.ts";
 import { notificationCopy } from "./channel-notification-copy.ts";
 import { collectionCopy } from "./collection-copy.ts";
 import "./conversation-heading.css";
 
 // These Tabler icons are shared with the interactive channel menu prototype.
 const sheetIconPaths = {
-  archive:
-    "M3 6a2 2 0 0 1 2-2h14a2 2 0 0 1 0 4H5a2 2 0 0 1-2-2 M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8 M10 12h4",
+  ...channelKindIconPaths,
   bell: "M10 5a2 2 0 1 1 4 0a7 7 0 0 1 4 6v3a4 4 0 0 0 2 3H4a4 4 0 0 0 2-3v-3a7 7 0 0 1 4-6 M9 17v1a3 3 0 0 0 6 0v-1",
   group:
     "M5 7a4 4 0 1 0 8 0a4 4 0 1 0-8 0 M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2 M16 3.13a4 4 0 0 1 0 7.75 M21 21v-2a4 4 0 0 0-3-3.85",
-  hash: "M5 9h14 M5 15h14 M11 4l-4 16 M17 4l-4 16",
-  lock: "M5 13a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6 M11 16a1 1 0 1 0 2 0a1 1 0 0 0-2 0 M8 11V7a4 4 0 1 1 8 0v4",
   message:
     "M3 20l1.3-3.9c-2.324-3.437-1.426-7.872 2.1-10.374c3.526-2.501 8.59-2.296 11.845.48c3.255 2.777 3.695 7.266 1.029 10.501c-2.666 3.235-7.615 4.215-11.574 2.293L3 20",
   pin: "M15 4.5l-4 4-4 1.5-1.5 1.5 7 7 1.5-1.5 1.5-4 4-4 M9 15l-4.5 4.5 M14.5 4l5.5 5.5",

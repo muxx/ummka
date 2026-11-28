@@ -28,7 +28,8 @@ export const directoryCopy = {
   },
 } as const;
 
-export function DirectoryCompass({ size = 18 }: { size?: number }) {
+// Tabler glyphs shared with the interactive directory prototype.
+export function DirectoryCompass({ size = 16 }: { size?: number }) {
   return (
     <svg
       aria-hidden="true"
@@ -37,11 +38,11 @@ export function DirectoryCompass({ size = 18 }: { size?: number }) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.7"
+      strokeWidth="1.65"
+      strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <circle cx="12" cy="12" r="9" />
-      <path d="m16 8-2.5 5.5L8 16l2.5-5.5z" />
+      <path d="M8 16l2 -6l6 -2l-2 6l-6 2 M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0 M12 3v2 M12 19v2 M3 12h2 M19 12h2" />
     </svg>
   );
 }
@@ -79,11 +80,11 @@ export function DirectoryNavigationIcon() {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.8"
+      strokeWidth="1.65"
       strokeLinecap="round"
+      strokeLinejoin="round"
     >
-      <rect x="4" y="5" width="16" height="14" rx="2" />
-      <path d="M10 5v14" />
+      <path d="M4 6a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-12 M9 4v16" />
     </svg>
   );
 }
@@ -97,11 +98,11 @@ function SearchMark({ size = 18 }: { size?: number }) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.8"
+      strokeWidth="1.65"
       strokeLinecap="round"
+      strokeLinejoin="round"
     >
-      <circle cx="10.5" cy="10.5" r="6.5" />
-      <path d="m16 16 4 4" />
+      <path d="M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0 M21 21l-6 -6" />
     </svg>
   );
 }
