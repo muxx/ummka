@@ -49,6 +49,7 @@ type FrameProps = {
   standalonePanel?: boolean;
   language?: EntryLanguage;
   resultReturn?: ReactNode;
+  threadReturn?: ReactNode;
   returnInThread?: boolean;
   composer?: ReactNode;
   draftRef?: RefObject<HTMLElement | null>;
@@ -122,6 +123,7 @@ export function ChannelsFrame({
   standalonePanel,
   language = "en",
   resultReturn,
+  threadReturn,
   returnInThread,
   composer,
   draftRef,
@@ -478,7 +480,7 @@ export function ChannelsFrame({
                   </svg>
                 </button>
               </header>
-              {returnInThread && resultReturn}
+              {threadReturn ?? (returnInThread && resultReturn)}
               <div className="channels-pane-body">{thread.content}</div>
             </aside>
           )}

@@ -11,6 +11,7 @@ import type { EntryLanguage } from "../entry/language.ts";
 import { publishedPostDocument } from "./published-post-document.ts";
 import { publishedPostExcerpt } from "./published-post-excerpt.ts";
 import { formatReplyCount, type TimelineAuthor } from "./TimelinePost.tsx";
+import type { ThreadInboxPlace } from "./thread-inbox.ts";
 import { threadInboxCopy } from "./thread-inbox-copy.ts";
 import type {
   ThreadInboxModel,
@@ -20,7 +21,7 @@ import { workspaceCopy } from "./workspace-copy.ts";
 import "./thread-inbox.css";
 
 type State = ReturnType<ThreadInboxModel["getSnapshot"]>;
-type ScrollPlace = { top: number; id?: string; offset: number };
+type ScrollPlace = ThreadInboxPlace["position"];
 
 function listPlace(list: HTMLElement | null): ScrollPlace {
   if (!list) return { top: 0, offset: 0 };
@@ -69,7 +70,10 @@ export function ThreadInboxPane({
   state,
   online = true,
   selected,
+  restoring,
   choose,
+  place,
+  capture,
   locale,
   author,
   channel,
@@ -78,7 +82,10 @@ export function ThreadInboxPane({
   state: State;
   online?: boolean;
   selected?: string;
+  restoring?: boolean;
   choose: (row: ThreadInboxRow) => void;
+  place?: ThreadInboxPlace;
+  capture?: (place: ThreadInboxPlace) => void;
   locale: EntryLanguage;
   author: TimelineAuthor;
   channel: (id: string) => string | undefined;
@@ -110,28 +117,40 @@ export function ThreadInboxPane({
     () => (page.rows ?? []).filter((row) => row.post),
     [page.rows],
   );
-  const origin = useRef<{
-    tab: State["tab"];
-    id: string;
-    index: number;
-    position: ScrollPlace;
-  } | null>(null);
+  const origin = useRef<ThreadInboxPlace | null>(null);
+  const restored = useRef<ThreadInboxPlace | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (place && restored.current !== place) {
+      restored.current = place;
+      origin.current = place;
+    }
+    if (place && selected && tab === place.tab && page.status === "ready") {
+      if (scroller.current) restoreList(scroller.current, place.position);
+    }
+  }, [place, selected, tab, page.status]);
   function openRow(row: ThreadInboxRow, index: number) {
-    origin.current ??= {
-      tab,
-      id: row.id,
-      index,
-      position: listPlace(scroller.current),
-    };
+    if (!origin.current) {
+      const rawIndex = page.rows?.findIndex((item) => item.id === row.id);
+      origin.current = {
+        tab,
+        id: row.id,
+        index,
+        // Include the next row so the old position still has a neighbor if the opener disappears.
+        restoreRowLimit: Math.max(index, rawIndex ?? index) + 2,
+        position: listPlace(scroller.current),
+      };
+    }
+    capture?.(origin.current);
     choose(row);
   }
   useLayoutEffect(() => {
     const place = origin.current;
-    if (selected || !place) return;
+    if (selected || restoring || !place) return;
     if (place.tab !== tab) {
       void model.show(place.tab);
       return;
     }
+    if (page.status === "idle" || page.status === "loading") return;
     origin.current = null;
     const list = scroller.current;
     queueMicrotask(() => {
@@ -145,7 +164,7 @@ export function ThreadInboxPane({
         : document.getElementById(`${prefix}-${tab}`)
       )?.focus({ preventScroll: true });
     });
-  }, [model, rows, selected, tab, prefix]);
+  }, [model, page.status, rows, selected, restoring, tab, prefix]);
   const error = !["idle", "loading", "ready"].includes(page.status);
   const countsError =
     totals.status === "network" || totals.status === "storage";

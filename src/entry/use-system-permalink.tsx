@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import type { PublishedReadingProposal } from "../channels/published-reading-history.ts";
 import type { ChannelsTarget } from "../mattermost/channels-link.ts";
 import { openExternalPostLink } from "../mattermost/external-post-link.ts";
 import {
@@ -42,6 +43,7 @@ type Stop = "paused" | "unavailable" | "archived" | "failed";
 export type SystemPostRequest = {
   deliveryId: string;
   target: Target;
+  publishedFromTeam?: string;
   signal: AbortSignal;
   matchesUser: (userId: string) => boolean;
   readonly confirmedMembership: readonly MembershipTarget["kind"][];
@@ -73,7 +75,12 @@ type Gate = {
   route: AccountChannelsLink | null;
   memberships: Set<MembershipTarget["kind"]>;
   membershipUserId?: string;
-  source?: { href: string; origin: HTMLAnchorElement };
+  source?: {
+    href: string;
+    origin: HTMLAnchorElement;
+    reading?: PublishedReadingProposal;
+  };
+  stopWatchingSource?: () => void;
   positioned?: boolean;
   settled: Promise<void>;
   finish: () => void;
@@ -262,6 +269,7 @@ export function useSystemPermalink(
     (gate: Gate, outcome: "shown" | "dismissed" | "superseded") => {
       if (current.current !== gate || gate.finishing) return;
       gate.finishing = true;
+      gate.stopWatchingSource?.();
       const abort = outcome !== "shown";
       if (abort) {
         gate.controller?.abort();
@@ -292,6 +300,7 @@ export function useSystemPermalink(
   const start = useCallback(
     async (gate: Gate, reload = false) => {
       const first = !gate.controller;
+      gate.stopWatchingSource?.();
       gate.controller?.abort();
       const controller = new AbortController();
       gate.controller = controller;
@@ -303,10 +312,14 @@ export function useSystemPermalink(
           await lastSelection.current.catch(() => {});
         signal.throwIfAborted();
         if (gate.source && !gate.route) {
-          const { href, origin } = gate.source;
+          const { href, origin, reading } = gate.source;
+          if (reading?.signal.aborted) {
+            finish(gate, "superseded");
+            return;
+          }
           gate.route = await routeChannelsLink(href);
           signal.throwIfAborted();
-          if (!origin.isConnected) {
+          if (!origin.isConnected || reading?.signal.aborted) {
             finish(gate, "superseded");
             return;
           }
@@ -330,9 +343,21 @@ export function useSystemPermalink(
           });
           return;
         }
+        const proposed = gate.source?.reading;
+        const reading =
+          proposed?.serverUrl === target.serverUrl && proposed.userId === userId
+            ? proposed
+            : undefined;
+        const sourceCancelled = () => {
+          if (!reading?.signal.aborted) return false;
+          finish(gate, "superseded");
+          return true;
+        };
+        if (sourceCancelled()) return;
         setState({ kind: "switching", serverUrl: target.serverUrl });
         const { installations, selected } = await readInstallationSelection();
         signal.throwIfAborted();
+        if (sourceCancelled()) return;
         if (!installations.includes(target.serverUrl)) {
           setState({ kind: "unavailable" });
           setReady(true);
@@ -356,9 +381,18 @@ export function useSystemPermalink(
           signal.throwIfAborted();
         }
         if (selected !== target.serverUrl || reload) reopen();
+        const sameAccount =
+          selected === target.serverUrl && !reload ? reading : undefined;
+        if (sameAccount) {
+          const cancel = () => finish(gate, "superseded");
+          sameAccount.signal.addEventListener("abort", cancel, { once: true });
+          gate.stopWatchingSource = () =>
+            sameAccount.signal.removeEventListener("abort", cancel);
+        }
         const request: SystemPostRequest = {
           deliveryId: gate.deliveryId,
           target,
+          publishedFromTeam: sameAccount?.sourceTeam,
           signal,
           matchesUser: (id) => {
             userId ??= id;
@@ -380,7 +414,14 @@ export function useSystemPermalink(
             if (!signal.aborted) gate.positioned = true;
           },
           shown: (id) => {
-            if (!signal.aborted && id === target.postId) finish(gate, "shown");
+            if (
+              signal.aborted ||
+              current.current !== gate ||
+              id !== target.postId
+            )
+              return;
+            sameAccount?.shown();
+            finish(gate, "shown");
           },
           dismiss: () => {
             if (!signal.aborted) finish(gate, "dismissed");
@@ -403,7 +444,11 @@ export function useSystemPermalink(
         setState({ kind: "target", request, installations });
       } catch {
         if (!signal.aborted) {
-          if (gate.source && !gate.source.origin.isConnected) {
+          if (
+            gate.source &&
+            (!gate.source.origin.isConnected ||
+              gate.source.reading?.signal.aborted)
+          ) {
             finish(gate, "superseded");
           } else {
             setState({
@@ -436,7 +481,11 @@ export function useSystemPermalink(
     [start],
   );
   const openPost = useCallback(
-    (href: string, origin: HTMLAnchorElement) => {
+    (
+      href: string,
+      origin: HTMLAnchorElement,
+      reading?: PublishedReadingProposal,
+    ) => {
       const previous = pendingPost.current;
       if (previous?.source?.origin === origin && previous.source.href === href)
         return;
@@ -445,6 +494,7 @@ export function useSystemPermalink(
       const gate = makeGate(`published-${++publishedSequence.current}`, null, {
         href,
         origin,
+        reading,
       });
       pendingPost.current = gate;
       void run(gate).finally(() => {
@@ -491,6 +541,7 @@ export function useSystemPermalink(
       pendingPost.current = null;
       const gate = current.current;
       current.current = null;
+      gate?.stopWatchingSource?.();
       gate?.controller?.abort();
       gate?.finish();
       subscribeAgain.current = null;

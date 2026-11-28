@@ -335,6 +335,7 @@ function mount(
       clear: vi.fn(),
       position: null,
       savedReturn: null,
+      publishedReading: null,
       returnToSaved: vi.fn(),
       endSaved: vi.fn(),
       completeChannelChoice: vi.fn(),

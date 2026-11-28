@@ -16,6 +16,7 @@ import {
   systemReply,
   systemRoot,
 } from "./link-examples.ts";
+import { openThreadFromMessageMenu } from "./published-post-actions.ts";
 
 const originalChannel = { channelId: "d".repeat(26) };
 const draft = "Draft in the original installation";
@@ -235,7 +236,7 @@ async function checkPublishedLinks(host: HTMLElement, server: string) {
     ? await page.findByRole("dialog", { name: "Table" })
     : reply;
   const body = within(table);
-  async function nativeBack(screen: "notice" | "denied" | "table") {
+  async function nativeBack(screen: string) {
     const control = await openNativeRestConnection(server);
     try {
       const result = await control.fetchApi(
@@ -357,9 +358,10 @@ async function checkPublishedLinks(host: HTMLElement, server: string) {
   const destination = channelRoot();
   if (!destination)
     throw Error("The linked root was removed before activation");
-  within(destination)
-    .getByRole("link", { name: "Open published reply" })
-    .click();
+  const feedLink = within(destination).getByRole("link", {
+    name: "Open published reply",
+  });
+  feedLink.click();
   await waitFor(
     () => {
       const returned = host.querySelector(`[data-post-id="${systemReply}"]`);
@@ -368,6 +370,96 @@ async function checkPublishedLinks(host: HTMLElement, server: string) {
     },
     { timeout: 10_000 },
   );
+  if (isAndroid) {
+    const destinationReply = host.querySelector<HTMLElement>(
+      `.thread-feed [data-post-id="${systemReply}"]`,
+    );
+    if (!destinationReply) throw Error("The native Back test lost its reply");
+    await page.findByRole("button", { name: /^Back to link/ });
+    within(destinationReply)
+      .getByRole("button", { name: /^Open table:/ })
+      .click();
+    const readingTable = await page.findByRole("dialog", { name: "Table" });
+    const unsupported = within(readingTable).getByRole("link", {
+      name: "Unsupported conversation",
+    });
+    unsupported.scrollIntoView({ block: "center" });
+    unsupported.click();
+    const notice = await page.findByRole("dialog", { name: "Message link" });
+    await nativeBack("reading-notice");
+    await waitFor(() => {
+      if (notice.isConnected || document.activeElement !== unsupported)
+        throw Error("Android Back skipped a refusal nested inside the table");
+    });
+    await nativeBack("reading-table");
+    await waitFor(() => {
+      if (readingTable.isConnected || !destinationReply.isConnected)
+        throw Error("Android Back skipped the table in the destination thread");
+      page.getByRole("button", { name: /^Back to link/ });
+    });
+    await nativeBack("reading-return");
+    const returned = await waitFor(() => {
+      const currentRoot = channelRoot();
+      if (!currentRoot || host.querySelector(".thread-feed"))
+        throw Error("Android Back did not return from the thread to the feed");
+      const link = within(currentRoot).getByRole("link", {
+        name: "Open published reply",
+      });
+      if (document.activeElement !== link)
+        throw Error("Android Back did not focus the original published link");
+      return currentRoot;
+    });
+    openThreadFromMessageMenu(
+      within(returned).getByRole("button", { name: /^Message actions/ }),
+    );
+    await waitFor(() => {
+      if (!host.querySelector(".thread-feed"))
+        throw Error("The plain thread did not open");
+    });
+    await nativeBack("reading-close-thread");
+    await waitFor(() => {
+      if (host.querySelector(".thread-feed") || !channelRoot())
+        throw Error(
+          "Android Back did not close the thread after the last step",
+        );
+    });
+  } else {
+    const back = await waitFor(() => {
+      // The focused reply can precede the acknowledgement that records its source.
+      if (host.querySelector(".system-post-notice"))
+        throw Error("The linked reply was not acknowledged");
+      const button = page.getByRole<HTMLButtonElement>("button", {
+        name: /^Back to link/,
+      });
+      const box = button.getBoundingClientRect();
+      const hit = document.elementFromPoint(
+        box.left + box.width / 2,
+        box.top + box.height / 2,
+      );
+      if (
+        !document.hasFocus() ||
+        document.visibilityState !== "visible" ||
+        !box.width ||
+        !box.height ||
+        !button.contains(hit) ||
+        button.disabled ||
+        button.getAttribute("aria-disabled") === "true"
+      )
+        throw Error("Back to link was not available in the foreground window");
+      return button;
+    });
+    back.click();
+    await waitFor(() => {
+      const currentRoot = channelRoot();
+      if (!currentRoot || host.querySelector(".thread-feed"))
+        throw Error("Back to link did not return from the thread to the feed");
+      const link = within(currentRoot).getByRole("link", {
+        name: "Open published reply",
+      });
+      if (!shown(link))
+        throw Error("Back to link did not focus the visible source link");
+    });
+  }
   if (await invoke("pending_channels_link"))
     throw Error("A published link entered the operating-system queue");
 }

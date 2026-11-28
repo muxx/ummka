@@ -80,6 +80,9 @@ type Props = {
   userId: string;
   post: LocalPost;
   arrivalRequest?: number;
+  prepared?: Reader;
+  preparedRoot?: LocalPost;
+  returningToLink?: boolean;
   collapsedThreads: boolean;
   teamId: string;
   controlsHost: HTMLSpanElement | null;
@@ -108,6 +111,7 @@ export function ThreadPane(props: Props) {
     lastViewedAt,
     userId,
     teamId,
+    prepared,
     confirmFollowing,
   } = props;
   const [session, setSession] = useState<{
@@ -116,19 +120,21 @@ export function ThreadPane(props: Props) {
   } | null>(null);
   useLayoutEffect(() => {
     const rootId = post.rootId ?? post.id;
-    const reader = openThreadReplyWindow(
-      connection,
-      {
-        channelId: post.channelId,
-        rootId,
-        collapsedThreads,
-      },
-      post.rootId
-        ? post
-        : lastViewedAt !== undefined
-          ? { lastViewedAt, userId }
-          : undefined,
-    );
+    const reader =
+      prepared ??
+      openThreadReplyWindow(
+        connection,
+        {
+          channelId: post.channelId,
+          rootId,
+          collapsedThreads,
+        },
+        post.rootId
+          ? post
+          : lastViewedAt !== undefined
+            ? { lastViewedAt, userId }
+            : undefined,
+      );
     const following = collapsedThreads
       ? openThreadFollowControl(
           connection,
@@ -142,7 +148,7 @@ export function ThreadPane(props: Props) {
     setSession({ reader, following });
     return () => {
       following?.close();
-      reader.close();
+      if (!prepared) reader.close();
     };
   }, [
     connection,
@@ -150,6 +156,7 @@ export function ThreadPane(props: Props) {
     collapsedThreads,
     lastViewedAt,
     userId,
+    prepared,
     teamId,
     confirmFollowing,
   ]);
@@ -165,6 +172,8 @@ function ThreadContent({
   userId,
   post,
   arrivalRequest,
+  returningToLink,
+  preparedRoot,
   online,
   locale,
   author,
@@ -337,7 +346,8 @@ function ThreadContent({
       </p>
     );
   const summary =
-    collapsedThreads && (post.rootId ? savedRoot : post)?.threadSummary;
+    collapsedThreads &&
+    (post.rootId ? (savedRoot ?? preparedRoot) : post)?.threadSummary;
   function renderReply(row: TimelineMessage, continuation: boolean) {
     return (
       <div key={row.localId ?? row.id} className="thread-reply">
@@ -370,7 +380,7 @@ function ThreadContent({
   return (
     <div className="thread-window">
       <ThreadFeed
-        focusedId={post.rootId ? post.id : undefined}
+        focusedId={post.rootId && !returningToLink ? post.id : undefined}
         arrivalRequest={arrivalRequest}
         firstUnread={firstUnread}
         state={state}

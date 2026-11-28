@@ -3,13 +3,20 @@ import type { RefObject } from "react";
 export type TimelineViewport = RefObject<HTMLElement | null>;
 type Anchor = { id: string; offset: number; published: boolean };
 
-export function measureTimeline(pane: HTMLElement, followEnd = false) {
+export function measureTimeline(
+  pane: HTMLElement,
+  followEnd = false,
+  row?: HTMLElement,
+) {
   const atBottom = pane.scrollHeight - pane.clientHeight - pane.scrollTop <= 2;
   if (followEnd && atBottom)
     return { atBottom, top: pane.scrollTop, anchors: [] };
   const bounds = pane.getBoundingClientRect();
   const anchors: Anchor[] = [];
-  for (const row of pane.querySelectorAll<HTMLElement>("[data-post-id]")) {
+  const rows = row
+    ? [row]
+    : pane.querySelectorAll<HTMLElement>("[data-post-id]");
+  for (const row of rows) {
     const box = row.getBoundingClientRect();
     if (box.top >= bounds.bottom) break;
     const id = row.dataset.postId;

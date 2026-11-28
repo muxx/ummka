@@ -683,6 +683,10 @@ export function webviewServers(
           "published-link-notice-back",
           "published-link-denied-back",
           "published-link-table-back",
+          "published-link-reading-notice-back",
+          "published-link-reading-table-back",
+          "published-link-reading-return-back",
+          "published-link-reading-close-thread-back",
         ].includes(url.searchParams.get("step") ?? "")
       ) {
         const step = url.searchParams.get("step");
@@ -699,6 +703,9 @@ export function webviewServers(
       const seen =
         (await respondToWorkspace(req, res, url, userId, false, {
           systemLinks: true,
+          ordinaryReadingThread: systemPostReads.has(
+            "published-link-reading-return-back",
+          ),
         })) ??
         respondToAccount(req, res, url, userId, (name) => events.emit(name), {
           browserToken: "fixture-system-post",
@@ -2080,6 +2087,11 @@ export function webviewServers(
             systemPostReads.has("published-link-table-back"),
           "Missing table link refusal Back",
         );
+        for (const step of ["notice", "table", "return", "close-thread"])
+          assert(
+            systemPostReads.has(`published-link-reading-${step}-back`),
+            `Missing physical Android Back in published reading: ${step}`,
+          );
         assert(
           codeTap === codeTaps.length && codeBack && !codeRotated,
           "Missing Android code tap, rotation or Back",

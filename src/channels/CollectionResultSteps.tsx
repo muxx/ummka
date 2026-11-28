@@ -32,6 +32,7 @@ export function CollectionResultSteps({
   blocked,
   back,
   end,
+  children,
 }: {
   name: string;
   icon: ReactNode;
@@ -40,6 +41,7 @@ export function CollectionResultSteps({
   blocked: boolean;
   back: () => void;
   end: (control: HTMLButtonElement) => void;
+  children?: ReactNode;
 } & (
   | {
       steps: {
@@ -154,6 +156,7 @@ export function CollectionResultSteps({
       >
         <StepIcon path="m6 6 12 12M18 6 6 18" />
       </button>
+      {children}
     </fieldset>
   );
 }

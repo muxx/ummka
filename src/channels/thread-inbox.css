@@ -59,10 +59,11 @@
 }
 .inbox-rows li {
   border-bottom: 1px solid var(--divider);
-  content-visibility: auto;
-  contain-intrinsic-block-size: auto 90px;
 }
 .inbox-entry {
+  /* Keep the button itself in the tap target while WebKit skips offscreen contents. */
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 66px;
   position: relative;
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr);

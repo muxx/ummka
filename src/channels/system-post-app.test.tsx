@@ -9,13 +9,14 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { ResponseError } from "../../vendor/mattermost/index.js";
+import { FetchError, ResponseError } from "../../vendor/mattermost/index.js";
 import { isMobile, usesMacOSOverlay } from "../build-platform.ts";
 import {
   cancelBrowserSignIn,
   signInWithBrowser,
 } from "../mattermost/browser-sign-in.ts";
 import { inspectInstallation } from "../mattermost/inspect-installation.ts";
+import { PostObservationSuperseded } from "../mattermost/message-anchors.ts";
 import {
   getCurrentAccountId,
   openAccountRestConnection,
@@ -31,6 +32,16 @@ import {
   user,
   winter,
 } from "./navigation-app.test-utils.tsx";
+import { createPublishedReadingHistory } from "./published-reading-history.ts";
+
+vi.mock("./published-reading-history.ts", async (actual) => {
+  const module =
+    await actual<typeof import("./published-reading-history.ts")>();
+  return {
+    ...module,
+    createPublishedReadingHistory: vi.fn(module.createPublishedReadingHistory),
+  };
+});
 
 let nativeBack: (() => void) | undefined;
 vi.mock("@tauri-apps/api/app", () => ({
@@ -2509,3 +2520,1027 @@ test("a focused published link in the incoming destination allows its visible OS
   ]);
   expect(queue).toEqual([]);
 });
+
+const originPost = { ...root, id: "v".repeat(26), message: "Original source" };
+function publishedConversation(first: string, cross = false) {
+  const { account, targetInfo, view } = boot({ cross });
+  const source = {
+    ...originPost,
+    channelId: cross ? home : design,
+    message: first,
+  };
+  if (cross) {
+    account.readPostDestination.mockImplementation(async (id) =>
+      id === source.id
+        ? {
+            postId: id,
+            channel: { ...targetInfo.channel, id: home, displayName: "Home" },
+            team: { ...targetInfo.team, id: winter, displayName: "Winter" },
+          }
+        : { ...targetInfo, postId: id },
+    );
+  }
+  const next = {
+    ...reply,
+    message: `[Continue to the root](${href(root.id)})`,
+  };
+  const posts = new Map([source, next, root].map((post) => [post.id, post]));
+  account.readPostAnchor.mockImplementation(async (id) => {
+    const post = posts.get(id);
+    if (!post) throw new ResponseError(new Response(null, { status: 404 }));
+    return { postId: id, rootId: post.rootId, channelId: post.channelId, post };
+  });
+  account.readChannelWindow.mockImplementation(async ({ channelId }) => ({
+    posts: [source, root].filter((post) => post.channelId === channelId),
+    newer: { kind: "end" },
+    older: { kind: "end" },
+    firstInaccessiblePostTime: 0,
+  }));
+  account.readThreadPage.mockResolvedValue({
+    kind: "page",
+    root: { ...root, messageSource: undefined, rootId: "", deleteAt: 0 },
+    replies: [{ ...next, messageSource: undefined, deleteAt: 0 }],
+    next: null,
+  });
+  return { account, targetInfo, view, source };
+}
+function observedReadingHistory() {
+  const history = vi
+    .mocked(createPublishedReadingHistory)
+    .mock.results.at(-1)?.value;
+  if (!history)
+    throw new Error("Missing reading history for the active account");
+  return history;
+}
+async function openSyntheticDesign() {
+  fireEvent.click(await screen.findByRole("button", { name: /^(# )?Design$/ }));
+}
+async function waitForPublishedReceipt(id: string) {
+  await waitFor(() => {
+    expect((document.activeElement as HTMLElement).dataset.postId).toBe(id);
+    expect(
+      screen.queryByRole("complementary", { name: "Message link" }),
+    ).toBeNull();
+  });
+}
+
+test("successive published links remember the exact channel and thread origins in reverse order", async () => {
+  const sourceHref = href(reply.id);
+  const { account } = publishedConversation(
+    `[First copy](${sourceHref}) [Second copy](${sourceHref})`,
+  );
+  await openSyntheticDesign();
+  const second = await screen.findByRole("link", { name: "Second copy" });
+  const history = observedReadingHistory();
+  const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+  act(() => {
+    fireEvent.click(second);
+    fireEvent.click(second);
+  });
+  const continuation = await screen.findByRole("link", {
+    name: "Continue to the root",
+  });
+  await waitFor(() =>
+    expect(document.activeElement).toBe(continuation.closest("article")),
+  );
+  expect(history.hasPrevious()).toBe(false);
+  expect(account.readPostAnchor.mock.calls.map(([id]) => id)).toEqual([
+    reply.id,
+  ]);
+  hasFocus.mockReturnValue(true);
+  continuation.focus();
+  fireEvent.click(continuation);
+  await waitForPublishedReceipt(root.id);
+  const { signal } = new AbortController();
+  const thread = await history.prepareReturn(signal);
+  expect(thread.kind).toBe("ready");
+  if (thread.kind !== "ready") throw new Error("Thread origin unavailable");
+  expect(thread.origin).toMatchObject({
+    teamId: winter,
+    channelId: design,
+    rootId: root.id,
+    postId: reply.id,
+    link: { href: href(root.id), occurrence: 0 },
+    reading: { anchors: [{ id: reply.id, offset: 20, published: true }] },
+  });
+  expect(thread.post.id).toBe(reply.id);
+  expect(thread.commit()).toBe(true);
+  expect(thread.commit()).toBe(false);
+  const channel = await history.prepareReturn(signal);
+  expect(channel.kind).toBe("ready");
+  if (channel.kind !== "ready") throw new Error("Channel origin unavailable");
+  expect(channel.origin).toMatchObject({
+    teamId: winter,
+    channelId: design,
+    rootId: null,
+    postId: originPost.id,
+    link: { href: sourceHref, occurrence: 1 },
+    reading: { anchors: [{ id: originPost.id, offset: 20, published: true }] },
+  });
+  expect(channel.commit()).toBe(true);
+  expect(await history.prepareReturn(signal)).toEqual({ kind: "empty" });
+  expect(acks).toEqual([]);
+});
+
+const readingBack = () =>
+  screen.findByRole("button", { name: /^Back to link/ });
+
+test.each(["published", "system"] as const)(
+  "Back to link cannot use its previous source while a %s destination awaits acknowledgement",
+  async (kind) => {
+    const { account } = publishedConversation(
+      `[Start reading](${href(reply.id)})`,
+    );
+    await openSyntheticDesign();
+    fireEvent.click(await screen.findByRole("link", { name: "Start reading" }));
+    await waitForPublishedReceipt(reply.id);
+    expect((await readingBack()).getAttribute("aria-disabled")).toBeNull();
+
+    const focus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    if (kind === "published") {
+      fireEvent.click(
+        screen.getByRole("link", { name: "Continue to the root" }),
+      );
+    } else enqueue("1", href(root.id));
+    await waitFor(() =>
+      expect((document.activeElement as HTMLElement).dataset.postId).toBe(
+        root.id,
+      ),
+    );
+    const back = await readingBack();
+    expect(back.getAttribute("aria-disabled")).toBe("true");
+    expect(back.tabIndex).toBe(-1);
+    expect(fireEvent.pointerDown(back)).toBe(false);
+    const reads = account.readPostDestination.mock.calls.length;
+    await act(async () => {
+      fireEvent.click(back);
+      if (usesMacOSOverlay)
+        fireEvent.keyDown(window, { metaKey: true, code: "BracketLeft" });
+      else if (process.env.TAURI_ENV_PLATFORM === "android") nativeBack?.();
+      else fireEvent.keyDown(window, { altKey: true, key: "ArrowLeft" });
+    });
+    expect(account.readPostDestination).toHaveBeenCalledTimes(reads);
+    expect(acks).toEqual([]);
+
+    focus.mockReturnValue(true);
+    fireEvent(window, new Event("focus"));
+    await waitForPublishedReceipt(root.id);
+    if (kind === "system")
+      await waitFor(() =>
+        expect(acks).toEqual([{ id: "1", row: root.id, thread: false }]),
+      );
+    const ready = await readingBack();
+    expect(ready.getAttribute("aria-disabled")).toBeNull();
+    fireEvent.click(ready);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("link", {
+          name: kind === "published" ? "Continue to the root" : "Start reading",
+        }),
+      ),
+    );
+  },
+);
+
+test("the reading action restores the reply and exact duplicate link, with both drafts", async () => {
+  const destination = href(reply.id);
+  const { account } = publishedConversation(
+    `[First copy](${destination}) [Second copy](${destination})`,
+  );
+  await openSyntheticDesign();
+  expect(screen.queryByRole("button", { name: /^Back to link/ })).toBeNull();
+  fireEvent.click(await screen.findByRole("link", { name: "Second copy" }));
+  await waitForPublishedReceipt(reply.id);
+  fireEvent.click(
+    await screen.findByRole("link", { name: "Continue to the root" }),
+  );
+  await waitForPublishedReceipt(root.id);
+  const back = await readingBack();
+  const accountOpener = screen.getByRole("button", { name: "Account" });
+  fireEvent.click(accountOpener);
+  const overlay = within(screen.getByRole("dialog"));
+  fireEvent.click(overlay.getByRole("button", { name: "Teams and servers" }));
+  const reads = account.readPostAnchor.mock.calls.length;
+  if (isMobile) {
+    pressBack();
+  } else {
+    fireEvent.keyDown(
+      document.activeElement ?? document.body,
+      usesMacOSOverlay
+        ? { code: "BracketLeft", key: "[", metaKey: true }
+        : { code: "ArrowLeft", key: "ArrowLeft", altKey: true },
+    );
+    expect(account.readPostAnchor.mock.calls).toHaveLength(reads);
+    pressBack();
+  }
+  await waitFor(() => {
+    expect(
+      screen.queryByRole("dialog", { name: "Teams and servers" }),
+    ).toBeNull();
+    expect(document.activeElement?.textContent).toMatch(/Teams and servers/);
+  });
+  pressBack();
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+  fireEvent.click(back);
+  const replyLink = () =>
+    screen.getByRole("link", { name: "Continue to the root" });
+  await waitFor(() => expect(document.activeElement).toBe(replyLink()));
+  const reappearedReply = replyLink().closest(".channels-thread");
+  expect(reappearedReply?.querySelector("textarea")?.value).toBe(
+    "Unfinished reply",
+  );
+  if (!isMobile)
+    expect(
+      screen.getByRole<HTMLTextAreaElement>("textbox", {
+        name: "Message #Design…",
+      }).value,
+    ).toBe("Target draft");
+
+  fireEvent.click(await readingBack());
+  await waitFor(() =>
+    expect(document.activeElement).toBe(
+      screen.getByRole("link", { name: "Second copy" }),
+    ),
+  );
+  expect(
+    screen.getByRole<HTMLTextAreaElement>("textbox", {
+      name: "Message #Design…",
+    }).value,
+  ).toBe("Target draft");
+  expect(screen.queryByRole("button", { name: /^Back to link/ })).toBeNull();
+});
+
+test.each(["edited", "unavailable", "retry", "cancel"] as const)(
+  "the workspace handles a return to a source that is %s",
+  async (outcome) => {
+    const { account, source } = publishedConversation(
+      `[Open reply](${href(reply.id)})`,
+    );
+    await openSyntheticDesign();
+    fireEvent.click(await screen.findByRole("link", { name: "Open reply" }));
+    await waitForPublishedReceipt(reply.id);
+    let delivered: (() => void) | undefined;
+    let verificationSignal: AbortSignal | undefined;
+    const read = account.readPostAnchor.getMockImplementation();
+    account.readPostAnchor.mockImplementation(async (id, signal) => {
+      if (id !== source.id || !read) throw new Error("Unexpected verification");
+      if (outcome === "cancel") {
+        verificationSignal = signal;
+        await new Promise<void>((resolve) => {
+          delivered = resolve;
+        });
+      }
+      if (outcome === "unavailable")
+        throw new ResponseError(new Response(null, { status: 404 }));
+      if (outcome === "retry") throw new TypeError("Network interrupted");
+      const anchor = await read(id, signal);
+      const message = "New verified text from the server";
+      return {
+        ...anchor,
+        rootId: source.rootId,
+        post: { ...source, message, editAt: 700, updateAt: 700 },
+      };
+    });
+    const back = await readingBack();
+    fireEvent.click(back);
+    fireEvent.click(back);
+    if (outcome === "edited") {
+      const current = await screen.findByText(
+        "New verified text from the server",
+      );
+      const row = current.closest("article");
+      await screen.findByText(
+        "The link is gone because the message was edited",
+      );
+      expect(document.activeElement).toBe(row);
+      expect(screen.queryByRole("link", { name: "Open reply" })).toBeNull();
+    } else if (outcome === "unavailable") {
+      const status = await screen.findByText("Message unavailable");
+      await waitFor(() => expect(document.activeElement).toBe(status));
+      expect(
+        screen.queryByRole("button", { name: /^Back to link/ }),
+      ).toBeNull();
+      expect(
+        screen.getByText("Continue to the root").closest(".thread-feed"),
+      ).toBeTruthy();
+    } else if (outcome === "retry") {
+      const retry = await screen.findByRole("button", { name: "Try again" });
+      expect(document.activeElement).toBe(retry);
+      expect(
+        account.readPostAnchor.mock.calls.filter(([id]) => id === source.id),
+      ).toHaveLength(1);
+      if (!read) throw new Error("Missing anchor");
+      account.readPostAnchor.mockImplementation(read);
+      fireEvent.click(retry);
+      await waitFor(() =>
+        expect(document.activeElement).toBe(
+          screen.getByRole("link", { name: "Open reply" }),
+        ),
+      );
+    } else {
+      await waitFor(() => expect(delivered).toBeDefined());
+      if (isMobile)
+        fireEvent.click(screen.getByRole("button", { name: "Channels" }));
+      fireEvent.click(screen.getByRole("button", { name: /^(# )?Home$/ }));
+      expect(verificationSignal?.aborted).toBe(true);
+      await act(async () => delivered?.());
+      await screen.findByRole("textbox", { name: "Message #Home…" });
+      expect(
+        screen.queryByRole("button", { name: /^Back to link/ }),
+      ).toBeNull();
+      expect(
+        screen.queryByText("New verified text from the server"),
+      ).toBeNull();
+    }
+  },
+);
+
+test("direct Saved return restores the original row after a same-account team jump", async () => {
+  const { account, source } = publishedConversation(
+    `[Open reply](${href(reply.id)})`,
+    true,
+  );
+  account.readSavedPosts.mockResolvedValue({
+    items: [
+      {
+        id: source.id,
+        channelId: source.channelId,
+        message: source.message,
+        userId: source.userId,
+        createAt: source.createAt,
+        cards: [],
+      },
+    ],
+    firstInaccessiblePostTime: 0,
+  });
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Saved messages" }),
+  );
+  fireEvent.click(
+    await within(await savedPanel()).findByRole("button", {
+      name: /Open reply/,
+    }),
+  );
+  await waitForPublishedReceipt(source.id);
+  const sourceRow = document.activeElement;
+  if (!(sourceRow instanceof HTMLElement))
+    throw new Error("Missing opened Saved post");
+  fireEvent.click(within(sourceRow).getByRole("link", { name: "Open reply" }));
+  await waitForPublishedReceipt(reply.id);
+  await readingBack();
+  expect((await account.readJoinedTeams())?.selectedTeam).toBe(summer);
+  fireEvent.click(
+    await screen.findByRole("link", { name: "Continue to the root" }),
+  );
+  await waitForPublishedReceipt(root.id);
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Back to saved messages" }),
+  );
+  const row = await within(await savedPanel()).findByRole("button", {
+    name: /Open reply/,
+  });
+  await waitFor(() => expect(document.activeElement).toBe(row));
+  expect(row.getAttribute("aria-current")).toBe("true");
+  expect(account.selectJoinedTeam.mock.calls).toEqual([[summer], [winter]]);
+  expect(screen.queryByRole("button", { name: /^Back to link/ })).toBeNull();
+});
+
+test.each([
+  { cross: false, status: 0 },
+  { cross: true, status: 0 },
+  { cross: true, status: 404 },
+  { cross: true, status: 0, unread: "neighbor" },
+  { cross: true, status: 0, unread: "empty" },
+  { cross: true, status: 0, unread: "denied" },
+  { cross: true, status: 0, unread: "large first page" },
+  { cross: true, status: 0, unread: "large second page" },
+])(
+  "a published link from a followed discussion returns to its origin (cross-team $cross, status $status, Unread after return $unread)",
+  async ({ cross, status, unread }) => {
+    const { account, targetInfo } = boot({ cross });
+    const inboxRoot = { ...root, channelId: cross ? other : design };
+    const initial = {
+      ...originPost,
+      channelId: home,
+      message: "Home reading place",
+    };
+    const destination = {
+      ...originPost,
+      channelId: cross ? design : other,
+      id: "w".repeat(26),
+      message: "The linked post",
+    };
+    const continued = {
+      ...reply,
+      channelId: inboxRoot.channelId,
+      message: `[First occurrence](${href(destination.id)}) [Second occurrence](${href(destination.id)})`,
+    };
+    const posts = new Map(
+      [inboxRoot, continued, destination].map((post) => [post.id, post]),
+    );
+    const followed = {
+      id: root.id,
+      post: inboxRoot,
+      participantIds: [],
+      replyCount: 1,
+      lastReplyAt: reply.createAt,
+      lastViewedAt: reply.createAt - Number(Boolean(unread)),
+      unreadReplies: Number(Boolean(unread)),
+      unreadMentions: 0,
+      isUrgent: false,
+    };
+    const large = unread?.startsWith("large");
+    const openerIndex = unread === "large second page" ? 30 : 0;
+    const pageSize = 25;
+    const remaining = 300;
+    const earlier = { name: "Show earlier discussions" };
+    const rowId = (index: number) => String(index + 1).padStart(26, "0");
+    const rowName = (index: number) => `Discussion ${index}`;
+    let initialList = true;
+    let read = false;
+    let following = true;
+    let returnAttempted = false;
+    let releasePage = () => {};
+    const waitForPage = new Promise<void>((resolve) => {
+      releasePage = resolve;
+    });
+    account.readFollowedThreadTotals.mockImplementation(async (teamId) => ({
+      total: teamId === winter ? (large ? remaining + 1 : 2) : 0,
+      totalUnreadThreads:
+        teamId === winter
+          ? large
+            ? remaining + Number(!read)
+            : Number(Boolean(unread && (!read || unread !== "empty")))
+          : 0,
+      totalUnreadMentions: 0,
+      totalUnreadUrgentMentions: 0,
+    }));
+    account.markFollowedThreadRead.mockImplementation(
+      async (_team, id, lastViewedAt) => {
+        read = true;
+        return { id, lastViewedAt, unreadReplies: 0, unreadMentions: 0 };
+      },
+    );
+    account.setThreadFollowing.mockImplementation(
+      async (_team, _post, next) => {
+        following = next;
+      },
+    );
+    account.readFollowedThreads.mockImplementation(async (query, signal) => {
+      const { before } = query;
+      if (unread) {
+        if (query.teamId !== winter) return { items: [], nextBefore: null };
+        if (!query.unread)
+          return { items: following ? [followed] : [], nextBefore: null };
+        if (large) {
+          const cursor = before ? Number(before) : 0;
+          const start = cursor + Number(!read && cursor > openerIndex);
+          const total = remaining + Number(!read);
+          const items = Array.from(
+            { length: Math.min(pageSize, total - start) },
+            (_, offset) => {
+              const index = start + offset;
+              if (!read && index === openerIndex) return followed;
+              const number = !read && index > openerIndex ? index - 1 : index;
+              const id = rowId(number);
+              return {
+                ...followed,
+                id,
+                post: { ...initial, id, message: `Discussion ${number}` },
+              };
+            },
+          );
+          return {
+            items,
+            nextBefore:
+              items.length === pageSize ? (items.at(-1)?.id ?? null) : null,
+          };
+        }
+        if (!read) return { items: [followed], nextBefore: null };
+        if (unread === "denied" && returnAttempted) {
+          await waitForPage;
+          signal?.throwIfAborted();
+          return { items: [{ ...followed, post: null }], nextBefore: null };
+        }
+        return {
+          items:
+            unread === "neighbor"
+              ? [{ ...followed, id: initial.id, post: initial }]
+              : [],
+          nextBefore: null,
+        };
+      }
+      if (cross && !initialList && !before)
+        return {
+          items: [{ ...followed, id: initial.id, post: initial }],
+          nextBefore: initial.id,
+        };
+      initialList = false;
+      return { items: [followed], nextBefore: null };
+    });
+    account.readPostDestination.mockImplementation(async (postId) => ({
+      ...targetInfo,
+      postId,
+      team:
+        postId === destination.id
+          ? targetInfo.team
+          : { ...targetInfo.team, id: winter, displayName: "Winter" },
+      channel: {
+        ...targetInfo.channel,
+        id:
+          postId === destination.id
+            ? destination.channelId
+            : inboxRoot.channelId,
+      },
+    }));
+    account.readPostAnchor.mockImplementation(async (id) => {
+      if (returnAttempted && status && id === continued.id)
+        throw new ResponseError(new Response(null, { status }));
+      const post = posts.get(id);
+      if (!post) throw new Error("Unexpected post");
+      return {
+        postId: id,
+        channelId: post.channelId,
+        rootId: post.rootId,
+        post,
+      };
+    });
+    account.readChannelWindow.mockImplementation(async ({ channelId }) => ({
+      posts: [initial, inboxRoot, destination].filter(
+        (post) => post.channelId === channelId,
+      ),
+      newer: { kind: "end" },
+      older: { kind: "end" },
+      firstInaccessiblePostTime: 0,
+    }));
+    account.readThreadPage.mockImplementation(async () => ({
+      kind: "page",
+      root: {
+        ...inboxRoot,
+        messageSource: undefined,
+        rootId: "",
+        deleteAt: 0,
+        isFollowing: following,
+      },
+      replies: [{ ...continued, messageSource: undefined, deleteAt: 0 }],
+      next: null,
+    }));
+    const channelField = { name: "Message #Home…" };
+    const replyField = { name: "Reply in thread…" };
+    const channelDraft = "Fresh channel draft before opening Threads";
+    const replyDraft = "Fresh reply draft before following the link";
+    await screen.findByText(initial.message);
+    fireEvent.change(await screen.findByRole("textbox", channelField), {
+      target: { value: channelDraft },
+    });
+    await waitFor(() =>
+      expect(account.saveDraft).toHaveBeenCalledWith(
+        expect.objectContaining({ channelId: home, message: channelDraft }),
+      ),
+    );
+    expect((await account.readTeamSidebar(winter))?.selectedChannel).toBe(home);
+    fireEvent.click(await screen.findByRole("button", { name: /^Threads/ }));
+    if (unread)
+      fireEvent.click(await screen.findByRole("tab", { name: /^Unread/ }));
+    if (large && openerIndex >= pageSize)
+      fireEvent.click(await screen.findByRole("button", earlier));
+    const selectedRow = await screen.findByRole("button", {
+      name: /Published root/,
+    });
+    fireEvent.click(selectedRow);
+    fireEvent.change(await screen.findByRole("textbox", replyField), {
+      target: { value: replyDraft },
+    });
+    await waitFor(() =>
+      expect(account.saveDraft).toHaveBeenCalledWith(
+        expect.objectContaining({ rootId: root.id, message: replyDraft }),
+      ),
+    );
+    if (unread)
+      await waitFor(() => {
+        expect(account.markFollowedThreadRead).toHaveBeenCalledOnce();
+        expect(selectedRow.hasAttribute("data-unread")).toBe(false);
+        expect(selectedRow.getAttribute("aria-current")).toBe("true");
+      });
+    const exactLink = () =>
+      screen.getByRole("link", { name: "Second occurrence" });
+    await screen.findByRole("link", { name: "Second occurrence" });
+    const sourceHref = exactLink().getAttribute("href");
+    expect(
+      screen
+        .getByRole("link", { name: "First occurrence" })
+        .getAttribute("href"),
+    ).toBe(sourceHref);
+    fireEvent.click(exactLink());
+    await waitForPublishedReceipt(destination.id);
+    if (!cross)
+      await waitFor(() =>
+        expect(selectedRow.closest("[hidden]")).not.toBeNull(),
+      );
+    else expect((await account.readJoinedTeams())?.selectedTeam).toBe(summer);
+
+    const beforeReturn = account.readFollowedThreads.mock.calls.length;
+    const restoreCursors = () =>
+      account.readFollowedThreads.mock.calls
+        .slice(beforeReturn)
+        .map(([query]) => query.before);
+    returnAttempted = true;
+    fireEvent.click(await readingBack());
+    if (status) {
+      const note = await screen.findByText("Message unavailable", {
+        exact: true,
+      });
+      expect(document.activeElement).toBe(note);
+      expect((await account.readJoinedTeams())?.selectedTeam).toBe(summer);
+      expect(screen.getByText(destination.message)).toBeTruthy();
+      expect(
+        screen.queryByRole("link", { name: "Second occurrence" }),
+      ).toBeNull();
+      return;
+    }
+    await waitFor(() => {
+      const link = exactLink();
+      expect(link.getAttribute("href")).toBe(sourceHref);
+      expect(document.activeElement).toBe(link);
+      expect(link.closest(".thread-feed")).toBeTruthy();
+      const list = screen.queryByRole("button", { name: /Published root/ });
+      if (unread) expect(list).toBeNull();
+      else expect(list?.closest("[hidden]")).toBeNull();
+    });
+    expect((await account.readTeamSidebar(winter))?.selectedChannel).toBe(home);
+    if (!unread)
+      expect(account.readFollowedThreads).toHaveBeenCalledTimes(cross ? 3 : 1);
+    if (cross && !unread)
+      expect(account.readFollowedThreads).toHaveBeenLastCalledWith(
+        expect.objectContaining({ before: initial.id, teamId: winter }),
+        expect.any(AbortSignal),
+      );
+    expect(
+      (await screen.findByRole<HTMLTextAreaElement>("textbox", replyField))
+        .value,
+    ).toBe(replyDraft);
+    if (unread === "denied") {
+      await act(async () => releasePage());
+      expect(
+        await screen.findByText("This discussion is no longer available."),
+      ).toBeTruthy();
+      expect(
+        screen.queryByRole("link", { name: "Second occurrence" }),
+      ).toBeNull();
+      return;
+    }
+    if (unread === "neighbor") {
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Following", pressed: true }),
+      );
+      await screen.findByRole("button", { name: "Follow", pressed: false });
+      fireEvent.click(
+        screen.getByRole("button", { name: "Follow", pressed: false }),
+      );
+      await screen.findByRole("button", { name: "Following", pressed: true });
+      expect(
+        account.setThreadFollowing.mock.calls.map(([team, post, on]) => [
+          team,
+          post,
+          on,
+        ]),
+      ).toEqual([
+        [winter, { id: inboxRoot.id, rootId: null }, false],
+        [winter, { id: inboxRoot.id, rootId: null }, true],
+      ]);
+    }
+    pressBack();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        unread === "empty"
+          ? screen.getByRole("tab", { name: /^Unread/, selected: true })
+          : large
+            ? screen.getByText(rowName(openerIndex)).closest("button")
+            : screen.getByRole("button", {
+                name: unread ? /Home reading place/ : /Published root/,
+              }),
+      ),
+    );
+    expect(
+      screen.queryByRole("link", { name: "Second occurrence" }),
+    ).toBeNull();
+    if (unread) {
+      expect(
+        screen.queryByRole("button", { name: /Published root/ }),
+      ).toBeNull();
+      expect(account.markFollowedThreadRead).toHaveBeenCalledOnce();
+    } else {
+      fireEvent.click(screen.getByRole("button", { name: /Published root/ }));
+      expect(
+        await screen.findByRole("link", { name: "Second occurrence" }),
+      ).toBeTruthy();
+      pressBack();
+    }
+    if (large) {
+      const next = openerIndex < pageSize ? pageSize : pageSize * 2;
+      const automatic =
+        next === pageSize ? [undefined] : [undefined, rowId(pageSize - 1)];
+      expect(restoreCursors()).toEqual(automatic);
+      expect(screen.queryByText(rowName(next))).toBeNull();
+      fireEvent.click(screen.getByRole("button", earlier));
+      await screen.findByText(rowName(next));
+      expect(restoreCursors()).toEqual([...automatic, rowId(next - 1)]);
+    }
+    if (isMobile) pressBack();
+    fireEvent.click(screen.getByRole("button", { name: /^(# )?Home$/ }));
+    await screen.findByText(initial.message);
+    expect(
+      screen.getByRole<HTMLTextAreaElement>("textbox", channelField).value,
+    ).toBe(channelDraft);
+  },
+);
+
+test.each(["resolving route", "checking post"] as const)(
+  "a manual channel choice cancels a published link still %s",
+  async (stage) => {
+    const { account, targetInfo } = publishedConversation(
+      `[Open reply](${href(reply.id)})`,
+    );
+    await openSyntheticDesign();
+    const link = await screen.findByRole("link", { name: "Open reply" });
+    const history = observedReadingHistory();
+    let started!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let signal: AbortSignal | undefined;
+    if (stage === "resolving route")
+      vi.mocked(getCurrentAccountId).mockImplementationOnce(async () => {
+        started();
+        await gate;
+        return user;
+      });
+    else
+      account.readPostDestination.mockImplementationOnce(async (id, active) => {
+        signal = active;
+        started();
+        await gate;
+        return { ...targetInfo, postId: id };
+      });
+    fireEvent.click(link);
+    await entered;
+    const designChoice = screen.getByRole("button", { name: /^(# )?Design$/ });
+    fireEvent.click(designChoice);
+    await waitFor(() =>
+      expect(account.selectSidebarChannel).toHaveBeenCalledTimes(2),
+    );
+    // This choice leaves the original link mounted so DOM removal alone cannot cancel it.
+    expect(link.isConnected).toBe(true);
+    if (stage === "checking post") expect(signal?.aborted).toBe(true);
+    await act(async () => release());
+    expect(account.readPostAnchor).not.toHaveBeenCalled();
+    expect(screen.queryByText(reply.message)).toBeNull();
+    expect(
+      screen.queryByRole("complementary", { name: "Message link" }),
+    ).toBeNull();
+    expect(history.hasPrevious()).toBe(false);
+  },
+);
+
+test("returning rechecks a deleted source and account close erases committed origins", async () => {
+  const { account, view } = publishedConversation(
+    `[Open root](${href(root.id)})`,
+  );
+  await openSyntheticDesign();
+  fireEvent.click(await screen.findByRole("link", { name: "Open root" }));
+  await waitForPublishedReceipt(root.id);
+  const history = observedReadingHistory();
+  expect(history.hasPrevious()).toBe(true);
+  const { signal } = new AbortController();
+  account.readPostDestination.mockRejectedValueOnce(
+    new TypeError("Fixture offline"),
+  );
+  expect(await history.prepareReturn(signal)).toEqual({
+    kind: "failed",
+    reason: "network",
+  });
+  expect(history.hasPrevious()).toBe(true);
+  account.readPostAnchor.mockResolvedValueOnce({
+    postId: originPost.id,
+    channelId: design,
+    post: null,
+  });
+  expect(await history.prepareReturn(signal)).toEqual({ kind: "unavailable" });
+  expect(history.hasPrevious()).toBe(false);
+  fireEvent.click(await screen.findByRole("link", { name: "Open root" }));
+  await waitFor(() => expect(history.hasPrevious()).toBe(true));
+  const prepared = await history.prepareReturn(signal);
+  expect(prepared.kind).toBe("ready");
+  view.unmount();
+  if (prepared.kind !== "ready") throw new Error("Expected a live origin");
+  expect(prepared.commit()).toBe(false);
+  expect(await history.prepareReturn(signal)).toEqual({ kind: "empty" });
+});
+
+test.each([
+  "outside",
+  "refused",
+  "cancelled",
+  "incoming",
+  "another account",
+] as const)(
+  "a link %s does not add an origin to the active account",
+  async (path) => {
+    const address =
+      path === "outside"
+        ? foreign
+        : href(root.id, path === "another account" ? nested : base);
+    const { account, targetInfo } = publishedConversation(
+      `[Open link](${address})`,
+    );
+    await openSyntheticDesign();
+    const link = await screen.findByRole("link", { name: "Open link" });
+    const history = observedReadingHistory();
+    if (path === "outside") {
+      const standard = vi.mocked(invoke).getMockImplementation();
+      if (!standard) throw new Error("Missing native fixture");
+      vi.mocked(invoke).mockImplementation((cmd, args, options) =>
+        cmd === "open_external_post_link"
+          ? Promise.resolve()
+          : standard(cmd, args, options),
+      );
+    } else if (path === "refused") {
+      account.readPostDestination.mockRejectedValueOnce(
+        new ResponseError(new Response(null, { status: 403 })),
+      );
+    } else if (path === "cancelled") {
+      account.readPostDestination.mockResolvedValueOnce({
+        ...targetInfo,
+        channel: { ...targetInfo.channel, joined: false, kind: "P" },
+      });
+    } else if (path === "another account") {
+      type Connection = Awaited<ReturnType<typeof openAccountRestConnection>>;
+      vi.mocked(openAccountRestConnection).mockResolvedValueOnce({
+        ...account,
+        rid: 10,
+      } as unknown as Connection);
+    }
+    if (path === "incoming") act(() => enqueue("1", href(root.id)));
+    else fireEvent.click(link);
+    if (path === "outside") {
+      await waitFor(() =>
+        expect(invoke).toHaveBeenCalledWith("open_external_post_link", {
+          href: foreign,
+        }),
+      );
+      expect(account.readPostDestination).not.toHaveBeenCalled();
+    } else if (path === "refused") {
+      fireEvent.click(
+        await within(await screen.findByRole("dialog")).findByRole("button", {
+          name: "OK",
+        }),
+      );
+      expect(document.activeElement).toBe(link);
+    } else if (path === "cancelled") {
+      fireEvent.click(
+        await within(await screen.findByRole("dialog")).findByRole("button", {
+          name: "Cancel",
+        }),
+      );
+      await waitFor(() => expect(document.activeElement).toBe(link));
+      expect(account.changeOwnMembership).not.toHaveBeenCalled();
+    } else {
+      await waitForPublishedReceipt(root.id);
+      if (path === "incoming")
+        expect(acks).toEqual([{ id: "1", row: root.id, thread: false }]);
+      else
+        expect(openAccountRestConnection).toHaveBeenLastCalledWith(
+          nested,
+          otherUser,
+        );
+    }
+    expect(history.hasPrevious()).toBe(false);
+    expect(observedReadingHistory().hasPrevious()).toBe(false);
+  },
+);
+
+test("published reading retains the cross-team Saved return for a restored reply", async () => {
+  const { account } = boot({ cross: true });
+  const continuation = { ...reply, message: `[Open root](${href(root.id)})` };
+  const anchor = account.readPostAnchor.getMockImplementation();
+  if (!anchor) throw new Error("Missing anchor fixture");
+  account.readPostAnchor.mockImplementation(async (id, signal) =>
+    id === reply.id
+      ? { postId: id, channelId: design, rootId: root.id, post: continuation }
+      : anchor(id, signal),
+  );
+  account.readThreadPage.mockResolvedValue({
+    kind: "page",
+    root: { ...root, messageSource: undefined, rootId: "", deleteAt: 0 },
+    replies: [{ ...continuation, messageSource: undefined, deleteAt: 0 }],
+    next: null,
+  });
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Saved messages" }),
+  );
+  fireEvent.click(
+    await within(await savedPanel()).findByRole("button", {
+      name: /Saved reply preview/,
+    }),
+  );
+  const link = await screen.findByRole("link", { name: "Open root" });
+  await savedReturn();
+  fireEvent.click(link);
+  await waitForPublishedReceipt(root.id);
+  const returned = await observedReadingHistory().prepareReturn(
+    new AbortController().signal,
+  );
+  expect(returned.kind).toBe("ready");
+  if (returned.kind !== "ready")
+    throw new Error("Missing collection reading origin");
+  expect(returned.origin.collection).toMatchObject({
+    kind: "saved-team",
+    postId: reply.id,
+    source: { teamId: winter, channelId: home },
+  });
+  expect(returned.origin.rootId).toBe(root.id);
+  expect(account.readSavedPosts).toHaveBeenCalledTimes(1);
+});
+
+test.each([
+  "source",
+  "root",
+  "native account",
+  "closed window",
+  "network",
+  "403",
+] as const)(
+  "a prepared return handles %s changing while its anchor is read",
+  async (change) => {
+    const { account, view } = publishedConversation(
+      `[Open reply](${href(reply.id)})`,
+    );
+    await openSyntheticDesign();
+    fireEvent.click(await screen.findByRole("link", { name: "Open reply" }));
+    await waitForPublishedReceipt(reply.id);
+    fireEvent.click(
+      await screen.findByRole("link", { name: "Continue to the root" }),
+    );
+    await waitForPublishedReceipt(root.id);
+    const history = observedReadingHistory();
+    const readAnchor = account.readPostAnchor.getMockImplementation();
+    if (!readAnchor) throw new Error("Missing anchor fixture");
+    const heldId = change === "source" ? reply.id : root.id;
+    let started!: (signal: AbortSignal | undefined) => void;
+    const entered = new Promise<AbortSignal | undefined>((resolve) => {
+      started = resolve;
+    });
+    let rejectRead!: (cause: unknown) => void;
+    const held = new Promise<
+      Awaited<ReturnType<typeof account.readPostAnchor>>
+    >((_resolve, reject) => {
+      rejectRead = reject;
+    });
+    account.readPostAnchor.mockImplementation(async (id, signal) => {
+      if (id !== heldId) return readAnchor(id, signal);
+      started(signal);
+      return held;
+    });
+    const { signal } = new AbortController();
+    const pending = history.prepareReturn(signal);
+    const active = await entered;
+    expect(active?.aborted).toBe(false);
+    if (change === "closed window") {
+      view.unmount();
+      expect(active?.aborted).toBe(true);
+    }
+    const errors = {
+      source: new PostObservationSuperseded(),
+      root: new PostObservationSuperseded(),
+      "native account": new FetchError(
+        new TypeError("closed", { cause: "unknown_connection" }),
+      ),
+      "closed window": "cancelled",
+      network: new FetchError(new TypeError("Connection lost")),
+      "403": new ResponseError(new Response(null, { status: 403 })),
+    };
+    rejectRead(errors[change]);
+    expect(await pending).toEqual(
+      change === "network"
+        ? { kind: "failed", reason: "network" }
+        : { kind: change === "403" ? "unavailable" : "cancelled" },
+    );
+    account.readPostAnchor.mockImplementation(readAnchor);
+    if (change === "closed window") {
+      expect(await history.prepareReturn(signal)).toEqual({ kind: "empty" });
+      return;
+    }
+    const available = await history.prepareReturn(signal);
+    if (available.kind !== "ready")
+      throw new Error("A previously confirmed origin was lost");
+    expect(available.origin.postId).toBe(
+      change === "403" ? originPost.id : reply.id,
+    );
+    expect(available.commit()).toBe(true);
+  },
+);

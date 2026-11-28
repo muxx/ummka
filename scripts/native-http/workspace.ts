@@ -94,6 +94,7 @@ export async function respondToWorkspace(
     joinedPublicRoom = false,
     systemLinks = false,
     acceptedThreadReply = false,
+    ordinaryReadingThread = false,
   } = {},
 ): Promise<string | undefined> {
   function json(value: unknown, name: string, status = 200) {
@@ -403,10 +404,11 @@ export async function respondToWorkspace(
       direction: "down",
       perPage: "60",
       collapsedThreads: "true",
-      ...(systemLinks && {
-        skipFetchThreads: "false",
-        collapsedThreadsExtended: "false",
-      }),
+      ...(systemLinks &&
+        !ordinaryReadingThread && {
+          skipFetchThreads: "false",
+          collapsedThreadsExtended: "false",
+        }),
     });
     return json(
       {
