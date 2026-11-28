@@ -461,7 +461,13 @@ test("removes one condition with the keyboard, preserves literal phrases and res
       firstInaccessiblePostTime: 0,
     }),
   );
-  expect(screen.getByText("Совпадений нет.")).toBeTruthy();
+  expect(
+    screen.getByRole("heading", {
+      name: 'Нет результатов для «"снимки from:literal" in:#release after:2026-11-17»',
+    }).textContent,
+  ).toBe(
+    'Нет результатов для «"снимки  from:literal" in:#release after:2026-11-17»',
+  );
   expect(document.activeElement).toBe(date);
 });
 
@@ -482,6 +488,7 @@ test("the latest scope owns the results, and a late reply cannot close a newly o
     target: { value: other.id },
   });
   expect(panel().getByText(/Сняли channel:#release и -from:anya/)).toBeTruthy();
+  await panel().findByText("Ищем в «Юг»…");
   expect(document.activeElement).toBe(panel().getByRole("combobox"));
   expect(screen.queryByRole("button", { name: "Готово к выпуску" })).toBeNull();
   await waitFor(() =>
@@ -599,7 +606,7 @@ test("opening and closing the query editor preserves a results error", async () 
     panel().getByRole("button", { name: "Убрать фильтр от Анна" }),
   );
   expect((await panel().findByRole("alert")).textContent).toBe(
-    "Не удалось загрузить результаты.",
+    "Поиск в «Север» не выполнен",
   );
   fireEvent.click(
     panel().getByRole("button", { name: "Изменить запрос, выпуск" }),
@@ -615,7 +622,7 @@ test("opening and closing the query editor preserves a results error", async () 
   );
   fireEvent.click(within(form).getByRole("button", { name: "Закрыть поиск" }));
   expect(panel().getByRole("alert").textContent).toBe(
-    "Не удалось загрузить результаты.",
+    "Поиск в «Север» не выполнен",
   );
   expect(panel().getByRole("button", { name: "Повторить" })).toBeTruthy();
 });

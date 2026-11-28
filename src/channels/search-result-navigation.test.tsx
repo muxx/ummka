@@ -244,7 +244,7 @@ test("empty messages and files keep the ordinary query editor available", async 
     firstInaccessibleFileTime: 0,
   });
   const results = await search();
-  await results.findByRole("heading", { name: "No matches." });
+  await results.findByRole("heading", { name: "No results for “window”" });
   expect(results.getByText(/switch to Files/)).toBeTruthy();
   fireEvent.click(results.getByRole("button", { name: "Files" }));
   await results.findByText(/switch to Messages/);
@@ -258,6 +258,23 @@ test("empty messages and files keep the ordinary query editor available", async 
   ).getByRole<HTMLInputElement>("searchbox");
   expect(field.value).toBe("window");
   await waitFor(() => expect(document.activeElement).toBe(field));
+  const longQuery = "запросбезпробелов".repeat(14);
+  account.readFileSearchPage.mockResolvedValueOnce({
+    items: [],
+    isEnd: true,
+    firstInaccessibleFileTime: 0,
+  });
+  fireEvent.change(field, { target: { value: longQuery } });
+  fireEvent.click(
+    within(await screen.findByRole("dialog")).getByRole("button", {
+      name: "Search",
+    }),
+  );
+  await screen.findByRole("heading", { name: `No results for “${longQuery}”` });
+  expect(account.readFileSearchPage).toHaveBeenLastCalledWith(
+    expect.objectContaining({ terms: longQuery, page: 0 }),
+    expect.any(AbortSignal),
+  );
 });
 
 test("search continuation keeps rows, waits before announcing and retries the same page", async () => {

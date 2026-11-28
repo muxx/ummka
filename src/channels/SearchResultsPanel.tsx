@@ -138,6 +138,8 @@ export function SearchResultsPanel({
   const hasRows = !denied && Boolean(tab?.items.length);
   const failed = tab?.status === "error";
   const empty = tab?.status === "ready" && !hasRows;
+  const scopeName = scope ? scope.displayName || scope.name : null;
+  const failedIn = text.failedIn(scopeName);
   const showRefresh = useCollectionRefreshVisibility(loading && hasRows);
   const canContinue = hasRows && online && !tab?.isEnd;
   useEffect(() => {
@@ -307,13 +309,13 @@ export function SearchResultsPanel({
             variant="pending"
             ref={waitingNotice}
             role="status"
-            message={text.loading}
+            message={text.loading(scopeName)}
           />
         )}
         {empty && (
           <PanelState
             variant="empty"
-            title={text.empty}
+            title={text.empty(terms)}
             message={
               filesAllowed ? text.emptyWithTab(selected) : text.emptyHint
             }
@@ -338,7 +340,13 @@ export function SearchResultsPanel({
         {(issue || retrying) && online && (
           <PanelState
             variant="error"
-            title={issue && <span role="alert">{issue}</span>}
+            title={
+              issue && (
+                <span role="alert">
+                  {issue === text.failed ? failedIn : issue}
+                </span>
+              )
+            }
             action={
               <PanelRetry
                 ref={retryControl}
@@ -358,9 +366,7 @@ export function SearchResultsPanel({
           <PanelState
             variant="error"
             title={
-              <span role="alert">
-                {denied ? text.unavailable : text.failed}
-              </span>
+              <span role="alert">{denied ? text.unavailable : failedIn}</span>
             }
             action={
               !denied &&
