@@ -1,4 +1,5 @@
 import type { SavedCollectionOrigin } from "../entry/use-message-navigation.tsx";
+import type { IntegrationCard } from "../mattermost/integration-cards.ts";
 import type { LocalPost } from "../mattermost/local-history.ts";
 import { PostObservationSuperseded } from "../mattermost/message-anchors.ts";
 import { inspectPostTarget } from "./inspect-post-target.ts";
@@ -15,8 +16,9 @@ export type PublishedReadingOrigin = {
   link: {
     href: string;
     occurrence: number;
+    offsetInPost?: number;
     expanded?: true;
-    card?: { index: string; part: string; label: string };
+    card?: CardLinkOrigin;
   };
   reading: TimelinePlace;
   label?: string;
@@ -51,33 +53,105 @@ type ReadingScope = Pick<
   threadLabel?: string;
 };
 
-function publishedLinkMatches(
-  row: HTMLElement,
-  address: Pick<PublishedReadingOrigin["link"], "href" | "card">,
+type CardLinkOrigin = {
+  identity: string;
+  detail?: string;
+  part: string;
+  label: string;
+  count: number;
+  ambiguous: boolean;
+};
+
+const renderedCards = new WeakMap<HTMLElement, IntegrationCard>();
+
+export function registerPublishedCard(
+  node: HTMLElement,
+  card: IntegrationCard,
 ) {
-  const { href, card } = address;
-  const section = card
-    ? row
-        .querySelector(`[data-published-card="${CSS.escape(card.index)}"]`)
-        ?.querySelector(`[data-published-card-part="${CSS.escape(card.part)}"]`)
-    : row;
-  if (!section) return [];
+  renderedCards.set(node, card);
+}
+
+function cardIdentity(card: IntegrationCard) {
+  return [card.title?.trim(), card.authorName?.trim(), card.pretext?.trim()];
+}
+
+function cardDetail(card: IntegrationCard) {
+  return JSON.stringify([
+    card.titleLink,
+    card.authorLink,
+    card.color,
+    card.text,
+    card.fields.map((field) => [field.title, field.value, field.short]),
+    card.footer,
+  ]);
+}
+
+function cardMatches(
+  row: HTMLElement,
+  { identity, detail }: Pick<CardLinkOrigin, "identity" | "detail">,
+) {
   return Array.from(
-    section.querySelectorAll<HTMLAnchorElement>("a[data-published-link]"),
+    row.querySelectorAll<HTMLElement>("[data-published-card]"),
+  ).filter((node) => {
+    const card = renderedCards.get(node);
+    return (
+      card &&
+      JSON.stringify(cardIdentity(card)) === identity &&
+      (detail === undefined || cardDetail(card) === detail)
+    );
+  });
+}
+
+function cardLinkMatches(
+  card: HTMLElement,
+  address: Pick<CardLinkOrigin, "part" | "label">,
+  href: string,
+) {
+  const section = card.querySelector(
+    `[data-published-card-part="${CSS.escape(address.part)}"]`,
+  );
+  return section
+    ? Array.from(
+        section.querySelectorAll<HTMLAnchorElement>("a[data-published-link]"),
+      ).filter(
+        (link) =>
+          link.href === href && link.textContent?.trim() === address.label,
+      )
+    : [];
+}
+
+function postLinkMatches(row: HTMLElement, href: string) {
+  return Array.from(
+    row.querySelectorAll<HTMLAnchorElement>("a[data-published-link]"),
   ).filter(
-    (link) =>
-      link.href === href &&
-      (card
-        ? link.textContent?.trim() === card.label
-        : !link.closest("[data-published-card]")),
+    (link) => link.href === href && !link.closest("[data-published-card]"),
   );
 }
+
+export type PublishedLinkLanding = "edited" | "unmatchedLink";
 
 export function publishedOriginLink(
   row: HTMLElement,
   address: PublishedReadingOrigin["link"],
-) {
-  return publishedLinkMatches(row, address)[address.occurrence];
+): { link: HTMLAnchorElement } | { notice: PublishedLinkLanding } {
+  const { card, href, occurrence } = address;
+  if (!card) {
+    const link = postLinkMatches(row, href)[occurrence];
+    return link ? { link } : { notice: "edited" };
+  }
+  function unconfirmed(): { notice: PublishedLinkLanding } {
+    const sameLink = Array.from(
+      row.querySelectorAll<HTMLAnchorElement>("a[data-published-link]"),
+    ).some(
+      (link) => link.href === href && link.textContent?.trim() === card?.label,
+    );
+    return { notice: sameLink ? "unmatchedLink" : "edited" };
+  }
+  const matches = cardMatches(row, card);
+  if (card.ambiguous || matches.length !== 1) return unconfirmed();
+  const links = cardLinkMatches(matches[0], card, href);
+  if (links.length !== card.count) return unconfirmed();
+  return { link: links[occurrence] };
 }
 
 export function capturePublishedReadingOrigin(
@@ -105,19 +179,35 @@ export function capturePublishedReadingOrigin(
   if (reading.anchors.length !== 1 || !reading.anchors[0].published)
     return null;
   const href = anchor.href;
-  const cardIndex = anchor.closest<HTMLElement>("[data-published-card]")
-    ?.dataset.publishedCard;
-  const cardPart = anchor.closest<HTMLElement>("[data-published-card-part]")
+  const cardNode = anchor.closest<HTMLElement>("[data-published-card]");
+  const data = cardNode && renderedCards.get(cardNode);
+  const part = anchor.closest<HTMLElement>("[data-published-card-part]")
     ?.dataset.publishedCardPart;
-  const card =
-    cardIndex !== undefined && cardPart
-      ? {
-          index: cardIndex,
-          part: cardPart,
-          label: anchor.textContent?.trim() ?? "",
-        }
-      : undefined;
-  const occurrence = publishedLinkMatches(row, { href, card }).indexOf(anchor);
+  let card: CardLinkOrigin | undefined;
+  let occurrence: number;
+  if (cardNode && data && part) {
+    const heading = cardIdentity(data);
+    const identity = JSON.stringify(heading);
+    // Mattermost sends no stable card identifier. Prefer its authored heading
+    // when it identifies one report, and fingerprint the text when necessary.
+    const detail =
+      !heading.some(Boolean) || cardMatches(row, { identity }).length > 1
+        ? cardDetail(data)
+        : undefined;
+    const label = anchor.textContent?.trim() ?? "";
+    const links = cardLinkMatches(cardNode, { part, label }, href);
+    card = {
+      identity,
+      detail,
+      part,
+      label,
+      count: links.length,
+      ambiguous: cardMatches(row, { identity, detail }).length !== 1,
+    };
+    occurrence = links.indexOf(anchor);
+  } else {
+    occurrence = postLinkMatches(row, href).indexOf(anchor);
+  }
   if (occurrence < 0) return null;
   const label = inThread ? scope.threadLabel : scope.label;
   const description =
@@ -141,6 +231,7 @@ export function capturePublishedReadingOrigin(
     link: {
       href,
       occurrence,
+      offsetInPost: link.top - row.getBoundingClientRect().top,
       ...(card && { card }),
       ...(anchor
         .closest("[data-published-disclosure]")

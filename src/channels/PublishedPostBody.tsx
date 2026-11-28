@@ -10,7 +10,10 @@ import {
 } from "react";
 import { isAndroid } from "../build-platform.ts";
 import type { IntegrationCard } from "../mattermost/integration-cards.ts";
-import { IntegrationCardDisclosure } from "./IntegrationCardDisclosure.tsx";
+import {
+  IntegrationCardDisclosure,
+  PublishedText,
+} from "./IntegrationCardDisclosure.tsx";
 import { CodeCopy, CodePreview } from "./PublishedCodeReader.tsx";
 import {
   PublishedLinkNavigation,
@@ -28,6 +31,7 @@ import {
   integrationCardBody,
   integrationCardTitle,
 } from "./published-post-summary.ts";
+import { registerPublishedCard } from "./published-reading-history.ts";
 import "./published-post.css";
 import "./published-integration-card.css";
 
@@ -100,15 +104,19 @@ function MobileCode({
 function inlineNode(node: Inline, locale: Locale): React.ReactNode {
   switch (node.kind) {
     case "text":
-      return node.text;
+      return <PublishedText>{node.text}</PublishedText>;
     case "code":
-      return <code>{node.text}</code>;
+      return (
+        <code>
+          <PublishedText>{node.text}</PublishedText>
+        </code>
+      );
     case "lineBreak":
       return <br />;
     case "imageDescription":
       return (
         <PublishedPostLink target={node.target}>
-          {node.text || labels[locale].image}
+          <PublishedText>{node.text || labels[locale].image}</PublishedText>
         </PublishedPostLink>
       );
     case "emphasis":
@@ -321,7 +329,11 @@ function blockNode(block: Block, locale: Locale): React.ReactNode {
     case "rule":
       return <hr />;
     case "literal":
-      return <div className="post-literal">{block.text}</div>;
+      return (
+        <div className="post-literal">
+          <PublishedText>{block.text}</PublishedText>
+        </div>
+      );
     case "list": {
       const children = block.items.map((item, index) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: The ordered document already owns each item's position.
@@ -415,6 +427,9 @@ function PublishedIntegrationCard({
         <div
           className="published-integration-card"
           data-published-card={index}
+          ref={(node) => {
+            if (node) registerPublishedCard(node, card);
+          }}
           data-published-disclosure=""
           style={color ? { borderInlineStartColor: color } : undefined}
         >

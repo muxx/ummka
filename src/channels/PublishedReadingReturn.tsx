@@ -15,6 +15,7 @@ const copy = {
     failed: "Couldn’t go back to the link",
     unavailable: "Message unavailable",
     edited: "The link is gone because the message was edited",
+    unmatchedLink: "Couldn’t identify the original link in the message",
   },
   ru: {
     back: "К ссылке",
@@ -25,6 +26,7 @@ const copy = {
     failed: "Не удалось вернуться к ссылке",
     unavailable: "Сообщение недоступно",
     edited: "Ссылки здесь больше нет: сообщение изменили",
+    unmatchedLink: "Не удалось найти исходное вхождение ссылки в сообщении",
   },
 };
 

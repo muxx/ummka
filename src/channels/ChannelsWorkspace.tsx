@@ -65,6 +65,7 @@ import { showPostArrival } from "./post-arrival.ts";
 import { newestCollectionItems } from "./post-collection.ts";
 import {
   capturePublishedReadingOrigin,
+  type PublishedLinkLanding,
   type PublishedReadingOrigin,
   publishedOriginLink,
 } from "./published-reading-history.ts";
@@ -1632,8 +1633,9 @@ export function ChannelsWorkspace({
   const readingReady = readingInbox
     ? inbox.visible && selection?.post?.id === linkPlacement?.origin.rootId
     : timeline.focus?.requestId === focusRequest?.requestId;
-  const reportReadingLanding = useEffectEvent((id: number, edited: boolean) =>
-    readingReturn?.landed(id, edited),
+  const reportReadingLanding = useEffectEvent(
+    (id: number, notice?: PublishedLinkLanding) =>
+      readingReturn?.landed(id, notice),
   );
   useLayoutEffect(() => {
     if (
@@ -1646,6 +1648,7 @@ export function ChannelsWorkspace({
     const id = focusRequest.requestId;
     const origin = linkPlacement.origin;
     let frame: number;
+    let revealed = false;
     let clear: (() => void) | undefined;
     const focus = () => {
       const pane = host.current?.querySelector<HTMLElement>(
@@ -1657,15 +1660,22 @@ export function ChannelsWorkspace({
         `[data-post-id="${CSS.escape(origin.postId)}"]`,
       );
       if (!pane || !row || row.closest("[inert], [hidden]")) return;
-      const link = publishedOriginLink(row, origin.link);
+      const destination = publishedOriginLink(row, origin.link);
+      const link = "link" in destination ? destination.link : undefined;
       const disclosure =
-        origin.link.expanded &&
+        !revealed &&
+        link &&
+        (origin.link.expanded ||
+          link.closest(
+            "[data-post-disclosure-clipped], [data-card-disclosure-clipped]",
+          )) &&
         link
-          ?.closest("[data-published-disclosure]")
+          .closest("[data-published-disclosure]")
           ?.querySelector<HTMLButtonElement>(
             "[data-published-disclosure-action][aria-expanded=false]",
           );
       if (disclosure) {
+        revealed = true;
         disclosure.click();
         frame = requestAnimationFrame(focus);
         return;
@@ -1678,11 +1688,37 @@ export function ChannelsWorkspace({
           offset;
       const visibleLink =
         link && !link.closest("[inert], [hidden]") ? link : null;
-      if (!visibleLink) row.tabIndex = -1;
+      if (visibleLink) {
+        const linkBounds = visibleLink.getBoundingClientRect();
+        const paneBounds = pane.getBoundingClientRect();
+        const shift =
+          origin.link.offsetInPost === undefined
+            ? 0
+            : linkBounds.top -
+              row.getBoundingClientRect().top -
+              origin.link.offsetInPost;
+        const outside =
+          linkBounds.bottom <= paneBounds.top ||
+          linkBounds.top >= paneBounds.bottom;
+        const partlyHidden =
+          linkBounds.top < paneBounds.top ||
+          linkBounds.bottom > paneBounds.bottom;
+        if (outside || (partlyHidden && Math.abs(shift) > 1))
+          visibleLink.scrollIntoView({ block: "nearest", inline: "nearest" });
+      } else {
+        row.tabIndex = -1;
+      }
       (visibleLink ?? row).focus({ preventScroll: true });
       landedReading.current = id;
       clear = showPostArrival(row);
-      reportReadingLanding(id, !visibleLink);
+      reportReadingLanding(
+        id,
+        "notice" in destination
+          ? destination.notice
+          : visibleLink
+            ? undefined
+            : "unmatchedLink",
+      );
     };
     frame = requestAnimationFrame(focus);
     return () => {

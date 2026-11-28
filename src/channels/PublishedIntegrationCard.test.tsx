@@ -82,7 +82,7 @@ test("renders ordered, structured, linked card text from the cached data", async
   if (!card) throw Error("Card is missing");
   expect(card.previousElementSibling?.textContent).toBe("Staging result");
   expect(card.style.borderInlineStartColor).toBe("rgb(78, 146, 125)");
-  expect(within(card).getByText("Verified.").tagName).toBe("STRONG");
+  expect(within(card).getByText("Verified.").closest("strong")).toBeTruthy();
   expect(within(card).getByText("Nightly report")).toBeDefined();
   const fields = Array.from(card.querySelectorAll("dl > div"));
   expect(fields.map((field) => field.querySelector("dt")?.textContent)).toEqual(
@@ -204,6 +204,17 @@ test("uses the last complete line, exposes buried links, and keeps the post and 
     for (const measure of watches) measure();
   });
   expect(within(first).queryByRole("button")).toBeNull();
+  expect(document.activeElement).toBe(within(first).getByRole("heading"));
+
+  link?.focus();
+  expect(document.activeElement).toBe(link);
+  height = 235;
+  act(() => {
+    for (const measure of watches) measure();
+  });
+  expect(document.activeElement).toBe(
+    within(first).getByRole("button", { name: "Show full card: First" }),
+  );
 });
 
 test("returns to a repeated link in its card section after an edit and rejects a neighboring match", () => {
@@ -211,10 +222,15 @@ test("returns to a repeated link in its card section after an edit and rejects a
     new DOMRect(0, 0, 240, 160),
   );
   const first: IntegrationCard = {
+    title: "Initial report",
     text: `[Same](${url}) · [Same](${url})`,
     fields: [],
   };
-  const second: IntegrationCard = { fields: [], text: `[Other](${url})` };
+  const second: IntegrationCard = {
+    title: "Different report",
+    fields: [],
+    text: `[Same](${url}) · [Same](${url})`,
+  };
   function fixture(cards: IntegrationCard[]) {
     return (
       <PublishedLinkNavigation value={{ serverUrl, open: vi.fn() }}>
@@ -248,10 +264,30 @@ test("returns to a repeated link in its card section after an edit and rejects a
 
   const amended = { ...first, text: `Edited: ${first.text}` };
   rerender(fixture([amended, second]));
-  expect(publishedOriginLink(row, origin.link)).toBe(
-    row.querySelectorAll("a")[2],
-  );
+  expect(publishedOriginLink(row, origin.link)).toEqual({
+    link: row.querySelectorAll("a")[2],
+  });
+
+  rerender(fixture([second, amended]));
+  expect(publishedOriginLink(row, origin.link)).toEqual({
+    link: row.querySelectorAll("a")[4],
+  });
 
   rerender(fixture([second]));
-  expect(publishedOriginLink(row, origin.link)).toBeUndefined();
+  expect(publishedOriginLink(row, origin.link)).toEqual({
+    notice: "unmatchedLink",
+  });
+
+  rerender(fixture([first, first]));
+  const indistinguishable = row.querySelectorAll("a")[3];
+  const duplicate = capturePublishedReadingOrigin(indistinguishable, {
+    channelId: "room",
+    threadRootId: null,
+    teamId: "team",
+  });
+  if (!duplicate) throw Error("Duplicate origin is missing");
+  rerender(fixture([first]));
+  expect(publishedOriginLink(row, duplicate.link)).toEqual({
+    notice: "unmatchedLink",
+  });
 });
