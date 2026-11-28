@@ -1560,7 +1560,11 @@ test.each(["Saved messages", "Pinned messages", "Mentions"])(
       );
       fireEvent.click(screen.getByRole("menuitem", { name }));
     } else {
-      fireEvent.click(await screen.findByRole("button", { name }));
+      const trigger = await screen.findByRole<HTMLButtonElement>("button", {
+        name,
+      });
+      await waitFor(() => expect(trigger.disabled).toBe(false));
+      fireEvent.click(trigger);
     }
     const pane = within(await screen.findByRole("complementary", { name }));
     const heading = pane.getByRole("heading", { name });
