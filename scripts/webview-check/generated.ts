@@ -744,6 +744,65 @@ export async function checkGeneratedRequests(ports: string[]) {
         !Object.hasOwn(recipientCache.usernames, "anna"),
       "recipient lookup does not populate history profiles",
     );
+    const localRecipients: string[] = [];
+    const federated = accountPrefix.readConversationRecipients(
+      teamId,
+      { kind: "search", term: "federated" },
+      undefined,
+      (page) => {
+        localRecipients.push(...page.profiles.map((person) => person.id));
+      },
+    );
+    await observed("received", "remote-recipient");
+    check(
+      localRecipients.join() === userId,
+      "local recipient precedes remote confirmation",
+    );
+    await observed("release-remote-recipient", "remote-recipient");
+    check(
+      (await federated).profiles.map((person) => person.id).join() ===
+        ["r".repeat(26), userId].join(),
+      "confirmed remote recipient in original order, excluding false and 404",
+    );
+    const rootRecipients = await accountRoot.readConversationRecipients(
+      teamId,
+      { kind: "search", term: "federated" },
+    );
+    check(
+      rootRecipients.profiles.map((person) => person.id).join() === userId,
+      "a second signed installation has its own recipient policy",
+    );
+    const changeSearch = new AbortController();
+    const replacedSearch = rejected(
+      accountPrefix.readConversationRecipients(
+        teamId,
+        { kind: "search", term: "federated-hold" },
+        changeSearch.signal,
+      ),
+    );
+    await observed("received", "remote-recipient-cancel");
+    const searchChanged = new Error("search changed");
+    changeSearch.abort(searchChanged);
+    const replacement = await accountPrefix.readConversationRecipients(teamId, {
+      kind: "search",
+      term: "federated-replacement",
+    });
+    check(
+      (await replacedSearch) === searchChanged &&
+        replacement.profiles.map((person) => person.id).join() === userId,
+      "new search owns its results after cancellation",
+    );
+    await observed("closed", "remote-recipient-cancel");
+    const expired = await rejected(
+      accountPrefix.readConversationRecipients(teamId, {
+        kind: "search",
+        term: "federated-expired",
+      }),
+    );
+    check(
+      expired instanceof ResponseError && expired.response.status === 401,
+      "capability 401 rejects the full recipient read",
+    );
     const recipientPage = await users.getUsers({
       page: 1,
       perPage: 20,

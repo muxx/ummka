@@ -85,11 +85,14 @@ export function webviewServers(
     "card-race-first",
     "submit-post",
     "recipient-hold",
+    "remote-recipient",
+    "remote-recipient-cancel",
   ];
   const events = new EventEmitter();
   // Each fixture signal fires once and has no error event.
   const signal = (event: string) =>
     new Promise<void>((resolve) => events.once(event, resolve));
+  const releaseRemoteRecipient = signal("release-remote-recipient");
   const held = new Map(
     cases.map((name) => [
       name,
@@ -205,6 +208,24 @@ export function webviewServers(
   const entrySettings = new Map<string, ServerResponse>();
   const userId = "Abc01234567890123456789012";
   const remoteRecipient = "z".repeat(26);
+  const recipientDmChecks = new Map(
+    [
+      ["r", "allowed"],
+      ["f", "refused"],
+      ["h", "absent"],
+      ["j", "cancel"],
+      ["k", "expired"],
+    ].map(([suffix, outcome]) => [
+      `/team/chat/api/v4/sharedchannels/users/me/can_dm/${suffix.repeat(26)}`,
+      outcome,
+    ]),
+  );
+  const federatedSearches = new Map([
+    ["federated", ["r", "f", "h"]],
+    ["federated-hold", ["j"]],
+    ["federated-replacement", []],
+    ["federated-expired", ["k"]],
+  ]);
   const recipientRoutes = new Map<string, { visit: string; body: object }>([
     [
       `/team/chat/api/v4/users/${remoteRecipient}`,
@@ -936,13 +957,49 @@ export function webviewServers(
         .end(JSON.stringify({ status: "OK" }));
       return;
     }
-    if (
-      url.pathname === "/team/chat/api/v4/users" ||
-      url.pathname === "/team/chat/api/v4/users/search"
-    ) {
+    const recipientCheck = recipientDmChecks.get(url.pathname);
+    if (recipientCheck) {
+      assert.equal(req.method, "GET");
       assert.equal(
         req.headers.authorization,
         "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      assert.equal(url.search, "");
+      assert.equal(await text(req), "");
+      visits.push(`remote-recipient-${recipientCheck}`);
+      if (recipientCheck === "cancel") {
+        res.once("close", () => events.emit("remote-recipient-cancel-closed"));
+        events.emit("remote-recipient-cancel-received");
+        return;
+      }
+      if (recipientCheck === "allowed") {
+        events.emit("remote-recipient-received");
+        await releaseRemoteRecipient;
+      }
+      res
+        .writeHead(
+          recipientCheck === "absent"
+            ? 404
+            : recipientCheck === "expired"
+              ? 401
+              : 200,
+          { "Content-Type": "application/json" },
+        )
+        .end(JSON.stringify({ can_dm: recipientCheck === "allowed" }));
+      return;
+    }
+    if (
+      url.pathname === "/team/chat/api/v4/users" ||
+      url.pathname === "/team/chat/api/v4/users/search" ||
+      url.pathname === "/api/v4/users/search"
+    ) {
+      const rootDirectory = url.pathname === "/api/v4/users/search";
+      assert.equal(
+        req.headers.authorization,
+        rootDirectory
+          ? "Bearer fixture-root-session"
+          : "Bearer fixture-prefixed-session",
       );
       assert.equal(req.headers.cookie, undefined);
       let account: boolean;
@@ -951,6 +1008,37 @@ export function webviewServers(
         assert.equal(url.search, "");
         const body = await json(req);
         assert.ok(body && typeof body === "object" && "term" in body);
+        const remotes =
+          typeof body.term === "string" && federatedSearches.get(body.term);
+        if (rootDirectory) assert.equal(body.term, "federated");
+        if (remotes) {
+          assert.deepEqual(body, {
+            term: body.term,
+            team_id: teamId,
+            allow_inactive: false,
+            limit: 100,
+          });
+          visits.push(
+            `recipient-search-${rootDirectory ? "root-" : ""}${body.term}`,
+          );
+          res
+            .writeHead(200, {
+              "Content-Type": "application/json",
+              "X-Version-Id": "12.1.0.123.hash.false",
+            })
+            .end(
+              JSON.stringify([
+                ...remotes.map((suffix) => ({
+                  id: suffix.repeat(26),
+                  username: `remote-${suffix}`,
+                  delete_at: 0,
+                  remote_id: "n".repeat(26),
+                })),
+                { id: userId, username: "local", delete_at: 0 },
+              ]),
+            );
+          return;
+        }
         account = body.term === "Анна";
         assert.deepEqual(body, {
           term: account ? "Анна" : "ан",
@@ -2015,6 +2103,7 @@ export function webviewServers(
           "received",
           "closed",
           "before",
+          "release-remote-recipient",
           "release-history",
           "release-submission",
           "disconnect",
@@ -2244,6 +2333,8 @@ export function webviewServers(
         console.log(
           "Verified native code-block and table scrolling at both widths.",
         );
+    } else if (step === "release-remote-recipient") {
+      events.emit("release-remote-recipient");
     } else if (step === "release-history") {
       if (name && name !== "refresh-late") cardRace.release(name);
       else refresh.release();
@@ -2431,6 +2522,16 @@ export function webviewServers(
         "known-remote-recipient",
         "unseen-remote-recipient",
         "recipient-hold",
+        "recipient-search-federated",
+        "recipient-search-root-federated",
+        "recipient-search-federated-hold",
+        "recipient-search-federated-replacement",
+        "recipient-search-federated-expired",
+        "remote-recipient-allowed",
+        "remote-recipient-refused",
+        "remote-recipient-absent",
+        "remote-recipient-cancel",
+        "remote-recipient-expired",
         "account-recipient-page",
         "account-recipient-search",
         "recipient-page",
@@ -2766,6 +2867,9 @@ export function webviewServers(
         `${platform} verified native return through the search dialog, results and thread with both composer drafts intact.`,
       );
       assert.deepEqual(visits.sort(), expected.sort());
+      console.log(
+        `Signed recipient partial page, ordering, refusal, cancellation and isolation verified in the ${platform} WebView.`,
+      );
       console.log(
         `Signed bookmark creation, editing, reordering, deletion and refusal verified in the ${platform} WebView.`,
       );

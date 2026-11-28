@@ -42,13 +42,14 @@ test.each(["any", "team", undefined] as const)(
       return Response.json([user(2), user(1)]);
     });
     const config = new Configuration({ basePath, fetchApi });
-    const readScope = vi.fn(async () => scope);
+    const readScope = vi.fn(async () => ({ dmRecipientScope: scope }));
     for (const query of [
       { kind: "page", page: 3 },
       { kind: "search", term: " @Анна " },
     ] as const) {
       const result = await readConversationRecipients(
         config,
+        id(1),
         team,
         query,
         readScope,
@@ -72,7 +73,9 @@ test("rereads the account scope and advances only full pages", async () => {
   const config = new Configuration({ basePath, fetchApi });
   let scope: ServerPolicy["dmRecipientScope"] = "any";
   const read = (query: RecipientQuery) =>
-    readConversationRecipients(config, team, query, async () => scope);
+    readConversationRecipients(config, id(1), team, query, async () => ({
+      dmRecipientScope: scope,
+    }));
   expect((await read({ kind: "page", page: 0 })).nextPage).toBe(1);
   scope = "team";
   expect((await read({ kind: "page", page: 1 })).nextPage).toBeNull();
@@ -96,7 +99,7 @@ test("rejects stale identities and invalid query inputs", async () => {
     Response.json(invalidBatches.shift()),
   );
   const config = new Configuration({ basePath, fetchApi });
-  const scope = vi.fn(async () => "team" as const);
+  const scope = vi.fn(async () => ({ dmRecipientScope: "team" as const }));
   for (const query of [
     { kind: "page", page: -1 },
     { kind: "page", page: 0.5 },
@@ -104,11 +107,17 @@ test("rejects stale identities and invalid query inputs", async () => {
     { kind: "search", term: "  @  " },
   ] as const) {
     await expect(
-      readConversationRecipients(config, team, query, scope),
+      readConversationRecipients(config, id(1), team, query, scope),
     ).rejects.toThrow();
   }
   await expect(
-    readConversationRecipients(config, "bad", { kind: "page", page: 0 }, scope),
+    readConversationRecipients(
+      config,
+      id(1),
+      "bad",
+      { kind: "page", page: 0 },
+      scope,
+    ),
   ).rejects.toThrow();
   expect(scope).not.toHaveBeenCalled();
   expect(fetchApi).not.toHaveBeenCalled();
@@ -116,6 +125,7 @@ test("rejects stale identities and invalid query inputs", async () => {
     await expect(
       readConversationRecipients(
         config,
+        id(1),
         team,
         { kind: "page", page: 0 },
         scope,
@@ -133,11 +143,12 @@ test("cancels before dispatch when scope arrives late and discards a late respon
     });
     const readScope = async () => {
       if (stage === "scope") abort.abort("left team");
-      return "any" as const;
+      return { dmRecipientScope: "any" as const };
     };
     await expect(
       readConversationRecipients(
         new Configuration({ basePath, fetchApi }),
+        id(1),
         team,
         { kind: "page", page: 0 },
         readScope,

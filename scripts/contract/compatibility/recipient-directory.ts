@@ -58,10 +58,30 @@ export async function checkRecipientDirectory(
     1,
   );
 
+  const recipientRequests: string[] = [];
+  const directoryConnection = new Configuration({
+    basePath,
+    accessToken,
+    middleware: [
+      {
+        async post({ url, response }) {
+          recipientRequests.push(new URL(url).pathname);
+          assert.ok(
+            response.headers.get("x-version-id")?.startsWith(`${version}.`),
+          );
+          assert.equal(response.headers.get("cache-control"), null);
+        },
+      },
+    ],
+  });
   for (const scope of ["team", "any"] as const) {
-    const getScope = async () => scope;
+    const getScope = async () => ({
+      dmRecipientScope: scope,
+      sharedChannelDMs: true,
+    });
     const matches = await readConversationRecipients(
-      signed,
+      directoryConnection,
+      self.id,
       teamId,
       { kind: "search", term: `@${outsider.username}` },
       getScope,
@@ -72,7 +92,8 @@ export async function checkRecipientDirectory(
     );
     assert.equal(matches.nextPage, null);
     const page = await readConversationRecipients(
-      signed,
+      directoryConnection,
+      self.id,
       teamId,
       { kind: "page", page: 0 },
       getScope,
@@ -84,12 +105,19 @@ export async function checkRecipientDirectory(
     assert.ok(page.profiles.some((profile) => profile.id === self.id));
     assert.equal(page.nextPage, null);
   }
+  assert.deepEqual(recipientRequests, [
+    "/api/v4/users/search",
+    "/api/v4/users",
+    "/api/v4/users/search",
+    "/api/v4/users",
+  ]);
   await deactivateOutsider();
   const deactivated = await readConversationRecipients(
     signed,
+    self.id,
     teamId,
     { kind: "search", term: outsider.username },
-    async () => "any",
+    async () => ({ dmRecipientScope: "any" }),
   );
   assert.deepEqual(deactivated, { profiles: [], nextPage: null });
   assert.deepEqual(await find(outsider.username), []);

@@ -56,6 +56,7 @@ import {
   resolveConversationIdentifier,
 } from "./conversation-link-identifier.ts";
 import {
+  type RecipientPage,
   type RecipientQuery,
   readConversationRecipients,
 } from "./conversation-recipients.ts";
@@ -758,17 +759,20 @@ export async function openAccountRestConnection(
       teamId: string,
       query: RecipientQuery,
       signal?: AbortSignal,
+      onLocalPage?: (page: RecipientPage) => void,
     ) {
       return withAccountLifetime(
         (active) =>
           readConversationRecipients(
             config,
+            userId,
             teamId,
             query,
             async () =>
-              (await readWhileOpen(readWorkspaceSettings, active)).server
-                ?.dmRecipientScope,
+              (await readWhileOpen(readWorkspaceSettings, active)).server ??
+              undefined,
             active,
+            onLocalPage,
           ),
         signal,
       );
