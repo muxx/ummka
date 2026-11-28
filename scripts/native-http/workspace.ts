@@ -90,7 +90,11 @@ export async function respondToWorkspace(
   url: URL,
   prefixedUser: string,
   restoredPosting: boolean,
-  { joinedPublicRoom = false, systemLinks = false } = {},
+  {
+    joinedPublicRoom = false,
+    systemLinks = false,
+    acceptedThreadReply = false,
+  } = {},
 ): Promise<string | undefined> {
   function json(value: unknown, name: string, status = 200) {
     res
@@ -192,7 +196,8 @@ export async function respondToWorkspace(
   const townText = systemLinks
     ? `[Open published reply](/system-post-check/browser/pl/${townReply})`
     : townMessage;
-  const message = postList(town, member, townText).posts[townRoot];
+  const townPage = postList(town, member, townText);
+  const message = townPage.posts[townRoot];
   const fileInfo = {
     id: townFile,
     channel_id: town,
@@ -352,8 +357,32 @@ export async function respondToWorkspace(
     );
   }
   if (thread) {
-    const page = postList(town, member, townText);
+    const page = {
+      ...townPage,
+      posts: { [townRoot]: { ...message, is_following: acceptedThreadReply } },
+    };
     const query = Object.fromEntries(url.searchParams);
+    assert.equal(url.searchParams.size, Object.keys(query).length);
+    if (query.perPage === "1") {
+      assert(
+        acceptedThreadReply && !systemLinks,
+        "Subscription read before the accepted thread reply",
+      );
+      assert.deepEqual(query, {
+        direction: "down",
+        perPage: "1",
+        collapsedThreads: "true",
+      });
+      return json(
+        {
+          ...page,
+          order: [townRoot, earlierReplyId],
+          posts: { ...page.posts, [earlierReplyId]: earlierReply },
+          has_next: true,
+        },
+        "live-window-follow-source",
+      );
+    }
     if (query.fromPost !== undefined) {
       assert.ok(query.direction === "up" || query.direction === "down");
       assert.deepEqual(query, {
