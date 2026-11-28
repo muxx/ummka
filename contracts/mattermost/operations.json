@@ -346,6 +346,13 @@
   },
   {
     "file": "users.yaml",
+    "method": "GET",
+    "path": "/api/v4/users/{user_id}/teams/{team_id}/threads/{thread_id}",
+    "id": "GetUserThread",
+    "selfOnly": true
+  },
+  {
+    "file": "users.yaml",
     "method": "PUT",
     "path": "/api/v4/users/{user_id}/teams/{team_id}/threads/{thread_id}/read/{timestamp}",
     "id": "UpdateThreadReadForUser",

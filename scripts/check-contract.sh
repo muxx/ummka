@@ -94,6 +94,18 @@ declare const transport: ReturnType<typeof createRestTransport>;
 transport satisfies Required<Pick<ConfigurationParameters, "basePath" | "fetchApi">>;
 declare const threads: ThreadsApi;
 const selection = {userId: "me", teamId: "team", threadId: "thread"};
+const observed = await threads.getUserThread({ ...selection, extended: false });
+observed satisfies UserThread;
+observed.id satisfies string | undefined;
+observed.post?.id satisfies string | undefined;
+observed.lastViewedAt satisfies number | undefined;
+observed.unreadReplies satisfies number | undefined;
+observed.unreadMentions satisfies number | undefined;
+observed.participants?.[0].username satisfies string | undefined;
+// @ts-expect-error The single thread read requires the root ID.
+threads.getUserThread({ userId: "me", teamId: "team" });
+// @ts-expect-error The extended flag uses a boolean wire value.
+threads.getUserThread({ ...selection, extended: "false" });
 (await threads.updateThreadReadForUser({...selection, timestamp: Date.now()})) satisfies UserThread;
 (await threads.updateThreadsReadForUser(selection)).status satisfies string | undefined;
 // @ts-expect-error callers use Unix milliseconds as a number

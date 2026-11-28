@@ -97,6 +97,7 @@ import {
   correctThreadListQuery,
 } from "./thread-list-corrections.ts";
 import { correctThreadMutation } from "./thread-mutation-correction.ts";
+import { correctThreadRead } from "./thread-read-correction.ts";
 import { correctUserStatus } from "./user-status-correction.ts";
 
 const methods = new Set([
@@ -424,6 +425,11 @@ export function buildSpecification(
       );
     else if (id === "GetUserThreads")
       paths[path][method] = correctThreadListQuery(
+        operation,
+        object(object(read("users-12.1.0.yaml")[path], path)[method], id),
+      );
+    else if (id === "GetUserThread")
+      paths[path][method] = correctThreadRead(
         operation,
         object(object(read("users-12.1.0.yaml")[path], path)[method], id),
       );

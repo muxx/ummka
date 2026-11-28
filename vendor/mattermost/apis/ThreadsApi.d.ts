@@ -2,6 +2,12 @@ import * as runtime from '../runtime.js';
 import { type StatusOK } from '../models/StatusOK.js';
 import { type UserThread } from '../models/UserThread.js';
 import { type UserThreads } from '../models/UserThreads.js';
+export interface GetUserThreadRequest {
+    userId: string;
+    teamId: string;
+    threadId: string;
+    extended?: boolean;
+}
 export interface GetUserThreadsRequest {
     userId: string;
     teamId: string;
@@ -43,6 +49,9 @@ export interface UpdateThreadsReadForUserRequest {
     teamId: string;
 }
 export declare class ThreadsApi extends runtime.BaseAPI {
+    getUserThreadRequestOpts(requestParameters: GetUserThreadRequest): Promise<runtime.RequestOpts>;
+    getUserThreadRaw(requestParameters: GetUserThreadRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<UserThread>>;
+    getUserThread(requestParameters: GetUserThreadRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<UserThread>;
     getUserThreadsRequestOpts(requestParameters: GetUserThreadsRequest): Promise<runtime.RequestOpts>;
     getUserThreadsRaw(requestParameters: GetUserThreadsRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<UserThreads>>;
     getUserThreads(requestParameters: GetUserThreadsRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<UserThreads>;
