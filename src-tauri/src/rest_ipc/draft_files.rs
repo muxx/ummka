@@ -13,7 +13,9 @@ use tauri::{Resource, ResourceId, Runtime, Webview};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+mod stage;
 mod transfer;
+pub use stage::stage_post;
 use transfer::EntryState;
 pub use transfer::{
     ChannelUploadDenial, UploadFailure, UploadPolicy, UploadState, channel_upload_denial,
@@ -66,6 +68,9 @@ pub enum DraftFilesError {
     UnknownFile,
     SourceUnavailable,
     InvalidUploadPolicy,
+    FilesChanged,
+    FilesNotReady,
+    HistoryUnavailable,
     Cancelled,
 }
 
@@ -157,8 +162,11 @@ fn close_workspace(account: &Session, workspace: ResourceId) -> Result<(), Draft
     let owner = resources
         .take::<Workspace>(workspace)
         .map_err(|_| DraftFilesError::UnknownWorkspace)?;
-    owner.lifetime.cancel();
     drop(resources);
+    // Closing and staging compete only for this workspace's state.
+    let mut state = owner.state.lock().unwrap();
+    owner.lifetime.cancel();
+    *state = WorkspaceState::default();
     Ok(())
 }
 
@@ -173,6 +181,7 @@ fn with_workspace<T>(
     let owner = resources
         .get::<Workspace>(workspace)
         .map_err(|_| DraftFilesError::UnknownWorkspace)?;
+    drop(resources);
     let result = operation(&owner);
     if owner.lifetime.is_cancelled() {
         Err(DraftFilesError::AccountUnavailable)
