@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { inspectConversationTarget } from "../channels/inspect-conversation-target.ts";
 import { useWorkspaceBack } from "../channels/use-workspace-back.ts";
 import {
   useAccountPolicy,
@@ -17,6 +18,7 @@ import {
   atDirectoryStep,
   directoryProblem,
 } from "../mattermost/account-directory-error";
+import type { KnownChannelName } from "../mattermost/conversation-link-identifier.ts";
 import {
   type JoinedTeam,
   type JoinedTeams,
@@ -590,8 +592,58 @@ function AccountWindow({
           request.stop("paused");
           return;
         }
+        const target = request.target;
+        const owner = connection.current;
+        if (!owner) return;
+        const readChannelScope = async (
+          target: Extract<
+            SystemPostRequest["target"],
+            { kind: "conversation" }
+          >,
+          active?: AbortSignal,
+        ) => {
+          const ambiguous =
+            target.identifier.length === 26 || target.identifier.length === 40;
+          const team = ambiguous
+            ? directory?.teams.find(({ name }) => name === target.team)
+            : undefined;
+          const sidebar = team ? await owner.readTeamSidebar(team.id) : null;
+          active?.throwIfAborted();
+          const kind = sidebar?.data.channels.find(
+            ({ name }) => name === target.identifier,
+          )?.kind;
+          const known: KnownChannelName | undefined =
+            kind === "O" || kind === "P" || kind === "D" || kind === "G"
+              ? {
+                  serverUrl,
+                  userId,
+                  team: target.team,
+                  name: target.identifier,
+                  kind,
+                }
+              : undefined;
+          const found = await inspectConversationTarget(
+            owner,
+            target,
+            known,
+            active,
+          );
+          if (found.kind !== "channel" || found.channel.membership !== "member")
+            return null;
+          return {
+            teamId: found.team.id,
+            channelId: found.channel.id,
+            kind: found.channel.type,
+          };
+        };
         await messages.open(
-          { kind: "post", id: request.target.postId },
+          target.kind === "conversation"
+            ? {
+                kind: "named-channel-post",
+                id: target.postId,
+                readChannelScope: (active) => readChannelScope(target, active),
+              }
+            : { kind: "post", id: target.postId },
           signal,
           {
             request,
