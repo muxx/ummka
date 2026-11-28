@@ -37,8 +37,13 @@ export const searchCopy = {
     readError: "Couldn’t load search settings.",
     results: "Search results",
     empty: "No matches.",
+    emptyHint: "Check the spelling or remove a filter.",
+    emptyWithTab: (kind: "posts" | "files") =>
+      `Check the spelling, remove a filter, or switch to ${kind === "posts" ? "Files" : "Messages"}.`,
     emptyQuery: "What are you looking for?",
+    emptyQueryHint: "Open Search, enter a term or filter, and press Enter.",
     loading: "Searching…",
+    updating: "Updating the list…",
     retry: "Try again",
     more: "Load more",
     unavailable: "These results are no longer available.",
@@ -90,8 +95,14 @@ export const searchCopy = {
     readError: "Не удалось загрузить настройки поиска.",
     results: "Результаты поиска",
     empty: "Совпадений нет.",
+    emptyHint: "Проверьте написание или уберите фильтр.",
+    emptyWithTab: (kind: "posts" | "files") =>
+      `Проверьте написание, уберите фильтр или переключитесь на ${kind === "posts" ? "файлы" : "сообщения"}.`,
     emptyQuery: "Что найти?",
+    emptyQueryHint:
+      "Откройте поиск в шапке, введите слово или фильтр и нажмите Enter.",
     loading: "Ищем…",
+    updating: "Обновляем список…",
     retry: "Повторить",
     more: "Показать ещё",
     unavailable: "Эти результаты больше недоступны.",

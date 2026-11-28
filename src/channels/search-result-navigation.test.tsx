@@ -229,6 +229,79 @@ test("restores the second file for one post and keeps bookmarks without a post a
   expect(account.readFileSearchPage).toHaveBeenCalledTimes(2);
   expect(account.rememberTeamSearch).toHaveBeenCalledTimes(1);
 });
+
+test("empty messages and files keep the ordinary query editor available", async () => {
+  const { account } = fixture();
+  account.readPostSearchPage.mockResolvedValueOnce({
+    items: [],
+    matches: null,
+    isEnd: true,
+    firstInaccessiblePostTime: 0,
+  });
+  account.readFileSearchPage.mockResolvedValueOnce({
+    items: [],
+    isEnd: true,
+    firstInaccessibleFileTime: 0,
+  });
+  const results = await search();
+  await results.findByRole("heading", { name: "No matches." });
+  expect(results.getByText(/switch to Files/)).toBeTruthy();
+  fireEvent.click(results.getByRole("button", { name: "Files" }));
+  await results.findByText(/switch to Messages/);
+  const edit = results.getByRole("button", {
+    name: "Edit search",
+  });
+  edit.focus();
+  fireEvent.click(edit);
+  const field = within(
+    await screen.findByRole("dialog"),
+  ).getByRole<HTMLInputElement>("searchbox");
+  expect(field.value).toBe("window");
+  await waitFor(() => expect(document.activeElement).toBe(field));
+});
+
+test("search continuation keeps rows, waits before announcing and retries the same page", async () => {
+  const { account } = fixture();
+  const page = (id: string, message: string, isEnd: boolean) => ({
+    items: [{ id, channelId: design, message, cards: [] }],
+    matches: null,
+    isEnd,
+    firstInaccessiblePostTime: 0,
+  });
+  let rejectPage!: (error: Error) => void;
+  const held = new Promise<ReturnType<typeof page>>((_resolve, reject) => {
+    rejectPage = reject;
+  });
+  account.readPostSearchPage
+    .mockResolvedValueOnce(page(root.id, "First result", false))
+    .mockReturnValueOnce(held)
+    .mockResolvedValueOnce(page(reply.id, "Second result", true));
+  const results = await search();
+  const first = await results.findByRole("button", { name: "First result" });
+  const more = results.getByRole("button", { name: "Load more" });
+  more.focus();
+  fireEvent.click(more);
+  expect(results.getByRole("button", { name: "Load more" })).toBe(more);
+  expect(more.getAttribute("aria-disabled")).toBe("true");
+  expect(document.activeElement).toBe(more);
+  expect(results.queryByText("Updating the list…")).toBeNull();
+  fireEvent.click(more);
+  await results.findByText("Updating the list…", {}, { timeout: 2000 });
+  expect(results.getByRole("button", { name: "First result" })).toBe(first);
+  await act(async () => rejectPage(new TypeError("Disconnected")));
+  expect(results.getByRole("alert").textContent).toBe("Couldn’t load results.");
+  const retry = results.getByRole("button", { name: "Try again" });
+  expect(retry).toBe(more);
+  expect(document.activeElement).toBe(retry);
+  fireEvent.click(retry);
+  const second = await results.findByRole("button", { name: "Second result" });
+  expect(results.getByRole("button", { name: "First result" })).toBe(first);
+  expect(document.activeElement).toBe(second);
+  expect(
+    account.readPostSearchPage.mock.calls.map(([request]) => request.page),
+  ).toEqual([0, 1, 1]);
+});
+
 test("a result in another team survives replacement of the Channels workspace and closes its old search", async () => {
   const { account } = fixture({ cross: true });
   const results = await search();

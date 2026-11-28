@@ -12,7 +12,7 @@ export function PanelState({
   ref,
 }: {
   variant: "pending" | "empty" | "error" | "offline" | "refresh" | "stale";
-  title?: string;
+  title?: ReactNode;
   titleRef?: Ref<HTMLHeadingElement>;
   message?: string;
   action?: ReactNode;
