@@ -953,16 +953,18 @@ test.each([0, 86400000])(
   "a confirmed own reply across a gap of %i ms keeps its day, row and focus",
   async (dayOffset) => {
     const connection = mount(true);
+    const author = channelProfile({
+      id: userId,
+      username: "ada",
+      firstName: "Ada",
+    });
     connection.readSavedProfiles.mockResolvedValue({
-      profiles: {
-        [userId]: channelProfile({
-          id: userId,
-          username: "ada",
-          firstName: "Ada",
-        }),
-      },
+      profiles: { [userId]: author },
       usernames: { ada: userId },
     });
+    connection.refreshSavedProfiles.mockImplementation(async ({ ids }) =>
+      ids.includes(userId) ? [author] : [],
+    );
     const canonical = {
       ...reply,
       id: "n".repeat(26),
