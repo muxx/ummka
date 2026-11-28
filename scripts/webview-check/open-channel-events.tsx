@@ -9,6 +9,7 @@ import {
   readInstallationSelection,
   selectInstallation,
 } from "../../src/mattermost/installation-registry.ts";
+import { openAccountRestConnection } from "../../src/mattermost/native-rest.ts";
 import { openThreadFromMessageMenu } from "./published-post-actions.ts";
 import { withVisibleTestWindow } from "./visible-window.ts";
 
@@ -182,21 +183,55 @@ export async function checkOpenChannelEvents(
                 throw Error("Deleted reply still visible");
             }, options);
           }
-          await control("delete-root");
-          await reopened.findByText(
-            "This thread is no longer available.",
-            {},
-            options,
-          );
-          if (reopened.queryByRole("textbox", { name: "Reply in thread…" }))
-            throw Error("Deleted root still accepts replies");
-          await waitFor(() => {
-            if (item("q") || reopened.queryByText("Edited event reply"))
-              throw Error("Removing the root left its reply visible");
-          }, options);
-          fireEvent.click(
-            reopened.getByRole("button", { name: "Close thread" }),
-          );
+          const channelId = "c".repeat(26);
+          const saved = await openAccountRestConnection(base, "b".repeat(26));
+          try {
+            if (
+              mode === "flat" &&
+              (await saved.readSavedPost(channelId, "q".repeat(26)))?.rootId !==
+                "a".repeat(26)
+            )
+              throw Error("The flat reply was never saved in SQLite");
+            await control("delete-root");
+            await reopened.findByText(
+              "This thread is no longer available.",
+              {},
+              options,
+            );
+            if (
+              reopened.queryByRole("textbox", { name: "Reply in thread…" }) ||
+              reopened.queryByText("Edited event reply")
+            )
+              throw Error("Deleted thread content is still visible");
+            if (
+              (await saved.readSavedPost(channelId, "a".repeat(26))) ||
+              (await saved.readSavedPost(channelId, "q".repeat(26)))
+            )
+              throw Error("SQLite kept the deleted root or its reply");
+            const close = reopened.getByRole("button", {
+              name: "Close thread",
+            });
+            flushSync(() => fireEvent.click(close));
+            if (mode === "flat")
+              await new Promise<void>((resolve, reject) => {
+                requestAnimationFrame(() => {
+                  const pane = host.querySelector<HTMLElement>(
+                    ".channels-conversation .timeline-scroll",
+                  );
+                  if (!pane?.clientHeight)
+                    reject(Error("The channel did not return"));
+                  else if (item("q") || item("a"))
+                    reject(
+                      Error(
+                        `The first visible flat frame kept deleted content (root=${Boolean(item("a"))}, reply=${Boolean(item("q"))})`,
+                      ),
+                    );
+                  else resolve();
+                });
+              });
+          } finally {
+            await saved.close();
+          }
           await control("delete-second");
           await waitFor(() => {
             if (item("a") || item("z"))
@@ -256,6 +291,17 @@ export async function checkOpenChannelEvents(
             await control("navigate-cancelled");
             if (item("x"))
               throw Error("The old HTTP page reached the selected channel");
+            if (import.meta.env.UMMKA_PLATFORM === "android")
+              fireEvent.click(room.getByRole("button", { name: "Channels" }));
+            fireEvent.click(
+              await room.findByRole("button", { name: "Live room" }, options),
+            );
+            await waitFor(() => {
+              if (!row(32) || item("a") || item("q"))
+                throw Error(
+                  "Reopening the channel restored the deleted thread",
+                );
+            }, options);
           }
           await control("complete");
         } finally {

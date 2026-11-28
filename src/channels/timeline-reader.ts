@@ -115,16 +115,12 @@ function sameReading(before: ReadingPosition, after: ReadingPosition) {
 function restrictedPage(
   page: LocalChannelWindow,
   cutoff: number,
-  unavailable?: ReadonlySet<string>,
+  excludes?: (post: LocalPost) => boolean,
 ): LocalChannelWindow {
-  if (!cutoff && !page.firstInaccessiblePostTime && !unavailable?.size)
-    return page;
+  if (!cutoff && !page.firstInaccessiblePostTime && !excludes) return page;
   const boundary = Math.max(cutoff, page.firstInaccessiblePostTime);
   const posts = page.posts.filter(
-    (post) =>
-      post.createAt > boundary &&
-      !unavailable?.has(post.id) &&
-      !(post.rootId && unavailable?.has(post.rootId)),
+    (post) => post.createAt > boundary && !excludes?.(post),
   );
   if (
     posts.length === page.posts.length &&
@@ -174,6 +170,17 @@ export function createTimelineReader(
     !target ? (rememberedAccess?.cutoff ?? 0) : 0,
   );
   const unavailable = new Set(rememberedAccess?.unavailablePosts);
+  // Keep just the affected visible snapshot rows shielded from local reads
+  // already in flight. The next committed projection replaces this snapshot.
+  const removedWhileHidden = new Set<string>();
+  function hides({ id, rootId }: LocalPost) {
+    return (
+      unavailable.has(id) ||
+      removedWhileHidden.has(id) ||
+      (rootId !== null &&
+        (unavailable.has(rootId) || removedWhileHidden.has(rootId)))
+    );
+  }
   let state = empty(
     eligible ? "loading" : "unavailable",
     !target && !!channelId,
@@ -181,7 +188,11 @@ export function createTimelineReader(
   );
   if (needsProof) state = { ...state, notice: "forbidden" };
   if (retained) {
-    const page = restrictedPage(retained.page, confirmedCutoff, unavailable);
+    const page = restrictedPage(
+      retained.page,
+      confirmedCutoff,
+      unavailable.size ? hides : undefined,
+    );
     state = {
       ...state,
       page,
@@ -271,6 +282,7 @@ export function createTimelineReader(
         changed = true;
         return;
       }
+      removedWhileHidden.clear();
       if (result.positionLost) {
         clearPage("positionLost");
       } else {
@@ -304,8 +316,13 @@ export function createTimelineReader(
   }
 
   function publish(next: Snapshot) {
-    if (next.page && (confirmedCutoff || unavailable.size)) {
-      const page = restrictedPage(next.page, confirmedCutoff, unavailable);
+    const exclusions = unavailable.size || removedWhileHidden.size;
+    if (next.page && (confirmedCutoff || exclusions)) {
+      const page = restrictedPage(
+        next.page,
+        confirmedCutoff,
+        exclusions ? hides : undefined,
+      );
       if (!page.posts.length && confirmedCutoff) {
         clearPage("inaccessible", confirmedCutoff);
         return;
@@ -319,8 +336,7 @@ export function createTimelineReader(
         focus:
           focus &&
           page.posts.some((row) => row.id === focus.anchorId) &&
-          (!reply ||
-            (reply.createAt > confirmedCutoff && !unavailable.has(reply.id)))
+          (!reply || (reply.createAt > confirmedCutoff && !hides(reply)))
             ? focus
             : null,
       };
@@ -593,8 +609,26 @@ export function createTimelineReader(
     viewport,
     watchChanges() {
       if (!channelId || !eligible || collapsedThreads === null) return;
-      return account.subscribeToChannelHistory(channelId, (source) => {
+      return account.subscribeToChannelHistory(channelId, (source, posts) => {
         if (source && pending?.signal === source) return;
+        // The phone keeps the timeline mounted underneath the thread. A fresh
+        // reading position needs visible geometry, but SQLite has already
+        // removed these rows and they must not appear when Back reveals it.
+        if (!pane?.clientHeight && state.page && posts) {
+          const before = removedWhileHidden.size;
+          const reply = state.focus?.focusedReply;
+          for (const change of posts)
+            if (
+              change.kind === "remove" &&
+              (state.page.posts.some(
+                (post) => post.id === change.id || post.rootId === change.id,
+              ) ||
+                reply?.id === change.id ||
+                reply?.rootId === change.id)
+            )
+              removedWhileHidden.add(change.id);
+          if (removedWhileHidden.size !== before) publish(state);
+        }
         changed = true;
         void readChanges();
       });

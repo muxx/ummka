@@ -748,6 +748,42 @@ test("notifies only the scoped open account and coalesces commits during local r
   expect(native.refreshChannelHistory).toHaveBeenCalledTimes(1);
 });
 
+test("a confirmed root deletion clears its flat reply before the hidden timeline returns", async () => {
+  const native = account();
+  const before = end(reply, root, old);
+  const after = end(old);
+  native.readChannelWindow.mockResolvedValue(before);
+  const view = open(native, { collapsed: false, online: false });
+  await waitFor(() => expect(view.result.current.page).toBe(before));
+
+  const pane = document.createElement("section");
+  const observer = vi.fn();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe = observer;
+      disconnect() {}
+    },
+  );
+  try {
+    view.result.current.viewport.current = pane;
+    native.readChannelWindow.mockClear().mockResolvedValue(after);
+    act(() => {
+      native.notify(channelId, undefined, [
+        { kind: "remove", id: root.id, channelId },
+      ]);
+    });
+    expect(pane.clientHeight).toBe(0);
+    expect(observer).toHaveBeenCalledWith(pane);
+    expect(native.readChannelWindow).not.toHaveBeenCalled();
+    expect(view.result.current.page?.posts.map((post) => post.id)).toEqual([
+      old.id,
+    ]);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
 test("an outgoing row anchors scrolling without being queried as a published post", async () => {
   const native = account();
   const initial = end(root);
