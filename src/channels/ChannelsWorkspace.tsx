@@ -441,6 +441,23 @@ export function ChannelsWorkspace({
   // publication from the team's existing observer, including loss of access.
   const published = directory.state.value;
   const status = directory.state.status;
+  const directoryDenied = ["forbidden", "session", "unauthorized"].includes(
+    status,
+  );
+  const publishedChannels = published?.data.channels;
+  const publishedChannelIds = useMemo(
+    () => new Set(publishedChannels?.map(({ id }) => id)),
+    [publishedChannels],
+  );
+  const confirmedChannelIds = useMemo(
+    () =>
+      directoryDenied
+        ? new Set<string>()
+        : status === "ready"
+          ? publishedChannelIds
+          : undefined,
+    [directoryDenied, status, publishedChannelIds],
+  );
   const focusRequest = position?.request;
   const readingInbox = position?.readingReturn?.origin.inbox;
   const [handoff, setHandoff] = useState({ focusRequest, published, status });
@@ -504,17 +521,25 @@ export function ChannelsWorkspace({
         : null,
     [policy.user, policy.server.value],
   );
-  const historyScope = useMemo(
+  const historyAccessScope = useMemo(
     () => ({
       connection,
       teamId: team.id,
-      collapsedThreads: settings?.collapsedThreads,
-      windows: new Map<string, RetainedChannelWindow>(),
-      access: new Map<string, ChannelHistoryAccess>(),
+      channels: new Map<string, ChannelHistoryAccess>(),
     }),
-    [connection, team.id, settings?.collapsedThreads],
+    [connection, team.id],
   );
-  const retainedChannels = historyScope.windows;
+  const historyWindowScope = useMemo(
+    () => ({
+      account: historyAccessScope,
+      collapsedThreads: settings?.collapsedThreads ?? null,
+      windows: new Map<string, RetainedChannelWindow>(),
+    }),
+    [historyAccessScope, settings?.collapsedThreads],
+  );
+  const channelHistoryAccess = historyAccessScope.channels;
+  const retainedChannels = historyWindowScope.windows;
+  useLayoutEffect(() => () => retainedChannels.clear(), [retainedChannels]);
   const inbox = useWorkspaceThreadInbox(
     connection,
     workspace.threadReads,
@@ -626,8 +651,9 @@ export function ChannelsWorkspace({
     restoredChannel?.channelId === chosen &&
     (!restoredChannel.owner ||
       (restoredChannel.owner === retainedChannels &&
-        !["forbidden", "unauthorized", "session"].includes(status) &&
-        published?.data.channels.some(({ id }) => id === chosen)))
+        !directoryDenied &&
+        chosen &&
+        publishedChannelIds.has(chosen)))
       ? restoredChannel
       : null;
   const returningComposerHeight = restoration?.composerHeight;
@@ -639,7 +665,7 @@ export function ChannelsWorkspace({
     online,
     sessionIssue,
     (!readingInbox ? position?.request : undefined) ?? restoration?.request,
-    chosen ? historyScope.access.get(chosen) : undefined,
+    chosen ? channelHistoryAccess.get(chosen) : undefined,
   );
   useLayoutEffect(() => {
     // The reader has taken this snapshot. Keep the route and coordinates,
@@ -888,7 +914,9 @@ export function ChannelsWorkspace({
   function choose(id: string, returning = false) {
     const main = inbox.visible ? inboxMain.current : undefined;
     if (!returning && !inbox.visible) rememberChannelReading();
-    const retained = !returning && settings && retainedChannels.get(id);
+    const { collapsedThreads } = historyWindowScope;
+    const retained =
+      !returning && collapsedThreads !== null && retainedChannels.has(id);
     inbox.close();
     setDirectoryOpen(false);
     search.abortPending();
@@ -905,25 +933,27 @@ export function ChannelsWorkspace({
       chooseChannel(
         id,
         (accepted) => {
-          if (!accepted) {
-            retainedChannels.delete(id);
-            return;
-          }
+          const window = retainedChannels.get(id);
           retainedChannels.delete(id);
-          setRestoredChannel({
-            channelId: id,
-            request: {
-              kind: "return",
-              requestId: ++restoreVersion.current,
-              rid: connection.rid,
-              teamId: team.id,
-              collapsedThreads: settings.collapsedThreads,
-              window: retained,
-            },
-            place: retained.place,
-            composerHeight: retained.composerHeight,
-            owner: retainedChannels,
-          });
+          if (!accepted) return;
+          setRestoredChannel(
+            window
+              ? {
+                  channelId: id,
+                  request: {
+                    kind: "return",
+                    requestId: ++restoreVersion.current,
+                    rid: historyWindowScope.account.connection.rid,
+                    teamId: historyWindowScope.account.teamId,
+                    collapsedThreads,
+                    window,
+                  },
+                  place: window.place,
+                  composerHeight: window.composerHeight,
+                  owner: retainedChannels,
+                }
+              : null,
+          );
           setPage("conversation");
         },
         true,
@@ -1065,7 +1095,12 @@ export function ChannelsWorkspace({
       position ||
       directoryOpen ||
       !timeline.page?.posts.length ||
-      (timeline.status !== "ready" && timeline.status !== "offline") ||
+      (timeline.status !== "ready" &&
+        timeline.status !== "offline" &&
+        !(
+          timeline.status === "loading" &&
+          restoration?.request.kind === "return"
+        )) ||
       timeline.notice === "forbidden"
     )
       return;
@@ -1335,15 +1370,7 @@ export function ChannelsWorkspace({
     if (chosen && channelHistoryForbidden) invalidateChannel(chosen);
   }, [chosen, channelHistoryForbidden, invalidateChannel]);
   useLayoutEffect(() => {
-    if (
-      status === "unauthorized" ||
-      status === "session" ||
-      status === "forbidden"
-    ) {
-      retainedChannels.clear();
-      historyScope.access.clear();
-      return;
-    }
+    if (directoryDenied) return;
     if (chosen && (historyDenied || timeline.status === "inaccessible")) {
       retainedChannels.delete(chosen);
       setRestoredChannel((current) =>
@@ -1355,7 +1382,7 @@ export function ChannelsWorkspace({
       );
     }
     if (chosen) {
-      const previous = historyScope.access.get(chosen);
+      const previous = channelHistoryAccess.get(chosen);
       const cutoff = Math.max(
         previous?.cutoff ?? 0,
         timeline.firstInaccessiblePostTime,
@@ -1364,26 +1391,25 @@ export function ChannelsWorkspace({
         historyDenied ||
         (previous?.revoked === true && timeline.status !== "ready");
       if (revoked || cutoff)
-        historyScope.access.set(chosen, { revoked, cutoff });
-      else if (previous) historyScope.access.delete(chosen);
-    }
-    if (status === "ready" && published) {
-      const ids = new Set(published.data.channels.map((room) => room.id));
-      for (const id of retainedChannels.keys())
-        if (!ids.has(id)) retainedChannels.delete(id);
-      for (const id of historyScope.access.keys())
-        if (!ids.has(id)) historyScope.access.delete(id);
+        channelHistoryAccess.set(chosen, { revoked, cutoff });
+      else if (previous) channelHistoryAccess.delete(chosen);
     }
   }, [
     chosen,
     historyDenied,
-    historyScope,
-    published,
+    channelHistoryAccess,
+    directoryDenied,
     retainedChannels,
-    status,
     timeline.firstInaccessiblePostTime,
     timeline.status,
   ]);
+  useLayoutEffect(() => {
+    if (!confirmedChannelIds) return;
+    for (const id of retainedChannels.keys())
+      if (!confirmedChannelIds.has(id)) retainedChannels.delete(id);
+    for (const id of channelHistoryAccess.keys())
+      if (!confirmedChannelIds.has(id)) channelHistoryAccess.delete(id);
+  }, [confirmedChannelIds, retainedChannels, channelHistoryAccess]);
   const notificationKind =
     !historyDenied &&
     channel?.deleteAt === 0 &&
@@ -1418,30 +1444,16 @@ export function ChannelsWorkspace({
   const pinsRoom = pinsSource
     ? channels?.find((room) => room.id === pinsSource)
     : undefined;
-  const directoryDenied = ["forbidden", "session", "unauthorized"].includes(
-    directory.state.status,
-  );
   const pinsAvailable =
     !pinsSource ||
     (!directoryDenied &&
       !(chosen === pinsSource && historyDenied) &&
       pinsRoom !== undefined);
-  const directoryReady = directory.state.status === "ready";
-  const confirmedChannels = directoryReady
-    ? directory.state.value?.data.channels
-    : undefined;
-  const allowedPinnedChannels = useMemo(
-    () =>
-      directoryDenied || directoryReady
-        ? new Set(confirmedChannels?.map(({ id }) => id))
-        : undefined,
-    [confirmedChannels, directoryDenied, directoryReady],
-  );
   const deniedPinsChannel = historyDenied ? chosen : null;
   const { retainPins, close: closeCollection } = collections;
   useLayoutEffect(() => {
-    retainPins(allowedPinnedChannels, deniedPinsChannel);
-  }, [retainPins, allowedPinnedChannels, deniedPinsChannel]);
+    retainPins(confirmedChannelIds, deniedPinsChannel);
+  }, [retainPins, confirmedChannelIds, deniedPinsChannel]);
   useLayoutEffect(() => {
     if (!pinsAvailable) closeCollection(false);
   }, [pinsAvailable, closeCollection]);

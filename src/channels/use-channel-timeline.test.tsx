@@ -922,3 +922,26 @@ test("an addressed arrival in the same channel takes priority over its parked re
     },
   ]);
 });
+
+test("a superseded refresh cannot restore a previously refused channel from SQLite", async () => {
+  const native = account();
+  native.refreshChannelHistory.mockResolvedValueOnce({ kind: "superseded" });
+  native.readChannelWindow.mockResolvedValue(page(root));
+  const view = open(native, { access: { revoked: true, cutoff: 0 } });
+  await act(async () => {});
+  expect(native.refreshChannelHistory).toHaveBeenCalledOnce();
+  expect(native.readChannelWindow).not.toHaveBeenCalled();
+  expect(view.result.current).toMatchObject({
+    status: "superseded",
+    notice: "forbidden",
+    page: null,
+    canRetry: true,
+  });
+  native.refreshChannelHistory.mockResolvedValueOnce({ kind: "applied" });
+  await act(async () => view.result.current.retry());
+  expect(native.readChannelWindow).toHaveBeenCalledOnce();
+  expect(view.result.current).toMatchObject({
+    status: "ready",
+    page: page(root),
+  });
+});

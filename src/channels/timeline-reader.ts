@@ -405,8 +405,12 @@ export function createTimelineReader(
             )
           : undefined;
         if (signal.aborted) return;
-        if (refresh) needsProof = false;
+        if (needsProof && refresh?.kind === "superseded") {
+          clearPage("superseded", confirmedCutoff);
+          return;
+        }
         if (refresh?.kind === "applied" || refresh?.kind === "inaccessible") {
+          needsProof = false;
           const cutoff = refresh.firstInaccessiblePostTime ?? 0;
           if (cutoff > confirmedCutoff) {
             confirmedCutoff = cutoff;
