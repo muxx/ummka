@@ -325,7 +325,7 @@ export function ThreadInboxPane({
               switchTo(next);
             }}
           >
-            {text[item]}
+            <span className="panel-tabs__label">{text[item]}</span>
             {item === "unread" &&
               totals.value &&
               totals.value.totalUnreadThreads > 0 && (
