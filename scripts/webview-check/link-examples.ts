@@ -15,6 +15,7 @@ export function postLinks(port: string | number) {
     server,
     cold: `${server}/_redirect/pl/${systemRoot}`,
     warm: `${server}/browser/pl/${systemReply}`,
+    warmNamedReply: `${server}/browser/channels/town-square/${systemReply}`,
     denied: `${server}/browser/pl/${deniedPost}`,
   };
 }
