@@ -47,6 +47,7 @@ import { checkPostReactions } from "./post-reactions.ts";
 import { checkSubmissions } from "./submission.ts";
 import { checkTeamReads } from "./team-reads.ts";
 import { checkRoleStorage } from "./team-role-storage.ts";
+import { checkThreadInbox } from "./thread-inbox.ts";
 import { checkAccountThreadList, checkThreadList } from "./thread-list.ts";
 import { checkUnreadThread } from "./unread-thread.ts";
 import { checkWorkspaceSettings } from "./workspace-settings.ts";
@@ -1050,6 +1051,7 @@ export async function checkGeneratedRequests(ports: string[]) {
     const guestThreads = new ThreadsApi(new Configuration(prefixed));
     const timestamp = 1700000000123;
     await checkAccountThreadReadState(accountPrefix, teamId, postId, timestamp);
+    await checkThreadInbox(accountPrefix, teamId, postId, timestamp);
     const readThread = await threads.updateThreadReadForUser({
       ...follow,
       timestamp,
