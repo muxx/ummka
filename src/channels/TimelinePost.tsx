@@ -5,7 +5,7 @@ import type { TimelineMessage } from "./conversation-rows.ts";
 import { PostBodyDisclosure } from "./PostBodyDisclosure.tsx";
 import { PublishedAttachments } from "./PublishedAttachments.tsx";
 import { PublishedPostActions } from "./PublishedPostActions.tsx";
-import { PublishedPostBody } from "./PublishedPostBody.tsx";
+import { PublishedPostBody, PublishedPostCards } from "./PublishedPostBody.tsx";
 import { initials } from "./profile-initials.ts";
 import { useTimelinePostTouchLayout } from "./timeline-post-touch.ts";
 import "./grouped-posts.css";
@@ -335,12 +335,19 @@ export function TimelinePost({
           <PostBodyDisclosure locale={locale}>
             <PublishedPostBody
               message={post.message}
-              cards={post.cards}
               locale={locale}
               authorName={name}
               inThread={inThread}
             />
           </PostBodyDisclosure>
+        )}
+        {!post.outgoing && Boolean(post.cards?.length) && post.cards && (
+          <PublishedPostCards
+            cards={post.cards}
+            locale={locale}
+            authorName={name}
+            inThread={inThread}
+          />
         )}
         {Boolean(hasAttachments) && !post.outgoing && (
           <PublishedAttachments

@@ -10,6 +10,7 @@ import {
 } from "react";
 import { isAndroid } from "../build-platform.ts";
 import type { IntegrationCard } from "../mattermost/integration-cards.ts";
+import { IntegrationCardDisclosure } from "./IntegrationCardDisclosure.tsx";
 import { CodeCopy, CodePreview } from "./PublishedCodeReader.tsx";
 import {
   PublishedLinkNavigation,
@@ -28,6 +29,7 @@ import {
   integrationCardTitle,
 } from "./published-post-summary.ts";
 import "./published-post.css";
+import "./published-integration-card.css";
 
 type Block = ReturnType<typeof publishedPostDocument>[number];
 type Inline = Extract<Block, { kind: "paragraph" }>["children"][number];
@@ -347,51 +349,158 @@ function blocks(nodes: Block[], locale: Locale, tight = false) {
   ));
 }
 
-function PublishedIntegrationCard({
-  card,
+const cardLabel = {
+  en: (index: number, count: number) => `card ${index + 1} of ${count}`,
+  ru: (index: number, count: number) => `карточка ${index + 1} из ${count}`,
+};
+
+function CardFields({
+  fields,
   locale,
 }: {
-  card: IntegrationCard;
+  fields: IntegrationCard["fields"];
   locale: Locale;
 }) {
-  const title = integrationCardTitle(card);
-  const body = integrationCardBody(card);
-  if (!title && !body.visible) return null;
+  const paired = new Set<number>();
+  for (let index = 0; index < fields.length - 1; index++)
+    if (fields[index].short && fields[index + 1].short) {
+      paired.add(index);
+      paired.add(++index);
+    }
   return (
-    <div className="published-integration-card">
-      {title && (
-        <div className="published-integration-card-title">
-          <PublishedPostLink target={publishedLinkTarget(card.titleLink ?? "")}>
-            {title}
-          </PublishedPostLink>
+    <dl className="published-card-fields">
+      {fields.map((field, index) => (
+        <div
+          // biome-ignore lint/suspicious/noArrayIndexKey: Fields have authored order and no server ID.
+          key={index}
+          data-paired={paired.has(index) || undefined}
+          data-published-card-part={`field-${index}`}
+        >
+          <dt>{field.title}</dt>
+          <dd>
+            {field.value &&
+              blocks(publishedPostDocument({ message: field.value }), locale)}
+          </dd>
         </div>
-      )}
-      {blocks(body.blocks, locale)}
-    </div>
+      ))}
+    </dl>
   );
 }
 
-export const PublishedPostBody = memo(function PublishedPostBody({
-  message,
+function PublishedIntegrationCard({
+  card,
+  index,
+  count,
+  locale,
+}: {
+  card: IntegrationCard;
+  index: number;
+  count: number;
+  locale: Locale;
+}) {
+  const pretext = card.pretext?.trim();
+  const author = card.authorName?.trim();
+  const title = integrationCardTitle(card);
+  const body = integrationCardBody(card);
+  const footer = card.footer?.trim();
+  const fields = card.fields.filter(
+    (field) => field.title?.trim() || field.value?.trim(),
+  );
+  const color =
+    card.color && /^#[a-f\d]{6}$/iu.test(card.color) ? card.color : undefined;
+  return (
+    <>
+      {pretext && <p className="published-card-pretext">{pretext}</p>}
+      {(author || title || body.visible || fields.length > 0 || footer) && (
+        <div
+          className="published-integration-card"
+          data-published-card={index}
+          data-published-disclosure=""
+          style={color ? { borderInlineStartColor: color } : undefined}
+        >
+          {author && (
+            <div
+              className="published-card-author"
+              data-published-card-part="author"
+            >
+              <PublishedPostLink
+                target={publishedLinkTarget(card.authorLink ?? "")}
+              >
+                {author}
+              </PublishedPostLink>
+            </div>
+          )}
+          {title && (
+            <h3
+              className="published-integration-card-title"
+              data-published-card-part="title"
+            >
+              <PublishedPostLink
+                target={publishedLinkTarget(card.titleLink ?? "")}
+              >
+                {title}
+              </PublishedPostLink>
+            </h3>
+          )}
+          <IntegrationCardDisclosure
+            locale={locale}
+            label={title || cardLabel[locale](index, count)}
+            fields={
+              fields.length ? (
+                <CardFields fields={fields} locale={locale} />
+              ) : undefined
+            }
+            footer={footer}
+          >
+            {body.visible ? blocks(body.blocks, locale) : undefined}
+          </IntegrationCardDisclosure>
+        </div>
+      )}
+    </>
+  );
+}
+
+export const PublishedPostCards = memo(function PublishedPostCards({
   cards,
   locale,
   authorName,
   inThread,
 }: {
+  cards: readonly IntegrationCard[];
+  locale: Locale;
+} & ReaderOrigin) {
+  return (
+    <PostReaderOrigin value={{ authorName, inThread }}>
+      <div className="published-post published-post-cards">
+        {cards.map((card, index) => (
+          <PublishedIntegrationCard
+            // biome-ignore lint/suspicious/noArrayIndexKey: The server orders cards and supplies no identity across edits.
+            key={index}
+            card={card}
+            index={index}
+            count={cards.length}
+            locale={locale}
+          />
+        ))}
+      </div>
+    </PostReaderOrigin>
+  );
+});
+
+export const PublishedPostBody = memo(function PublishedPostBody({
+  message,
+  locale,
+  authorName,
+  inThread,
+}: {
   message: string;
-  cards?: readonly IntegrationCard[];
   locale: Locale;
 } & ReaderOrigin) {
   const document = useMemo(() => publishedPostDocument({ message }), [message]);
+  if (!document.length) return null;
   return (
     <PostReaderOrigin value={{ authorName, inThread }}>
-      <div className="published-post">
-        {blocks(document, locale)}
-        {cards?.map((card, index) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: The server orders cards and supplies no identity across edits.
-          <PublishedIntegrationCard key={index} card={card} locale={locale} />
-        ))}
-      </div>
+      <div className="published-post">{blocks(document, locale)}</div>
     </PostReaderOrigin>
   );
 });

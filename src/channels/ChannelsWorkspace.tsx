@@ -66,6 +66,7 @@ import { newestCollectionItems } from "./post-collection.ts";
 import {
   capturePublishedReadingOrigin,
   type PublishedReadingOrigin,
+  publishedOriginLink,
 } from "./published-reading-history.ts";
 import type { ReactionThread } from "./submit-channel-reaction.ts";
 import { TeamChannelDirectory } from "./TeamChannelDirectory.tsx";
@@ -1656,17 +1657,13 @@ export function ChannelsWorkspace({
         `[data-post-id="${CSS.escape(origin.postId)}"]`,
       );
       if (!pane || !row || row.closest("[inert], [hidden]")) return;
-      const link = Array.from(
-        row.querySelectorAll<HTMLAnchorElement>("a[data-published-link]"),
-      ).filter((node) => node.href === origin.link.href)[
-        origin.link.occurrence
-      ];
+      const link = publishedOriginLink(row, origin.link);
       const disclosure =
         origin.link.expanded &&
         link
-          ?.closest(".post-body-disclosure")
+          ?.closest("[data-published-disclosure]")
           ?.querySelector<HTMLButtonElement>(
-            ".post-body-disclosure-action[aria-expanded=false]",
+            "[data-published-disclosure-action][aria-expanded=false]",
           );
       if (disclosure) {
         disclosure.click();
@@ -1685,7 +1682,7 @@ export function ChannelsWorkspace({
       (visibleLink ?? row).focus({ preventScroll: true });
       landedReading.current = id;
       clear = showPostArrival(row);
-      reportReadingLanding(id, !link);
+      reportReadingLanding(id, !visibleLink);
     };
     frame = requestAnimationFrame(focus);
     return () => {

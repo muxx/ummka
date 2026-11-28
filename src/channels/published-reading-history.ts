@@ -12,7 +12,12 @@ export type PublishedReadingOrigin = {
   channelId: string;
   rootId: string | null;
   postId: string;
-  link: { href: string; occurrence: number; expanded?: true };
+  link: {
+    href: string;
+    occurrence: number;
+    expanded?: true;
+    card?: { index: string; part: string; label: string };
+  };
   reading: TimelinePlace;
   label?: string;
   inbox?: {
@@ -46,6 +51,35 @@ type ReadingScope = Pick<
   threadLabel?: string;
 };
 
+function publishedLinkMatches(
+  row: HTMLElement,
+  address: Pick<PublishedReadingOrigin["link"], "href" | "card">,
+) {
+  const { href, card } = address;
+  const section = card
+    ? row
+        .querySelector(`[data-published-card="${CSS.escape(card.index)}"]`)
+        ?.querySelector(`[data-published-card-part="${CSS.escape(card.part)}"]`)
+    : row;
+  if (!section) return [];
+  return Array.from(
+    section.querySelectorAll<HTMLAnchorElement>("a[data-published-link]"),
+  ).filter(
+    (link) =>
+      link.href === href &&
+      (card
+        ? link.textContent?.trim() === card.label
+        : !link.closest("[data-published-card]")),
+  );
+}
+
+export function publishedOriginLink(
+  row: HTMLElement,
+  address: PublishedReadingOrigin["link"],
+) {
+  return publishedLinkMatches(row, address)[address.occurrence];
+}
+
 export function capturePublishedReadingOrigin(
   anchor: HTMLAnchorElement,
   scope: ReadingScope,
@@ -71,10 +105,19 @@ export function capturePublishedReadingOrigin(
   if (reading.anchors.length !== 1 || !reading.anchors[0].published)
     return null;
   const href = anchor.href;
-  const links = Array.from(
-    row.querySelectorAll<HTMLAnchorElement>("a[data-published-link]"),
-  );
-  const occurrence = links.filter((link) => link.href === href).indexOf(anchor);
+  const cardIndex = anchor.closest<HTMLElement>("[data-published-card]")
+    ?.dataset.publishedCard;
+  const cardPart = anchor.closest<HTMLElement>("[data-published-card-part]")
+    ?.dataset.publishedCardPart;
+  const card =
+    cardIndex !== undefined && cardPart
+      ? {
+          index: cardIndex,
+          part: cardPart,
+          label: anchor.textContent?.trim() ?? "",
+        }
+      : undefined;
+  const occurrence = publishedLinkMatches(row, { href, card }).indexOf(anchor);
   if (occurrence < 0) return null;
   const label = inThread ? scope.threadLabel : scope.label;
   const description =
@@ -98,9 +141,12 @@ export function capturePublishedReadingOrigin(
     link: {
       href,
       occurrence,
+      ...(card && { card }),
       ...(anchor
-        .closest(".post-body-disclosure")
-        ?.querySelector(".post-body-disclosure-action[aria-expanded=true]") && {
+        .closest("[data-published-disclosure]")
+        ?.querySelector(
+          "[data-published-disclosure-action][aria-expanded=true]",
+        ) && {
         expanded: true,
       }),
     },

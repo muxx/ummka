@@ -51,12 +51,12 @@ function focusDisclosureAction(button: HTMLButtonElement | null | undefined) {
 }
 
 export function restorePostBodyFocus(control: HTMLElement) {
-  if (control.hasAttribute(clippedControl)) {
+  if (control.closest(`[${clippedControl}], [data-card-disclosure-clipped]`)) {
     focusDisclosureAction(
       control
-        .closest(".post-body-disclosure")
+        .closest("[data-published-disclosure]")
         ?.querySelector<HTMLButtonElement>(
-          ":scope > .post-body-disclosure-action",
+          "[data-published-disclosure-action]",
         ),
     );
   } else if (!control.closest("[inert], [hidden]")) {
@@ -216,7 +216,7 @@ export function PostBodyDisclosure({
   });
 
   return (
-    <div className="post-body-disclosure">
+    <div className="post-body-disclosure" data-published-disclosure="">
       <div
         id={id}
         className="post-body-disclosure-viewport"
@@ -234,6 +234,7 @@ export function PostBodyDisclosure({
           type="button"
           className="post-body-disclosure-action"
           ref={button}
+          data-published-disclosure-action=""
           aria-controls={id}
           aria-expanded={expanded}
           onClick={(event) => {
