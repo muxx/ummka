@@ -739,6 +739,97 @@ export function webviewServers(
       res.end(JSON.stringify(bookmark));
       return;
     }
+    const accountBookmark = `/team/chat/api/v4/channels/${"w".repeat(26)}/bookmarks`;
+    if (
+      url.pathname === accountBookmark ||
+      url.pathname.startsWith(`${accountBookmark}/`)
+    ) {
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers["connection-id"], undefined);
+      assert.equal(url.search, "");
+      const suffix = url.pathname.slice(accountBookmark.length);
+      const own = {
+        id: "k".repeat(26),
+        channel_id: "w".repeat(26),
+        owner_id: userId,
+        type: "link",
+        display_name: "Guide",
+        link_url: "https://example.invalid/guide",
+        delete_at: 0,
+      };
+      const previous = { ...own, id: "v".repeat(26), owner_id: "a".repeat(26) };
+      const replacement = {
+        ...own,
+        id: "r".repeat(26),
+        original_id: previous.id,
+      };
+      const board = {
+        ...own,
+        id: "b".repeat(26),
+        target_id: "t".repeat(26),
+        type: "board",
+        link_url: "/boards/team/example",
+        sort_order: 0,
+      };
+      let outcome: unknown;
+      let status = 200;
+      if (!suffix) {
+        assert.equal(req.method, "POST");
+        assert.deepEqual(await json(req), {
+          type: own.type,
+          display_name: own.display_name,
+          link_url: own.link_url,
+        });
+        visits.push("account-bookmark-create");
+        status = 201;
+        outcome = own;
+      } else if (suffix === `/${own.id}`) {
+        assert.equal(req.method, "PATCH");
+        assert.deepEqual(await json(req), { image_url: "", emoji: "" });
+        visits.push("account-bookmark-edit");
+        outcome = { updated: own };
+      } else if (suffix === `/${previous.id}`) {
+        assert.equal(req.method, "PATCH");
+        assert.deepEqual(await json(req), { display_name: "Revised" });
+        visits.push("account-bookmark-replace");
+        outcome = {
+          updated: { ...replacement, display_name: "Revised" },
+          deleted: { ...previous, delete_at: 123 },
+        };
+      } else if (suffix === `/${board.id}/sort_order`) {
+        assert.equal(req.method, "POST");
+        assert.equal(await json(req), 0);
+        visits.push("account-bookmark-move");
+        outcome = [
+          board,
+          {
+            ...own,
+            sort_order: 1,
+            image_url: "https://[fe80::1%25en0]/icon.png",
+          },
+        ];
+      } else if (suffix === `/${"d".repeat(26)}`) {
+        assert.equal(req.method, "DELETE");
+        visits.push("account-bookmark-forbidden");
+        status = 403;
+        outcome = {
+          id: "api.context.permissions.app_error",
+          status_code: 403,
+        };
+      } else {
+        assert.equal(suffix, `/${replacement.id}`);
+        assert.equal(req.method, "DELETE");
+        visits.push("account-bookmark-delete");
+        outcome = { ...replacement, delete_at: 123 };
+      }
+      res
+        .writeHead(status, { "Content-Type": "application/json" })
+        .end(JSON.stringify(outcome));
+      return;
+    }
     if (url.pathname === "/team/chat/api/v4/reactions") {
       assert.equal(req.method, "POST");
       assert.equal(
@@ -2215,6 +2306,12 @@ export function webviewServers(
         "signed-link-identifier",
         ...collectionBackSteps,
         "create-channel-bookmark",
+        "account-bookmark-create",
+        "account-bookmark-edit",
+        "account-bookmark-replace",
+        "account-bookmark-move",
+        "account-bookmark-delete",
+        "account-bookmark-forbidden",
         "signed-single-channel",
         "signed-named-channel",
         "signed-named-team",
@@ -2582,7 +2679,7 @@ export function webviewServers(
       );
       assert.deepEqual(visits.sort(), expected.sort());
       console.log(
-        `Signed bookmark creation verified in the ${platform} WebView.`,
+        `Signed bookmark creation, editing, reordering, deletion and refusal verified in the ${platform} WebView.`,
       );
     },
   };
