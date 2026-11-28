@@ -74,6 +74,7 @@ export function webviewServers(
     "batch-body",
     "observe-thread-headers",
     "observe-thread-body",
+    "observe-account-thread-body",
     "account-error-body",
     "account-retire",
     ...pendingProfileImages.values(),
@@ -1091,9 +1092,14 @@ export function webviewServers(
       return;
     }
     const observation = `/team/chat/api/v4/users/me/teams/${teamId}/threads`;
+    const observedRoot = url.pathname.slice(observation.length + 1);
+    const threadRoot = "p".repeat(26);
+    const directRoot = "b".repeat(26);
+    const pendingRoot = "h".repeat(26);
+    const missingRoot = "z".repeat(26);
     if (
-      url.pathname === `${observation}/${"p".repeat(26)}` ||
-      url.pathname === `${observation}/${"z".repeat(26)}`
+      url.pathname.startsWith(`${observation}/`) &&
+      [threadRoot, directRoot, pendingRoot, missingRoot].includes(observedRoot)
     ) {
       assert.equal(req.method, "GET");
       assert.equal(
@@ -1102,28 +1108,30 @@ export function webviewServers(
       );
       assert.equal(req.headers.cookie, undefined);
       assert.equal(await text(req), "");
-      const missing = url.pathname.endsWith("z".repeat(26));
+      const missing = observedRoot === missingRoot;
+      const direct = observedRoot === directRoot;
+      const pending = observedRoot === pendingRoot;
       const variant = req.headers["x-test-case"];
       const extended = url.search === "?extended=true";
-      if (missing || variant) assert.equal(url.search, "");
-      else
+      if (missing || variant || direct || pending) assert.equal(url.search, "");
+      else if (url.search)
         assert.equal(
           url.search,
           extended ? "?extended=true" : "?extended=false",
         );
-      const name = variant
-        ? `observe-thread-${variant}`
-        : missing
-          ? "observe-thread-missing"
-          : extended
-            ? "observe-thread-extended"
-            : "observe-thread-compact";
+      let name: string;
+      if (variant) name = `observe-thread-${variant}`;
+      else if (missing) name = "observe-thread-missing";
+      else if (pending) name = "observe-account-thread-body";
+      else if (direct) name = "observe-account-dm";
+      else if (!url.search) name = "observe-account-thread";
+      else
+        name = extended ? "observe-thread-extended" : "observe-thread-compact";
       visits.push(name);
       if (held.has(name)) {
         hold(name, req, res);
         return;
       }
-      const id = "p".repeat(26);
       res.writeHead(missing ? 404 : 200, {
         "Content-Type": "application/json",
       });
@@ -1135,8 +1143,14 @@ export function webviewServers(
                 status_code: 404,
               }
             : {
-                id,
-                post: { id, channel_id: channelId, message: "Observed root" },
+                id: observedRoot,
+                post: {
+                  id: observedRoot,
+                  channel_id: direct ? "d".repeat(26) : channelId,
+                  root_id: "",
+                  delete_at: 0,
+                  message: "Observed root",
+                },
                 last_viewed_at: 1700000000121,
                 unread_replies: 3,
                 unread_mentions: 2,
@@ -2320,6 +2334,10 @@ export function webviewServers(
         "observe-thread-missing",
         "observe-thread-headers",
         "observe-thread-body",
+        "observe-account-thread",
+        "observe-account-dm",
+        "observe-thread-missing",
+        "observe-account-thread-body",
         "account-direct-conversation",
         "account-group-conversation",
         "open-self-conversation",

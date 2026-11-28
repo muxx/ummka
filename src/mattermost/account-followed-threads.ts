@@ -104,6 +104,41 @@ export function accountFollowedThreads(
         signal,
       );
     },
+    readFollowedThreadState(
+      target: { teamId: string; channelId: string; rootId: string },
+      signal?: AbortSignal,
+    ) {
+      return whileOpen(async () => {
+        signal?.throwIfAborted();
+        const { teamId, channelId, rootId } = target;
+        if (
+          !isMattermostId(teamId) ||
+          !isMattermostId(channelId) ||
+          !isMattermostId(rootId)
+        )
+          throw new TypeError("Invalid Mattermost thread observation target.");
+        const response = await api.getUserThreadRaw(
+          { userId: "me", teamId, threadId: rootId },
+          { signal },
+        );
+        const row = await response.value();
+        signal?.throwIfAborted();
+        const state = threadReadState(row);
+        const { post } = row;
+        if (
+          response.raw.status !== 200 ||
+          state.id !== rootId ||
+          post?.id !== rootId ||
+          post.channelId !== channelId ||
+          post.rootId !== "" ||
+          post.deleteAt !== 0
+        )
+          throw new TypeError(
+            "Mattermost did not confirm the requested thread.",
+          );
+        return { ...state, following: true as const };
+      }, signal);
+    },
     markFollowedThreadRead(
       teamId: string,
       threadId: string,
