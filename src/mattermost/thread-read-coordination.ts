@@ -12,6 +12,9 @@ type Transport = Pick<
 >;
 type Target = Parameters<Transport["readFollowedThreadState"]>[0];
 type ReadState = Awaited<ReturnType<Transport["markFollowedThreadRead"]>>;
+type AutoReadReview =
+  | { kind: "unconfirmed"; mark?: ReadState }
+  | { kind: "observed"; mark: ReadState };
 type Action = "auto" | "read" | "unread";
 type Unknown = Readonly<{ action: Action }>;
 type Manual =
@@ -43,11 +46,13 @@ type Waiting = {
   settle: (outcome: Outcome) => void;
 };
 type Root = {
+  reviewListeners: Set<() => void>;
   visit?: { attached: boolean; detach: () => void };
   revision?: symbol;
   active?: Running;
   waiting?: Waiting;
   unknown?: Unknown;
+  autoReview?: AutoReadReview;
 };
 const cancelled = Symbol("Thread read operation cancelled");
 
@@ -87,7 +92,7 @@ export function createThreadReadCoordination(deadlineMs = 15_000) {
             throw new TypeError("Invalid Mattermost thread read target.");
           lifetime.signal.throwIfAborted();
           const key = JSON.stringify([account, rootId]);
-          const root = roots.get(key) ?? {};
+          const root: Root = roots.get(key) ?? { reviewListeners: new Set() };
           roots.set(key, root);
           const previous = root.visit;
           const visit = { attached: true, detach };
@@ -119,6 +124,17 @@ export function createThreadReadCoordination(deadlineMs = 15_000) {
           }
           function blocked(): NotSent {
             return { ...notSent("previous-unknown"), previous: root.unknown };
+          }
+          function publishAutoReview(review?: AutoReadReview) {
+            if (root.autoReview === review) return;
+            root.autoReview = review;
+            for (const listener of root.reviewListeners) listener();
+          }
+          function setUncertainty(unknown?: Unknown) {
+            root.unknown = unknown;
+            publishAutoReview(
+              unknown?.action === "auto" ? { kind: "unconfirmed" } : undefined,
+            );
           }
           async function write(
             command: { kind: "auto" } | Manual,
@@ -188,7 +204,7 @@ export function createThreadReadCoordination(deadlineMs = 15_000) {
               signal.throwIfAborted();
               outcome = mark ? { kind: "confirmed", mark } : notSent("empty");
               if (mark && command.kind === "auto") autoConfirmed = true;
-              if (mark && command.kind !== "auto") root.unknown = undefined;
+              if (mark && command.kind !== "auto") setUncertainty();
             } catch (error) {
               const status =
                 error instanceof ResponseError
@@ -210,7 +226,7 @@ export function createThreadReadCoordination(deadlineMs = 15_000) {
                 outcome = { kind: "refused", error };
               } else {
                 const attempt = { action: command.kind };
-                root.unknown = attempt;
+                setUncertainty(attempt);
                 outcome = { kind: "unknown", attempt, error };
               }
             } finally {
@@ -229,6 +245,13 @@ export function createThreadReadCoordination(deadlineMs = 15_000) {
           return {
             detach,
             getUncertainty: () => root.unknown,
+            getAutoReview: () => root.autoReview,
+            subscribeAutoReview(listener: () => void) {
+              root.reviewListeners.add(listener);
+              return () => {
+                root.reviewListeners.delete(listener);
+              };
+            },
             async observe(signal?: AbortSignal) {
               const revision = root.revision;
               const active = signal
@@ -237,16 +260,34 @@ export function createThreadReadCoordination(deadlineMs = 15_000) {
               active.throwIfAborted();
               if (!available())
                 throw new DOMException("Thread read visit ended", "AbortError");
-              const state = await connection.readFollowedThreadState(
-                target,
-                active,
-              );
-              active.throwIfAborted();
-              if (!available() || root.revision !== revision)
-                throw new DOMException(
-                  "Thread read observation superseded",
-                  "AbortError",
+              function assertCurrent() {
+                active.throwIfAborted();
+                if (!available() || root.revision !== revision)
+                  throw new DOMException(
+                    "Thread read observation superseded",
+                    "AbortError",
+                  );
+              }
+              let state: Awaited<
+                ReturnType<Transport["readFollowedThreadState"]>
+              >;
+              try {
+                state = await connection.readFollowedThreadState(
+                  target,
+                  active,
                 );
+              } catch (error) {
+                assertCurrent();
+                if (root.autoReview?.kind === "observed")
+                  publishAutoReview({
+                    kind: "unconfirmed",
+                    mark: root.autoReview.mark,
+                  });
+                throw error;
+              }
+              assertCurrent();
+              if (root.autoReview)
+                publishAutoReview({ kind: "observed", mark: state });
               return state;
             },
             auto(observer: AbortSignal) {
@@ -269,7 +310,7 @@ export function createThreadReadCoordination(deadlineMs = 15_000) {
               manual = true;
               if (root.unknown) {
                 // Consuming the permission to proceed does not settle the old write.
-                root.unknown = { action: root.unknown.action };
+                setUncertainty({ action: root.unknown.action });
               }
               if (!root.active) return write(command);
               const pendingAuto = root.active;
@@ -310,6 +351,7 @@ export function createThreadReadCoordination(deadlineMs = 15_000) {
             revoke() {
               if (!canFinish()) return;
               revoked = true;
+              if (root.autoReview) publishAutoReview({ kind: "unconfirmed" });
               root.waiting?.cancel(notSent("access"));
               if (root.active && !root.active.sent) root.active.cancel();
             },

@@ -6,6 +6,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { ResponseError } from "../../vendor/mattermost/index.js";
 import type { LocalPost } from "../mattermost/local-history.ts";
 import type {
   AccountThreadReads,
@@ -304,8 +305,46 @@ export function useWorkspaceThreadInbox(
         const issue = workspaceFailure(error, "network");
         if (issue === "session" || issue === "unauthorized")
           sessionIssue(issue);
+        else if (
+          error instanceof ResponseError &&
+          error.response.status === 403
+        )
+          hideRoot(selection.id, "forbidden");
       }
       throw error;
+    }
+  }
+  async function checkView(signal: AbortSignal, onRevoked: () => void) {
+    const visit = selection?.visit;
+    if (
+      !inbox ||
+      !selection ||
+      !visit?.getAutoReview() ||
+      inbox.isRootUnavailable(selection.id)
+    )
+      return;
+    const active = () =>
+      !signal.aborted && currentVisit.current?.visit === visit;
+    try {
+      const { following: _following, ...mark } = await visit.observe(signal);
+      if (active() && !inbox.isRootUnavailable(selection.id))
+        inbox.observeRead(mark);
+    } catch (error) {
+      if (
+        !active() ||
+        (error instanceof DOMException && error.name === "AbortError")
+      )
+        return;
+      const issue = workspaceFailure(error, "network");
+      if (issue === "session" || issue === "unauthorized") sessionIssue(issue);
+      // A missing membership also returns 404. Only 403 revokes this panel's access.
+      else if (
+        error instanceof ResponseError &&
+        error.response.status === 403
+      ) {
+        onRevoked();
+        hideRoot(selection.id, "forbidden");
+      }
     }
   }
   const accessDenied = [state?.page.status, state?.totals.status].some(
@@ -338,6 +377,7 @@ export function useWorkspaceThreadInbox(
     resume,
     choose,
     confirmView,
+    checkView,
     confirmFollowing,
     hideRoot,
   };

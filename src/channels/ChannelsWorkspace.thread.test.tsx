@@ -104,10 +104,12 @@ const secondRoot = { ...root, id: "x".repeat(26), message: "Another question" };
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((accept) => {
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((accept, refuse) => {
     resolve = accept;
+    reject = refuse;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 function mount(
@@ -125,6 +127,8 @@ function mount(
     draftRead?: Promise<void>;
     savedReading?: boolean;
     contents?: Pick<LocalPost, "message" | "attachments">;
+    viewer?: string;
+    coordination?: ReturnType<typeof createThreadReadCoordination>;
   } = {},
 ) {
   const data = projectTeamSidebar({
@@ -261,6 +265,7 @@ function mount(
       .mockResolvedValue({ items: [], nextBefore: null }),
     readPostDestination: vi.fn<Connection["readPostDestination"]>(),
     readPostAnchor: vi.fn<Connection["readPostAnchor"]>(),
+    readFollowedThreadState: vi.fn<Connection["readFollowedThreadState"]>(),
     markFollowedThreadRead: vi.fn<Connection["markFollowedThreadRead"]>(),
     readTeamSidebar: vi
       .fn()
@@ -328,6 +333,7 @@ function mount(
       outgoingRowState(post, false, true),
     subscribeToPostActivity: vi.fn(() => () => {}),
   };
+  const viewer = options.viewer ?? userId;
   const workspace: TeamWorkspace = {
     messages: {
       dialogOpen: false,
@@ -343,13 +349,13 @@ function mount(
       enqueue: (work) => work(),
     },
     connection: connection as unknown as Connection,
-    threadReads: createThreadReadCoordination().bind(
+    threadReads: (options.coordination ?? createThreadReadCoordination()).bind(
       "https://chat.example.test/team/chat",
-      userId,
+      viewer,
       connection as unknown as Connection,
     ),
     serverUrl: "https://chat.example.test/team/chat",
-    userId,
+    userId: viewer,
     team,
     online,
     directoryNotice: null,
@@ -366,7 +372,7 @@ function mount(
           {},
         ),
       },
-      user: sidebarPreferences(userId, []),
+      user: sidebarPreferences(viewer, []),
       userReadFailed: false,
       retry: vi.fn(),
     },
@@ -379,6 +385,7 @@ function mount(
     saved,
     writeSavedPost,
     unmount: view.unmount,
+    closeConnection: workspace.threadReads.close,
     setPosition(
       position: Omit<
         NonNullable<TeamWorkspace["messages"]["position"]>,
@@ -2072,9 +2079,8 @@ function inboxRow(connection: ReturnType<typeof mount>, direct = false) {
   return source;
 }
 
-test("a lost automatic write is never replayed by focus, reconnect, or reopening the row", async () => {
-  const account = mount(true);
-  const source = inboxRow(account, true);
+function unreadInbox(account: ReturnType<typeof mount>, direct = false) {
+  const source = inboxRow(account, direct);
   const fresh = {
     ...reply,
     channelId: design,
@@ -2090,6 +2096,12 @@ test("a lost automatic write is never replayed by focus, reconnect, or reopening
     replies: direction === "down" ? [fresh] : [],
     next: null,
   }));
+  return source;
+}
+
+test("an unconfirmed view can be checked explicitly without another write", async () => {
+  const account = mount(true);
+  const source = unreadInbox(account, true);
   let loseReceipt!: (error: unknown) => void;
   const receipt = new Promise<never>((_, reject) => {
     loseReceipt = reject;
@@ -2116,6 +2128,10 @@ test("a lost automatic write is never replayed by focus, reconnect, or reopening
     expect(account.markFollowedThreadRead).toHaveBeenCalledOnce(),
   );
   await act(async () => loseReceipt(new TypeError("Lost response")));
+  const check = await within(pane).findByRole("button", {
+    name: "Check read status",
+  });
+  await within(pane).findByText("Couldn’t confirm the read status");
   await act(async () => {
     window.dispatchEvent(new Event("focus"));
     document.dispatchEvent(new Event("visibilitychange"));
@@ -2123,13 +2139,215 @@ test("a lost automatic write is never replayed by focus, reconnect, or reopening
   account.setOnline(false);
   account.setOnline(true);
   expect(account.markFollowedThreadRead).toHaveBeenCalledOnce();
+  expect(account.readFollowedThreadState).not.toHaveBeenCalled();
+  expect(check.isConnected).toBe(true);
 
   handleEscape();
   expect(pane.isConnected).toBe(false);
-  await openRow();
+  const reopened = await openRow();
   await act(async () => window.dispatchEvent(new Event("focus")));
   expect(account.markFollowedThreadRead).toHaveBeenCalledOnce();
+  expect(account.readFollowedThreadState).not.toHaveBeenCalled();
   expect(account.readThreadPage.mock.calls.length).toBeGreaterThanOrEqual(4);
+
+  const button = await within(reopened).findByRole("button", {
+    name: "Check read status",
+  });
+  const draft = await within(reopened).findByRole<HTMLTextAreaElement>(
+    "textbox",
+    { name: "Reply in thread…" },
+  );
+  fireEvent.change(draft, { target: { value: "Draft stays" } });
+  const event = userEvent.setup();
+  const first = deferred<never>();
+  const countsAtCheck = account.readFollowedThreadTotals.mock.calls.length;
+  const listAtCheck = account.readFollowedThreads.mock.calls.length;
+  account.readFollowedThreadState.mockImplementationOnce(
+    async () => first.promise,
+  );
+  button.focus();
+  await event.keyboard("{Enter}");
+  await within(reopened).findByText("Checking read status…");
+  expect(button.getAttribute("aria-busy")).toBe("true");
+  fireEvent.click(button);
+  expect(account.readFollowedThreadState.mock.calls).toEqual([
+    [
+      { teamId: team.id, channelId: design, rootId: source.id },
+      expect.any(AbortSignal),
+    ],
+  ]);
+  // A 404 can mean the followed membership disappeared while the post is still readable.
+  await act(async () =>
+    first.reject(
+      new ResponseError(
+        new Response(null, { status: 404 }),
+        "Missing membership",
+      ),
+    ),
+  );
+  await within(reopened).findByText("Couldn’t confirm the read status");
+  expect(button.getAttribute("aria-busy")).toBe("false");
+  expect(document.activeElement).toBe(button);
+  expect(
+    within(reopened).getByRole("separator", { name: "Unread replies" }),
+  ).toBeTruthy();
+  expect(account.readFollowedThreadTotals).toHaveBeenCalledTimes(countsAtCheck);
+  expect(account.readFollowedThreads).toHaveBeenCalledTimes(listAtCheck);
+
+  const observed = {
+    id: source.id,
+    lastViewedAt: 220,
+    unreadReplies: 0,
+    unreadMentions: 0,
+    following: true as const,
+  };
+  const listed = (await account.readFollowedThreads.mock.results[0].value)
+    .items[0];
+  account.readFollowedThreads.mockResolvedValue({
+    items: [{ ...listed, ...observed }],
+    nextBefore: null,
+  });
+  account.readFollowedThreadTotals.mockResolvedValue({
+    total: 1,
+    totalUnreadThreads: 0,
+    totalUnreadMentions: 0,
+    totalUnreadUrgentMentions: 0,
+  });
+  account.readFollowedThreadState.mockResolvedValue(observed);
+  await event.keyboard("{Enter}");
+  await within(reopened).findByText("Checked: the thread isn’t marked unread");
+  expect(
+    within(reopened).queryByRole("separator", { name: "Unread replies" }),
+  ).toBeNull();
+  expect(document.activeElement).toBe(button);
+  expect(draft.value).toBe("Draft stays");
+  expect(account.readFollowedThreadTotals).toHaveBeenCalledTimes(
+    countsAtCheck + 1,
+  );
+  expect(account.readFollowedThreads).toHaveBeenCalledTimes(listAtCheck);
+
+  await event.keyboard("{Enter}");
+  await waitFor(() => expect(button.getAttribute("aria-busy")).toBe("false"));
+  expect(account.readFollowedThreadState).toHaveBeenCalledTimes(3);
+  expect(account.readFollowedThreadTotals).toHaveBeenCalledTimes(
+    countsAtCheck + 1,
+  );
+  expect(account.readFollowedThreads).toHaveBeenCalledTimes(listAtCheck);
+  handleEscape();
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Review this build/ }),
+  );
+  const openedRead = await screen.findByRole("complementary", {
+    name: "Thread",
+  });
+  await within(openedRead).findByText(
+    "Checked: the thread isn’t marked unread",
+  );
+  expect(account.markFollowedThreadRead).toHaveBeenCalledOnce();
+  expect(account.readFollowedThreadState).toHaveBeenCalledTimes(3);
+
+  account.readFollowedThreadState.mockRejectedValueOnce(
+    new ResponseError(new Response(null, { status: 403 }), "Forbidden"),
+  );
+  const revoked = within(openedRead).getByRole("button", {
+    name: "Check read status",
+  });
+  revoked.focus();
+  await event.keyboard("{Enter}");
+  await within(openedRead).findByText(
+    "This discussion is no longer available.",
+  );
+  expect(within(openedRead).queryByRole("textbox")).toBeNull();
+  expect(within(openedRead).queryByText("Unread proof")).toBeNull();
+  expect(document.activeElement).toBe(
+    within(openedRead).getByRole("heading", { name: "Thread" }),
+  );
+  expect(account.readFollowedThreadState).toHaveBeenCalledTimes(4);
+  expect(account.markFollowedThreadRead).toHaveBeenCalledOnce();
+});
+
+test("an automatic mark that failed before dispatch can be retried from the pane", async () => {
+  const account = mount(true);
+  const source = unreadInbox(account);
+  const sent = vi.fn();
+  account.markFollowedThreadRead.mockRejectedValueOnce(
+    new TypeError("Offline before dispatch"),
+  );
+  account.markFollowedThreadRead.mockImplementation(
+    async (_team, _root, lastViewedAt, _signal, onSend) => {
+      onSend?.();
+      sent();
+      return {
+        id: source.id,
+        lastViewedAt,
+        unreadReplies: 0,
+        unreadMentions: 0,
+      };
+    },
+  );
+  fireEvent.click(await screen.findByRole("button", { name: /^Threads/ }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Review this build/ }),
+  );
+  const pane = within(
+    await screen.findByRole("complementary", { name: "Thread" }),
+  );
+  const retry = await pane.findByRole("button", { name: "Try again" });
+  expect(sent).not.toHaveBeenCalled();
+  retry.focus();
+  await userEvent.keyboard("{Enter}");
+  await waitFor(() => expect(retry.isConnected).toBe(false));
+  expect(document.activeElement).toBe(
+    pane.getByRole("heading", { name: "Thread" }),
+  );
+  expect(sent).toHaveBeenCalledOnce();
+  expect(account.readFollowedThreadState).not.toHaveBeenCalled();
+  expect(pane.getByRole("separator", { name: "Unread replies" })).toBeTruthy();
+});
+
+test("switching accounts while a check is pending discards its observation and refresh", async () => {
+  const coordination = createThreadReadCoordination();
+  const old = mount(true, true, { coordination });
+  const source = unreadInbox(old);
+  old.markFollowedThreadRead.mockImplementation(
+    async (_team, _root, _time, _signal, onSend) => {
+      onSend?.();
+      throw new TypeError("Lost confirmation");
+    },
+  );
+  const result =
+    deferred<Awaited<ReturnType<Connection["readFollowedThreadState"]>>>();
+  old.readFollowedThreadState.mockReturnValueOnce(result.promise);
+  fireEvent.click(await screen.findByRole("button", { name: /^Threads/ }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Review this build/ }),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Check read status" }),
+  );
+  await screen.findByText("Checking read status…");
+  const counts = old.readFollowedThreadTotals.mock.calls.length;
+  const signal = old.readFollowedThreadState.mock.lastCall?.[1];
+  act(old.closeConnection);
+  old.unmount();
+  const next = mount(true, true, { coordination, viewer: "v".repeat(26) });
+  unreadInbox(next);
+  await act(async () =>
+    result.resolve({
+      id: source.id,
+      lastViewedAt: 220,
+      unreadReplies: 0,
+      unreadMentions: 0,
+      following: true,
+    }),
+  );
+  await screen.findByText(root.message);
+  expect(signal?.aborted).toBe(true);
+  expect(old.readFollowedThreadTotals).toHaveBeenCalledTimes(counts);
+  expect(old.markFollowedThreadRead).toHaveBeenCalledOnce();
+  expect(next.readFollowedThreadState).not.toHaveBeenCalled();
+  expect(next.markFollowedThreadRead).not.toHaveBeenCalled();
+  expect(screen.queryByText(/Checked: the thread/)).toBeNull();
 });
 
 test.each([false, true])(

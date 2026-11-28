@@ -2302,6 +2302,8 @@ export function ChannelsWorkspace({
                         ? inbox.confirmView
                         : undefined
                     }
+                    readVisit={selection?.visit}
+                    checkView={selection?.visit ? inbox.checkView : undefined}
                     onOpened={
                       position?.system
                         ? () => setConfirmedThread(position.system)
