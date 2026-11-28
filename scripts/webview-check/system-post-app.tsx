@@ -460,6 +460,25 @@ async function checkPublishedLinks(host: HTMLElement, server: string) {
         throw Error("Back to link did not focus the visible source link");
     });
   }
+  page.getByRole("button", { name: "Channel info" }).click();
+  (await page.findByRole("button", { name: "Channel bookmarks" })).click();
+  (await page.findByRole("button", { name: "Opening discussion" })).click();
+  const bookmarkMenu = within(
+    await within(document.body).findByRole("dialog", {
+      name: "Opening discussion",
+    }),
+  );
+  bookmarkMenu.getByRole("button", { name: "Open link" }).click();
+  await waitFor(
+    () => {
+      const row = host.querySelector(
+        `.thread-feed [data-post-id="${systemReply}"]`,
+      );
+      if (!shown(row))
+        throw Error("Channel bookmark did not focus its signed thread reply");
+    },
+    { timeout: 10_000 },
+  );
   if (await invoke("pending_channels_link"))
     throw Error("A published link entered the operating-system queue");
 }

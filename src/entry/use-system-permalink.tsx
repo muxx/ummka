@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import type { BookmarkLinkTarget } from "../channels/PublishedPostLink.tsx";
 import type { PublishedReadingProposal } from "../channels/published-reading-history.ts";
 import type { ChannelsTarget } from "../mattermost/channels-link.ts";
 import { openExternalPostLink } from "../mattermost/external-post-link.ts";
@@ -84,16 +85,20 @@ type State =
   | (RejectedLink & { id: string; close: () => void })
   | { kind: "target"; request: SystemPostRequest; installations: string[] }
   | { kind: "inbox"; id?: string };
+type PublishedSource =
+  | {
+      kind: "link";
+      href: string;
+      origin: HTMLElement;
+      reading?: PublishedReadingProposal;
+    }
+  | { kind: "board"; href: string; origin: HTMLButtonElement; reading?: never };
 type Gate = {
   deliveryId: string;
   route: AccountChannelsLink | null;
   memberships: Set<MembershipTarget["kind"]>;
   membershipUserId?: string;
-  source?: {
-    href: string;
-    origin: HTMLAnchorElement;
-    reading?: PublishedReadingProposal;
-  };
+  source?: PublishedSource;
   stopWatchingSource?: () => void;
   positioned?: boolean;
   settled: Promise<void>;
@@ -146,10 +151,12 @@ function TableLinkNotice({
   );
 }
 
-function restoreLinkFocus(origin: HTMLAnchorElement) {
+function restoreLinkFocus(origin: HTMLElement) {
   if (!origin.isConnected || origin.closest("[inert], [hidden]")) return;
   const viewport = origin
-    .closest(".timeline-scroll, .post-table-screen-content")
+    .closest(
+      ".timeline-scroll, .post-table-screen-content, .channel-bookmark-body",
+    )
     ?.getBoundingClientRect();
   const link = origin.getBoundingClientRect();
   if (
@@ -211,7 +218,7 @@ export function useSystemPermalink(
     { kind: "inbox" }
   > | null>(null);
   const state = routeState ?? inboxError;
-  const returnFocus = useRef<HTMLAnchorElement | null>(null);
+  const returnFocus = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {
     if (routeState || !returnFocus.current) return;
     restoreLinkFocus(returnFocus.current);
@@ -331,7 +338,8 @@ export function useSystemPermalink(
             finish(gate, "superseded");
             return;
           }
-          gate.route = await routeChannelsLink(href);
+          gate.route =
+            gate.source.kind === "link" ? await routeChannelsLink(href) : null;
           signal.throwIfAborted();
           if (!origin.isConnected || reading?.signal.aborted) {
             finish(gate, "superseded");
@@ -494,28 +502,41 @@ export function useSystemPermalink(
     },
     [start],
   );
-  const openPost = useCallback(
-    (
-      href: string,
-      origin: HTMLAnchorElement,
-      reading?: PublishedReadingProposal,
-    ) => {
+  const openPublished = useCallback(
+    (source: PublishedSource) => {
       const previous = pendingPost.current;
-      if (previous?.source?.origin === origin && previous.source.href === href)
+      if (
+        previous?.source?.origin === source.origin &&
+        previous.source.href === source.href &&
+        previous.source.kind === source.kind
+      )
         return;
       if (previous && current.current === previous)
         finish(previous, previous.positioned ? "shown" : "superseded");
-      const gate = makeGate(`published-${++publishedSequence.current}`, null, {
-        href,
-        origin,
-        reading,
-      });
+      const gate = makeGate(
+        `published-${++publishedSequence.current}`,
+        null,
+        source,
+      );
       pendingPost.current = gate;
       void run(gate).finally(() => {
         if (pendingPost.current === gate) pendingPost.current = null;
       });
     },
     [finish, run],
+  );
+  const openPost = useCallback(
+    (
+      href: string,
+      origin: HTMLAnchorElement,
+      reading?: PublishedReadingProposal,
+    ) => openPublished({ kind: "link", href, origin, reading }),
+    [openPublished],
+  );
+  const openBookmark = useCallback(
+    (target: BookmarkLinkTarget, origin: HTMLButtonElement) =>
+      openPublished({ ...target, origin }),
+    [openPublished],
   );
   useEffect(() => {
     const life = new AbortController();
@@ -672,6 +693,7 @@ export function useSystemPermalink(
     request,
     installations,
     openPost,
+    openBookmark,
     entryResult,
     notice,
     connect,

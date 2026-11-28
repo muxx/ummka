@@ -37,9 +37,11 @@ const dismissInbox = vi.fn();
 function Window({
   show = true,
   body = message,
+  bookmarks = false,
 }: {
   show?: boolean;
   body?: string;
+  bookmarks?: boolean;
 }) {
   const links = useSystemPermalink("en", reopen);
   return (
@@ -50,6 +52,32 @@ function Window({
         >
           <PublishedPostBody message={body} locale="en" authorName="Ada" />
         </PublishedLinkNavigation.Provider>
+      )}
+      {bookmarks && (
+        <>
+          <button
+            type="button"
+            onClick={(event) =>
+              links.openBookmark(
+                { kind: "link", href: `${server}/team/pl/${post}` },
+                event.currentTarget,
+              )
+            }
+          >
+            Bookmark
+          </button>
+          <button
+            type="button"
+            onClick={(event) =>
+              links.openBookmark(
+                { kind: "board", href: `${server}/team/pl/${post}` },
+                event.currentTarget,
+              )
+            }
+          >
+            Board
+          </button>
+        </>
       )}
       {links.notice(false, false)}
       {links.request && (
@@ -139,6 +167,27 @@ test("external handler failure offers retry with the original URL and mail skips
   );
   expect(listInstallations).not.toHaveBeenCalled();
 });
+test("bookmark links share signed navigation and board destinations always open in the browser", async () => {
+  const user = userEvent.setup();
+  render(<Window bookmarks />);
+  const bookmark = screen.getByRole("button", { name: "Bookmark" });
+  await user.click(bookmark);
+  await user.click(await screen.findByRole("button", { name: "Refuse" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Don’t open this link" }),
+  );
+  expect(document.activeElement).toBe(bookmark);
+  vi.mocked(listInstallations).mockClear();
+  await user.click(screen.getByRole("button", { name: "Board" }));
+  await waitFor(() =>
+    expect(openExternalPostLink).toHaveBeenCalledExactlyOnceWith(
+      `${server}/team/pl/${post}`,
+    ),
+  );
+  expect(listInstallations).not.toHaveBeenCalled();
+  expect(dismissInbox).not.toHaveBeenCalled();
+});
+
 test("a published post URL with a channel starts signed post navigation", async () => {
   const user = userEvent.setup();
   render(

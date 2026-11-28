@@ -153,6 +153,20 @@ export function webviewServers(
   const collectionBackSteps = [
     "collection-back-saved-reply",
     "collection-back-saved-list",
+    "collection-back-header-members",
+    "collection-back-resized-header-members",
+    "collection-back-info-members",
+    "collection-back-bookmark-menu",
+    "collection-back-bookmark-file",
+    "collection-back-bookmark-confirm",
+    "collection-back-bookmark-restored-menu",
+    "collection-back-bookmarks",
+    "collection-back-file-details",
+    "collection-back-file-message",
+    "collection-back-files",
+    "collection-back-info-row",
+    "collection-back-info-pins",
+    "collection-back-info-overview",
     "collection-back-pinned-root",
     "collection-back-pinned-list",
     "collection-back-mentioned-reply",
@@ -168,6 +182,8 @@ export function webviewServers(
     "reopened",
     "channel-menu",
     "notifications",
+    "info-notifications",
+    "info-panel",
     "directory",
     "team-choice-direct",
     "team-choice-nested",
@@ -657,6 +673,34 @@ export function webviewServers(
       return;
     }
     if (url.pathname.startsWith("/system-post-check/api/v4/")) {
+      const town = "c".repeat(26);
+      const bookmarkChannel = `/system-post-check/api/v4/channels/${town}`;
+      if (
+        url.pathname === bookmarkChannel + "/bookmarks" ||
+        url.pathname === bookmarkChannel + "/members/me"
+      ) {
+        assert.equal(req.method, "GET");
+        assert.equal(req.headers.authorization, "Bearer fixture-system-post");
+        assert.equal(url.search, "");
+        const listing = url.pathname.endsWith("/bookmarks");
+        const data = listing
+          ? [
+              {
+                id: "b".repeat(26),
+                channel_id: town,
+                delete_at: 0,
+                display_name: "Opening discussion",
+                type: "link",
+                link_url: `https://${req.headers.host}/system-post-check/browser/channels/town-square/${"w".repeat(26)}`,
+              },
+            ]
+          : { channel_id: town, user_id: "f".repeat(26), notify_props: {} };
+        if (listing) systemPostReads.add("channel-bookmarks");
+        res
+          .writeHead(200, { "Content-Type": "application/json" })
+          .end(JSON.stringify(data));
+        return;
+      }
       const replyPath = `/system-post-check/api/v4/posts/${systemReply}`;
       if (
         url.pathname === `${replyPath}/info` &&
@@ -1414,7 +1458,12 @@ export function webviewServers(
       },
     );
     if (workspace) {
-      if (workspace !== "background-thread-totals") visits.push(workspace);
+      // Viewing a wide channel also reads its count. Route checks apply to every request.
+      if (
+        workspace !== "background-thread-totals" &&
+        (workspace !== "info-channel-members" || !visits.includes(workspace))
+      )
+        visits.push(workspace);
       return;
     }
     const account = respondToAccount(
@@ -2291,6 +2340,7 @@ export function webviewServers(
       refresh.verify();
       cardRace.verify();
       for (const read of [
+        "channel-bookmarks",
         "live-search-destination",
         "live-search-post-anchor",
         "system-named-team",
@@ -2682,6 +2732,11 @@ export function webviewServers(
           ].map((path) => "browser-entry-" + path),
         );
       expected.push(
+        "info-channel-members",
+        "notification-member",
+        "notification-member",
+        "browser-action-confirmed",
+        "browser-action-confirmed",
         "notification-member",
         "notification-member",
         "notification-member",

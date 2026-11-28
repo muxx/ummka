@@ -30,6 +30,18 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
     if (response.status !== 204)
       throw Error(`Native collection Back failed: ${step}`);
   }
+  async function fixtureStatus(step: "boundary" | "pins-refresh") {
+    const connection = await openNativeRestConnection(url);
+    try {
+      return (
+        await connection.fetchApi(
+          `${connection.basePath}/api/v4/system/ping?step=${step}`,
+        )
+      ).status;
+    } finally {
+      await connection.close();
+    }
+  }
   try {
     await connectInstallation(url);
     flushSync(() => root.render(<App language="en" />));
@@ -151,16 +163,8 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
       "Earlier saved messages haven’t loaded yet.",
     );
     boundary.scrollIntoView({ block: "end" });
-    const control = await openNativeRestConnection(url);
-    try {
-      const response = await control.fetchApi(
-        `${control.basePath}/api/v4/system/ping?step=boundary`,
-      );
-      if (response.status !== 204)
-        throw Error("Saved continuation was not pending");
-    } finally {
-      await control.close();
-    }
+    if ((await fixtureStatus("boundary")) !== 204)
+      throw Error("Saved continuation was not pending");
     const scroller = returned.closest<HTMLElement>(".collection-rows");
     if (!scroller) throw Error("Missing saved list viewport");
     const bounds = scroller.getBoundingClientRect();
@@ -211,20 +215,297 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
       if (document.activeElement !== trigger)
         throw Error("Saved control did not regain focus");
     });
+    const info = ui.getByRole("button", { name: "Channel info" });
+    host.style.width = "1180px";
+    const headerMembers = await ui.findByRole("button", {
+      name: "Members · 7",
+    });
+    click(headerMembers);
+    const directMembers = await findPane("Members");
+    await directMembers.findByText("@channel.guest");
+    if (directMembers.queryByRole("button", { name: "Back to channel info" }))
+      throw Error("Direct member navigation opened a nested panel");
+    await back("header-members");
+    await waitFor(() => {
+      if (document.activeElement !== headerMembers)
+        throw Error("Member count did not regain focus");
+    });
+    click(headerMembers);
+    await findPane("Members");
+    host.style.width = "740px";
+    await waitFor(() => {
+      if (headerMembers.isConnected)
+        throw Error("Member count remains visible at compact width");
+    });
+    await back("resized-header-members");
+    await waitFor(() => {
+      if (document.activeElement !== info)
+        throw Error("Hidden opener retained focus");
+    });
+    host.style.removeProperty("width");
+    click(info);
+    let about = await findPane("About this channel");
+    await about.findByText("7", { selector: "[role=status]" });
+    click(about.getByRole("button", { name: /^Members/ }));
+    const roster = await findPane("Members");
+    await roster.findByText("@channel.guest");
+    roster.getByText("Guest");
+    fireEvent.change(roster.getByRole("searchbox"), {
+      target: { value: "absent" },
+    });
+    await roster.findByRole("heading", { name: /^No members match / });
+    await back("info-members");
+    about = await findPane("About this channel");
+    await waitFor(() => {
+      if (
+        document.activeElement !==
+        about.getByRole("button", { name: /^Members/ })
+      )
+        throw Error("Member directory did not return to the opening row");
+    });
+    click(about.getByRole("button", { name: "Channel bookmarks" }));
+    const bookmarks = await findPane("Channel bookmarks");
+    const bookmark = await bookmarks.findByRole("button", {
+      name: /Release checklist/,
+    });
+    if (!bookmark.textContent?.includes("text/markdown"))
+      throw Error("Missing bookmark media type");
+    click(bookmark);
+    const bookmarkMenu = await within(document.body).findByRole("dialog", {
+      name: "Release checklist",
+    });
+    await back("bookmark-menu");
+    await waitFor(() => {
+      if (bookmarkMenu.isConnected || document.activeElement !== bookmark)
+        throw Error("Back did not return to the bookmark");
+    });
+    click(bookmark);
+    click(
+      within(
+        await within(document.body).findByRole("dialog", {
+          name: "Release checklist",
+        }),
+      ).getByRole("button", { name: "Open file" }),
+    );
+    const bookmarkFile = within(
+      await within(document.body).findByRole("dialog", {
+        name: "checklist.md",
+      }),
+    );
+    await bookmarkFile.findByText("MD");
+    if (bookmarkFile.queryByRole("button", { name: "Show message" }))
+      throw Error("Bookmark-only file offered a parent message");
+    await back("bookmark-file");
+    await waitFor(() => {
+      if (document.activeElement !== bookmark)
+        throw Error("File preview lost the bookmark row");
+    });
+    const dialogs = within(document.body);
+    async function addBookmark(name: string) {
+      click(await bookmarks.findByRole("button", { name: "Add link" }));
+      const editor = within(
+        await dialogs.findByRole("dialog", { name: "Add link" }),
+      );
+      fireEvent.input(editor.getByRole("textbox", { name: "Name" }), {
+        target: { value: name },
+      });
+      fireEvent.input(editor.getByRole("textbox", { name: "Link address" }), {
+        target: { value: "https://example.org/guide" },
+      });
+      click(editor.getByRole("button", { name: "Save" }));
+      return editor;
+    }
+    async function bookmarkAction(
+      row: HTMLElement,
+      name: string,
+      action: string,
+    ) {
+      click(row);
+      const menu = within(await dialogs.findByRole("dialog", { name }));
+      click(menu.getByRole("button", { name: action }));
+    }
+    await addBookmark("Release guide");
+    const createdGuide = await bookmarks.findByRole("button", {
+      name: "Release guide",
+    });
+    await waitFor(() => {
+      if (document.activeElement !== createdGuide)
+        throw Error("Adding a bookmark did not focus its new row");
+    });
+    const runbook = await bookmarks.findByRole("button", {
+      name: "Team runbook",
+    });
+    await bookmarkAction(runbook, "Team runbook", "Edit");
+    const editor = within(
+      await dialogs.findByRole("dialog", { name: "Edit bookmark" }),
+    );
+    fireEvent.input(editor.getByRole("textbox", { name: "Name" }), {
+      target: { value: "Updated runbook" },
+    });
+    click(editor.getByRole("button", { name: "Save" }));
+    const updated = await bookmarks.findByRole("button", {
+      name: "Updated runbook",
+    });
+    await waitFor(() => {
+      if (document.activeElement !== updated || runbook.isConnected)
+        throw Error("Lost the replaced bookmark");
+    });
+    await bookmarkAction(updated, "Updated runbook", "Delete");
+    await dialogs.findByRole("dialog", { name: "Delete bookmark?" });
+    await back("bookmark-confirm");
+    const restoredBookmarkMenu = within(
+      await dialogs.findByRole("dialog", { name: "Updated runbook" }),
+    );
+    await waitFor(() => {
+      if (
+        document.activeElement !==
+        restoredBookmarkMenu.getByRole("button", { name: "Delete" })
+      )
+        throw Error("Back lost the Delete action in the bookmark menu");
+    });
+    await back("bookmark-restored-menu");
+    await waitFor(() => {
+      if (document.activeElement !== updated)
+        throw Error("Back lost the bookmark that opened confirmation");
+    });
+    await bookmarkAction(updated, "Updated runbook", "Delete");
+    click(
+      within(
+        await dialogs.findByRole("dialog", { name: "Delete bookmark?" }),
+      ).getByRole("button", { name: "Delete" }),
+    );
+    await waitFor(() => {
+      if (updated.isConnected || document.activeElement !== createdGuide)
+        throw Error("Deletion did not focus the next bookmark");
+    });
+    const uncertainEditor = await addBookmark("Unconfirmed guide");
+    await uncertainEditor.findByRole("alert");
+    if (
+      !uncertainEditor.getByRole<HTMLButtonElement>("button", { name: "Save" })
+        .disabled ||
+      uncertainEditor.getByRole<HTMLInputElement>("textbox", { name: "Name" })
+        .value !== "Unconfirmed guide" ||
+      bookmarks.queryByRole("button", { name: "Unconfirmed guide" })
+    )
+      throw Error(
+        "An uncertain bookmark response discarded the draft or allowed another write",
+      );
+    click(uncertainEditor.getByRole("button", { name: "Close" }));
+    await bookmarks.findByRole("button", { name: "Unconfirmed guide" });
+    await back("bookmarks");
+    about = await findPane("About this channel");
+    await waitFor(() => {
+      if (
+        document.activeElement !==
+        about.getByRole("button", { name: "Channel bookmarks" })
+      )
+        throw Error("Bookmark list lost its entry in channel info");
+    });
+    click(about.getByRole("button", { name: "Channel files" }));
+    const files = await findPane("Channel files");
+    const file = await files.findByRole("button", {
+      name: "Open attachment thread-note.txt, 0 B",
+    });
+    click(file);
+    const fileDialog = within(document.body);
+    const fileDetails = within(
+      await fileDialog.findByRole("dialog", { name: "thread-note.txt" }),
+    );
+    fileDetails.getByText("0 B, empty file");
+    await back("file-details");
+    await waitFor(
+      () => {
+        if (fileDialog.queryByRole("dialog") || document.activeElement !== file)
+          throw Error(
+            `Closing file details: open=${Boolean(fileDialog.queryByRole("dialog"))} focus=${document.activeElement?.tagName}/${document.activeElement?.className} visible=${Boolean(file.getClientRects().length)}`,
+          );
+      },
+      { timeout: 10000 },
+    );
+    click(file);
+    const openedFile = within(
+      await fileDialog.findByRole("dialog", { name: "thread-note.txt" }),
+    );
+    click(openedFile.getByRole("button", { name: "Go to message" }));
+    const fileThread = await findPane("Thread");
+    await fileThread.findByText(
+      "Reply visible only inside Town’s thread for @reader",
+    );
+    await ui.findByRole("button", { name: "Back to channel files" });
+    await back("file-message");
+    await waitFor(
+      () => {
+        if (
+          !file.getClientRects().length ||
+          document.activeElement !== file ||
+          draft.value !== originalText
+        )
+          throw Error("Message return lost the channel file or draft");
+      },
+      { timeout: 10000 },
+    );
+    await back("files");
+    about = await findPane("About this channel");
+    await waitFor(
+      () => {
+        if (
+          document.activeElement !==
+          about.getByRole("button", { name: "Channel files" })
+        )
+          throw Error("Closing channel files did not restore its info row");
+      },
+      { timeout: 10000 },
+    );
+    const pinsHeading = (pane: typeof ui) =>
+      pane.getByRole("heading", {
+        name: "Pinned messages",
+        description: "# Town Square · visible to all members",
+      });
+    click(about.getByRole("button", { name: "Pinned messages" }));
+    let infoPins = await findPane("Pinned messages");
+    if (document.activeElement !== pinsHeading(infoPins))
+      throw Error("The first Pins opening did not focus its heading");
+    const infoPin = await infoPins.findByRole("button", {
+      name: /Town fixture message/,
+    });
+    if (document.activeElement !== pinsHeading(infoPins))
+      throw Error("The first Pins response moved focus from its heading");
+    click(infoPin);
+    await ui.findByRole("button", { name: "Back to pinned messages" });
+    await back("info-row");
+    infoPins = await findPane("Pinned messages");
+    await waitFor(() => {
+      if (
+        document.activeElement !==
+        infoPins.getByRole("button", { name: /Town fixture message/ })
+      )
+        throw Error("Pinned message did not regain focus");
+    });
+    await back("info-pins");
+    about = await findPane("About this channel");
+    await waitFor(() => {
+      if (
+        document.activeElement !==
+        about.getByRole("button", { name: "Pinned messages" })
+      )
+        throw Error("The pinned messages action did not regain focus");
+    });
+    await back("info-overview");
+    await waitFor(() => {
+      if (document.activeElement !== info)
+        throw Error("The channel information button did not regain focus");
+    });
     const menu = ui.getByRole("button", { name: "Channel menu, Town Square" });
     click(menu);
     click(ui.getByRole("menuitem", { name: "Pinned messages" }));
     let pins = await findPane("Pinned messages");
-    const pinsHeading = () =>
-      pins.getByRole("heading", {
-        name: "Pinned messages",
-        description: "# Town Square · visible to all members",
-      });
-    if (document.activeElement !== pinsHeading())
-      throw Error("Pinned results did not focus their own heading");
-    const pin = await pins.findByRole("button", {
+    pinsHeading(pins);
+    // Both entry points share the confirmed list and its reading place.
+    const pin = pins.getByRole("button", {
       name: /Town fixture message/,
     });
+    if (document.activeElement !== pin)
+      throw Error("Reopening Pins did not focus the remembered pinned row");
     // An open Pins view rereads the same list when connectivity returns.
     const previousOnline = Object.getOwnPropertyDescriptor(navigator, "onLine");
     Object.defineProperty(navigator, "onLine", {
@@ -234,6 +515,8 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
     try {
       flushSync(() => window.dispatchEvent(new Event("offline")));
       await pins.findByText("You’re offline.");
+      if ((await fixtureStatus("pins-refresh")) !== 204)
+        throw Error("Could not arm the Pins refresh response");
     } finally {
       if (previousOnline)
         Object.defineProperty(navigator, "onLine", previousOnline);
@@ -247,6 +530,8 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
     );
     if (!pin.isConnected || pins.queryByText(/no connection/i))
       throw Error("A failed update lost the confirmed pin or reported offline");
+    if (document.activeElement !== pin)
+      throw Error("A failed Pins update moved focus from the remembered row");
     click(pins.getByRole("button", { name: "Retry update: Pinned messages" }));
     await pins.findByText("Pinned messages updated");
     if (document.activeElement !== pin)
@@ -257,7 +542,7 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
     await ui.findByRole("button", { name: "Back to pinned messages" });
     await back("pinned-root");
     pins = await findPane("Pinned messages");
-    pinsHeading();
+    pinsHeading(pins);
     await waitFor(() => {
       if (
         document.activeElement !==
@@ -267,7 +552,7 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
     });
     click(pins.getByRole("button", { name: "Unpin for everyone" }));
     await pins.findByText("No pinned messages in this channel.");
-    pinsHeading();
+    pinsHeading(pins);
     await back("pinned-list");
     await waitFor(() => {
       if (document.activeElement !== menu)

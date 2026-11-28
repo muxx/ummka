@@ -21,28 +21,27 @@
   cursor: pointer;
   min-height: 44px;
 }
-.collection-channel-actions {
-  position: absolute;
-  top: 100%;
-  inset-inline-start: 0;
+.collection-channel-popover {
+  --channel-menu-shadow: 0 12px 42px rgb(6 24 57 / 17%);
+  position: fixed;
   z-index: 2;
-  font-weight: 500;
-  font-size: 0.9375rem;
-  width: max-content;
-  max-width: 70cqi;
-  display: grid;
-  padding: 4px;
-  max-height: 50dvh;
-  overflow: auto;
-  border: 1px solid var(--divider);
-  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: min(284px, calc(100vw - 16px));
+  max-height: min(72dvh, 620px);
+  overflow: hidden;
+  border: 1px solid
+    color-mix(in srgb, var(--strong-divider) 60%, var(--divider));
+  border-radius: 14px;
   background: var(--canvas);
-  box-shadow: 0 6px 16px #08152c26;
+  color: var(--text);
+  box-shadow:
+    0 1px 4px color-mix(in srgb, var(--text) 10%, transparent),
+    var(--channel-menu-shadow);
 }
-.collection-channel-action {
-  text-align: start;
-  padding: 0.5rem 1rem;
-  border-radius: 6px;
+:root[data-appearance="dark"] .collection-channel-popover {
+  --channel-menu-shadow: 0 12px 40px rgb(0 0 0 / 45%);
 }
 .collection-channel-sheet {
   position: fixed;
@@ -61,17 +60,23 @@
   box-shadow: 0 10px 34px rgb(0 0 0 / 18%);
 }
 .collection-channel-sheet::backdrop {
-  background: rgb(0 0 0 / 26%);
+  background: #06183966;
 }
-.collection-channel-sheet header {
+:is(.collection-channel-sheet, .collection-channel-popover) > header {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 8px;
+  box-shadow: inset 0 -1px var(--divider);
+  background: var(--surface);
+}
+.collection-channel-sheet > header {
   padding-block: 15px 10px;
   padding-inline: max(18px, env(safe-area-inset-left))
     max(18px, env(safe-area-inset-right));
-  box-shadow: inset 0 -1px var(--divider);
-  background: var(--surface);
+}
+.collection-channel-popover > header {
+  padding: 5px 7px 5px 15px;
 }
 .collection-sheet-mark {
   flex: none;
@@ -83,7 +88,7 @@
   background: var(--accent-tint);
   color: var(--accent);
 }
-.collection-channel-sheet h2 {
+:is(.collection-channel-sheet, .collection-channel-popover) h2 {
   flex: 1;
   min-width: 0;
   margin: 0;
@@ -94,45 +99,67 @@
   overflow-wrap: anywhere;
   white-space: normal;
 }
+.collection-channel-popover h2 {
+  font-size: 0.8rem;
+}
 .collection-channel-sheet header .channels-icon-action {
   /* Fit the 44px target around the prototype's 32px control. */
   margin: -6px;
   color: var(--quote-text);
 }
-.collection-channel-sheet header .channels-icon-action:hover {
+.collection-channel-popover header .channels-icon-action {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  color: var(--muted);
+}
+:is(.collection-channel-sheet, .collection-channel-popover)
+  header
+  .channels-icon-action:hover {
   background: var(--canvas);
   color: var(--accent);
 }
-.collection-sheet-actions {
+.collection-sheet-actions,
+.collection-channel-actions {
   display: grid;
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
-  padding-block: 4px 5px;
+  padding: 4px 5px 5px;
+}
+.collection-sheet-actions {
   padding-inline: max(5px, env(safe-area-inset-left))
     max(5px, env(safe-area-inset-right));
 }
-.collection-sheet-actions .collection-channel-action {
+:is(.collection-sheet-actions, .collection-channel-actions)
+  .collection-channel-action {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 7px 10px;
+  border-radius: 6px;
   font-size: 0.85rem;
   font-weight: 510;
   line-height: normal;
 }
-.collection-sheet-actions svg {
+.collection-channel-actions .collection-channel-action {
+  min-height: 35px;
+}
+.collection-channel-actions svg {
+  width: 16px;
+  height: 16px;
+}
+.collection-channel-action svg {
   flex: none;
   color: var(--sheet-action-icon, var(--muted));
 }
 .collection-sheet-actions .collection-channel-action:hover {
   background: var(--accent-tint);
 }
-.collection-sheet-actions
-  .collection-channel-action:is(
-    :hover,
-    :where([data-keyboard-navigation] :focus-visible)
-  ) {
+.collection-channel-action:is(
+  :hover,
+  :where([data-keyboard-navigation] :focus-visible)
+) {
   --sheet-action-icon: var(--accent);
 }
 .collection-rows {

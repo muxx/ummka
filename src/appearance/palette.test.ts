@@ -19,6 +19,9 @@ describe.each(["light", "dark"] as const)("Aurora %s", (mode) => {
       for (const foreground of [p.text, p.muted, p["message-link"]])
         expect(contrast(foreground, background)).toBeGreaterThanOrEqual(4.5);
     }
+    expect(contrast(p["on-danger"], p["danger-fill"])).toBeGreaterThanOrEqual(
+      4.5,
+    );
     expect(contrast(p.text, p["message-link"])).toBeGreaterThanOrEqual(3);
     expect(contrast(p["on-accent"], p.accent)).toBeGreaterThanOrEqual(4.5);
     for (const foreground of [p.focus, p["field-border"]])

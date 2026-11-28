@@ -31,12 +31,25 @@ import type { LocalPost } from "../mattermost/local-history.ts";
 import { isMattermostId } from "../mattermost/model-fields.ts";
 import { visibleSidebar } from "../mattermost/sidebar-rows.ts";
 import { effectiveWorkspacePreferences } from "../mattermost/workspace-preferences.ts";
+import { ChannelBookmarksPanel } from "./ChannelBookmarksPanel.tsx";
+import { ChannelFilesPanel } from "./ChannelFilesPanel.tsx";
+import {
+  ChannelInformationButton,
+  ChannelInformationPanel,
+  HeaderMembersButton,
+} from "./ChannelInformationPanel.tsx";
+import { ChannelMembersPanel } from "./ChannelMembersPanel.tsx";
 import { ChannelNotificationsDialog } from "./ChannelNotificationsDialog.tsx";
 import { ChannelsFrame, ThreadMark } from "./ChannelsFrame.tsx";
-import { CollectionChannelMenu } from "./CollectionChannelMenu.tsx";
+import {
+  type ChannelMenu,
+  ChannelQuickActionsButton,
+  CollectionChannelMenu,
+} from "./CollectionChannelMenu.tsx";
 import { CollectionResultSteps } from "./CollectionResultSteps.tsx";
 import { ComposerAccessNotice } from "./ComposerAccessNotice.tsx";
 import { ConversationTimeline } from "./ConversationTimeline.tsx";
+import { channelBookmarkAccess } from "./channel-bookmark-access.ts";
 import { channelDraftActions } from "./channel-draft-actions.ts";
 import { collectionCopy } from "./collection-copy.ts";
 import { channelComposerAccess } from "./composer-access.ts";
@@ -88,6 +101,7 @@ import type {
 } from "./timeline-reader.ts";
 import { measureTimeline, type TimelinePlace } from "./timeline-viewport.ts";
 import { useChannelTimeline } from "./use-channel-timeline.ts";
+import { useInfoRead } from "./use-info-read.ts";
 import { useResultChannelIdentities } from "./use-result-channel-identities.ts";
 import { useWorkspaceBack } from "./use-workspace-back.ts";
 import { useWorkspaceCollections } from "./use-workspace-collections.ts";
@@ -315,8 +329,10 @@ export function ChannelsWorkspace({
     closeWorkspaceSaved,
   );
   const mentionLabels = mentionCopy[language];
+  const allowChannelFiles = policy.server.value?.search?.files === true;
   const collectionLabels = collectionCopy[language];
   const channelMenuButton = useRef<HTMLButtonElement>(null);
+  const quickActionsButton = useRef<HTMLButtonElement>(null);
   const directoryButton = useRef<HTMLButtonElement>(null);
   const directoryReturn = useRef<() => boolean>(null);
   const restoreDirectoryControl = useRef(false);
@@ -336,15 +352,56 @@ export function ChannelsWorkspace({
       directoryButton.current?.focus();
     }
   }, [directoryOpen]);
-  const [channelMenuOpen, setChannelMenuOpen] = useState(false);
-  const [notificationRoom, setNotificationRoom] = useState<string | null>(null);
-  const restoreChannelTitle = useRef(false);
+  const [channelMenuOpen, setChannelMenuOpen] = useState<ChannelMenu>(null);
+  const [infoChannel, setInfoChannel] = useState<{
+    id: string;
+    opener: HTMLButtonElement;
+    direct?: "menu" | "memberCount";
+    requestId?: number;
+    stage: "overview" | "pins" | "members" | "files" | "bookmarks";
+    fileOrigin?: { postId: string; button: HTMLButtonElement };
+    focusRow?: "members" | "pins" | "files" | "bookmarks";
+  } | null>(null);
+  const fileNavigation = useRef<AbortController | null>(null);
+  const fileReading = useRef<TimelinePlace | null>(null);
+  const fileChannel =
+    infoChannel?.stage === "files" && allowChannelFiles ? infoChannel.id : null;
   useLayoutEffect(() => {
-    if (notificationRoom === null && restoreChannelTitle.current) {
-      restoreChannelTitle.current = false;
-      channelMenuButton.current?.focus();
-    }
-  }, [notificationRoom]);
+    if (fileChannel) return () => fileNavigation.current?.abort();
+  }, [fileChannel]);
+  const infoButton = useRef<HTMLButtonElement>(null);
+  const membersButton = useRef<HTMLButtonElement>(null);
+  const [notification, setNotification] = useState<{
+    room: string;
+    source: "menu" | "info";
+    opener: HTMLButtonElement;
+  } | null>(null);
+  const [notificationRevision, setNotificationRevision] = useState(0);
+  const focusAfterClose = useRef<HTMLButtonElement | null>(null);
+  useLayoutEffect(() => {
+    const target = focusAfterClose.current;
+    if (
+      notification ||
+      !target ||
+      (infoChannel && target === infoButton.current)
+    )
+      return;
+    focusAfterClose.current = null;
+    (target.isConnected ? target : infoButton.current)?.focus({
+      preventScroll: true,
+    });
+  }, [notification, infoChannel]);
+  function closeInfo() {
+    focusAfterClose.current = infoChannel?.opener ?? null;
+    setInfoChannel(null);
+  }
+  function closeNotification(backToSource: boolean) {
+    if (!notification) return;
+    if (backToSource && notification.source === "menu")
+      setChannelMenuOpen("title");
+    else focusAfterClose.current = notification.opener;
+    setNotification(null);
+  }
   const [knownSaves, setKnownSaves] = useState<{
     ids: ReadonlySet<string>;
     complete: boolean;
@@ -370,7 +427,17 @@ export function ChannelsWorkspace({
   useLayoutEffect(() => {
     host.current?.querySelector<HTMLButtonElement>(".channels-team")?.focus();
   }, []);
-  const [compact, setCompact] = useState(false);
+  const [widthClass, setWidthClass] = useState<"compact" | "medium" | "wide">(
+    "compact",
+  );
+  const compact = widthClass === "compact";
+  useLayoutEffect(() => {
+    if (!compact && channelMenuOpen === "quick") {
+      setChannelMenuOpen(null);
+      infoButton.current?.focus({ preventScroll: true });
+    }
+  }, [compact, channelMenuOpen]);
+
   const [page, setPage] = useState<"navigation" | "conversation">(
     "conversation",
   );
@@ -417,7 +484,12 @@ export function ChannelsWorkspace({
   useLayoutEffect(() => {
     const node = host.current;
     if (!node) return;
-    const size = () => setCompact(node.clientWidth <= 740);
+    const size = () => {
+      const width = node.clientWidth;
+      setWidthClass(
+        width <= 740 ? "compact" : width <= 900 ? "medium" : "wide",
+      );
+    };
     size();
     const observer = new ResizeObserver(size);
     observer.observe(node);
@@ -729,8 +801,9 @@ export function ChannelsWorkspace({
       open: (source, signal, origin) =>
         workspace.messages.open(source, signal, origin),
       beforeOpen: () => {
+        setInfoChannel(null);
         collections.close(false);
-        setChannelMenuOpen(false);
+        setChannelMenuOpen(null);
       },
     },
   );
@@ -936,6 +1009,13 @@ export function ChannelsWorkspace({
       collapsedThreads !== null &&
       retainedChannels.has(id);
     inbox.close();
+    setInfoChannel(
+      returning &&
+        infoChannel?.id === id &&
+        (infoChannel.stage === "pins" || infoChannel.stage === "files")
+        ? { ...infoChannel, requestId: undefined }
+        : null,
+    );
     setDirectoryOpen(false);
     search.abortPending();
     if (!returning) {
@@ -943,7 +1023,7 @@ export function ChannelsWorkspace({
       if (!retained && !keepCurrentReading)
         restoreConversation(id, main?.channelId === id ? main.reading : null);
     }
-    setChannelMenuOpen(false);
+    setChannelMenuOpen(null);
     if (!returning && (position || search.origin)) search.dismiss();
     workspace.messages.clear();
     if (switchingChannel) closeThread();
@@ -1090,7 +1170,8 @@ export function ChannelsWorkspace({
     opener: HTMLButtonElement,
   ) {
     inbox.close();
-    setChannelMenuOpen(false);
+    setInfoChannel(null);
+    setChannelMenuOpen(null);
     if (
       source.kind !== "pins" &&
       collections.view?.kind === source.kind &&
@@ -1221,6 +1302,7 @@ export function ChannelsWorkspace({
     collections.abort();
     const source = collections.restoreRow(id);
     restoreConversation(source?.channelId ?? null, source?.reading ?? null);
+    if (pinsFromInfo && search.origin) search.dismiss();
     if (source?.channelId) choose(source.channelId, true);
     else workspace.messages.clear();
   }
@@ -1331,7 +1413,7 @@ export function ChannelsWorkspace({
             search.dismiss();
             workspace.messages.clear();
             collections.close(false);
-            setChannelMenuOpen(false);
+            setChannelMenuOpen(null);
             closeThread();
             inbox.close();
             setDirectoryOpen(true);
@@ -1433,8 +1515,121 @@ export function ChannelsWorkspace({
     (channel.kind === "O" || channel.kind === "P" || channel.kind === "G")
       ? channel.kind
       : null;
-  if (notificationRoom && (notificationRoom !== chosen || !notificationKind))
-    setNotificationRoom(null);
+  const infoAvailable =
+    channel !== null &&
+    !historyDenied &&
+    !directoryOpen &&
+    !inbox.visible &&
+    !["forbidden", "session", "unauthorized"].includes(directory.state.status);
+  const sameInfoChannel =
+    infoAvailable && infoChannel !== null && infoChannel.id === chosen;
+  const sameInfoPosition =
+    infoChannel?.requestId === position?.request.requestId;
+  const pinsFromInfo =
+    sameInfoChannel &&
+    infoChannel.stage === "pins" &&
+    collections.view?.kind === "pins" &&
+    collections.view.channelId === chosen &&
+    (sameInfoPosition || Boolean(collectionDestination));
+  const fileDestination = Boolean(
+    fileChannel &&
+      sameInfoChannel &&
+      position &&
+      !position.system &&
+      !sameInfoPosition &&
+      infoChannel?.fileOrigin?.postId === position.request.post.id,
+  );
+  const infoOpen =
+    sameInfoChannel &&
+    infoChannel.stage !== "pins" &&
+    (infoChannel.stage !== "files" || allowChannelFiles) &&
+    sameInfoPosition &&
+    (Boolean(position) || (!search.panel && !collections.view));
+  if (infoChannel !== null && !infoOpen && !pinsFromInfo && !fileDestination)
+    setInfoChannel(null);
+  const headerMembers =
+    widthClass === "wide" &&
+    infoAvailable &&
+    (channel.kind === "O" || channel.kind === "P" || channel.kind === "G");
+  const memberCount = useInfoRead(
+    headerMembers || (infoOpen && infoChannel.stage === "overview")
+      ? (channel?.id ?? null)
+      : null,
+    online,
+    (signal, id) => connection.readChannelMemberCount(id, signal),
+    sessionIssue,
+    () => {
+      if (infoOpen) closeInfo();
+      directory.retry();
+    },
+  );
+  const membersFromHeader =
+    infoOpen &&
+    infoChannel.stage === "members" &&
+    infoChannel.direct === "memberCount";
+  function openChannelInfo(
+    opener: HTMLButtonElement,
+    stage: "overview" | "members" | "files" | "bookmarks" = "overview",
+    direct: "menu" | "memberCount" = "menu",
+  ) {
+    if (!channel || !infoAvailable || (stage === "files" && !allowChannelFiles))
+      return;
+    if (!position) {
+      collections.close(false);
+      search.dismiss();
+    }
+    setChannelMenuOpen(null);
+    setInfoChannel({
+      id: channel.id,
+      opener,
+      direct: stage === "overview" ? undefined : direct,
+      requestId: position?.request.requestId,
+      stage,
+    });
+  }
+  function openFileMessage(postId: string, button: HTMLButtonElement) {
+    if (infoChannel?.stage !== "files") return;
+    fileNavigation.current?.abort();
+    const controller = new AbortController();
+    fileNavigation.current = controller;
+    fileReading.current = readChannelPlace();
+    setInfoChannel({ ...infoChannel, fileOrigin: { postId, button } });
+    void workspace.messages.open(
+      { kind: "post", id: postId },
+      controller.signal,
+      button,
+    );
+  }
+  function returnToFiles(id: string) {
+    restoreConversation(id, fileReading.current);
+    choose(id, true);
+  }
+  function backToInfo(focusRow: "members" | "files" | "bookmarks") {
+    if (infoChannel?.direct) return closeInfo();
+    if (infoChannel)
+      setInfoChannel({
+        ...infoChannel,
+        stage: "overview",
+        fileOrigin: undefined,
+        focusRow,
+      });
+  }
+  function closeCollection() {
+    if (pinsFromInfo && collections.state?.status !== "forbidden") {
+      collections.close(false);
+      setInfoChannel({ ...infoChannel, stage: "overview", focusRow: "pins" });
+    } else {
+      setInfoChannel(null);
+      collections.close();
+    }
+  }
+  if (
+    notification &&
+    (notification.room !== chosen ||
+      !notificationKind ||
+      (notification.source === "info" && !infoOpen))
+  )
+    setNotification(null);
   // App keys this workspace by connection and team. Also discard a selection
   // when the directory refresh removes the channel or revokes access.
   const activeThread =
@@ -1467,13 +1662,13 @@ export function ChannelsWorkspace({
       !(chosen === pinsSource && historyDenied) &&
       pinsRoom !== undefined);
   const deniedPinsChannel = historyDenied ? chosen : null;
-  const { retainPins, close: closeCollection } = collections;
+  const { retainPins, close: dismissCollection } = collections;
   useLayoutEffect(() => {
     retainPins(confirmedChannelIds, deniedPinsChannel);
   }, [retainPins, confirmedChannelIds, deniedPinsChannel]);
   useLayoutEffect(() => {
-    if (!pinsAvailable) closeCollection(false);
-  }, [pinsAvailable, closeCollection]);
+    if (!pinsAvailable) dismissCollection(false);
+  }, [pinsAvailable, dismissCollection]);
   const mentionPolicyChanged =
     collections.view?.kind === "mentions" &&
     collections.view.archivedChannels !== archivePolicy;
@@ -1528,8 +1723,11 @@ export function ChannelsWorkspace({
     if (appearanceOpen) return () => setAppearanceOpen(false);
     if (channelMenuOpen)
       return () => {
-        setChannelMenuOpen(false);
-        channelMenuButton.current?.focus();
+        setChannelMenuOpen(null);
+        (channelMenuOpen === "quick"
+          ? quickActionsButton
+          : channelMenuButton
+        ).current?.focus();
       };
     if (
       search.dialog ||
@@ -1542,6 +1740,14 @@ export function ChannelsWorkspace({
         setDirectoryOpen(false);
         if (compact || !chosen) setPage("navigation");
       };
+    if (infoOpen) {
+      const stage = infoChannel.stage;
+      return stage === "members" || stage === "files" || stage === "bookmarks"
+        ? () => backToInfo(stage)
+        : closeInfo;
+    }
+    if (fileDestination && chosen) return () => returnToFiles(chosen);
+    if (pinsFromInfo && !collectionDestination) return closeCollection;
     if (selection) return closeInboxThread;
     if (inbox.visible && compact && page !== "navigation")
       return () => setPage("navigation");
@@ -1646,7 +1852,7 @@ export function ChannelsWorkspace({
   );
   const overlayOpen =
     accountOverlay !== null ||
-    notificationRoom !== null ||
+    notification !== null ||
     workspace.messages.dialogOpen ||
     Boolean(attachments.selected) ||
     Boolean(reader.opening) ||
@@ -1660,7 +1866,13 @@ export function ChannelsWorkspace({
   useWorkspaceBack(
     overlayOpen,
     backWorkspace,
-    readingBackVisible && !appearanceOpen && !channelMenuOpen && !search.dialog
+    readingBackVisible &&
+      !appearanceOpen &&
+      !channelMenuOpen &&
+      !search.dialog &&
+      !infoOpen &&
+      !pinsFromInfo &&
+      !fileDestination
       ? backToReading
       : backWorkspace,
   );
@@ -1753,6 +1965,7 @@ export function ChannelsWorkspace({
     if (!publishedLinks || !publishedReading) return publishedLinks;
     return {
       serverUrl: publishedLinks.serverUrl,
+      openBookmark: publishedLinks.openBookmark,
       open(href: string, anchor: HTMLAnchorElement) {
         const scene = host.current;
         const request = position?.system;
@@ -2182,6 +2395,54 @@ export function ChannelsWorkspace({
             </button>
           </>
         }
+        informationButton={
+          channel &&
+          infoAvailable && (
+            <>
+              {headerMembers && (
+                <HeaderMembersButton
+                  language={language}
+                  expanded={membersFromHeader}
+                  control={membersButton}
+                  count={
+                    memberCount.value.status === "ready"
+                      ? memberCount.value.value
+                      : null
+                  }
+                  onClick={() => {
+                    if (membersFromHeader) return closeInfo();
+                    if (membersButton.current)
+                      openChannelInfo(
+                        membersButton.current,
+                        "members",
+                        "memberCount",
+                      );
+                  }}
+                />
+              )}
+              <ChannelInformationButton
+                language={language}
+                expanded={infoOpen && !infoChannel.direct}
+                control={infoButton}
+                onClick={() => {
+                  if (infoOpen && !infoChannel.direct) return closeInfo();
+                  if (pinsFromInfo && !collectionDestination)
+                    return closeCollection();
+                  if (infoButton.current) openChannelInfo(infoButton.current);
+                }}
+              />
+              {compact && (
+                <ChannelQuickActionsButton
+                  kind={channel.kind}
+                  language={language}
+                  button={quickActionsButton}
+                  open={channelMenuOpen === "quick"}
+                  show={() => setChannelMenuOpen("quick")}
+                />
+              )}
+            </>
+          )
+        }
         channelHeading={
           inbox.visible
             ? (id, ref) => (
@@ -2214,13 +2475,36 @@ export function ChannelsWorkspace({
                     language={language}
                     compact={compact}
                     trigger={channelMenuButton}
+                    quickTrigger={quickActionsButton}
+                    onInfo={infoAvailable ? openChannelInfo : undefined}
+                    onMembers={
+                      infoAvailable
+                        ? (opener) => openChannelInfo(opener, "members")
+                        : undefined
+                    }
                     open={channelMenuOpen}
                     setOpen={setChannelMenuOpen}
+                    onFiles={
+                      infoAvailable && allowChannelFiles
+                        ? (opener) => openChannelInfo(opener, "files")
+                        : undefined
+                    }
+                    onBookmarks={
+                      infoAvailable
+                        ? (opener) => openChannelInfo(opener, "bookmarks")
+                        : undefined
+                    }
                     onNotifications={
                       notificationKind
                         ? () => {
-                            setChannelMenuOpen(false);
-                            setNotificationRoom(channel.id);
+                            setChannelMenuOpen(null);
+                            const opener = channelMenuButton.current;
+                            if (opener)
+                              setNotification({
+                                room: channel.id,
+                                source: "menu",
+                                opener,
+                              });
                           }
                         : undefined
                     }
@@ -2244,8 +2528,122 @@ export function ChannelsWorkspace({
                 : undefined
         }
         navigationIcon={directoryOpen ? <DirectoryNavigationIcon /> : undefined}
+        sidePanelHidden={fileDestination}
         sidePanel={
-          position ? null : collections.view &&
+          (infoOpen || fileDestination) &&
+          infoChannel?.stage === "files" &&
+          channel ? (
+            <ChannelFilesPanel
+              key={channel.id}
+              account={connection}
+              teamId={team.id}
+              channelId={channel.id}
+              hidden={fileDestination}
+              restoreButton={infoChannel.fileOrigin?.button}
+              name={
+                channel.kind === "O" || channel.kind === "P"
+                  ? "# " + channelTitle
+                  : channelTitle
+              }
+              language={language}
+              online={online}
+              back={() => backToInfo("files")}
+              direct={Boolean(infoChannel.direct)}
+              close={closeInfo}
+              sessionIssue={sessionIssue}
+              showMessage={openFileMessage}
+            />
+          ) : infoOpen && channel && infoChannel.stage === "members" ? (
+            <ChannelMembersPanel
+              key={channel.id}
+              account={connection}
+              channelId={channel.id}
+              name={
+                channel.kind === "O" || channel.kind === "P"
+                  ? "# " + channelTitle
+                  : channelTitle
+              }
+              language={language}
+              online={online}
+              nameFormat={settings?.nameFormat ?? "username"}
+              back={membersFromHeader ? undefined : () => backToInfo("members")}
+              direct={Boolean(infoChannel.direct)}
+              close={closeInfo}
+              sessionIssue={sessionIssue}
+            />
+          ) : infoOpen && channel && infoChannel.stage === "bookmarks" ? (
+            <ChannelBookmarksPanel
+              key={`${serverUrl}:${userId}:${channel.id}`}
+              account={connection}
+              writes={workspace.bookmarkWrites}
+              channelId={channel.id}
+              can={(action, kind) =>
+                channelBookmarkAccess(
+                  permission,
+                  roles.state.value?.systemRoles,
+                  channel,
+                  action,
+                  kind,
+                ) === "allowed"
+              }
+              name={roomTitle}
+              serverUrl={workspace.serverUrl}
+              online={online}
+              language={language}
+              sessionIssue={sessionIssue}
+              direct={Boolean(infoChannel.direct)}
+              back={() => backToInfo("bookmarks")}
+            />
+          ) : infoOpen && channel ? (
+            <ChannelInformationPanel
+              count={memberCount}
+              key={channel.id}
+              account={connection}
+              channel={channel}
+              name={channelTitle}
+              language={language}
+              online={online}
+              sessionIssue={sessionIssue}
+              denied={() => {
+                closeInfo();
+                directory.retry();
+              }}
+              close={closeInfo}
+              focusRow={infoChannel.focusRow}
+              openBookmarks={() =>
+                setInfoChannel({ ...infoChannel, stage: "bookmarks" })
+              }
+              openFiles={
+                allowChannelFiles
+                  ? () => setInfoChannel({ ...infoChannel, stage: "files" })
+                  : undefined
+              }
+              openMembers={() =>
+                setInfoChannel({ ...infoChannel, stage: "members" })
+              }
+              openPins={() => {
+                setInfoChannel({ ...infoChannel, stage: "pins" });
+                collectionReading.current = readChannelPlace();
+                collections.open(
+                  { kind: "pins", channelId: channel.id },
+                  infoChannel.opener,
+                );
+              }}
+              notificationRevision={notificationRevision}
+              notifications={
+                notificationKind
+                  ? (opener) =>
+                      setNotification({
+                        room: channel.id,
+                        source: "info",
+                        opener,
+                      })
+                  : undefined
+              }
+            />
+          ) : position &&
+            (!pinsFromInfo ||
+              collectionDestination) ? null : collections.view &&
             collections.mentionState &&
             !mentionPolicyChanged &&
             collections.view.kind === "mentions" ? (
@@ -2302,7 +2700,7 @@ export function ChannelsWorkspace({
               restore={collections.restore}
               pinnedReading={collections.pinnedReading}
               openRow={openCollectionRow}
-              close={() => collections.close()}
+              close={closeCollection}
             />
           ) : (
             search.panel
@@ -2310,97 +2708,111 @@ export function ChannelsWorkspace({
         }
         threadReturn={readingInThread ? readingBar : undefined}
         resultReturn={
-          readingShown && !statusInCollection
-            ? readingInThread
-              ? readingMainBar
-              : readingBar
-            : position && (
-                <>
-                  {position.membership && (
-                    <span className="search-membership" role="status">
-                      {position.membership}
-                    </span>
-                  )}
-                  {savedSource && (
+          fileDestination && chosen ? (
+            <button
+              type="button"
+              className="search-return"
+              onClick={() => returnToFiles(chosen)}
+            >
+              {language === "ru"
+                ? "Назад к файлам канала"
+                : "Back to channel files"}
+            </button>
+          ) : readingShown && !statusInCollection ? (
+            readingInThread ? (
+              readingMainBar
+            ) : (
+              readingBar
+            )
+          ) : (
+            position && (
+              <>
+                {position.membership && (
+                  <span className="search-membership" role="status">
+                    {position.membership}
+                  </span>
+                )}
+                {savedSource && (
+                  <CollectionResultSteps
+                    name={collectionLabels.saved}
+                    icon={<CollectionMark kind="all" />}
+                    backLabel={collectionLabels.savedBack}
+                    language={language}
+                    sourceTeam={savedSource.teamName}
+                    remind={() =>
+                      setSavedReminder((previous) => ({
+                        source: savedSource,
+                        sequence: (previous?.sequence ?? 0) + 1,
+                      }))
+                    }
+                    blocked={!online || workspace.messages.dialogOpen}
+                    back={returnToSaved}
+                    end={endCollection}
+                  >
+                    {collectionReadingStatus}
+                  </CollectionResultSteps>
+                )}
+                {collectionOrigin &&
+                  collectionDestination &&
+                  (collectionDestination.kind === "pins" ? (
+                    <button
+                      type="button"
+                      className="search-return"
+                      onClick={returnToCollection}
+                    >
+                      {collectionLabels.pinsBack}
+                    </button>
+                  ) : (
                     <CollectionResultSteps
-                      name={collectionLabels.saved}
-                      icon={<CollectionMark kind="all" />}
-                      backLabel={collectionLabels.savedBack}
-                      language={language}
-                      sourceTeam={savedSource.teamName}
-                      remind={() =>
-                        setSavedReminder((previous) => ({
-                          source: savedSource,
-                          sequence: (previous?.sequence ?? 0) + 1,
-                        }))
+                      name={
+                        collectionDestination.kind === "mentions"
+                          ? mentionLabels.title
+                          : collectionLabels.saved
                       }
-                      blocked={!online || workspace.messages.dialogOpen}
-                      back={returnToSaved}
+                      icon={
+                        collectionDestination.kind === "mentions" ? (
+                          <MentionMark />
+                        ) : (
+                          <CollectionMark kind="all" />
+                        )
+                      }
+                      backLabel={
+                        collectionDestination.kind === "mentions"
+                          ? mentionLabels.back
+                          : collectionLabels.savedBack
+                      }
+                      language={language}
+                      steps={{
+                        index: collectionIndex,
+                        count: collectionOrigin.ids.length,
+                        partial: collectionOrigin.partial,
+                        open: stepCollection,
+                      }}
+                      blocked={
+                        !online ||
+                        workspace.messages.dialogOpen ||
+                        Boolean(attachments.selected) ||
+                        Boolean(reader.opening) ||
+                        Boolean(actions.anchor)
+                      }
+                      back={returnToCollection}
                       end={endCollection}
                     >
                       {collectionReadingStatus}
                     </CollectionResultSteps>
-                  )}
-                  {collectionOrigin &&
-                    collectionDestination &&
-                    (collectionDestination.kind === "pins" ? (
-                      <button
-                        type="button"
-                        className="search-return"
-                        onClick={returnToCollection}
-                      >
-                        {collectionLabels.pinsBack}
-                      </button>
-                    ) : (
-                      <CollectionResultSteps
-                        name={
-                          collectionDestination.kind === "mentions"
-                            ? mentionLabels.title
-                            : collectionLabels.saved
-                        }
-                        icon={
-                          collectionDestination.kind === "mentions" ? (
-                            <MentionMark />
-                          ) : (
-                            <CollectionMark kind="all" />
-                          )
-                        }
-                        backLabel={
-                          collectionDestination.kind === "mentions"
-                            ? mentionLabels.back
-                            : collectionLabels.savedBack
-                        }
-                        language={language}
-                        steps={{
-                          index: collectionIndex,
-                          count: collectionOrigin.ids.length,
-                          partial: collectionOrigin.partial,
-                          open: stepCollection,
-                        }}
-                        blocked={
-                          !online ||
-                          workspace.messages.dialogOpen ||
-                          Boolean(attachments.selected) ||
-                          Boolean(reader.opening) ||
-                          Boolean(actions.anchor)
-                        }
-                        back={returnToCollection}
-                        end={endCollection}
-                      >
-                        {collectionReadingStatus}
-                      </CollectionResultSteps>
-                    ))}
-                  {search.origin && !position.system && (
-                    <button
-                      type="button"
-                      className="search-return"
-                      onClick={returnToResults}
-                    >
-                      {search.backLabel}
-                    </button>
-                  )}
-                </>
-              )
+                  ))}
+                {search.origin && !position.system && (
+                  <button
+                    type="button"
+                    className="search-return"
+                    onClick={returnToResults}
+                  >
+                    {search.backLabel}
+                  </button>
+                )}
+              </>
+            )
+          )
         }
         returnInThread={compact && Boolean(activeThread)}
         accountRef={accountButton}
@@ -2445,6 +2857,7 @@ export function ChannelsWorkspace({
           }
           publishedReading?.interrupt();
           workspace.systemPost?.stop("paused");
+          setInfoChannel(null);
           restoreDirectoryFocus.current = directoryOpen;
           setDirectoryOpen(false);
           search.abortPending();
@@ -2736,6 +3149,7 @@ export function ChannelsWorkspace({
                   publishedReading?.interrupt();
                   setClosedRequest(position?.request.requestId ?? null);
                   collections.close(false);
+                  setInfoChannel(null);
                   setThread(post);
                 }}
                 openThreadPostId={activeThread?.id}
@@ -2745,25 +3159,22 @@ export function ChannelsWorkspace({
         </div>
       </ChannelsFrame>
       {search.dialog}
-      {notificationRoom && notificationRoom === chosen && notificationKind && (
+      {notification && notification.room === chosen && notificationKind && (
         <ChannelNotificationsDialog
           account={connection}
-          channelId={notificationRoom}
+          channelId={notification.room}
           kind={notificationKind}
           name={channelTitle}
           language={language}
           online={online}
           collapsed={settings?.collapsedThreads === true}
-          saved={directory.retry}
+          saved={() => {
+            setNotificationRevision((revision) => revision + 1);
+            directory.retry();
+          }}
           sessionIssue={sessionIssue}
-          back={() => {
-            setNotificationRoom(null);
-            setChannelMenuOpen(true);
-          }}
-          dismiss={() => {
-            restoreChannelTitle.current = true;
-            setNotificationRoom(null);
-          }}
+          back={() => closeNotification(true)}
+          dismiss={() => closeNotification(false)}
         />
       )}
       {appearanceOpen && (

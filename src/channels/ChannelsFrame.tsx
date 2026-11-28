@@ -50,6 +50,8 @@ type FrameProps = {
   sidePanel?: ReactNode;
   standalonePanel?: boolean;
   language?: EntryLanguage;
+  sidePanelHidden?: boolean;
+  informationButton?: ReactNode;
   resultReturn?: ReactNode;
   threadReturn?: ReactNode;
   returnInThread?: boolean;
@@ -128,6 +130,8 @@ export function ChannelsFrame({
   sidePanel,
   standalonePanel,
   language = "en",
+  sidePanelHidden,
+  informationButton,
   resultReturn,
   threadReturn,
   returnInThread,
@@ -154,7 +158,7 @@ export function ChannelsFrame({
   const openThread = thread?.id;
   const replyRef = thread?.replyRef;
   const retainOpener = thread?.retainOpener;
-  const showingPanel = Boolean(sidePanel);
+  const showingPanel = Boolean(sidePanel) && !sidePanelHidden;
   const inboxSplit = !showingPanel && Boolean(inboxPlaceholder);
   const split =
     inboxSplit || (showingPanel ? !standalonePanel : Boolean(openThread));
@@ -179,7 +183,13 @@ export function ChannelsFrame({
       "--navigation-choice": `${geometry.navigation.width}px`,
       "--right-choice": `${panes.expanded ? geometry.right.expanded : geometry.right.width}px`,
     } as CSSProperties);
-  const previous = useRef({ page, channelId, openThread, inboxSingle });
+  const previous = useRef({
+    page,
+    channelId,
+    openThread,
+    showingPanel,
+    inboxSingle,
+  });
   const unavailableThread = thread?.unavailable;
 
   useLayoutEffect(() => {
@@ -214,7 +224,13 @@ export function ChannelsFrame({
 
   useLayoutEffect(() => {
     const old = previous.current;
-    previous.current = { page, channelId, openThread, inboxSingle };
+    previous.current = {
+      page,
+      channelId,
+      openThread,
+      showingPanel,
+      inboxSingle,
+    };
     if (showingPanel) return;
     function focusNavigation() {
       const current = sidebar.current?.querySelector<HTMLElement>(
@@ -278,6 +294,14 @@ export function ChannelsFrame({
         if (!opener?.isConnected || document.activeElement !== opener)
           heading.current?.focus();
       } else focusVisiblePane();
+    } else if (
+      old.showingPanel &&
+      document.activeElement === document.body &&
+      lastFocus.current &&
+      !lastFocus.current.isConnected
+    ) {
+      // A revoked panel can disappear together with the button that opened it.
+      focusVisiblePane();
     }
     const scene = root.current;
     if (!scene) return;
@@ -366,7 +390,7 @@ export function ChannelsFrame({
       </header>
       <div
         className="channels-panes"
-        data-page={sidePanel ? "details" : openThread ? "thread" : page}
+        data-page={showingPanel ? "details" : openThread ? "thread" : page}
         data-inbox-single={inboxSingle || undefined}
       >
         <nav
@@ -431,6 +455,7 @@ export function ChannelsFrame({
                 {channel?.title ?? emptyTitle}
               </h1>
             )}
+            {informationButton}
           </header>
           {!returnInThread && resultReturn}
           <div className="channels-conversation-body">{children}</div>
@@ -460,7 +485,7 @@ export function ChannelsFrame({
           }
         >
           {sidePanel}
-          {inboxPlaceholder && !sidePanel && !thread && (
+          {inboxPlaceholder && !showingPanel && !thread && (
             <aside
               className="channels-thread inbox-placeholder"
               aria-labelledby={threadId}
@@ -472,7 +497,7 @@ export function ChannelsFrame({
               <PanelState variant="empty" message={inboxPlaceholder.message} />
             </aside>
           )}
-          {!sidePanel && thread && (
+          {!showingPanel && thread && (
             <aside className="channels-thread" aria-labelledby={threadId}>
               <header className="channels-pane-head channels-thread-head">
                 <div className="thread-heading">

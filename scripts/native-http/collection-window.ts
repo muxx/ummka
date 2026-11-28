@@ -20,8 +20,23 @@ export function collectionWindowFixture() {
     oldest,
   ];
   const hidden = new Set(raw.slice(60, 120));
+  const originalLink = "k".repeat(26),
+    replacementLink = "n".repeat(26),
+    foreignLink = "g".repeat(26),
+    uncertainLink = "z".repeat(26),
+    foreignOwner = "h".repeat(26);
+  const initialLink = {
+    id: foreignLink,
+    channel_id: channel,
+    owner_id: foreignOwner,
+    type: "link",
+    display_name: "Team runbook",
+    link_url: `https://example.org/${"я".repeat(180)}`,
+    delete_at: 0,
+  };
+  const links = new Map([[foreignLink, initialLink]]);
   let pinned = true;
-  let pinReads = 0;
+  let failPinRefresh = false;
   let markBoundary!: () => void;
   const boundaryArrived = new Promise<void>((resolve) => {
     markBoundary = resolve;
@@ -79,7 +94,175 @@ export function collectionWindowFixture() {
       res.writeHead(204).end();
       return true;
     }
-    if (path === "users/me") {
+    if (
+      path === "system/ping" &&
+      url.searchParams.get("step") === "pins-refresh"
+    ) {
+      assert.equal(req.method, "GET");
+      assert.equal(req.headers.authorization, undefined);
+      assert.equal(failPinRefresh, false);
+      failPinRefresh = true;
+      res.writeHead(204).end();
+      return true;
+    }
+    const member = {
+      id: "q".repeat(26),
+      username: "channel.guest",
+      roles: "system_guest",
+    };
+    if (path === "users" && url.searchParams.has("in_channel")) {
+      assert.equal(url.searchParams.get("in_channel"), channel);
+      assert.equal(url.searchParams.get("page"), "0");
+      assert.equal(url.searchParams.get("sort"), "admin");
+      send([member]);
+      return true;
+    }
+    if (path === "users/search") {
+      assert.deepEqual(await requestJson(req), {
+        in_channel_id: channel,
+        term: "absent",
+      });
+      send([], "POST");
+      return true;
+    }
+    if (path === `channels/${channel}/members/ids`) {
+      assert.deepEqual(await requestJson(req), [member.id]);
+      send(
+        [
+          {
+            user_id: member.id,
+            channel_id: channel,
+            roles: "channel_guest",
+            scheme_guest: true,
+          },
+        ],
+        "POST",
+      );
+      return true;
+    }
+    const channelFile = {
+      id: "k".repeat(26),
+      channel_id: channel,
+      post_id: reply,
+      name: "thread-note.txt",
+      size: 0,
+      extension: "txt",
+    };
+    const bookmarkFile = {
+      ...channelFile,
+      id: "q".repeat(26),
+      name: "checklist.md",
+      mime_type: "text/markdown",
+      extension: "md",
+      post_id: "",
+      size: 13,
+    };
+    const bookmarkPath = `channels/${channel}/bookmarks`;
+    if (path === bookmarkPath && req.method === "POST") {
+      const requested = await requestJson(req);
+      const uncertain =
+        typeof requested === "object" &&
+        requested !== null &&
+        "display_name" in requested &&
+        requested.display_name === "Unconfirmed guide";
+      const label = uncertain ? "Unconfirmed guide" : "Release guide";
+      const link = "https://example.org/guide";
+      assert.deepEqual(requested, {
+        type: "link",
+        display_name: label,
+        link_url: link,
+      });
+      const id = uncertain ? uncertainLink : originalLink;
+      assert.ok(!links.has(id));
+      const item = {
+        ...initialLink,
+        id,
+        owner_id: user,
+        display_name: label,
+        link_url: link,
+      };
+      links.set(id, item);
+      // The write reached the server, but the unexpected HTTP status leaves the caller uncertain.
+      send(item, "POST", uncertain ? 200 : 201);
+    } else if (
+      path === `${bookmarkPath}/${foreignLink}` &&
+      req.method === "PATCH"
+    ) {
+      assert.deepEqual(await requestJson(req), {
+        display_name: "Updated runbook",
+      });
+      assert.ok(links.delete(foreignLink));
+      const updated = {
+        ...initialLink,
+        id: replacementLink,
+        owner_id: user,
+        display_name: "Updated runbook",
+        original_id: foreignLink,
+      };
+      // Keep the replacement before the previously added guide, in the original position.
+      const existing = [...links];
+      links.clear();
+      links.set(updated.id, updated);
+      for (const [id, row] of existing) links.set(id, row);
+      send({ updated, deleted: { ...initialLink, delete_at: 123 } }, "PATCH");
+    } else if (
+      path === `${bookmarkPath}/${replacementLink}` &&
+      req.method === "DELETE"
+    ) {
+      const deleting = links.get(replacementLink);
+      assert.ok(deleting && links.delete(replacementLink));
+      send({ ...deleting, delete_at: 124 }, "DELETE");
+    } else if (path === bookmarkPath) {
+      assert.equal(url.search, "");
+      send([
+        {
+          id: "b".repeat(26),
+          channel_id: channel,
+          type: "file",
+          display_name: "Release checklist",
+          image_url: "https://[fe80::1%25en0]/icon.png",
+          file_id: bookmarkFile.id,
+          file: bookmarkFile,
+          delete_at: 0,
+        },
+        ...links.values(),
+      ]);
+    } else if (path === `files/${bookmarkFile.id}/info`) {
+      send(bookmarkFile);
+    } else if (path === `teams/${team}/files/search`) {
+      const query = await requestJson(req);
+      assert(query && typeof query === "object" && "page" in query);
+      assert(query.page === 0 || query.page === 1);
+      assert.deepEqual(query, {
+        terms: `channel:${channel}`,
+        is_or_search: false,
+        per_page: 20,
+        page: query.page,
+        include_deleted_channels: false,
+        time_zone_offset: 0,
+      });
+      send(
+        {
+          order: query.page === 0 ? [channelFile.id] : [],
+          file_infos: query.page === 0 ? { [channelFile.id]: channelFile } : {},
+          first_inaccessible_file_time: 0,
+          prev_file_info_id: "",
+          next_file_info_id: "",
+        },
+        "POST",
+      );
+    } else if (path === `channels/${channel}`) {
+      send({
+        id: channel,
+        type: "O",
+        team_id: team,
+        name: "town-square",
+        display_name: "Town Square",
+        delete_at: 0,
+      });
+    } else if (path === `files/${channelFile.id}/info`) {
+      send(channelFile);
+    } else if (path === "users/me") {
       send({
         id: user,
         username: "reader",
@@ -137,6 +320,11 @@ export function collectionWindowFixture() {
           })),
         );
       }
+    } else if (path === `channels/${channel}/stats`) {
+      assert.equal(url.searchParams.get("exclude_files_count"), "true");
+      send({ channel_id: channel, member_count: 7 });
+    } else if (path === `channels/${channel}/members/me`) {
+      send({ channel_id: channel, user_id: user, notify_props: {} });
     } else if (path === "users/me/posts/flagged") {
       const offset = Number(url.searchParams.get("page"));
       assert.deepEqual(Object.fromEntries(url.searchParams), {
@@ -179,9 +367,10 @@ export function collectionWindowFixture() {
       send({ status: "OK" }, "POST");
     } else if (path === `channels/${channel}/pinned`) {
       assert.equal(url.search, "");
-      if (++pinReads === 2)
+      if (failPinRefresh) {
+        failPinRefresh = false;
         send({ message: "Temporary server error" }, "GET", 503);
-      else send(posts(pinned ? [root] : []));
+      } else send(posts(pinned ? [root] : []));
     } else if (path === `posts/${root}/unpin`) {
       pinned = false;
       send({ status: "OK" }, "POST");
@@ -223,7 +412,13 @@ export function collectionWindowFixture() {
           name,
           permissions:
             name === "channel_user"
-              ? ["create_post", "read_channel_content"]
+              ? [
+                  "create_post",
+                  "read_channel_content",
+                  "add_bookmark_public_channel",
+                  "edit_bookmark_public_channel",
+                  "delete_bookmark_public_channel",
+                ]
               : [],
         })),
         "POST",
