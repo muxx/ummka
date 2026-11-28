@@ -10,6 +10,7 @@ import {
 } from "./integration-cards.ts";
 import type { LocalPost } from "./local-history.ts";
 import { isMattermostId, isMattermostTime } from "./model-fields.ts";
+import type { NativeRequestInit } from "./native-fetch.ts";
 
 import { setThreadFollowing, type ThreadPost } from "./thread-following.ts";
 
@@ -145,14 +146,16 @@ export function accountFollowedThreads(
       threadId: string,
       timestamp: number,
       signal?: AbortSignal,
+      onNativeSend?: () => void,
     ) {
       return whileOpen(async () => {
         signal?.throwIfAborted();
         if (!isMattermostId(threadId) || !isMattermostTime(timestamp, 1))
           throw new TypeError("Invalid Mattermost thread read target.");
+        const options: NativeRequestInit = { signal, onNativeSend };
         const response = await api.updateThreadReadForUserRaw(
           { ...scope(teamId), threadId, timestamp },
-          { signal },
+          options,
         );
         const result = threadReadState(await response.value());
         signal?.throwIfAborted();
@@ -171,6 +174,7 @@ export function accountFollowedThreads(
       teamId: string,
       post: ThreadPost,
       signal?: AbortSignal,
+      onNativeSend?: () => void,
     ) {
       return whileOpen(async () => {
         signal?.throwIfAborted();
@@ -181,9 +185,10 @@ export function accountFollowedThreads(
         )
           throw new TypeError("Invalid Mattermost thread unread target.");
         const threadId = post.rootId ?? post.id;
+        const options: NativeRequestInit = { signal, onNativeSend };
         const response = await api.setThreadUnreadByPostIdRaw(
           { ...scope(teamId), threadId, postId: post.id },
-          { signal },
+          options,
         );
         const result = threadReadState(await response.value());
         signal?.throwIfAborted();

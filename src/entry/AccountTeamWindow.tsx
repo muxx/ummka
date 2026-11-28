@@ -23,6 +23,10 @@ import {
   orderJoinedTeams,
 } from "../mattermost/joined-teams";
 import { openAccountRestConnection } from "../mattermost/native-rest";
+import type {
+  AccountThreadReads,
+  ThreadReadCoordination,
+} from "../mattermost/thread-read-coordination";
 import { EntryWindow } from "./EntryWindow";
 import { FirstTeamChoice, type FirstTeamSelection } from "./FirstTeamChoice";
 import type { EntryLanguage } from "./language";
@@ -50,6 +54,7 @@ export type TeamWorkspace = {
   userId: string;
   team: JoinedTeam;
   connection: Connection;
+  threadReads: AccountThreadReads;
   directoryNotice: Issue | null;
   directoryCode?: string;
   teamChoice: {
@@ -71,6 +76,7 @@ export type TeamWorkspace = {
 type Props = {
   serverUrl: string;
   userId: string;
+  threadReads: ThreadReadCoordination;
   siteName?: string;
   deviceServers?: {
     installations: readonly string[];
@@ -119,6 +125,7 @@ function issueOf(notice: Notice) {
 function AccountWindow({
   serverUrl,
   userId,
+  threadReads,
   siteName,
   deviceServers,
   language,
@@ -173,6 +180,7 @@ function AccountWindow({
   const [needsTeam, setNeedsTeam] = useState<SystemPostRequest | null>(null);
   const picker = systemPost !== undefined && needsTeam === systemPost;
   const connection = useRef<Connection | null>(null);
+  const readScope = useRef<AccountThreadReads | null>(null);
   const exiting = useRef<"working" | "cleanup" | null>(null);
   const [cleanup, setCleanup] = useState<SessionCleanup | null>(null);
   const online = useDeviceOnline();
@@ -240,6 +248,8 @@ function AccountWindow({
     let acquired: Connection | null = null;
     let initial: JoinedTeams | null | undefined;
     function withdraw() {
+      readScope.current?.close();
+      readScope.current = null;
       connection.current = null;
       readVersion.current++;
       setChoosing(false);
@@ -280,6 +290,7 @@ function AccountWindow({
           return;
         }
         connection.current = acquired;
+        readScope.current = threadReads.bind(serverUrl, userId, acquired);
         initial = await read(acquired);
       } catch (error) {
         if (signal.aborted) return;
@@ -390,11 +401,13 @@ function AccountWindow({
       window.removeEventListener("online", reconnect);
       invalidation.current = null;
       controller.abort();
+      readScope.current?.close();
+      readScope.current = null;
       readVersion.current++;
       connection.current = null;
       if (acquired) void acquired.close().catch(() => {});
     };
-  }, [serverUrl, userId, read]);
+  }, [serverUrl, userId, read, threadReads]);
 
   async function runExit(
     mode: "server" | "device",
@@ -669,7 +682,7 @@ function AccountWindow({
       />
     );
   }
-  if (selected && connection.current && !picker) {
+  if (selected && connection.current && readScope.current && !picker) {
     return (
       <>
         {children({
@@ -677,6 +690,7 @@ function AccountWindow({
           userId,
           team: selected,
           connection: connection.current,
+          threadReads: readScope.current,
           online,
           policy,
           sessionIssue,

@@ -343,6 +343,11 @@ function mount(
       enqueue: (work) => work(),
     },
     connection: connection as unknown as Connection,
+    threadReads: createThreadReadCoordination().bind(
+      "https://chat.example.test/team/chat",
+      userId,
+      connection as unknown as Connection,
+    ),
     serverUrl: "https://chat.example.test/team/chat",
     userId,
     team,
@@ -2067,6 +2072,66 @@ function inboxRow(connection: ReturnType<typeof mount>, direct = false) {
   return source;
 }
 
+test("a lost automatic write is never replayed by focus, reconnect, or reopening the row", async () => {
+  const account = mount(true);
+  const source = inboxRow(account, true);
+  const fresh = {
+    ...reply,
+    channelId: design,
+    userId: foreign,
+    rootId: source.id,
+    message: "Unread proof",
+    createAt: 202,
+    updateAt: 202,
+  };
+  account.readThreadPage.mockImplementation(async ({ direction }) => ({
+    kind: "page",
+    root: { ...source, rootId: "", messageSource: undefined },
+    replies: direction === "down" ? [fresh] : [],
+    next: null,
+  }));
+  let loseReceipt!: (error: unknown) => void;
+  const receipt = new Promise<never>((_, reject) => {
+    loseReceipt = reject;
+  });
+  account.markFollowedThreadRead.mockImplementation(
+    (_team, _id, _timestamp, _signal, onNativeSend) => {
+      onNativeSend?.();
+      return receipt;
+    },
+  );
+  fireEvent.click(await screen.findByRole("button", { name: /^Threads/ }));
+  async function openRow() {
+    const row = await screen.findByRole("button", {
+      name: /Review this build/,
+    });
+    row.focus();
+    fireEvent.click(row);
+    const pane = await screen.findByRole("complementary", { name: "Thread" });
+    await within(pane).findByRole("separator", { name: "Unread replies" });
+    return pane;
+  }
+  const pane = await openRow();
+  await waitFor(() =>
+    expect(account.markFollowedThreadRead).toHaveBeenCalledOnce(),
+  );
+  await act(async () => loseReceipt(new TypeError("Lost response")));
+  await act(async () => {
+    window.dispatchEvent(new Event("focus"));
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  account.setOnline(false);
+  account.setOnline(true);
+  expect(account.markFollowedThreadRead).toHaveBeenCalledOnce();
+
+  handleEscape();
+  expect(pane.isConnected).toBe(false);
+  await openRow();
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  expect(account.markFollowedThreadRead).toHaveBeenCalledOnce();
+  expect(account.readThreadPage.mock.calls.length).toBeGreaterThanOrEqual(4);
+});
+
 test.each([false, true])(
   "opens a followed thread with its own channel permissions and preserves both drafts (direct conversation %s)",
   async (direct) => {
@@ -2668,3 +2733,5 @@ test("a readable direct conversation can follow a root with no replies", async (
   ).toBeTruthy();
   expect(connection.setThreadFollowing).toHaveBeenCalledOnce();
 });
+
+import { createThreadReadCoordination } from "../mattermost/thread-read-coordination.ts";

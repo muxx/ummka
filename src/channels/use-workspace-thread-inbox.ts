@@ -7,6 +7,10 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { LocalPost } from "../mattermost/local-history.ts";
+import type {
+  AccountThreadReads,
+  ThreadReadVisit,
+} from "../mattermost/thread-read-coordination.ts";
 import { inspectPostTarget } from "./inspect-post-target.ts";
 import { openThreadInbox, type ThreadInboxPlace } from "./thread-inbox.ts";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
@@ -19,6 +23,7 @@ export type ThreadInboxRow = NonNullable<
 type Selection = {
   id: string;
   row?: ThreadInboxRow;
+  visit?: ThreadReadVisit;
   post: LocalPost | null;
   issue: ReturnType<typeof workspaceFailure> | "limited" | null;
 };
@@ -27,6 +32,7 @@ const empty = () => null;
 
 export function useWorkspaceThreadInbox(
   connection: WorkspaceConnection,
+  threadReads: AccountThreadReads,
   teamId: string,
   enabled: boolean,
   online: boolean,
@@ -84,22 +90,24 @@ export function useWorkspaceThreadInbox(
   const denied = selection && inbox?.isRootUnavailable(selection.id);
   const hideRoot = useCallback(
     (id: string, issue: "limited" | "forbidden") => {
+      if (selection?.id === id) selection.visit?.revoke();
       inbox?.revokeRoot(id);
       setSelection((prior) =>
         prior?.id === id ? { ...prior, post: null, issue } : prior,
       );
     },
-    [inbox],
+    [inbox, selection],
   );
   useLayoutEffect(() => {
     if (!denied) return;
+    selection?.visit?.revoke();
     opening.current?.abort();
     setSelection((prior) =>
       prior && (!prior.issue || prior.post)
         ? { ...prior, post: null, issue: "forbidden" }
         : prior,
     );
-  }, [denied]);
+  }, [denied, selection?.visit]);
   useEffect(() => {
     if (online && inbox) void inbox.refreshTotals();
   }, [online, inbox]);
@@ -145,7 +153,11 @@ export function useWorkspaceThreadInbox(
     // The point read verified the thread. The list may exclude it after it was read.
     setSelection({
       id: post.id,
-      ...(visible && selection?.id === post.id && { row: selection.row }),
+      ...(visible &&
+        selection?.id === post.id && {
+          row: selection.row,
+          visit: selection.visit,
+        }),
       post,
       issue: null,
     });
@@ -196,6 +208,11 @@ export function useWorkspaceThreadInbox(
     const observeRoot = inbox.beginRootRead();
     setSelection({ id: row.id, row, post: null, issue: null });
     try {
+      const visit = threadReads.visit({
+        teamId,
+        channelId: row.post.channelId,
+        rootId: row.id,
+      });
       if (!connected.current) throw Error("Offline");
       const found = await inspectPostTarget(
         connection,
@@ -211,11 +228,12 @@ export function useWorkspaceThreadInbox(
         found.post.channelId !== row.post.channelId ||
         found.post.rootId !== null
       ) {
+        visit.revoke();
         hideRoot(row.id, found.kind === "archived" ? "limited" : "forbidden");
         return;
       }
       observeRoot(found.post);
-      setSelection({ id: row.id, row, post: found.post, issue: null });
+      setSelection({ id: row.id, row, visit, post: found.post, issue: null });
     } catch (error) {
       if (signal.aborted) return;
       const issue = workspaceFailure(error, "network");
@@ -235,19 +253,28 @@ export function useWorkspaceThreadInbox(
     if (
       !inbox ||
       !selection?.post ||
+      !selection.visit ||
       inbox.isRootUnavailable(selection.id) ||
       !connected.current
     )
       throw Error("No active thread to mark");
     try {
-      const mark = await connection.markFollowedThreadRead(
-        teamId,
-        selection.id,
-        Date.now(),
-        signal,
-      );
-      signal.throwIfAborted();
-      await inbox.confirmRead(mark);
+      const outcome = await selection.visit.auto(signal);
+      if (
+        outcome.kind === "confirmed" &&
+        !inbox.isRootUnavailable(selection.id)
+      )
+        await inbox.confirmRead(outcome.mark);
+      if (outcome.kind === "unknown") {
+        const issue = workspaceFailure(outcome.error, "network");
+        if (
+          !signal.aborted &&
+          (issue === "session" || issue === "unauthorized")
+        )
+          sessionIssue(issue);
+      } else if ("error" in outcome && outcome.error !== undefined) {
+        throw outcome.error;
+      }
     } catch (error) {
       if (!signal.aborted) {
         const issue = workspaceFailure(error, "network");

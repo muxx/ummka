@@ -486,6 +486,7 @@ export function ChannelsWorkspace({
   );
   const inbox = useWorkspaceThreadInbox(
     connection,
+    workspace.threadReads,
     team.id,
     settings?.collapsedThreads === true &&
       !["forbidden", "session", "unauthorized"].includes(
