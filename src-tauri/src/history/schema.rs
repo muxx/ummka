@@ -149,6 +149,27 @@ macro_rules! directory_objects {
         ]
     };
 }
+
+macro_rules! card_objects {
+    ($($extra:expr),* $(,)?) => {
+        directory_objects!(
+            @history POSTS_V31, DELETIONS_V31;
+            JOINED_TEAM_V19,
+            SIDEBAR_CHANNEL_V19,
+            COMPOSER_DRAFT_V21,
+            TEAM_SEARCH,
+            TEAM_SEARCH_ORDER,
+            THREAD_SUMMARY,
+            POST_ATTACHMENT,
+            CHANNEL_MEMBERSHIP_CHANGE,
+            DEPARTED_BY_TEAM,
+            POSTS_BY_CHANNEL,
+            WINDOWS_BY_CHANNEL,
+            POST_OBSERVATION,
+            $($extra,)*
+        )
+    };
+}
 const SHARED_CHANNEL_OBJECTS: &[&str] =
     &directory_objects!(JOINED_TEAMS_V13, SIDEBAR_CHANNEL_V16, COMPOSER_DRAFT_V12);
 
@@ -714,23 +735,13 @@ pub(super) const MIGRATIONS: &[Migration] = &[
         statements: &[],
         objects: CARD_OBJECTS,
     },
+    Migration {
+        statements: &[PENDING_POST_FILE],
+        objects: &card_objects!(PENDING_POST_FILE),
+    },
 ];
 
-const CARD_OBJECTS: &[&str] = &directory_objects!(
-    @history POSTS_V31, DELETIONS_V31;
-    JOINED_TEAM_V19,
-    SIDEBAR_CHANNEL_V19,
-    COMPOSER_DRAFT_V21,
-    TEAM_SEARCH,
-    TEAM_SEARCH_ORDER,
-    THREAD_SUMMARY,
-    POST_ATTACHMENT,
-    CHANNEL_MEMBERSHIP_CHANGE,
-    DEPARTED_BY_TEAM,
-    POSTS_BY_CHANNEL,
-    WINDOWS_BY_CHANNEL,
-    POST_OBSERVATION,
-);
+const CARD_OBJECTS: &[&str] = &card_objects!();
 
 const ADD_POST_WEBHOOK_ORIGIN: &str =
     "ALTER TABLE history_post ADD COLUMN from_webhook INTEGER CHECK (from_webhook IN (0, 1))";
@@ -749,6 +760,7 @@ const POSTS_BY_CHANNEL: &str = "CREATE INDEX history_post_by_channel ON history_
 const WINDOWS_BY_CHANNEL: &str =
     "CREATE INDEX history_window_by_channel ON history_window(channel_id)";
 const POST_ATTACHMENT: &str = include_str!("migrations/0027_post_attachment.sql");
+const PENDING_POST_FILE: &str = include_str!("migrations/0033_pending_post_file.sql");
 
 const THREAD_OBJECTS: &[&str] = &directory_objects!(
     JOINED_TEAM_V19,

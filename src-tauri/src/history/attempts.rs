@@ -1,5 +1,5 @@
 use super::{AccountHistory, HistoryError, PendingPost, pending};
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -98,24 +98,34 @@ impl AccountHistory {
         }
         let next = expected.checked_add(1).ok_or(HistoryError::InvalidPost)?;
         let edited = match &choice {
-            RetryPost::AfterRefusal { message } if pending::has_text(message) => {
-                Some(message.as_str())
-            }
-            RetryPost::AfterRefusal { .. } => return Err(HistoryError::InvalidDraft),
+            RetryPost::AfterRefusal { message } => Some(message.as_str()),
             RetryPost::DespiteUnknownDelivery => None,
         };
         let generation = self.owner.generation;
-        self.write(|tx| {
-            if tx.execute(
-                RESERVE_RETRY,
-                params![pending_id, expected, next, generation, edited.is_none()],
-            )? == 0
-            {
-                return Ok(None);
-            }
-            tx.query_row(RETRY_POST, params![pending_id, edited, next], pending::post)
-                .map(Some)
-        })
+        self.database
+            .access(&self.owner, TransactionBehavior::Immediate, |tx| {
+                if edited.is_some_and(|text| !pending::has_text(text)) {
+                    let has_files: bool = tx.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM pending_post_file WHERE pending_id=?1)",
+                        [pending_id],
+                        |row| row.get(0),
+                    )?;
+                    if !has_files {
+                        return Err(HistoryError::InvalidDraft);
+                    }
+                }
+                if tx.execute(
+                    RESERVE_RETRY,
+                    params![pending_id, expected, next, generation, edited.is_none()],
+                )? == 0
+                {
+                    return Ok(None);
+                }
+                let mut post =
+                    tx.query_row(RETRY_POST, params![pending_id, edited, next], pending::post)?;
+                pending::load_files(tx, std::slice::from_mut(&mut post))?;
+                Ok(Some(post))
+            })
     }
 
     /// Forget a local row. A later confirmation or retry may already have superseded this choice.

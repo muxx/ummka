@@ -12,9 +12,9 @@ use serde_json::json;
 use std::path::Path;
 
 const URL: &str = "https://departure.example.test/team";
-const TEAM: &str = "tttttttttttttttttttttttttt";
+pub(super) const TEAM: &str = "tttttttttttttttttttttttttt";
 const OTHER_TEAM: &str = "uuuuuuuuuuuuuuuuuuuuuuuuuu";
-const NEIGHBOR: &str = "nnnnnnnnnnnnnnnnnnnnnnnnnn";
+pub(super) const NEIGHBOR: &str = "nnnnnnnnnnnnnnnnnnnnnnnnnn";
 const NEIGHBOR_POST: &str = "oooooooooooooooooooooooooo";
 const REPLY: &str = "pppppppppppppppppppppppppp";
 const EMPTY_EDITOR: &str = "eeeeeeeeeeeeeeeeeeeeeeeeee";
@@ -42,7 +42,7 @@ fn publish_sidebar(view: &mut AccountHistory) -> Result<(), HistoryError> {
     Ok(())
 }
 
-fn seed_sidebar(view: &mut AccountHistory) -> Result<(), HistoryError> {
+pub(super) fn seed_sidebar(view: &mut AccountHistory) -> Result<(), HistoryError> {
     let teams = [TEAM, OTHER_TEAM].map(|id| DirectoryTeam {
         id: id.into(),
         name: id.into(),
