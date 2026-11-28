@@ -12,7 +12,13 @@ import {
   CollectionReadNotice,
   useCollectionRefreshVisibility,
 } from "./CollectionReadNotice.tsx";
-import { CollectionScroll, restoreCollectionRow } from "./CollectionScroll.tsx";
+import {
+  type CollectionReadingPlace,
+  CollectionScroll,
+  collectionReadingPlace,
+  restoreCollectionReadingPlace,
+  restoreCollectionRow,
+} from "./CollectionScroll.tsx";
 import { collectionCopy } from "./collection-copy.ts";
 import { PanelState } from "./PanelState.tsx";
 import { attachmentExcerpt } from "./post-attachment-cards.ts";
@@ -89,6 +95,7 @@ export function PostCollectionPane({
   authorName,
   savedIds,
   restore,
+  pinnedReading,
   openRow,
   close,
 }: {
@@ -111,6 +118,10 @@ export function PostCollectionPane({
     offset?: number;
     index?: number;
   } | null;
+  pinnedReading?: {
+    place?: CollectionReadingPlace;
+    remember: (place: CollectionReadingPlace) => void;
+  };
   openRow: (
     id: string,
     trigger: HTMLButtonElement,
@@ -125,9 +136,11 @@ export function PostCollectionPane({
   const caption =
     kind === "all"
       ? text.personal
-      : roomTitle
-        ? text.sharedIn(roomTitle)
-        : text.shared;
+      : state.status === "forbidden"
+        ? undefined
+        : roomTitle
+          ? text.sharedIn(roomTitle)
+          : text.shared;
   const heading = useRef<HTMLHeadingElement>(null);
   const list = useRef<HTMLElement>(null);
   const removeFocus = useRef<{
@@ -141,6 +154,7 @@ export function PostCollectionPane({
   const retry = useRef<HTMLButtonElement>(null);
   const retryRows = useRef<Set<string> | null>(null);
   const initial = useRef(restore);
+  const openingPlace = useRef(pinnedReading?.place);
   const returnedStatus = useRef<HTMLParagraphElement>(null);
   const returnedEmpty = useRef<HTMLHeadingElement>(null);
   const [missingReturn, setMissingReturn] = useState<{
@@ -156,8 +170,14 @@ export function PostCollectionPane({
   useLayoutEffect(() => {
     if (restoreCollectionRow(list.current, initial.current))
       initial.current = null;
-    else heading.current?.focus();
+    else if (!restoreCollectionReadingPlace(list.current, openingPlace.current))
+      heading.current?.focus();
   }, []);
+  useLayoutEffect(() => {
+    const pane = list.current;
+    if (pane && pinnedReading)
+      return () => pinnedReading.remember(collectionReadingPlace(pane));
+  }, [pinnedReading]);
   const rows = useMemo(
     () => newestCollectionItems(state.value?.items ?? []),
     [state.value],
@@ -324,9 +344,11 @@ export function PostCollectionPane({
         compact={compact}
         icon={<CollectionMark kind={kind} />}
         caption={
-          <span id={captionId} title={roomTitle ? caption : undefined}>
-            {caption}
-          </span>
+          caption && (
+            <span id={captionId} title={roomTitle ? caption : undefined}>
+              {caption}
+            </span>
+          )
         }
         closeLabel={text.close}
         close={close}
@@ -334,7 +356,7 @@ export function PostCollectionPane({
         <h2
           tabIndex={-1}
           id={headingId}
-          aria-describedby={captionId}
+          aria-describedby={caption ? captionId : undefined}
           ref={heading}
         >
           {kind === "all" ? text.saved : text.pins}
@@ -343,7 +365,11 @@ export function PostCollectionPane({
       <span className="collection-announcement" role="status">
         {announcement}
       </span>
-      <CollectionScroll pane={list} label={collectionCopy[language].content}>
+      <CollectionScroll
+        pane={list}
+        label={collectionCopy[language].content}
+        pins={kind === "pins"}
+      >
         <CollectionReadNotice
           kind={kind}
           status={state.status}
@@ -527,7 +553,7 @@ export function PostCollectionPane({
             })}
           </ul>
         )}
-        {state.status === "ready" &&
+        {(state.status === "ready" || (kind === "pins" && state.value)) &&
           !rows.length &&
           state.continuation === "none" &&
           (missingReturn && !missingReturn.id ? (
@@ -540,6 +566,7 @@ export function PostCollectionPane({
             <PanelState
               variant="empty"
               title={kind === "all" ? text.emptySaved : text.emptyPins}
+              titleRef={kind === "pins" ? returnedEmpty : undefined}
             />
           ))}
         {Boolean(state.value?.firstInaccessiblePostTime) && (

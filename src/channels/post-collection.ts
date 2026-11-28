@@ -104,6 +104,7 @@ export function openPostCollection(account: Account, source: Source) {
   function cancelRequests() {
     cancelNextPage();
     readRequest?.abort();
+    readRequest = undefined;
     writeRequests.abort();
     writeRequests = new AbortController();
     pending = undefined;
