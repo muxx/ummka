@@ -9,8 +9,9 @@ import {
 import type { ChannelNotifyProps } from "../../vendor/mattermost/index.js";
 import type { EntryLanguage } from "../entry/language.ts";
 import type { TeamSidebar } from "../mattermost/team-sidebar.ts";
-import { PaneSizeToggle } from "./PaneWidthControls.tsx";
+import { FileIcon, filePanelCopy } from "./ChannelFilesPanel.tsx";
 import { collectionCopy } from "./collection-copy.ts";
+import { PaneSizeToggle } from "./PaneWidthControls.tsx";
 import { CollectionMark } from "./PostCollectionPane.tsx";
 import { PublishedPostBody } from "./PublishedPostBody.tsx";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
@@ -68,7 +69,8 @@ type Props = {
   language: EntryLanguage;
   online: boolean;
   openPins: () => void;
-  focusRow: "pins" | "members" | undefined;
+  openFiles?: () => void;
+  focusRow: "pins" | "members" | "files" | undefined;
   openMembers: () => void;
   notifications: ((opener: HTMLButtonElement) => void) | undefined;
   notificationRevision: number;
@@ -218,6 +220,7 @@ export function ChannelInformationPanel({
   language,
   online,
   openPins,
+  openFiles,
   focusRow,
   openMembers,
   notifications,
@@ -230,6 +233,7 @@ export function ChannelInformationPanel({
     id = useId(),
     heading = useRef<HTMLHeadingElement>(null),
     pins = useRef<HTMLButtonElement>(null),
+    files = useRef<HTMLButtonElement>(null),
     members = useRef<HTMLButtonElement>(null);
   const count = useInfoRead(
     true,
@@ -247,12 +251,8 @@ export function ChannelInformationPanel({
     notificationRevision,
   );
   useLayoutEffect(() => {
-    (focusRow === "members"
-      ? members
-      : focusRow === "pins"
-        ? pins
-        : heading
-    ).current?.focus({ preventScroll: true });
+    const control = focusRow ? { members, pins, files }[focusRow] : heading;
+    (control.current ?? heading.current)?.focus({ preventScroll: true });
   }, [focusRow]);
   function status(v: SectionValue<unknown>) {
     return v.status === "failed"
@@ -349,6 +349,17 @@ export function ChannelInformationPanel({
           <CollectionMark kind="pins" />
           <strong>{collectionCopy[language].pins}</strong>
         </button>
+        {openFiles && (
+          <button
+            ref={files}
+            type="button"
+            className="channel-info-notify"
+            onClick={openFiles}
+          >
+            <FileIcon />
+            <strong>{filePanelCopy[language].title}</strong>
+          </button>
+        )}
         {notifications && (
           <>
             <button

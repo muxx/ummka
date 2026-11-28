@@ -232,6 +232,61 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
       )
         throw Error("Member directory did not return to the opening row");
     });
+    click(about.getByRole("button", { name: "Channel files" }));
+    const files = await findPane("Channel files");
+    const file = await files.findByRole("button", {
+      name: "Open attachment thread-note.txt, 0 B",
+    });
+    click(file);
+    const fileDialog = within(document.body);
+    const fileDetails = within(
+      await fileDialog.findByRole("dialog", { name: "thread-note.txt" }),
+    );
+    fileDetails.getByText("0 B, empty file");
+    await back("file-details");
+    await waitFor(
+      () => {
+        if (fileDialog.queryByRole("dialog") || document.activeElement !== file)
+          throw Error(
+            `Closing file details: open=${Boolean(fileDialog.queryByRole("dialog"))} focus=${document.activeElement?.tagName}/${document.activeElement?.className} visible=${Boolean(file.getClientRects().length)}`,
+          );
+      },
+      { timeout: 10000 },
+    );
+    click(file);
+    const openedFile = within(
+      await fileDialog.findByRole("dialog", { name: "thread-note.txt" }),
+    );
+    click(openedFile.getByRole("button", { name: "Go to message" }));
+    const fileThread = await findPane("Thread");
+    await fileThread.findByText(
+      "Reply visible only inside Town’s thread for @reader",
+    );
+    await ui.findByRole("button", { name: "Back to channel files" });
+    await back("file-message");
+    await waitFor(
+      () => {
+        if (
+          !file.getClientRects().length ||
+          document.activeElement !== file ||
+          draft.value !== originalText
+        )
+          throw Error("Message return lost the channel file or draft");
+      },
+      { timeout: 10000 },
+    );
+    await back("files");
+    about = await findPane("About this channel");
+    await waitFor(
+      () => {
+        if (
+          document.activeElement !==
+          about.getByRole("button", { name: "Channel files" })
+        )
+          throw Error("Closing channel files did not restore its info row");
+      },
+      { timeout: 10000 },
+    );
     click(about.getByRole("button", { name: "Pinned messages" }));
     let infoPins = await findPane("Pinned messages");
     click(

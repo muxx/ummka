@@ -49,6 +49,7 @@ type FrameProps = {
   sidePanel?: ReactNode;
   standalonePanel?: boolean;
   language?: EntryLanguage;
+  sidePanelHidden?: boolean;
   informationButton?: ReactNode;
   resultReturn?: ReactNode;
   threadReturn?: ReactNode;
@@ -125,6 +126,7 @@ export function ChannelsFrame({
   sidePanel,
   standalonePanel,
   language = "en",
+  sidePanelHidden,
   informationButton,
   resultReturn,
   threadReturn,
@@ -150,7 +152,7 @@ export function ChannelsFrame({
   const openThread = thread?.id;
   const replyRef = thread?.replyRef;
   const retainOpener = thread?.retainOpener;
-  const showingPanel = Boolean(sidePanel);
+  const showingPanel = Boolean(sidePanel) && !sidePanelHidden;
   const inboxSplit = !showingPanel && Boolean(inboxPlaceholder);
   const split =
     inboxSplit || (showingPanel ? !standalonePanel : Boolean(openThread));
@@ -329,7 +331,7 @@ export function ChannelsFrame({
       </header>
       <div
         className="channels-panes"
-        data-page={sidePanel ? "details" : openThread ? "thread" : page}
+        data-page={showingPanel ? "details" : openThread ? "thread" : page}
       >
         <nav
           ref={sidebar}
@@ -424,7 +426,7 @@ export function ChannelsFrame({
           }
         >
           {sidePanel}
-          {inboxPlaceholder && !sidePanel && !thread && (
+          {inboxPlaceholder && !showingPanel && !thread && (
             <aside
               className="channels-thread inbox-placeholder"
               aria-labelledby={threadId}
@@ -440,7 +442,7 @@ export function ChannelsFrame({
               </div>
             </aside>
           )}
-          {!sidePanel && thread && (
+          {!showingPanel && thread && (
             <aside className="channels-thread" aria-labelledby={threadId}>
               <header className="channels-pane-head channels-thread-head">
                 <div className="thread-heading">

@@ -30,6 +30,7 @@ import type { LocalPost } from "../mattermost/local-history.ts";
 import { isMattermostId } from "../mattermost/model-fields.ts";
 import { visibleSidebar } from "../mattermost/sidebar-rows.ts";
 import { effectiveWorkspacePreferences } from "../mattermost/workspace-preferences.ts";
+import { ChannelFilesPanel } from "./ChannelFilesPanel.tsx";
 import {
   ChannelInformationButton,
   ChannelInformationPanel,
@@ -310,6 +311,7 @@ export function ChannelsWorkspace({
     () => workspace.messages.closeSavedSurface(team.id),
   );
   const mentionLabels = mentionCopy[language];
+  const allowChannelFiles = policy.server.value?.search?.files === true;
   const collectionLabels = collectionCopy[language];
   const channelMenuButton = useRef<HTMLButtonElement>(null);
   const directoryButton = useRef<HTMLButtonElement>(null);
@@ -327,9 +329,17 @@ export function ChannelsWorkspace({
   const [infoChannel, setInfoChannel] = useState<{
     id: string;
     requestId?: number;
-    stage: "overview" | "pins" | "members";
-    focusRow?: "members" | "pins";
+    stage: "overview" | "pins" | "members" | "files";
+    fileOrigin?: { postId: string; button: HTMLButtonElement };
+    focusRow?: "members" | "pins" | "files";
   } | null>(null);
+  const fileNavigation = useRef<AbortController | null>(null);
+  const fileReading = useRef<TimelinePlace | null>(null);
+  const fileChannel =
+    infoChannel?.stage === "files" && allowChannelFiles ? infoChannel.id : null;
+  useLayoutEffect(() => {
+    if (fileChannel) return () => fileNavigation.current?.abort();
+  }, [fileChannel]);
   const infoButton = useRef<HTMLButtonElement>(null);
   const [notification, setNotification] = useState<{
     room: string;
@@ -872,7 +882,9 @@ export function ChannelsWorkspace({
     const main = inbox.visible ? inboxMain.current : undefined;
     inbox.close();
     setInfoChannel(
-      returning && infoChannel?.stage === "pins" && infoChannel.id === id
+      returning &&
+        infoChannel?.id === id &&
+        (infoChannel.stage === "pins" || infoChannel.stage === "files")
         ? { ...infoChannel, requestId: undefined }
         : null,
     );
@@ -1273,18 +1285,46 @@ export function ChannelsWorkspace({
     collections.view?.kind === "pins" &&
     collections.view.channelId === chosen &&
     (sameInfoPosition || Boolean(collectionDestination));
+  const fileDestination = Boolean(
+    fileChannel &&
+      sameInfoChannel &&
+      position &&
+      !position.system &&
+      !sameInfoPosition &&
+      infoChannel?.fileOrigin?.postId === position.request.post.id,
+  );
   const infoOpen =
     sameInfoChannel &&
     infoChannel.stage !== "pins" &&
+    (infoChannel.stage !== "files" || allowChannelFiles) &&
     sameInfoPosition &&
     (Boolean(position) || (!search.panel && !collections.view));
-  if (infoChannel !== null && !infoOpen && !pinsFromInfo) setInfoChannel(null);
-  function backFromMembers() {
+  if (infoChannel !== null && !infoOpen && !pinsFromInfo && !fileDestination)
+    setInfoChannel(null);
+  function openFileMessage(postId: string, button: HTMLButtonElement) {
+    if (infoChannel?.stage !== "files") return;
+    fileNavigation.current?.abort();
+    const controller = new AbortController();
+    fileNavigation.current = controller;
+    fileReading.current = readChannelPlace();
+    setInfoChannel({ ...infoChannel, fileOrigin: { postId, button } });
+    void workspace.messages.open(
+      { kind: "post", id: postId },
+      controller.signal,
+      button,
+    );
+  }
+  function returnToFiles(id: string) {
+    restoreConversation(id, fileReading.current);
+    choose(id, true);
+  }
+  function backToInfo(focusRow: "members" | "files") {
     if (infoChannel)
       setInfoChannel({
         ...infoChannel,
         stage: "overview",
-        focusRow: "members",
+        fileOrigin: undefined,
+        focusRow,
       });
   }
   function closeCollection() {
@@ -1401,14 +1441,19 @@ export function ChannelsWorkspace({
       ((directoryOpen || inbox.visible) && visibleSearchPanel)
     )
       return search.back;
-    if (infoOpen)
-      return infoChannel.stage === "members" ? backFromMembers : closeInfo;
     if (directoryOpen)
       return () => {
         restoreDirectoryFocus.current = true;
         setDirectoryOpen(false);
         if (compact || !chosen) setPage("navigation");
       };
+    if (infoOpen) {
+      const stage = infoChannel.stage;
+      return stage === "members" || stage === "files"
+        ? () => backToInfo(stage)
+        : closeInfo;
+    }
+    if (fileDestination && chosen) return () => returnToFiles(chosen);
     if (pinsFromInfo && !collectionDestination) return closeCollection;
     if (selection) return closeInboxThread;
     if (inbox.visible && compact && page !== "navigation")
@@ -1533,7 +1578,8 @@ export function ChannelsWorkspace({
       !channelMenuOpen &&
       !search.dialog &&
       !infoOpen &&
-      !pinsFromInfo
+      !pinsFromInfo &&
+      !fileDestination
       ? backToReading
       : backWorkspace,
   );
@@ -2141,8 +2187,31 @@ export function ChannelsWorkspace({
                 : undefined
         }
         navigationIcon={directoryOpen ? <DirectoryNavigationIcon /> : undefined}
+        sidePanelHidden={fileDestination}
         sidePanel={
-          infoOpen && channel && infoChannel.stage === "members" ? (
+          (infoOpen || fileDestination) &&
+          infoChannel?.stage === "files" &&
+          channel ? (
+            <ChannelFilesPanel
+              key={channel.id}
+              account={connection}
+              teamId={team.id}
+              channelId={channel.id}
+              hidden={fileDestination}
+              restoreButton={infoChannel.fileOrigin?.button}
+              name={
+                channel.kind === "O" || channel.kind === "P"
+                  ? "# " + channelTitle
+                  : channelTitle
+              }
+              language={language}
+              online={online}
+              back={() => backToInfo("files")}
+              close={closeInfo}
+              sessionIssue={sessionIssue}
+              showMessage={openFileMessage}
+            />
+          ) : infoOpen && channel && infoChannel.stage === "members" ? (
             <ChannelMembersPanel
               key={channel.id}
               account={connection}
@@ -2155,7 +2224,7 @@ export function ChannelsWorkspace({
               language={language}
               online={online}
               nameFormat={settings?.nameFormat ?? "username"}
-              back={backFromMembers}
+              back={() => backToInfo("members")}
               close={closeInfo}
               sessionIssue={sessionIssue}
             />
@@ -2174,6 +2243,11 @@ export function ChannelsWorkspace({
               }}
               close={closeInfo}
               focusRow={infoChannel.focusRow}
+              openFiles={
+                allowChannelFiles
+                  ? () => setInfoChannel({ ...infoChannel, stage: "files" })
+                  : undefined
+              }
               openMembers={() =>
                 setInfoChannel({ ...infoChannel, stage: "members" })
               }
@@ -2264,97 +2338,111 @@ export function ChannelsWorkspace({
         }
         threadReturn={readingInThread ? readingBar : undefined}
         resultReturn={
-          readingShown && !statusInCollection
-            ? readingInThread
-              ? readingMainBar
-              : readingBar
-            : position && (
-                <>
-                  {position.membership && (
-                    <span className="search-membership" role="status">
-                      {position.membership}
-                    </span>
-                  )}
-                  {savedSource && (
+          fileDestination && chosen ? (
+            <button
+              type="button"
+              className="search-return"
+              onClick={() => returnToFiles(chosen)}
+            >
+              {language === "ru"
+                ? "Назад к файлам канала"
+                : "Back to channel files"}
+            </button>
+          ) : readingShown && !statusInCollection ? (
+            readingInThread ? (
+              readingMainBar
+            ) : (
+              readingBar
+            )
+          ) : (
+            position && (
+              <>
+                {position.membership && (
+                  <span className="search-membership" role="status">
+                    {position.membership}
+                  </span>
+                )}
+                {savedSource && (
+                  <CollectionResultSteps
+                    name={collectionLabels.saved}
+                    icon={<CollectionMark kind="all" />}
+                    backLabel={collectionLabels.savedBack}
+                    language={language}
+                    sourceTeam={savedSource.teamName}
+                    remind={() =>
+                      setSavedReminder((previous) => ({
+                        source: savedSource,
+                        sequence: (previous?.sequence ?? 0) + 1,
+                      }))
+                    }
+                    blocked={!online || workspace.messages.dialogOpen}
+                    back={returnToSaved}
+                    end={endCollection}
+                  >
+                    {collectionReadingStatus}
+                  </CollectionResultSteps>
+                )}
+                {collectionOrigin &&
+                  collectionDestination &&
+                  (collectionDestination.kind === "pins" ? (
+                    <button
+                      type="button"
+                      className="search-return"
+                      onClick={returnToCollection}
+                    >
+                      {collectionLabels.pinsBack}
+                    </button>
+                  ) : (
                     <CollectionResultSteps
-                      name={collectionLabels.saved}
-                      icon={<CollectionMark kind="all" />}
-                      backLabel={collectionLabels.savedBack}
-                      language={language}
-                      sourceTeam={savedSource.teamName}
-                      remind={() =>
-                        setSavedReminder((previous) => ({
-                          source: savedSource,
-                          sequence: (previous?.sequence ?? 0) + 1,
-                        }))
+                      name={
+                        collectionDestination.kind === "mentions"
+                          ? mentionLabels.title
+                          : collectionLabels.saved
                       }
-                      blocked={!online || workspace.messages.dialogOpen}
-                      back={returnToSaved}
+                      icon={
+                        collectionDestination.kind === "mentions" ? (
+                          <MentionMark />
+                        ) : (
+                          <CollectionMark kind="all" />
+                        )
+                      }
+                      backLabel={
+                        collectionDestination.kind === "mentions"
+                          ? mentionLabels.back
+                          : collectionLabels.savedBack
+                      }
+                      language={language}
+                      steps={{
+                        index: collectionIndex,
+                        count: collectionOrigin.ids.length,
+                        partial: collectionOrigin.partial,
+                        open: stepCollection,
+                      }}
+                      blocked={
+                        !online ||
+                        workspace.messages.dialogOpen ||
+                        Boolean(attachments.selected) ||
+                        Boolean(reader.opening) ||
+                        Boolean(actions.anchor)
+                      }
+                      back={returnToCollection}
                       end={endCollection}
                     >
                       {collectionReadingStatus}
                     </CollectionResultSteps>
-                  )}
-                  {collectionOrigin &&
-                    collectionDestination &&
-                    (collectionDestination.kind === "pins" ? (
-                      <button
-                        type="button"
-                        className="search-return"
-                        onClick={returnToCollection}
-                      >
-                        {collectionLabels.pinsBack}
-                      </button>
-                    ) : (
-                      <CollectionResultSteps
-                        name={
-                          collectionDestination.kind === "mentions"
-                            ? mentionLabels.title
-                            : collectionLabels.saved
-                        }
-                        icon={
-                          collectionDestination.kind === "mentions" ? (
-                            <MentionMark />
-                          ) : (
-                            <CollectionMark kind="all" />
-                          )
-                        }
-                        backLabel={
-                          collectionDestination.kind === "mentions"
-                            ? mentionLabels.back
-                            : collectionLabels.savedBack
-                        }
-                        language={language}
-                        steps={{
-                          index: collectionIndex,
-                          count: collectionOrigin.ids.length,
-                          partial: collectionOrigin.partial,
-                          open: stepCollection,
-                        }}
-                        blocked={
-                          !online ||
-                          workspace.messages.dialogOpen ||
-                          Boolean(attachments.selected) ||
-                          Boolean(reader.opening) ||
-                          Boolean(actions.anchor)
-                        }
-                        back={returnToCollection}
-                        end={endCollection}
-                      >
-                        {collectionReadingStatus}
-                      </CollectionResultSteps>
-                    ))}
-                  {search.origin && !position.system && (
-                    <button
-                      type="button"
-                      className="search-return"
-                      onClick={returnToResults}
-                    >
-                      {search.backLabel}
-                    </button>
-                  )}
-                </>
-              )
+                  ))}
+                {search.origin && !position.system && (
+                  <button
+                    type="button"
+                    className="search-return"
+                    onClick={returnToResults}
+                  >
+                    {search.backLabel}
+                  </button>
+                )}
+              </>
+            )
+          )
         }
         returnInThread={compact && Boolean(activeThread)}
         accountRef={accountButton}

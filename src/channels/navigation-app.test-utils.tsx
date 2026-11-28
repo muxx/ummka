@@ -76,6 +76,7 @@ export function fixture({
   cross = false,
   direct = false,
   archivedHome = false,
+  fileSearch = true,
   homeKind = "O",
   homeHeader = "",
   homeName = "Home",
@@ -86,6 +87,7 @@ export function fixture({
   cross?: boolean;
   direct?: boolean;
   archivedHome?: boolean;
+  fileSearch?: boolean;
   homeKind?: "O" | "P" | "D" | "G";
   homeHeader?: string;
   homeName?: string;
@@ -241,7 +243,7 @@ export function fixture({
         {
           CollapsedThreads: collapsed ? "always_on" : "disabled",
           EnableCrossTeamSearch: "true",
-          EnableFileSearch: "true",
+          EnableFileSearch: fileSearch ? "true" : "false",
           EnableFileAttachments: "true",
         },
         {},
@@ -370,6 +372,21 @@ export function fixture({
       isEnd: q.page > 0,
       firstInaccessibleFileTime: 0,
     })),
+    readChannelFile: vi.fn<Account["readChannelFile"]>(
+      async (_channelId, id) => ({
+        file: {
+          id,
+          name:
+            id === bookmark
+              ? "bookmark.pdf"
+              : id === firstFile
+                ? "first.pdf"
+                : "second.pdf",
+          size: 0,
+        },
+        postId: id === bookmark ? null : root.id,
+      }),
+    ),
     readFileAnchor: vi.fn<Account["readFileAnchor"]>(async (fileId) => ({
       fileId,
       postId: root.id,

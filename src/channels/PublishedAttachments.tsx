@@ -78,10 +78,11 @@ export const AttachmentWindow = createContext<ReturnType<
 
 type DetailState =
   | { kind: "loading" | "unavailable" | "failure" | "idle" | "denied" | "gone" }
-  | { kind: "ready"; file: PublishedFile };
+  | { kind: "ready"; file: PublishedFile; postId: string | null };
 function FileDetails({
   postId,
-  channelId,
+  read,
+  showMessage,
   file,
   authorName,
   fallback,
@@ -89,10 +90,13 @@ function FileDetails({
   selection,
   window,
 }: {
-  postId: string;
-  channelId: string;
+  postId?: string;
+  read: (
+    signal: AbortSignal,
+  ) => Promise<{ file: PublishedFile; postId: string | null } | null>;
+  showMessage?: (postId: string, button: HTMLButtonElement) => void;
   file: PublishedFile;
-  authorName: string;
+  authorName?: string;
   fallback: string;
   language: EntryLanguage;
   selection: Selection;
@@ -104,8 +108,9 @@ function FileDetails({
   const heading = useId();
   const [attempt, setAttempt] = useState(window.online ? 1 : 0);
   const [state, setState] = useState<DetailState>({ kind: "loading" });
-  const { connection, online, activeScope } = window;
-  const known = hasDetails(file);
+  const { online, activeScope } = window;
+  const known = postId !== undefined && hasDetails(file);
+  const load = useEffectEvent(read);
   const failedSession = useEffectEvent((issue: "session" | "unauthorized") =>
     window.sessionIssue(issue),
   );
@@ -114,13 +119,12 @@ function FileDetails({
     if (known || !attempt || !online) return;
     const request = new AbortController();
     setState({ kind: "loading" });
-    void connection.readPostFiles(channelId, postId, request.signal).then(
-      (files) => {
+    void load(request.signal).then(
+      (found) => {
         if (request.signal.aborted) return;
-        const found = files.find((entry) => entry.id === file.id);
         setState(
-          found && hasDetails(found)
-            ? { kind: "ready", file: found }
+          found && hasDetails(found.file)
+            ? { kind: "ready", ...found }
             : { kind: "unavailable" },
         );
       },
@@ -142,13 +146,16 @@ function FileDetails({
       },
     );
     return () => request.abort();
-  }, [connection, channelId, postId, file.id, known, attempt, online]);
+  }, [known, attempt, online]);
   useLayoutEffect(() => {
     const modal = dialog.current;
     if (!modal) return;
     const button = selection.button;
     const article = button.closest<HTMLElement>("[data-post-id]");
-    const pane = article?.closest<HTMLElement>(".timeline-scroll");
+    const pane =
+      article?.closest<HTMLElement>(".timeline-scroll") ??
+      button.closest<HTMLElement>("[data-channel-files]");
+    const previousFocus = document.activeElement;
     modal.showModal();
     closeButton.current?.focus();
     return () => {
@@ -162,15 +169,18 @@ function FileDetails({
           activeScope.current !== selection.scope ||
           !pane?.isConnected ||
           (document.activeElement !== document.body &&
+            document.activeElement !== previousFocus &&
             document.activeElement !== article &&
             document.activeElement !== button)
         )
           return;
         const row = article?.isConnected
           ? article
-          : pane.querySelector<HTMLElement>(
-              `[data-post-id="${CSS.escape(postId)}"]`,
-            );
+          : postId
+            ? pane.querySelector<HTMLElement>(
+                `[data-post-id="${CSS.escape(postId)}"]`,
+              )
+            : null;
         const target = button.isConnected
           ? button
           : (row?.querySelector<HTMLButtonElement>(
@@ -238,7 +248,7 @@ function FileDetails({
         tabIndex={0}
       >
         <p className="attachment-room">
-          {authorName} ·{" "}
+          {authorName && `${authorName} · `}
           {inThread ? `${text.inThread} ${window.roomTitle}` : window.roomTitle}
         </p>
         {displayed ? (
@@ -324,6 +334,20 @@ function FileDetails({
           </div>
         )}
       </section>
+      {state.kind === "ready" && state.postId && showMessage && (
+        <footer>
+          <button
+            type="button"
+            onClick={() => {
+              if (!state.postId) return;
+              window.close(selection.row);
+              showMessage(state.postId, selection.button);
+            }}
+          >
+            {language === "ru" ? "К сообщению" : "Go to message"}
+          </button>
+        </footer>
+      )}
     </dialog>,
     document.body,
   );
@@ -364,53 +388,14 @@ export function PublishedAttachments({
     <>
       <ul className="post-files">
         {files.map((item, i) => {
-          const name = attachmentName(item, i + 1, language);
           return (
             <li key={item.id}>
-              <button
-                type="button"
-                className="post-file"
-                data-file-id={item.id}
-                data-unnamed={!hasDetails(item) || undefined}
-                aria-label={[
-                  `${text.open} ${item.name?.trim() || i + 1}`,
-                  item.size !== undefined &&
-                    attachmentSize(item.size, language),
-                  !hasDetails(item) && text.onServer,
-                  item.archived && text.archived,
-                ]
-                  .filter(Boolean)
-                  .join(", ")}
-                onClick={(event) =>
-                  window.open(row, item.id, event.currentTarget)
-                }
-              >
-                <svg
-                  aria-hidden="true"
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                >
-                  {item.mimeType?.startsWith("image/") ? (
-                    <>
-                      <rect x="3" y="4" width="18" height="16" rx="2" />
-                      <circle cx="8" cy="9" r="1" />
-                      <path d="m4 17 5-5 3 3 3-4 5 6" />
-                    </>
-                  ) : (
-                    <path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM14 3v5h5M8 13h8M8 17h5" />
-                  )}
-                </svg>
-                <bdi className="post-file-name">{name}</bdi>
-                {item.size !== undefined && (
-                  <small>{attachmentSize(item.size, language)}</small>
-                )}
-                {!hasDetails(item) && <small>{text.onServer}</small>}
-                {item.archived && <small>{text.archived}</small>}
-              </button>
+              <AttachmentButton
+                item={item}
+                index={i}
+                language={language}
+                open={(button) => window.open(row, item.id, button)}
+              />
             </li>
           );
         })}
@@ -419,13 +404,124 @@ export function PublishedAttachments({
         <FileDetails
           key={file.id}
           postId={post.id}
-          channelId={post.channelId}
+          read={async (signal) => {
+            const files = await window.connection.readPostFiles(
+              post.channelId,
+              post.id,
+              signal,
+            );
+            const found = files.find((f) => f.id === file.id);
+            return found ? { file: found, postId: post.id } : null;
+          }}
           file={file}
           authorName={authorName}
           fallback={`${text.file} ${files.indexOf(file) + 1}`}
           language={language}
           selection={selected}
           window={window}
+        />
+      )}
+    </>
+  );
+}
+
+function AttachmentButton({
+  item,
+  index,
+  language,
+  open,
+}: {
+  item: PublishedFile;
+  index: number;
+  language: EntryLanguage;
+  open: (button: HTMLButtonElement) => void;
+}) {
+  const text = attachmentCopy[language];
+  const name = attachmentName(item, index + 1, language);
+  return (
+    <button
+      type="button"
+      className="post-file"
+      data-file-id={item.id}
+      data-unnamed={!hasDetails(item) || undefined}
+      aria-label={[
+        `${text.open} ${item.name?.trim() || index + 1}`,
+        item.size !== undefined && attachmentSize(item.size, language),
+        !hasDetails(item) && text.onServer,
+        item.archived && text.archived,
+      ]
+        .filter(Boolean)
+        .join(", ")}
+      onClick={(event) => open(event.currentTarget)}
+    >
+      <svg
+        aria-hidden="true"
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      >
+        {item.mimeType?.startsWith("image/") ? (
+          <>
+            <rect x="3" y="4" width="18" height="16" rx="2" />
+            <circle cx="8" cy="9" r="1" />
+            <path d="m4 17 5-5 3 3 3-4 5 6" />
+          </>
+        ) : (
+          <path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM14 3v5h5M8 13h8M8 17h5" />
+        )}
+      </svg>
+      <bdi className="post-file-name">{name}</bdi>
+      {item.size !== undefined && (
+        <small>{attachmentSize(item.size, language)}</small>
+      )}
+      {!hasDetails(item) && <small>{text.onServer}</small>}
+      {item.archived && <small>{text.archived}</small>}
+    </button>
+  );
+}
+
+export function ChannelFileCard({
+  file,
+  index,
+  language,
+  read,
+  showMessage,
+}: {
+  file: PublishedFile;
+  index: number;
+  language: EntryLanguage;
+  read: (
+    signal: AbortSignal,
+  ) => Promise<{ file: PublishedFile; postId: string | null }>;
+  showMessage?: (postId: string, button: HTMLButtonElement) => void;
+}) {
+  const window = useContext(AttachmentWindow);
+  const row = useId();
+  const close = window?.close;
+  useLayoutEffect(() => () => close?.(row), [close, row]);
+  if (!window) return null;
+  const selected = window.selected;
+  return (
+    <>
+      <AttachmentButton
+        item={file}
+        index={index}
+        language={language}
+        open={(button) => window.open(row, file.id, button)}
+      />
+      {selected?.row === row && selected.fileId === file.id && (
+        <FileDetails
+          key={file.id}
+          file={file}
+          read={read}
+          showMessage={showMessage}
+          language={language}
+          selection={selected}
+          window={window}
+          fallback={attachmentCopy[language].details}
         />
       )}
     </>

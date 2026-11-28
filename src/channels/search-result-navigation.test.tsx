@@ -2362,3 +2362,146 @@ test("members open from details, restore the opening row and cancel a pending re
   expect(signal?.aborted).toBe(true);
   expect(screen.queryByRole("complementary", { name: "Members" })).toBeNull();
 });
+
+test("opens scoped files from channel info and returns from the message to the same file and list", async () => {
+  const { account } = fixture();
+  fireEvent.click(await screen.findByRole("button", { name: "Design" }));
+  await screen.findByRole("heading", { level: 1, name: "Design" });
+  const info = screen.getByRole("button", { name: "Channel info" });
+  fireEvent.click(info);
+  const files = await screen.findByRole("button", { name: "Channel files" });
+  expect(account.readFileSearchPage).not.toHaveBeenCalled();
+  fireEvent.click(files);
+  const panel = await screen.findByRole("complementary", {
+    name: "Channel files",
+  });
+  const standalone = await within(panel).findByRole("button", {
+    name: "Open attachment bookmark.pdf",
+  });
+  fireEvent.click(standalone);
+  const bookmarkDetails = await screen.findByRole("dialog", {
+    name: "bookmark.pdf",
+  });
+  expect(within(bookmarkDetails).getByText("0 B, empty file")).toBeTruthy();
+  expect(
+    within(bookmarkDetails).queryByRole("button", { name: "Go to message" }),
+  ).toBeNull();
+  fireEvent.click(
+    within(bookmarkDetails).getByRole("button", { name: "Close" }),
+  );
+  fireEvent.click(
+    within(panel).getByRole("button", { name: "Show more files" }),
+  );
+  const second = await within(panel).findByRole("button", {
+    name: "Open attachment second.pdf",
+  });
+  const body = panel.querySelector<HTMLElement>("[data-channel-files]");
+  if (!body) throw new Error("Missing channel file list");
+  body.scrollTop = 35;
+  fireEvent.click(second);
+  const details = await screen.findByRole("dialog", { name: "second.pdf" });
+  fireEvent.click(
+    within(details).getByRole("button", { name: "Go to message" }),
+  );
+  const back = await screen.findByRole("button", {
+    name: "Back to channel files",
+  });
+  expect(
+    screen.queryByRole("complementary", { name: "Channel files" }),
+  ).toBeNull();
+  await screen.findByText(root.message);
+  fireEvent.click(back);
+  expect(
+    await screen.findByRole("complementary", { name: "Channel files" }),
+  ).toBe(panel);
+  await waitFor(() => expect(document.activeElement).toBe(second));
+  expect(body.scrollTop).toBe(35);
+  expect(account.readFileSearchPage).toHaveBeenCalledTimes(2);
+  expect(
+    account.readChannelFile.mock.calls.map(([channel, id]) => [channel, id]),
+  ).toEqual([
+    [design, bookmark],
+    [design, secondFile],
+  ]);
+  fireEvent.keyDown(window, { key: "Escape" });
+  const restored = await screen.findByRole("button", { name: "Channel files" });
+  expect(document.activeElement).toBe(restored);
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(document.activeElement).toBe(info);
+});
+
+test("channel files discard loaded rows after removal and retry the same page on a connection error", async () => {
+  const { account } = fixture();
+  fireEvent.click(await screen.findByRole("button", { name: "Design" }));
+  await screen.findByRole("heading", { level: 1, name: "Design" });
+  fireEvent.click(screen.getByRole("button", { name: "Channel info" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Channel files" }));
+  const panel = within(
+    await screen.findByRole("complementary", { name: "Channel files" }),
+  );
+  const card = await panel.findByRole("button", {
+    name: "Open attachment first.pdf",
+  });
+  account.readFileSearchPage.mockRejectedValueOnce(new Error("disconnected"));
+  fireEvent.click(panel.getByRole("button", { name: "Show more files" }));
+  await panel.findByText("Couldn’t load channel files.");
+  expect(card.isConnected).toBe(true);
+  account.readFileSearchPage.mockResolvedValueOnce({
+    items: [],
+    isEnd: true,
+    firstInaccessibleFileTime: 0,
+  });
+  account.readChannelIdentity.mockRejectedValueOnce(
+    new ResponseError(new Response(null, { status: 403 })),
+  );
+  fireEvent.click(panel.getByRole("button", { name: "Try again" }));
+  await panel.findByText("Channel files are unavailable.");
+  expect(card.isConnected).toBe(false);
+  expect(account.readFileSearchPage.mock.calls.map(([q]) => q.page)).toEqual([
+    0, 1, 1,
+  ]);
+});
+
+test("the server's file-search policy controls the channel info action", async () => {
+  const { account } = fixture({ fileSearch: false });
+  fireEvent.click(await screen.findByRole("button", { name: "Channel info" }));
+  const about = await screen.findByRole("complementary", {
+    name: "About this channel",
+  });
+  expect(
+    within(about).queryByRole("button", { name: "Channel files" }),
+  ).toBeNull();
+  expect(account.readFileSearchPage).not.toHaveBeenCalled();
+});
+
+test("leaving a channel aborts the pending file read before a late row can appear", async () => {
+  const { account } = fixture();
+  let finish!: (
+    value: Awaited<ReturnType<typeof account.readFileSearchPage>>,
+  ) => void;
+  account.readFileSearchPage.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "Channel info" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Channel files" }));
+  await waitFor(() =>
+    expect(account.readFileSearchPage).toHaveBeenCalledOnce(),
+  );
+  const signal = account.readFileSearchPage.mock.calls[0][1];
+  fireEvent.click(screen.getByRole("button", { name: "Design" }));
+  await screen.findByRole("heading", { level: 1, name: "Design" });
+  expect(signal?.aborted).toBe(true);
+  await act(async () =>
+    finish({
+      items: [
+        { id: firstFile, channelId: home, postId: null, name: "old-file.txt" },
+      ],
+      isEnd: true,
+      firstInaccessibleFileTime: 0,
+    }),
+  );
+  expect(screen.queryByText("old-file.txt")).toBeNull();
+});

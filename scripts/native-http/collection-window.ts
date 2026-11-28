@@ -114,7 +114,48 @@ export function collectionWindowFixture() {
       );
       return true;
     }
-    if (path === "users/me") {
+    const channelFile = {
+      id: "k".repeat(26),
+      channel_id: channel,
+      post_id: reply,
+      name: "thread-note.txt",
+      size: 0,
+      extension: "txt",
+    };
+    if (path === `teams/${team}/files/search`) {
+      const query = await requestJson(req);
+      assert(query && typeof query === "object" && "page" in query);
+      assert(query.page === 0 || query.page === 1);
+      assert.deepEqual(query, {
+        terms: `channel:${channel}`,
+        is_or_search: false,
+        per_page: 20,
+        page: query.page,
+        include_deleted_channels: false,
+        time_zone_offset: 0,
+      });
+      send(
+        {
+          order: query.page === 0 ? [channelFile.id] : [],
+          file_infos: query.page === 0 ? { [channelFile.id]: channelFile } : {},
+          first_inaccessible_file_time: 0,
+          prev_file_info_id: "",
+          next_file_info_id: "",
+        },
+        "POST",
+      );
+    } else if (path === `channels/${channel}`) {
+      send({
+        id: channel,
+        type: "O",
+        team_id: team,
+        name: "town-square",
+        display_name: "Town Square",
+        delete_at: 0,
+      });
+    } else if (path === `files/${channelFile.id}/info`) {
+      send(channelFile);
+    } else if (path === "users/me") {
       send({
         id: user,
         username: "reader",

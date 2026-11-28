@@ -14,6 +14,7 @@ import {
 import { MembersIcon } from "./ChannelInformationPanel.tsx";
 import { PaneSizeToggle } from "./PaneWidthControls.tsx";
 import { initials } from "./profile-initials.ts";
+import { useNextPageButton } from "./use-next-page-button.ts";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
 import { workspaceFailure } from "./workspace-data.ts";
 
@@ -138,29 +139,7 @@ function MemberResults({
     setRequest((old) => ({ page, attempt: old.attempt + 1 }));
   }
   const next = results.status === "ready" ? results.nextPage : null;
-  const boundary = useRef<HTMLButtonElement>(null);
-  const loadNext = useEffectEvent(() => {
-    if (next !== null) read(next, boundary.current);
-  });
-  useEffect(() => {
-    const button = boundary.current;
-    if (next === null || !button) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (
-          entries.some(
-            (entry) => entry.isIntersecting && entry.intersectionRatio > 0,
-          )
-        ) {
-          observer.disconnect();
-          loadNext();
-        }
-      },
-      { root: button.parentElement },
-    );
-    observer.observe(button);
-    return () => observer.disconnect();
-  }, [next]);
+  const boundary = useNextPageButton(next, read);
   useLayoutEffect(() => {
     const index = returnFocus.current;
     if (index === null || results.status === "loading") return;
@@ -174,7 +153,7 @@ function MemberResults({
       notice.current ??
       list.current?.lastElementChild;
     if (target instanceof HTMLElement) target.focus();
-  }, [results]);
+  }, [results, boundary]);
   return (
     <>
       {results.members.length > 0 && (
