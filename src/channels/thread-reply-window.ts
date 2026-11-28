@@ -25,6 +25,7 @@ type Scope = Pick<
   "channelId" | "rootId" | "collapsedThreads"
 >;
 type Direction = ThreadPageRequest["direction"];
+type Cursor = NonNullable<ThreadPageRequest["cursor"]>;
 type Edge =
   | { status: "ready" | "end" | "loading" }
   | { status: "error"; error: unknown };
@@ -33,11 +34,27 @@ interface ReplyWindow {
   isFollowing?: boolean;
   unavailable?: "forbidden" | "unauthorized" | "session" | "limited";
   firstInaccessiblePostTime?: number;
+  newReplyId?: string;
   root: LocalPost | null;
   replies: readonly LocalPost[];
   up: Edge;
   down: Edge;
 }
+
+type RetainedEdge = {
+  status: "ready" | "end";
+  cursor?: Cursor;
+};
+export type RetainedThreadReplies = {
+  root: LocalPost;
+  replies: readonly LocalPost[];
+  isFollowing?: boolean;
+  up: RetainedEdge;
+  down: RetainedEdge;
+  cardRevisions: ReadonlyMap<string, CardRevision>;
+};
+const retainedReplyLimit = 120;
+const cursorFor = ({ id, createAt }: LocalPost): Cursor => ({ id, createAt });
 
 type ThreadPost = Post & {
   id: string;
@@ -60,6 +77,7 @@ export function openThreadReplyWindow(
   scope: Scope,
   start?: LocalPost | { lastViewedAt: number; userId: string },
   initialRoot?: LocalPost,
+  retained?: RetainedThreadReplies,
 ) {
   const { channelId, rootId, collapsedThreads } = scope;
   const unread = start && "lastViewedAt" in start ? { ...start } : undefined;
@@ -68,6 +86,8 @@ export function openThreadReplyWindow(
     !isMattermostId(channelId) ||
     !isMattermostId(rootId) ||
     typeof collapsedThreads !== "boolean" ||
+    (retained &&
+      (retained.root.id !== rootId || retained.root.channelId !== channelId)) ||
     (unread &&
       (!isMattermostTime(unread.lastViewedAt, 0) ||
         !isMattermostId(unread.userId))) ||
@@ -93,23 +113,35 @@ export function openThreadReplyWindow(
     down: time || undefined,
   };
   const cursors: Record<Direction, ThreadPageRequest["cursor"]> = {
-    up: anchor,
-    down: anchor,
+    up: retained?.up.cursor ?? anchor,
+    down: retained?.replies.length
+      ? cursorFor(retained.replies[retained.replies.length - 1])
+      : (retained?.down.cursor ?? anchor),
   };
   const requests: Partial<Record<Direction, Promise<void>>> = {};
   const lifetime = new AbortController();
   const listeners = new Set<() => void>();
   let opened: Promise<void> | undefined;
+  let readReplies = false;
   let state: ReplyWindow = {
-    root: initialRoot ?? null,
-    replies: focus ? [focus] : [],
-    up: { status: focus || (time !== undefined && time > 0) ? "ready" : "end" },
-    down: { status: time === Number.MAX_SAFE_INTEGER ? "end" : "ready" },
+    root: retained?.root ?? initialRoot ?? null,
+    replies: retained?.replies ?? (focus ? [focus] : []),
+    up: {
+      status:
+        retained?.up.status ??
+        (focus || (time !== undefined && time > 0) ? "ready" : "end"),
+    },
+    down: {
+      status:
+        retained?.down.status ??
+        (time === Number.MAX_SAFE_INTEGER ? "end" : "ready"),
+    },
+    ...(retained && { isFollowing: retained.isFollowing }),
   };
-  const seen = new Set(focus ? [focus.id] : []);
+  const seen = new Set(state.replies.map(({ id }) => id));
   let observation = 0;
   const priorityByPost = new Map<string, number>();
-  const cardsByPost = new Map<string, CardRevision>();
+  const cardsByPost = new Map(retained?.cardRevisions);
   function publish(next: ReplyWindow) {
     state = next;
     for (const listener of listeners) listener();
@@ -137,7 +169,7 @@ export function openThreadReplyWindow(
     });
     listeners.clear();
   }
-  async function read(direction: Direction) {
+  async function read(direction: Direction, quietly: boolean) {
     try {
       const { signal } = lifetime;
       signal.throwIfAborted();
@@ -164,6 +196,10 @@ export function openThreadReplyWindow(
       const root = visibleRow(channelId, page.root);
       const received = page.replies.map((post) => visibleRow(channelId, post));
       if (direction === "up") received.reverse();
+      const newReply =
+        quietly && retained?.down.status === "end"
+          ? received.find(({ id }) => !seen.has(id))
+          : undefined;
       function merge(
         prior: LocalPost | null | undefined,
         { cardRevision, ...row }: ReturnType<typeof visibleRow>,
@@ -213,9 +249,11 @@ export function openThreadReplyWindow(
             : [...state.replies, ...appended];
       }
       for (const row of received) seen.add(row.id);
+      readReplies = true;
       cursors[direction] = page.next ?? undefined;
       finish(direction, {
         ...state,
+        ...(newReply && { newReplyId: newReply.id }),
         isFollowing: page.root.isFollowing,
         root: merge(state.root, root, "refresh"),
         replies,
@@ -232,28 +270,96 @@ export function openThreadReplyWindow(
         stop(failure);
         return;
       }
+      if (quietly) {
+        delete requests[direction];
+        opened = undefined;
+        return;
+      }
       finish(direction, {
         ...state,
         [direction]: { status: "error", error },
       });
     }
   }
-  function load(direction: Direction, status: "ready" | "error") {
+  function load(direction: Direction, status: Edge["status"], quietly = false) {
     if (lifetime.signal.aborted) return Promise.resolve();
     if (requests[direction]) return requests[direction];
     if (state[direction].status !== status) return Promise.resolve();
-    const pending = Promise.resolve().then(() => read(direction));
+    const pending = Promise.resolve().then(() => read(direction, quietly));
     requests[direction] = pending;
-    publish({ ...state, [direction]: { status: "loading" } });
+    if (!quietly) publish({ ...state, [direction]: { status: "loading" } });
     return pending;
   }
   return {
     getSnapshot: () => state,
-    getUnreadPosition() {
-      if (!unread || lifetime.signal.aborted) return null;
+    hasReadPage: () => readReplies,
+    confirmRoot(root: LocalPost) {
+      if (
+        lifetime.signal.aborted ||
+        root.id !== rootId ||
+        root.channelId !== channelId ||
+        root.rootId !== null
+      )
+        return;
+      const projected = mergePostObservation(state.root, root, "refresh");
+      if (projected !== state.root) publish({ ...state, root: projected });
+    },
+    retain(place?: {
+      id?: string;
+      atEnd?: boolean;
+    }): RetainedThreadReplies | null {
+      if (
+        lifetime.signal.aborted ||
+        state.unavailable ||
+        !state.root ||
+        (!retained && !readReplies)
+      )
+        return null;
+      const { root, replies, isFollowing } = state;
+      const index = place?.atEnd
+        ? replies.length - 1
+        : replies.findIndex((row) => row.id === place?.id);
+      const start = Math.max(
+        0,
+        Math.min(
+          index - retainedReplyLimit / 2,
+          replies.length - retainedReplyLimit,
+        ),
+      );
+      const end = start + retainedReplyLimit;
+      const kept = replies.slice(start, end);
+      const cardRevisions = new Map<string, CardRevision>();
+      for (const { id } of [root, ...kept]) {
+        const revision = cardsByPost.get(id);
+        if (revision) cardRevisions.set(id, revision);
+      }
+      return {
+        root,
+        replies: kept,
+        isFollowing,
+        up:
+          start > 0
+            ? { status: "ready", cursor: cursorFor(kept[0]) }
+            : {
+                status: state.up.status === "end" ? "end" : "ready",
+                cursor: cursors.up,
+              },
+        down:
+          end < replies.length
+            ? { status: "ready", cursor: cursorFor(kept[kept.length - 1]) }
+            : {
+                status: state.down.status === "end" ? "end" : "ready",
+                cursor: cursors.down,
+              },
+        cardRevisions,
+      };
+    },
+    getUnreadPosition(boundary = unread) {
+      if (!boundary || lifetime.signal.aborted) return null;
       const first = state.replies.find(
         (row) =>
-          row.createAt > unread.lastViewedAt && row.userId !== unread.userId,
+          row.createAt > boundary.lastViewedAt &&
+          row.userId !== boundary.userId,
       );
       if (first) return { kind: "found" as const, postId: first.id };
       return state.down.status === "end"
@@ -271,9 +377,11 @@ export function openThreadReplyWindow(
       time?: number,
     ) => stop(reason, time),
     open() {
-      opened ??= Promise.all([load("up", "ready"), load("down", "ready")]).then(
-        () => {},
-      );
+      opened ??= retained
+        ? load("down", state.down.status, true)
+        : Promise.all([load("up", "ready"), load("down", "ready")]).then(
+            () => {},
+          );
       return opened;
     },
     more: (direction: Direction) => load(direction, "ready"),

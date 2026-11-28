@@ -47,22 +47,16 @@ test("uses the prototype breakpoints and fits a conversation between the panels"
       max: 420,
       width: 420,
     });
-    for (const panel of ["right", "thread"] as const) {
-      for (const navigation of [168, 240, 420, 1200]) {
-        const bounds = paneGeometry(
-          width,
-          { navigation, right: 999, thread: 999 },
-          panel,
-        );
-        if (!bounds) throw Error("Expected desktop geometry.");
-        const { right, navigation: left } = bounds;
-        expect(right.width).toBe(right.max);
-        expect(left.width).toBeLessThanOrEqual(left.max);
-        expect(width - left.width - right.width).toBeGreaterThanOrEqual(
-          Math.min(panel === "thread" ? 284 : 352, width - 168 - right.min),
-        );
-        expect(right.expanded).toBeLessThanOrEqual(Math.round(width * 0.6));
-      }
+    for (const navigation of [168, 240, 420, 1200]) {
+      const bounds = paneGeometry(width, { navigation, right: 999 }, "right");
+      if (!bounds) throw Error("Expected desktop geometry.");
+      const { right, navigation: left } = bounds;
+      expect(right.width).toBe(right.max);
+      expect(left.width).toBeLessThanOrEqual(left.max);
+      expect(width - left.width - right.width).toBeGreaterThanOrEqual(
+        Math.min(352, width - 168 - right.min),
+      );
+      expect(right.expanded).toBeLessThanOrEqual(Math.round(width * 0.6));
     }
   }
   expect(paneGeometry(1440, {}, "right")).toEqual({
@@ -105,5 +99,49 @@ test("a temporary resize leaves the user's preferred width intact", () => {
   expect(paneGeometry(1440, stored, "right")?.right.width).toBe(450);
   expect(paneGeometry(820, stored, "right")?.right.width).toBe(264);
   expect(paneGeometry(1440, stored, "right")?.right.width).toBe(450);
-  expect(paneGeometry(1440, stored, "thread")?.right.width).toBe(375);
+  const thread = { thread: 800, navigation: 320 };
+  expect(paneGeometry(1440, thread, "thread")?.right.width).toBe(800);
+  expect(paneGeometry(820, thread, "thread")?.single).toBe(true);
+  expect(paneGeometry(1440, thread, "thread")?.right.width).toBe(800);
+});
+
+test.each([
+  [820, 180, 0, 640],
+  [1024, 216, 300, 508],
+  [1180, 244, 360, 576],
+  [1440, 244, 400, 796],
+])(
+  "fits the expanded inbox list and thread at %i px",
+  (width, nav, list, detail) => {
+    const bounds = paneGeometry(width, {}, "thread");
+    expect(bounds?.navigation.width).toBe(nav);
+    expect(bounds?.right.expanded).toBe(detail);
+    expect(width - nav - detail).toBe(list);
+    expect(Boolean(bounds?.single)).toBe(list === 0);
+  },
+);
+
+test("fits the split and clamps thread preferences to the space after navigation", () => {
+  expect(paneGeometry(975, {}, "thread")?.single).toBe(true);
+  expect(paneGeometry(976, {}, "thread")?.right).toEqual({
+    width: 460,
+    min: 460,
+    max: 460,
+    expanded: 460,
+  });
+  expect(
+    paneGeometry(1100, { navigation: 201 }, "thread")?.right.expanded,
+  ).toBe(599);
+  expect(
+    paneGeometry(1100, { navigation: 200 }, "thread")?.right.expanded,
+  ).toBe(540);
+  expect(paneGeometry(1440, { thread: 400 }, "thread")?.right.width).toBe(756);
+  expect(paneGeometry(1440, { thread: 1000 }, "thread")?.right.width).toBe(896);
+  expect(paneGeometry(1180, { navigation: 420 }, "thread")?.right).toEqual({
+    width: 460,
+    min: 460,
+    max: 460,
+    expanded: 460,
+  });
+  expect(paneGeometry(390, {}, "thread")).toBeNull();
 });

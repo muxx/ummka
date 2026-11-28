@@ -1,6 +1,7 @@
 import { expect, test, vi } from "vitest";
 import { ResponseError } from "../../vendor/mattermost/index.js";
-import { openThreadInbox } from "./thread-inbox.ts";
+import { createChannelHistoryChanges } from "../mattermost/channel-history-changes.ts";
+import { openThreadInbox, type ParkedThreadWindow } from "./thread-inbox.ts";
 
 type Reader = Parameters<typeof openThreadInbox>[0];
 type Page = Awaited<ReturnType<Reader["readFollowedThreads"]>>;
@@ -467,6 +468,93 @@ const observedRoot = {
   isPinned: false,
 };
 const visibleA = { ...a, post: observedRoot };
+
+test("parks four windows within one inbox and removes them on access loss or close", async () => {
+  const { account, view } = setup();
+  const window = (id: string): ParkedThreadWindow => ({
+    replies: {
+      root: { ...observedRoot, id },
+      replies: [],
+      up: { status: "end" },
+      down: { status: "end" },
+      cardRevisions: new Map(),
+    },
+    place: { top: 0, atEnd: true },
+  });
+  const windows = [a, b, c, d, row("e")].map(({ id }) => window(id));
+  for (const saved of windows) view.parkWindow(saved);
+  const { channelId } = observedRoot;
+  expect(view.takeWindow(channelId, a.id)).toBeUndefined();
+  expect(view.takeWindow("q".repeat(26), b.id)).toBeUndefined();
+  const touched = view.takeWindow(channelId, b.id);
+  expect(touched).toBe(windows[1]);
+  if (touched) view.parkWindow(touched);
+  view.parkWindow(window(row("f").id));
+  expect(view.takeWindow(channelId, c.id)).toBeUndefined();
+  view.revokeRoot(d.id);
+  view.parkWindow(window(d.id));
+  expect(view.takeWindow(channelId, d.id)).toBeUndefined();
+  account.readFollowedThreadTotals.mockRejectedValueOnce(
+    new ResponseError(new Response(null, { status: 401 }), "Unauthorized"),
+  );
+  await view.refreshTotals();
+  expect(view.takeWindow(channelId, b.id)).toBeUndefined();
+  view.parkWindow(window(b.id));
+  expect(view.takeWindow(channelId, b.id)).toBeUndefined();
+  view.close();
+  view.parkWindow(window(c.id));
+  expect(view.takeWindow(channelId, c.id)).toBeUndefined();
+  const replacement = openThreadInbox(account, teamId);
+  expect(replacement.takeWindow(channelId, b.id)).toBeUndefined();
+});
+
+test("a confirmed root deletion drops its parked window only in the observing account", async () => {
+  const { account } = setup();
+  const history = createChannelHistoryChanges();
+  const stopped = vi.fn();
+  const view = openThreadInbox(account, teamId, (...args) => {
+    const unsubscribe = history.subscribe(...args);
+    return () => {
+      unsubscribe();
+      stopped();
+    };
+  });
+  const other = openThreadInbox(
+    account,
+    teamId,
+    createChannelHistoryChanges().subscribe,
+  );
+  account.readFollowedThreads.mockResolvedValue(page([visibleA]));
+  await view.show("followed");
+  const saved: ParkedThreadWindow = {
+    replies: {
+      root: observedRoot,
+      replies: [],
+      up: { status: "end" },
+      down: { status: "end" },
+      cardRevisions: new Map(),
+    },
+    place: { top: 0, atEnd: true },
+  };
+  view.parkWindow(saved);
+  other.parkWindow(saved);
+  const { channelId, id } = observedRoot;
+  const removal = { kind: "remove", channelId, id } as const;
+  history.notify("q".repeat(26), undefined, [removal]);
+  expect(view.isRootUnavailable(id)).toBe(false);
+  history.notify(channelId, undefined, [removal]);
+  expect(view.isRootUnavailable(id)).toBe(true);
+  expect(view.getSnapshot().page.rows?.[0].post).toBeNull();
+  expect(view.takeWindow(channelId, id)).toBeUndefined();
+  expect(other.takeWindow(channelId, id)).toBe(saved);
+  expect(stopped).toHaveBeenCalledOnce();
+  other.parkWindow(saved);
+  other.discardChannelWindows("q".repeat(26));
+  expect(other.takeWindow(channelId, id)).toBe(saved);
+  other.parkWindow(saved);
+  other.discardChannelWindows(channelId);
+  expect(other.takeWindow(channelId, id)).toBeUndefined();
+});
 
 test.each([true, false])(
   "the most recently requested missing root wins when it returns first: %s",

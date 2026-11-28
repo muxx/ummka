@@ -1,19 +1,26 @@
-import {
-  type ReactNode,
-  type RefObject,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { type RefObject, useLayoutEffect, useRef, useState } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
 import { collectionCopy } from "./collection-copy.ts";
-import "./collection-read-notice.css";
+import { PanelRetry, PanelState } from "./PanelState.tsx";
+
+export function useCollectionRefreshVisibility(refreshing: boolean) {
+  const [visible, setVisible] = useState(false);
+  useLayoutEffect(() => {
+    if (!refreshing) {
+      setVisible(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setVisible(true), 1000);
+    return () => window.clearTimeout(timer);
+  }, [refreshing]);
+  return refreshing && visible;
+}
 
 export function CollectionReadNotice({
   kind,
-  icon,
   status,
   hasResponse,
+  showRefresh,
   online,
   language,
   list,
@@ -21,9 +28,9 @@ export function CollectionReadNotice({
   refresh,
 }: {
   kind: "all" | "pins" | "mentions";
-  icon?: ReactNode;
   status: string;
   hasResponse: boolean;
+  showRefresh: boolean;
   online: boolean;
   language: EntryLanguage;
   list: RefObject<HTMLElement | null>;
@@ -97,48 +104,63 @@ export function CollectionReadNotice({
         {announcement}
       </span>
       {(loading || refreshing || failed) && (
-        <div
-          className="collection-read-notice"
-          data-cold-error={coldFailure || undefined}
-          data-failed={failed || undefined}
-          data-initial={loading || undefined}
+        <PanelState
+          variant={
+            failed
+              ? hasResponse
+                ? "stale"
+                : online
+                  ? "error"
+                  : "offline"
+              : refreshing
+                ? "refresh"
+                : "pending"
+          }
           ref={notice}
-          tabIndex={-1}
-        >
-          {coldFailure ? (
-            <>
-              {icon}
-              <h3>{text.firstReadAnnouncement(name, "")}</h3>
-              <p>{reason ? text.offlineCold : text.serverList}</p>
-              <span className="collection-announcement" role="alert">
-                {text.firstReadAnnouncement(name, reason)}
-              </span>
-            </>
-          ) : (
-            <span
-              role={failed ? (hasResponse ? undefined : "alert") : "status"}
-            >
-              {failed ? failureText : pendingText}
-            </span>
-          )}
-          {failed && (
-            <button
-              ref={retry}
-              type="button"
-              className="collection-page-action"
-              aria-label={hasResponse ? text.retryUpdate(name) : text.retry}
-              onClick={() => {
-                waitingFocus.current = hasResponse;
-                (hasResponse ? notice.current : heading.current)?.focus({
-                  preventScroll: true,
-                });
-                refresh();
-              }}
-            >
-              {text.retry}
-            </button>
-          )}
-        </div>
+          quiet={refreshing && !showRefresh}
+          role={
+            coldFailure || (failed && hasResponse)
+              ? undefined
+              : failed
+                ? "alert"
+                : "status"
+          }
+          title={coldFailure ? text.firstReadAnnouncement(name, "") : undefined}
+          message={
+            coldFailure
+              ? reason
+                ? text.offlineCold
+                : text.serverList
+              : failed
+                ? failureText
+                : refreshing && !showRefresh
+                  ? ""
+                  : pendingText
+          }
+          action={
+            failed && (
+              <PanelRetry
+                ref={retry}
+                data-collection-retry=""
+                aria-label={hasResponse ? text.retryUpdate(name) : text.retry}
+                onClick={() => {
+                  waitingFocus.current = hasResponse;
+                  (hasResponse ? notice.current : heading.current)?.focus({
+                    preventScroll: true,
+                  });
+                  refresh();
+                }}
+              >
+                {text.retry}
+              </PanelRetry>
+            )
+          }
+        />
+      )}
+      {coldFailure && (
+        <span className="collection-announcement" role="alert">
+          {text.firstReadAnnouncement(name, reason)}
+        </span>
       )}
     </>
   );

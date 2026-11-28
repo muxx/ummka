@@ -1,5 +1,12 @@
 import { ResponseError } from "../../vendor/mattermost/index.js";
 import type { accountFollowedThreads } from "../mattermost/account-followed-threads.ts";
+import type { createChannelHistoryChanges } from "../mattermost/channel-history-changes.ts";
+import {
+  type ChannelPostChange,
+  mergePostObservation,
+} from "../mattermost/channel-post-records.ts";
+import type { LocalPost } from "../mattermost/local-history.ts";
+import type { RetainedThreadReplies } from "./thread-reply-window.ts";
 import { mayKeepCache, workspaceFailure } from "./workspace-data.ts";
 
 type Account = ReturnType<typeof accountFollowedThreads>;
@@ -15,6 +22,21 @@ export type ThreadInboxPlace = {
   restoreRowLimit: number;
   position: { top: number; id?: string; offset: number };
 };
+export type ThreadReadingPlace = {
+  top: number;
+  id?: string;
+  offset?: number;
+  atEnd: boolean;
+  composerHeight?: number;
+  focus?: { kind: "reply"; id: string } | { kind: "feed" | "editor" };
+};
+export type ParkedThreadWindow = {
+  replies: RetainedThreadReplies;
+  place: ThreadReadingPlace;
+};
+const parkedWindowLimit = 4;
+const windowKey = (channelId: string, id: string) =>
+  JSON.stringify([channelId, id]);
 type Key = ThreadInboxTab | "totals";
 type Status =
   | "idle"
@@ -57,7 +79,24 @@ function withKnownFileNames(post: Root, prior?: Root | null): Root {
     : post;
 }
 
-export function openThreadInbox(account: Reader, teamId: string) {
+function updatedPost(prior: LocalPost, change: ChannelPostChange | undefined) {
+  if (
+    change?.kind !== "save" ||
+    change.rootId !== prior.rootId ||
+    change.updateAt <= prior.updateAt
+  )
+    return prior;
+  const { kind: _kind, ...post } = change;
+  return mergePostObservation(prior, post, "keep");
+}
+
+export function openThreadInbox(
+  account: Reader,
+  teamId: string,
+  subscribeToHistory?: ReturnType<
+    typeof createChannelHistoryChanges
+  >["subscribe"],
+) {
   let tab: ThreadInboxTab = "followed";
   let closed = false;
   let showing = false;
@@ -69,6 +108,8 @@ export function openThreadInbox(account: Reader, teamId: string) {
   let pageReadOrder = 0;
   const deniedRoots = new Set<string>();
   const roots = new Map<string, { order: number; post: Row["post"] }>();
+  const parked = new Map<string, ParkedThreadWindow>();
+  const historySubscriptions = new Map<string, () => void>();
   const pending = new Map<
     Key,
     { request: Promise<void>; controller: AbortController; previous: Status }
@@ -104,6 +145,8 @@ export function openThreadInbox(account: Reader, teamId: string) {
     retainedReadId = null;
     roots.clear();
     deniedRoots.clear();
+    parked.clear();
+    syncHistorySubscriptions();
   }
   function withObservedRoots(rows: Row[]) {
     let current = rows;
@@ -130,7 +173,108 @@ export function openThreadInbox(account: Reader, teamId: string) {
           ? prior.post
           : withKnownFileNames(post, prior.post);
     }
+    if (!post) discardRootWindow(id);
     roots.set(id, { order, post });
+  }
+  function discardRootWindow(id: string) {
+    for (const [key, window] of parked) {
+      if (window.replies.root.id === id) parked.delete(key);
+    }
+    syncHistorySubscriptions();
+  }
+  function revokeRoot(id: string) {
+    if (closed || deniedRoots.has(id)) return;
+    deniedRoots.add(id);
+    discardRootWindow(id);
+    roots.set(id, { order: ++pageReadOrder, post: null });
+    updatePageRoots();
+    publish();
+  }
+  function syncHistorySubscriptions() {
+    if (!subscribeToHistory) return;
+    const channels = new Set(
+      [...parked.values()].map(({ replies }) => replies.root.channelId),
+    );
+    for (const [channelId, unsubscribe] of historySubscriptions) {
+      if (channels.has(channelId)) continue;
+      unsubscribe();
+      historySubscriptions.delete(channelId);
+    }
+    for (const channelId of channels) {
+      if (historySubscriptions.has(channelId)) continue;
+      historySubscriptions.set(
+        channelId,
+        subscribeToHistory(channelId, (_source, changes) => {
+          if (changes?.length) observeParkedPosts(channelId, changes);
+        }),
+      );
+    }
+  }
+  function observeParkedPosts(
+    channelId: string,
+    changes: readonly ChannelPostChange[],
+  ) {
+    const byId = new Map(
+      changes
+        .filter((change) => change.channelId === channelId)
+        .map((change) => [change.id, change]),
+    );
+    for (const [key, window] of parked) {
+      const { root, replies, cardRevisions } = window.replies;
+      if (root.channelId !== channelId) continue;
+      const rootChange = byId.get(root.id);
+      if (rootChange?.kind === "remove") {
+        revokeRoot(root.id);
+        continue;
+      }
+      const nextRoot = updatedPost(root, rootChange);
+      const nextReplies = replies.flatMap((reply) => {
+        const change = byId.get(reply.id);
+        return change?.kind === "remove" ? [] : [updatedPost(reply, change)];
+      });
+      if (
+        nextRoot === root &&
+        nextReplies.length === replies.length &&
+        nextReplies.every((reply, index) => reply === replies[index])
+      )
+        continue;
+      const nextCardRevisions = new Map(cardRevisions);
+      for (const reply of replies) {
+        if (byId.get(reply.id)?.kind === "remove")
+          nextCardRevisions.delete(reply.id);
+      }
+      const place = window.place;
+      const id = place.id;
+      const index = replies.findIndex((reply) => reply.id === id);
+      const newId =
+        index >= 0 && id && byId.get(id)?.kind === "remove"
+          ? (
+              replies
+                .slice(index + 1)
+                .find((reply) => byId.get(reply.id)?.kind !== "remove") ??
+              nextReplies.at(-1)
+            )?.id
+          : id;
+      const focus =
+        place.focus?.kind === "reply" &&
+        byId.get(place.focus.id)?.kind === "remove"
+          ? { kind: "feed" as const }
+          : place.focus;
+      parked.set(key, {
+        place: { ...place, id: newId, focus },
+        replies: {
+          ...window.replies,
+          root: nextRoot,
+          replies: nextReplies,
+          cardRevisions: nextCardRevisions,
+        },
+      });
+      if (nextRoot !== root && roots.has(root.id)) {
+        observeRoot(root.id, nextRoot, ++pageReadOrder);
+        updatePageRoots();
+        publish();
+      }
+    }
   }
   function updatePageRoots() {
     for (const key of tabs) {
@@ -287,10 +431,58 @@ export function openThreadInbox(account: Reader, teamId: string) {
     publish();
     return showing ? show(tab) : refreshTotals();
   }
+  function confirmRead(mark: Read) {
+    const lastReply = Math.max(
+      ...tabs.map(
+        (filter) =>
+          pages[filter].rows?.find((row) => row.id === mark.id)?.lastReplyAt ??
+          0,
+      ),
+    );
+    const fullyRead =
+      mark.unreadReplies === 0 && mark.lastViewedAt >= lastReply;
+    return afterConfirmation((row, filter) => {
+      if (row.id !== mark.id) return row;
+      if (filter === "unread") {
+        if (fullyRead) {
+          if (mark.id !== selectedId) return null;
+          retainedReadId = mark.id;
+        } else if (retainedReadId === mark.id) retainedReadId = null;
+      }
+      return { ...row, ...mark };
+    });
+  }
   return {
     getSnapshot: () => current,
     isRootUnavailable: (id: string) =>
       deniedRoots.has(id) || roots.get(id)?.post === null,
+    takeWindow(channelId: string, id: string) {
+      const key = windowKey(channelId, id);
+      const window = parked.get(key);
+      parked.delete(key);
+      syncHistorySubscriptions();
+      return window;
+    },
+    parkWindow(window: ParkedThreadWindow) {
+      const { id, channelId } = window.replies.root;
+      if (
+        closed ||
+        deniedRoots.has(id) ||
+        roots.get(id)?.post === null ||
+        counts.status === "forbidden" ||
+        counts.status === "unauthorized" ||
+        counts.status === "session"
+      )
+        return;
+      const key = windowKey(channelId, id);
+      parked.delete(key);
+      parked.set(key, window);
+      if (parked.size > parkedWindowLimit) {
+        const oldest = parked.keys().next();
+        if (!oldest.done) parked.delete(oldest.value);
+      }
+      syncHistorySubscriptions();
+    },
     beginRootRead() {
       const order = ++pageReadOrder;
       return (post: Root) => {
@@ -300,12 +492,12 @@ export function openThreadInbox(account: Reader, teamId: string) {
         publish();
       };
     },
-    revokeRoot(id: string) {
-      if (closed || deniedRoots.has(id)) return;
-      deniedRoots.add(id);
-      roots.set(id, { order: ++pageReadOrder, post: null });
-      updatePageRoots();
-      publish();
+    revokeRoot,
+    discardChannelWindows(channelId: string) {
+      for (const [key, window] of parked) {
+        if (window.replies.root.channelId === channelId) parked.delete(key);
+      }
+      syncHistorySubscriptions();
     },
     hide() {
       if (closed || !showing) return;
@@ -358,26 +550,18 @@ export function openThreadInbox(account: Reader, teamId: string) {
         : fetchPage(tab, page.nextBefore ?? undefined);
     },
     refreshTotals,
-    confirmRead(mark: Read) {
-      const lastReply = Math.max(
-        ...tabs.map(
-          (filter) =>
-            pages[filter].rows?.find((row) => row.id === mark.id)
-              ?.lastReplyAt ?? 0,
+    confirmRead,
+    observeRead(mark: Read) {
+      const changed = tabs.some((filter) =>
+        pages[filter].rows?.some(
+          (row) =>
+            row.id === mark.id &&
+            (row.lastViewedAt !== mark.lastViewedAt ||
+              row.unreadReplies !== mark.unreadReplies ||
+              row.unreadMentions !== mark.unreadMentions),
         ),
       );
-      const fullyRead =
-        mark.unreadReplies === 0 && mark.lastViewedAt >= lastReply;
-      return afterConfirmation((row, filter) => {
-        if (row.id !== mark.id) return row;
-        if (filter === "unread") {
-          if (fullyRead) {
-            if (mark.id !== selectedId) return null;
-            retainedReadId = mark.id;
-          } else if (retainedReadId === mark.id) retainedReadId = null;
-        }
-        return { ...row, ...mark };
-      });
+      if (changed) void confirmRead(mark);
     },
     confirmUnfollow(id: string) {
       if (retainedReadId === id) retainedReadId = null;

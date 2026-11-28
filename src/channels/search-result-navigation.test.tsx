@@ -229,6 +229,96 @@ test("restores the second file for one post and keeps bookmarks without a post a
   expect(account.readFileSearchPage).toHaveBeenCalledTimes(2);
   expect(account.rememberTeamSearch).toHaveBeenCalledTimes(1);
 });
+
+test("empty messages and files keep the ordinary query editor available", async () => {
+  const { account } = fixture();
+  account.readPostSearchPage.mockResolvedValueOnce({
+    items: [],
+    matches: null,
+    isEnd: true,
+    firstInaccessiblePostTime: 0,
+  });
+  account.readFileSearchPage.mockResolvedValueOnce({
+    items: [],
+    isEnd: true,
+    firstInaccessibleFileTime: 0,
+  });
+  const results = await search();
+  await results.findByRole("heading", { name: "No results for “window”" });
+  expect(results.getByText(/switch to Files/)).toBeTruthy();
+  fireEvent.click(results.getByRole("button", { name: "Files" }));
+  await results.findByText(/switch to Messages/);
+  const edit = results.getByRole("button", {
+    name: "Edit search",
+  });
+  edit.focus();
+  fireEvent.click(edit);
+  const field = within(
+    await screen.findByRole("dialog"),
+  ).getByRole<HTMLInputElement>("searchbox");
+  expect(field.value).toBe("window");
+  await waitFor(() => expect(document.activeElement).toBe(field));
+  const longQuery = "запросбезпробелов".repeat(14);
+  account.readFileSearchPage.mockResolvedValueOnce({
+    items: [],
+    isEnd: true,
+    firstInaccessibleFileTime: 0,
+  });
+  fireEvent.change(field, { target: { value: longQuery } });
+  fireEvent.click(
+    within(await screen.findByRole("dialog")).getByRole("button", {
+      name: "Search",
+    }),
+  );
+  await screen.findByRole("heading", { name: `No results for “${longQuery}”` });
+  expect(account.readFileSearchPage).toHaveBeenLastCalledWith(
+    expect.objectContaining({ terms: longQuery, page: 0 }),
+    expect.any(AbortSignal),
+  );
+});
+
+test("search continuation keeps rows, waits before announcing and retries the same page", async () => {
+  const { account } = fixture();
+  const page = (id: string, message: string, isEnd: boolean) => ({
+    items: [{ id, channelId: design, message, cards: [] }],
+    matches: null,
+    isEnd,
+    firstInaccessiblePostTime: 0,
+  });
+  let rejectPage!: (error: Error) => void;
+  const held = new Promise<ReturnType<typeof page>>((_resolve, reject) => {
+    rejectPage = reject;
+  });
+  account.readPostSearchPage
+    .mockResolvedValueOnce(page(root.id, "First result", false))
+    .mockReturnValueOnce(held)
+    .mockResolvedValueOnce(page(reply.id, "Second result", true));
+  const results = await search();
+  const first = await results.findByRole("button", { name: "First result" });
+  const more = results.getByRole("button", { name: "Load more" });
+  more.focus();
+  fireEvent.click(more);
+  expect(results.getByRole("button", { name: "Load more" })).toBe(more);
+  expect(more.getAttribute("aria-disabled")).toBe("true");
+  expect(document.activeElement).toBe(more);
+  expect(results.queryByText("Updating the list…")).toBeNull();
+  fireEvent.click(more);
+  await results.findByText("Updating the list…", {}, { timeout: 2000 });
+  expect(results.getByRole("button", { name: "First result" })).toBe(first);
+  await act(async () => rejectPage(new TypeError("Disconnected")));
+  expect(results.getByRole("alert").textContent).toBe("Couldn’t load results.");
+  const retry = results.getByRole("button", { name: "Try again" });
+  expect(retry).toBe(more);
+  expect(document.activeElement).toBe(retry);
+  fireEvent.click(retry);
+  const second = await results.findByRole("button", { name: "Second result" });
+  expect(results.getByRole("button", { name: "First result" })).toBe(first);
+  expect(document.activeElement).toBe(second);
+  expect(
+    account.readPostSearchPage.mock.calls.map(([request]) => request.page),
+  ).toEqual([0, 1, 1]);
+});
+
 test("a result in another team survives replacement of the Channels workspace and closes its old search", async () => {
   const { account } = fixture({ cross: true });
   const results = await search();
@@ -812,15 +902,6 @@ test("pins identify their source during first read and after a channel switch", 
     items: [],
     firstInaccessiblePostTime: 0,
   });
-  async function openPins(room: string) {
-    fireEvent.click(
-      await screen.findByRole("button", { name: `Channel menu, ${room}` }),
-    );
-    fireEvent.click(screen.getByRole("menuitem", { name: "Pinned messages" }));
-    return within(
-      screen.getByRole("complementary", { name: "Pinned messages" }),
-    );
-  }
   const initial = await openPins("Home");
   expect(initial.getByText("Loading messages…")).toBeTruthy();
   expect(document.activeElement).toBe(
@@ -848,6 +929,182 @@ test("pins identify their source during first read and after a channel switch", 
     other,
   ]);
   expect(account.readChannelIdentity).not.toHaveBeenCalled();
+});
+
+async function openPins(room: string) {
+  fireEvent.click(
+    await screen.findByRole("button", { name: `Channel menu, ${room}` }),
+  );
+  fireEvent.click(screen.getByRole("menuitem", { name: "Pinned messages" }));
+  return within(screen.getByRole("complementary", { name: "Pinned messages" }));
+}
+
+function pendingResult<T>() {
+  let resolve!: (result: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((accept, refuse) => {
+    resolve = accept;
+    reject = refuse;
+  });
+  return { promise, resolve, reject };
+}
+
+test("reopens pins with the same rows and reading place while revisiting the channel", async () => {
+  const { account } = fixture();
+  type Result = Awaited<ReturnType<typeof account.readPinnedChannelPosts>>;
+  const messages = (channelId: string, rows: string[]): Result => ({
+    items: rows.map((message, i) => ({
+      id: String(i + 1).repeat(26),
+      channelId,
+      userId: user,
+      message,
+      cards: [],
+      isPinned: true,
+    })),
+    firstInaccessiblePostTime: 0,
+  });
+  const late = pendingResult<Result>();
+  const renewed = pendingResult<Result>();
+  const emptyRead = pendingResult<Result>();
+  account.readPinnedChannelPosts
+    .mockResolvedValueOnce(messages(home, ["First pin", "Second pin"]))
+    .mockReturnValueOnce(late.promise)
+    .mockResolvedValueOnce(messages(other, ["Other channel pin"]))
+    .mockReturnValueOnce(renewed.promise)
+    .mockReturnValueOnce(emptyRead.promise);
+  const second = { name: /Second pin/ };
+  let pane = await openPins("Home");
+  const remembered = await pane.findByRole("button", second);
+  const list = remembered.closest<HTMLElement>(".collection-rows");
+  if (!list) throw new Error("Expected the collection scroll container");
+  list.scrollTop = 37;
+  remembered.focus();
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Channel menu, Home" }),
+  );
+
+  pane = await openPins("Home");
+  const reopened = pane.getByRole("button", second);
+  expect(pane.getAllByRole("listitem")).toHaveLength(2);
+  expect(reopened.closest(".collection-rows")?.scrollTop).toBe(37);
+  expect(document.activeElement).toBe(reopened);
+  await waitFor(() =>
+    expect(account.readPinnedChannelPosts).toHaveBeenCalledTimes(2),
+  );
+  const closing = account.readPinnedChannelPosts.mock.calls[1]?.[1];
+  fireEvent.click(screen.getByRole("button", { name: "Third channel" }));
+  expect(closing?.aborted).toBe(true);
+  pane = await openPins("Third channel");
+  await pane.findByText("Other channel pin");
+  await act(async () => late.resolve(messages(home, ["Late Home pin"])));
+  expect(pane.queryByText("Late Home pin")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Home" }));
+  pane = await openPins("Home");
+  expect(pane.getByRole("button", second)).toBeTruthy();
+  expect(pane.queryByText("Other channel pin")).toBeNull();
+  expect(pane.queryByText("Late Home pin")).toBeNull();
+  await waitFor(() =>
+    expect(account.readPinnedChannelPosts.mock.calls.map(([id]) => id)).toEqual(
+      [home, home, other, home],
+    ),
+  );
+  pane.getByRole("button", second).focus();
+  await act(async () => renewed.resolve(messages(home, [])));
+  const empty = pane.getByText("No pinned messages in this channel.");
+  expect(document.activeElement).toBe(empty);
+  fireEvent.click(pane.getByRole("button", { name: "Close collection" }));
+  pane = await openPins("Home");
+  expect(pane.getByText("No pinned messages in this channel.")).toBeTruthy();
+  expect(pane.queryByText("Loading messages…")).toBeNull();
+  await act(async () => emptyRead.resolve(messages(home, [])));
+});
+
+test.each([403, 404])(
+  "discarding pinned results after HTTP %s makes the next visit cold",
+  async (status) => {
+    const { account } = fixture();
+    const denied =
+      pendingResult<
+        Awaited<ReturnType<typeof account.readPinnedChannelPosts>>
+      >();
+    account.readPinnedChannelPosts
+      .mockImplementationOnce(async () => ({
+        items: [
+          {
+            id: root.id,
+            channelId: home,
+            userId: user,
+            message: "Home pin",
+            cards: [],
+            isPinned: true,
+          },
+        ],
+        firstInaccessiblePostTime: 0,
+      }))
+      .mockReturnValueOnce(denied.promise)
+      .mockImplementationOnce(() => new Promise(() => {}));
+    let pane = await openPins("Home");
+    await pane.findByText("Home pin");
+    fireEvent.click(pane.getByRole("button", { name: "Close collection" }));
+    pane = await openPins("Home");
+    pane.getByRole("button", { name: /Home pin/ }).focus();
+    await act(async () =>
+      denied.reject(new ResponseError(new Response(null, { status }))),
+    );
+    const heading = pane.getByRole("heading", { name: "Pinned messages" });
+    expect(pane.getByRole("alert")).toBeTruthy();
+    expect(pane.queryByText("Home pin")).toBeNull();
+    expect(heading.hasAttribute("aria-describedby")).toBe(false);
+    expect(document.activeElement).toBe(heading);
+    fireEvent.click(pane.getByRole("button", { name: "Close collection" }));
+    pane = await openPins("Home");
+    expect(pane.getByText("Loading messages…")).toBeTruthy();
+    expect(pane.queryByText("Home pin")).toBeNull();
+  },
+);
+
+test("a confirmed removal from the joined sidebar evicts the closed pinned collection", async () => {
+  const { account } = fixture();
+  let pins = await openPins("Home");
+  await pins.findByText("Home pin");
+  fireEvent.click(pins.getByRole("button", { name: "Close collection" }));
+  const before = await account.readTeamSidebar(winter);
+  if (!before) throw Error("Fixture sidebar required");
+  account.readTeamSidebar.mockResolvedValue({
+    selectedChannel: other,
+    data: {
+      ...before.data,
+      channels: before.data.channels.filter(({ id }) => id !== home),
+    },
+  });
+  const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+  const refreshes = account.refreshTeamSidebar.mock.calls.length;
+  try {
+    act(() => window.dispatchEvent(new Event("offline")));
+    await screen.findByRole("button", { name: "Channel menu, Third channel" });
+    online.mockReturnValue(true);
+    await act(async () => window.dispatchEvent(new Event("online")));
+    expect(account.refreshTeamSidebar.mock.calls.length).toBeGreaterThan(
+      refreshes,
+    );
+    expect(screen.queryByRole("button", { name: "Home" })).toBeNull();
+
+    account.readTeamSidebar.mockResolvedValue(before);
+    online.mockReturnValue(false);
+    act(() => window.dispatchEvent(new Event("offline")));
+    online.mockReturnValue(true);
+    await act(async () => window.dispatchEvent(new Event("online")));
+    fireEvent.click(await screen.findByRole("button", { name: "Home" }));
+    account.readPinnedChannelPosts.mockImplementationOnce(
+      () => new Promise(() => {}),
+    );
+    pins = await openPins("Home");
+    expect(pins.getByText("Loading messages…")).toBeTruthy();
+    expect(pins.queryByText("Home pin")).toBeNull();
+  } finally {
+    online.mockRestore();
+  }
 });
 
 test.each([
@@ -1371,6 +1628,15 @@ test("archived channels show the pinned messages and keep the shared action hidd
   );
   await pins.findByText("Home pin");
   expect(pins.queryByRole("button", { name: "Unpin for everyone" })).toBeNull();
+  fireEvent.click(pins.getByRole("button", { name: "Close collection" }));
+  account.readPinnedChannelPosts.mockImplementationOnce(
+    () => new Promise(() => {}),
+  );
+  const reopened = await openPins("Home");
+  expect(reopened.getByText("Home pin")).toBeTruthy();
+  expect(
+    reopened.queryByRole("button", { name: "Unpin for everyone" }),
+  ).toBeNull();
   expect(account.setPostPinned).not.toHaveBeenCalled();
 });
 
@@ -1384,7 +1650,11 @@ test.each(["Saved messages", "Pinned messages", "Mentions"])(
       );
       fireEvent.click(screen.getByRole("menuitem", { name }));
     } else {
-      fireEvent.click(await screen.findByRole("button", { name }));
+      const trigger = await screen.findByRole<HTMLButtonElement>("button", {
+        name,
+      });
+      await waitFor(() => expect(trigger.disabled).toBe(false));
+      fireEvent.click(trigger);
     }
     const pane = within(await screen.findByRole("complementary", { name }));
     const heading = pane.getByRole("heading", { name });
@@ -1421,7 +1691,7 @@ test("reopening Saved keeps the previous rows through a failed refresh and retri
       }),
   );
   fireEvent.click(trigger);
-  await pane().findByText("Updating the list…");
+  await waitFor(() => expect(fail).toBeTypeOf("function"));
   const stale = pane().getByRole("button", options);
   stale.focus();
   expect(stale.getAttribute("aria-disabled")).toBe("false");
@@ -1449,7 +1719,9 @@ test("reopening Saved keeps the previous rows through a failed refresh and retri
   );
   retry.focus();
   fireEvent.click(retry);
-  const waiting = await pane().findByText("Updating the list…");
+  const waiting = await pane().findByText("Updating the list…", undefined, {
+    timeout: 2500,
+  });
   expect(document.activeElement).toBe(waiting.parentElement);
   await act(async () => finish(previous));
   await pane().findByText("Saved messages updated");
@@ -1920,7 +2192,7 @@ test.each(["saved", "mentions"] as const)(
     fireEvent.click(trigger);
     if (kind === "saved") account.readSavedPosts.mockImplementationOnce(denied);
     fireEvent.click(trigger);
-    await screen.findByText("Updating the list…");
+    await waitFor(() => expect(reject).toBeTypeOf("function"));
     fireEvent.click(screen.getByRole("button", row));
     const thread = await screen.findByRole("complementary", { name: "Thread" });
     await within(thread).findByText(reply.message);

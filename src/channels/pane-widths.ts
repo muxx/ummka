@@ -57,6 +57,32 @@ export function paneGeometry(
     maxNavigation,
   );
   const available = width - navigation;
+  const left = { width: navigation, min: minNavigation, max: maxNavigation };
+  if (panel === "thread") {
+    if (available < 760)
+      return {
+        single: true,
+        navigation: left,
+        right: {
+          width: available,
+          min: available,
+          max: available,
+          expanded: available,
+        },
+      };
+    const min = Math.max(460, available - 440);
+    const max = available - 300;
+    const list = available >= 1100 ? 400 : available >= 900 ? 360 : 300;
+    return {
+      navigation: left,
+      right: {
+        width: clamp(preferences.thread ?? min, min, max),
+        min,
+        max,
+        expanded: available - list,
+      },
+    };
+  }
   const expanded = Math.round(
     Math.min(
       width * 0.6,
@@ -70,14 +96,9 @@ export function paneGeometry(
     Math.min(maxNormal, expanded - 48, available - minConversation),
   );
   const defaultRight = width > 1680 ? 500 : width > 900 ? 400 : 300;
-  const rightKey = panel === "thread" ? "thread" : "right";
-  const right = clamp(
-    preferences[rightKey] ?? defaultRight,
-    minRight,
-    maxRight,
-  );
+  const right = clamp(preferences.right ?? defaultRight, minRight, maxRight);
   return {
-    navigation: { width: navigation, min: minNavigation, max: maxNavigation },
+    navigation: left,
     right: { width: right, min: minRight, max: maxRight, expanded },
   };
 }

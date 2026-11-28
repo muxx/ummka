@@ -53,6 +53,8 @@ test("the joined directory selects public and private memberships by ID and sear
   const choose = vi.fn();
   render(
     <JoinedChannelDirectory
+      scroll={{ current: null }}
+      visible
       state={{ value, status: "offline" }}
       language="ru"
       choose={choose}
@@ -78,13 +80,20 @@ test("the joined directory selects public and private memberships by ID and sear
 test("revoked access hides cached room names immediately, while retry and empty states are explicit", () => {
   const props = { language: "en" as const, choose: vi.fn(), retry: vi.fn() };
   const { rerender } = render(
-    <JoinedChannelDirectory {...props} state={{ value, status: "network" }} />,
+    <JoinedChannelDirectory
+      scroll={{ current: null }}
+      visible
+      {...props}
+      state={{ value, status: "network" }}
+    />,
   );
   expect(screen.getByText("Анонсы лесничества")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Try again" }));
   expect(props.retry).toHaveBeenCalledOnce();
   rerender(
     <JoinedChannelDirectory
+      scroll={{ current: null }}
+      visible
       {...props}
       state={{ value, status: "forbidden" }}
     />,
@@ -96,6 +105,8 @@ test("revoked access hides cached room names immediately, while retry and empty 
   );
   rerender(
     <JoinedChannelDirectory
+      scroll={{ current: null }}
+      visible
       {...props}
       state={{ value: null, status: "loading" }}
     />,
@@ -103,6 +114,8 @@ test("revoked access hides cached room names immediately, while retry and empty 
   expect(screen.getByRole("status").textContent).toContain("Loading");
   rerender(
     <JoinedChannelDirectory
+      scroll={{ current: null }}
+      visible
       {...props}
       state={{
         value: { ...value, data: { categories: [], channels: [] } },
@@ -137,6 +150,8 @@ test("joined channels use lexical display names and keep both equal-name destina
   ];
   render(
     <JoinedChannelDirectory
+      scroll={{ current: null }}
+      visible
       state={{
         status: "ready",
         value: { ...value, data: { ...data, channels } },

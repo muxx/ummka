@@ -33,12 +33,14 @@ test("only the last trimmed query is sent after 100 ms, preserving interior text
   expect(search.getSnapshot()).toEqual({
     query: "releases + ui",
     status: "ready",
+    hasResponse: true,
     items: [row],
   });
   search.setQuery(" ");
   expect(search.getSnapshot()).toEqual({
     query: "",
     status: "idle",
+    hasResponse: false,
     items: [],
   });
   search.close();
@@ -72,6 +74,7 @@ test("a replacement hides old rows and only the current request can update them"
     query: "absent",
     items: [],
     status: "ready",
+    hasResponse: true,
   });
   search.close();
 });
@@ -91,6 +94,7 @@ test("clearing or closing cancels the timer, and a closed team ignores future in
   expect(search.getSnapshot()).toEqual({
     query: "",
     status: "closed",
+    hasResponse: false,
     items: [],
   });
 });
@@ -115,6 +119,7 @@ test("network failure waits for explicit retry, loss of access and an empty resu
   expect(search.getSnapshot()).toEqual({
     query: "room",
     status: "forbidden",
+    hasResponse: false,
     items: [],
   });
   await search.retry();
@@ -124,6 +129,7 @@ test("network failure waits for explicit retry, loss of access and an empty resu
   expect(search.getSnapshot()).toEqual({
     query: "other",
     status: "ready",
+    hasResponse: true,
     items: [],
   });
   search.close();
@@ -149,4 +155,37 @@ test("closing an in-flight team cannot publish its late successful rows", async 
   await Promise.resolve();
   expect(search.getSnapshot().status).toBe("closed");
   expect(changed).toHaveBeenCalledTimes(2);
+});
+
+test("the confirmed empty answer survives retryable refresh failure only for the same query", async () => {
+  vi.useFakeTimers();
+  const read = vi
+    .fn()
+    .mockResolvedValueOnce([])
+    .mockRejectedValueOnce(new TypeError("offline"))
+    .mockResolvedValueOnce([row]);
+  const search = openDirectorySearch({ searchChannelDirectory: read }, teamId);
+  search.setQuery("absent");
+  await vi.advanceTimersByTimeAsync(100);
+  await search.resume();
+  expect(search.getSnapshot()).toMatchObject({
+    query: "absent",
+    status: "network",
+    hasResponse: true,
+    items: [],
+  });
+  search.setQuery("release");
+  expect(search.getSnapshot()).toMatchObject({
+    query: "release",
+    status: "loading",
+    hasResponse: false,
+    items: [],
+  });
+  await vi.advanceTimersByTimeAsync(100);
+  expect(search.getSnapshot()).toMatchObject({
+    query: "release",
+    status: "ready",
+    hasResponse: true,
+    items: [row],
+  });
 });

@@ -3145,6 +3145,7 @@ test.each([
     else expect((await account.readJoinedTeams())?.selectedTeam).toBe(summer);
 
     const beforeReturn = account.readFollowedThreads.mock.calls.length;
+    const returnPageStart = account.readThreadPage.mock.calls.length;
     const restoreCursors = () =>
       account.readFollowedThreads.mock.calls
         .slice(beforeReturn)
@@ -3173,6 +3174,23 @@ test.each([
       else expect(list?.closest("[hidden]")).toBeNull();
     });
     expect((await account.readTeamSidebar(winter))?.selectedChannel).toBe(home);
+    if (!cross) {
+      await waitFor(() =>
+        expect(
+          account.readThreadPage.mock.calls
+            .slice(returnPageStart)
+            .map(([query]) => query),
+        ).toEqual(
+          ["up", "down"].map((direction) =>
+            expect.objectContaining({
+              rootId: inboxRoot.id,
+              direction,
+              cursor: { id: continued.id, createAt: continued.createAt },
+            }),
+          ),
+        ),
+      );
+    }
     if (!unread)
       expect(account.readFollowedThreads).toHaveBeenCalledTimes(cross ? 3 : 1);
     if (cross && !unread)

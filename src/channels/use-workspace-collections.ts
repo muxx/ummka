@@ -1,16 +1,20 @@
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
 } from "react";
+import type { CollectionReadingPlace } from "./CollectionScroll.tsx";
 import { openMentionList } from "./mention-list.ts";
 import { openPostCollection, returnedPostRemoved } from "./post-collection.ts";
 import type { measureTimeline } from "./timeline-viewport.ts";
 
 type CollectionsAccount = Parameters<typeof openPostCollection>[0] &
   Parameters<typeof openMentionList>[0];
+type Collection = ReturnType<typeof openPostCollection>;
 type RestoredRow = {
   id: string;
   scroll: number;
@@ -48,7 +52,10 @@ export function useWorkspaceCollections(
   const generation = useRef(0);
   const [view, setView] = useState<View | null>(null);
   const owned = useRef(view);
-  const saved = useRef<ReturnType<typeof openPostCollection> | null>(null);
+  const saved = useRef<Collection | null>(null);
+  const pins = useRef(
+    new Map<string, { model: Collection; place?: CollectionReadingPlace }>(),
+  );
   const previousMentions = useRef<{
     archivedChannels: boolean;
     model: ReturnType<typeof openMentionList>;
@@ -66,6 +73,19 @@ export function useWorkspaceCollections(
   const origin = useRef<RowOrigin | null>(null);
   const [restore, setRestore] = useState<RestoredRow | null>(null);
   const collection = view?.kind === "mentions" ? null : view;
+  const pinnedReading = useMemo(() => {
+    if (view?.kind !== "pins") return;
+    const { channelId, model } = view;
+    const remembered = pins.current.get(channelId);
+    if (!remembered) return;
+    return {
+      place: remembered.place,
+      remember(place: CollectionReadingPlace) {
+        if (pins.current.get(channelId) === remembered)
+          remembered.place = model.getSnapshot().value ? place : undefined;
+      },
+    };
+  }, [view]);
   const mentions = view?.kind === "mentions" ? view : null;
   const state = useSyncExternalStore(
     collection?.model.subscribe ?? subscribeToNothing,
@@ -76,6 +96,17 @@ export function useWorkspaceCollections(
     mentions?.model.getSnapshot ?? empty,
   );
   const failure = state?.status ?? mentionState?.status;
+  useLayoutEffect(() => {
+    if (
+      view?.kind !== "pins" ||
+      (failure !== "forbidden" &&
+        failure !== "unauthorized" &&
+        failure !== "session")
+    )
+      return;
+    const remembered = pins.current.get(view.channelId);
+    if (remembered) remembered.place = undefined;
+  }, [view, failure]);
   const reported = useRef<View | null>(null);
   useEffect(() => {
     if (
@@ -122,9 +153,9 @@ export function useWorkspaceCollections(
   useLayoutEffect(
     () => () => {
       activation.current?.controller.abort();
-      const previous = owned.current;
       owned.current = null;
-      if (previous?.kind === "pins") previous.model.close();
+      for (const { model } of pins.current.values()) model.close();
+      pins.current.clear();
       saved.current?.close();
       previousMentions.current?.model.close();
       saved.current = null;
@@ -132,23 +163,43 @@ export function useWorkspaceCollections(
     },
     [],
   );
-  function abort() {
+  const abort = useCallback(() => {
     activation.current?.controller.abort();
     activation.current = null;
-  }
-  function close(focus = true) {
-    if (!owned.current) return;
-    abort();
-    const previous = owned.current;
-    owned.current = null;
-    if (previous.kind === "pins") previous.model.close();
-    else previous.model.suspend();
-    if (previous.kind === "all") closeSavedSurface();
-    origin.current = null;
-    setRestore(null);
-    returnFocus.current = focus ? previous.opener : null;
-    setView(null);
-  }
+  }, []);
+  const close = useCallback(
+    (focus = true) => {
+      if (!owned.current) return;
+      abort();
+      const previous = owned.current;
+      owned.current = null;
+      previous.model.suspend();
+      if (previous.kind === "all") closeSavedSurface();
+      origin.current = null;
+      setRestore(null);
+      returnFocus.current = focus ? previous.opener : null;
+      setView(null);
+    },
+    [abort, closeSavedSurface],
+  );
+  const retainPins = useCallback(
+    (
+      allowed: ReadonlySet<string> | undefined,
+      deniedChannel: string | null,
+    ) => {
+      if (!allowed && !deniedChannel) return;
+      for (const [channelId, entry] of pins.current) {
+        if (channelId !== deniedChannel && (!allowed || allowed.has(channelId)))
+          continue;
+        pins.current.delete(channelId);
+        entry.model.close();
+        const active = owned.current;
+        if (active?.kind === "pins" && active.channelId === channelId)
+          close(false);
+      }
+    },
+    [close],
+  );
   useLayoutEffect(() => {
     const remembered = previousMentions.current;
     if (!remembered || remembered.archivedChannels === archivedChannels) return;
@@ -171,11 +222,12 @@ export function useWorkspaceCollections(
       saved.current ??= openPostCollection(account, { kind: "all" });
       next = { ...owner, ...source, model: saved.current };
     } else {
-      next = {
-        ...owner,
-        ...source,
-        model: openPostCollection(account, source),
-      };
+      let remembered = pins.current.get(source.channelId);
+      if (!remembered) {
+        remembered = { model: openPostCollection(account, source) };
+        pins.current.set(source.channelId, remembered);
+      }
+      next = { ...owner, ...source, model: remembered.model };
     }
     owned.current = next;
     if (source.kind === "all" && source.returnRow) setRestore(source.returnRow);
@@ -206,6 +258,8 @@ export function useWorkspaceCollections(
     view,
     state,
     mentionState,
+    pinnedReading,
+    retainPins,
     open: show,
     close,
     abort,

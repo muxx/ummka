@@ -3,6 +3,7 @@ import type {
   PostsApi,
 } from "../../vendor/mattermost/index.js";
 import { channelHistoryPage } from "./channel-history-page.ts";
+import type { ChannelPostChange } from "./channel-post-records.ts";
 import {
   assembleFocusedHistory,
   readFocusedNeighbors,
@@ -21,7 +22,8 @@ export type ChannelRefreshRequest = {
 );
 
 export type ChannelRefreshResult =
-  | { kind: "applied" | "superseded" }
+  | { kind: "applied"; firstInaccessiblePostTime?: number }
+  | { kind: "superseded" }
   | { kind: "inaccessible"; firstInaccessiblePostTime: number };
 
 interface ChannelHistoryWriter {
@@ -110,6 +112,7 @@ export async function refreshChannelHistory(
   writer: ChannelHistoryWriter,
   input: ChannelRefreshRequest,
   signal?: AbortSignal,
+  committed?: (posts: readonly ChannelPostChange[]) => void,
 ): Promise<ChannelRefreshResult> {
   signal?.throwIfAborted();
   const request = { ...input };
@@ -132,5 +135,10 @@ export async function refreshChannelHistory(
     signal?.removeEventListener("abort", abort);
   }
   // The host consumes a ticket before parsing the page and owns this transaction to completion.
-  return writer.store(load, page);
+  const result = await writer.store(load, page);
+  if (result.kind !== "superseded") committed?.(page.changes);
+  // An entirely inaccessible recent page can leave a populated window in SQLite.
+  return result.kind === "applied" && page.firstInaccessiblePostTime
+    ? { ...result, firstInaccessiblePostTime: page.firstInaccessiblePostTime }
+    : result;
 }

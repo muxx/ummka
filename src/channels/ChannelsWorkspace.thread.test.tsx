@@ -16,6 +16,7 @@ import * as clipboardPolicy from "../device/clipboard-policy.ts";
 import type { TeamWorkspace } from "../entry/AccountTeamWindow.tsx";
 import type { PendingPost } from "../mattermost/account-delivery.ts";
 import { createChannelHistoryChanges } from "../mattermost/channel-history-changes.ts";
+import { channelPostChange } from "../mattermost/channel-post-records.ts";
 import { channelProfile } from "../mattermost/channel-profiles.ts";
 import type { LocalPost } from "../mattermost/local-history.ts";
 import type {
@@ -104,10 +105,12 @@ const secondRoot = { ...root, id: "x".repeat(26), message: "Another question" };
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((accept) => {
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((accept, refuse) => {
     resolve = accept;
+    reject = refuse;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 function mount(
@@ -125,6 +128,9 @@ function mount(
     draftRead?: Promise<void>;
     savedReading?: boolean;
     contents?: Pick<LocalPost, "message" | "attachments">;
+    viewer?: string;
+    coordination?: ReturnType<typeof createThreadReadCoordination>;
+    directoryPermissions?: string[];
   } = {},
 ) {
   const data = projectTeamSidebar({
@@ -261,6 +267,7 @@ function mount(
       .mockResolvedValue({ items: [], nextBefore: null }),
     readPostDestination: vi.fn<Connection["readPostDestination"]>(),
     readPostAnchor: vi.fn<Connection["readPostAnchor"]>(),
+    readFollowedThreadState: vi.fn<Connection["readFollowedThreadState"]>(),
     markFollowedThreadRead: vi.fn<Connection["markFollowedThreadRead"]>(),
     readTeamSidebar: vi
       .fn()
@@ -268,15 +275,25 @@ function mount(
     refreshTeamSidebar: vi.fn(),
     selectSidebarChannel: vi.fn().mockResolvedValue(true),
     readSavedTeamRoles: vi.fn().mockResolvedValue({
-      systemRoles: "",
+      systemRoles: options.directoryPermissions ? "writer" : "",
       definitions: [
         {
           name: "writer",
-          permissions: options.writable === false ? [] : ["create_post"],
+          permissions: [
+            ...(options.writable === false ? [] : ["create_post"]),
+            ...(options.directoryPermissions ?? []),
+          ],
         },
       ],
     }),
     refreshTeamRoles: vi.fn(),
+    readChannelDirectoryPage: vi
+      .fn<Connection["readChannelDirectoryPage"]>()
+      .mockResolvedValue({ items: [], hasMore: false }),
+    searchChannelDirectory: vi
+      .fn<Connection["searchChannelDirectory"]>()
+      .mockResolvedValue([]),
+    changeOwnMembership: vi.fn<Connection["changeOwnMembership"]>(),
     readSavedProfiles: vi
       .fn()
       .mockResolvedValue({ profiles: {}, usernames: {} }),
@@ -328,6 +345,8 @@ function mount(
       outgoingRowState(post, false, true),
     subscribeToPostActivity: vi.fn(() => () => {}),
   };
+  const viewer = options.viewer ?? userId;
+  const coordination = options.coordination ?? createThreadReadCoordination();
   const workspace: TeamWorkspace = {
     messages: {
       dialogOpen: false,
@@ -343,8 +362,13 @@ function mount(
       enqueue: (work) => work(),
     },
     connection: connection as unknown as Connection,
+    threadReads: coordination.bind(
+      "https://chat.example.test/team/chat",
+      viewer,
+      connection as unknown as Connection,
+    ),
     serverUrl: "https://chat.example.test/team/chat",
-    userId,
+    userId: viewer,
     team,
     online,
     directoryNotice: null,
@@ -361,7 +385,7 @@ function mount(
           {},
         ),
       },
-      user: sidebarPreferences(userId, []),
+      user: sidebarPreferences(viewer, []),
       userReadFailed: false,
       retry: vi.fn(),
     },
@@ -374,6 +398,20 @@ function mount(
     saved,
     writeSavedPost,
     unmount: view.unmount,
+    closeConnection: workspace.threadReads.close,
+    replaceRid(rid: number) {
+      const next = { ...connection, rid } as unknown as Connection;
+      view.rerender(
+        <ChannelsWorkspace
+          workspace={{
+            ...workspace,
+            connection: next,
+            threadReads: coordination.bind(workspace.serverUrl, viewer, next),
+          }}
+          language="en"
+        />,
+      );
+    },
     setPosition(
       position: Omit<
         NonNullable<TeamWorkspace["messages"]["position"]>,
@@ -413,6 +451,21 @@ function mount(
               },
             },
           }}
+        />,
+      );
+    },
+    setDirectoryScope(scope: { rid?: number; teamId?: string }) {
+      view.rerender(
+        <ChannelsWorkspace
+          workspace={{
+            ...workspace,
+            connection: {
+              ...workspace.connection,
+              rid: scope.rid ?? connection.rid,
+            },
+            team: { ...team, id: scope.teamId ?? team.id },
+          }}
+          language="en"
         />,
       );
     },
@@ -2067,6 +2120,533 @@ function inboxRow(connection: ReturnType<typeof mount>, direct = false) {
   return source;
 }
 
+function unreadInbox(account: ReturnType<typeof mount>, direct = false) {
+  const source = inboxRow(account, direct);
+  const fresh = {
+    ...reply,
+    channelId: design,
+    userId: foreign,
+    rootId: source.id,
+    message: "Unread proof",
+    createAt: 202,
+    updateAt: 202,
+  };
+  account.readThreadPage.mockImplementation(async ({ direction }) => ({
+    kind: "page",
+    root: { ...source, rootId: "", messageSource: undefined },
+    replies: direction === "down" ? [fresh] : [],
+    next: null,
+  }));
+  return source;
+}
+
+test("an unconfirmed view can be checked explicitly without another write", async () => {
+  const account = mount(true);
+  const source = unreadInbox(account, true);
+  let loseReceipt!: (error: unknown) => void;
+  const receipt = new Promise<never>((_, reject) => {
+    loseReceipt = reject;
+  });
+  account.markFollowedThreadRead.mockImplementation(
+    (_team, _id, _timestamp, _signal, onNativeSend) => {
+      onNativeSend?.();
+      return receipt;
+    },
+  );
+  fireEvent.click(await screen.findByRole("button", { name: /^Threads/ }));
+  async function openRow() {
+    const row = await screen.findByRole("button", {
+      name: /Review this build/,
+    });
+    row.focus();
+    fireEvent.click(row);
+    const pane = await screen.findByRole("complementary", { name: "Thread" });
+    await within(pane).findByRole("separator", { name: "Unread replies" });
+    return pane;
+  }
+  const pane = await openRow();
+  await waitFor(() =>
+    expect(account.markFollowedThreadRead).toHaveBeenCalledOnce(),
+  );
+  await act(async () => loseReceipt(new TypeError("Lost response")));
+  const check = await within(pane).findByRole("button", {
+    name: "Check read status",
+  });
+  await within(pane).findByText("Couldn’t confirm the read status");
+  await act(async () => {
+    window.dispatchEvent(new Event("focus"));
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  account.setOnline(false);
+  account.setOnline(true);
+  expect(account.markFollowedThreadRead).toHaveBeenCalledOnce();
+  expect(account.readFollowedThreadState).not.toHaveBeenCalled();
+  expect(check.isConnected).toBe(true);
+
+  handleEscape();
+  expect(pane.isConnected).toBe(false);
+  const reopened = await openRow();
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  expect(account.markFollowedThreadRead).toHaveBeenCalledOnce();
+  expect(account.readFollowedThreadState).not.toHaveBeenCalled();
+  expect(account.readThreadPage).toHaveBeenCalledTimes(3);
+  expect(account.readThreadPage.mock.lastCall?.[0]).toMatchObject({
+    direction: "down",
+    cursor: { id: reply.id, createAt: 202 },
+  });
+
+  const button = await within(reopened).findByRole("button", {
+    name: "Check read status",
+  });
+  const draft = await within(reopened).findByRole<HTMLTextAreaElement>(
+    "textbox",
+    { name: "Reply in thread…" },
+  );
+  fireEvent.change(draft, { target: { value: "Draft stays" } });
+  const event = userEvent.setup();
+  const first = deferred<never>();
+  const countsAtCheck = account.readFollowedThreadTotals.mock.calls.length;
+  const listAtCheck = account.readFollowedThreads.mock.calls.length;
+  account.readFollowedThreadState.mockImplementationOnce(
+    async () => first.promise,
+  );
+  button.focus();
+  await event.keyboard("{Enter}");
+  await within(reopened).findByText("Checking read status…");
+  expect(button.getAttribute("aria-busy")).toBe("true");
+  fireEvent.click(button);
+  expect(account.readFollowedThreadState.mock.calls).toEqual([
+    [
+      { teamId: team.id, channelId: design, rootId: source.id },
+      expect.any(AbortSignal),
+    ],
+  ]);
+  // A 404 can mean the followed membership disappeared while the post is still readable.
+  await act(async () =>
+    first.reject(
+      new ResponseError(
+        new Response(null, { status: 404 }),
+        "Missing membership",
+      ),
+    ),
+  );
+  await within(reopened).findByText("Couldn’t confirm the read status");
+  expect(button.getAttribute("aria-busy")).toBe("false");
+  expect(document.activeElement).toBe(button);
+  expect(
+    within(reopened).getByRole("separator", { name: "Unread replies" }),
+  ).toBeTruthy();
+  expect(account.readFollowedThreadTotals).toHaveBeenCalledTimes(countsAtCheck);
+  expect(account.readFollowedThreads).toHaveBeenCalledTimes(listAtCheck);
+
+  const observed = {
+    id: source.id,
+    lastViewedAt: 220,
+    unreadReplies: 0,
+    unreadMentions: 0,
+    following: true as const,
+  };
+  const listed = (await account.readFollowedThreads.mock.results[0].value)
+    .items[0];
+  account.readFollowedThreads.mockResolvedValue({
+    items: [{ ...listed, ...observed }],
+    nextBefore: null,
+  });
+  account.readFollowedThreadTotals.mockResolvedValue({
+    total: 1,
+    totalUnreadThreads: 0,
+    totalUnreadMentions: 0,
+    totalUnreadUrgentMentions: 0,
+  });
+  account.readFollowedThreadState.mockResolvedValue(observed);
+  await event.keyboard("{Enter}");
+  await within(reopened).findByText("Checked: the thread isn’t marked unread");
+  expect(
+    within(reopened).queryByRole("separator", { name: "Unread replies" }),
+  ).toBeNull();
+  expect(document.activeElement).toBe(button);
+  expect(draft.value).toBe("Draft stays");
+  expect(account.readFollowedThreadTotals).toHaveBeenCalledTimes(
+    countsAtCheck + 1,
+  );
+  expect(account.readFollowedThreads).toHaveBeenCalledTimes(listAtCheck);
+
+  await event.keyboard("{Enter}");
+  await waitFor(() => expect(button.getAttribute("aria-busy")).toBe("false"));
+  expect(account.readFollowedThreadState).toHaveBeenCalledTimes(3);
+  expect(account.readFollowedThreadTotals).toHaveBeenCalledTimes(
+    countsAtCheck + 1,
+  );
+  expect(account.readFollowedThreads).toHaveBeenCalledTimes(listAtCheck);
+  handleEscape();
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Review this build/ }),
+  );
+  const openedRead = await screen.findByRole("complementary", {
+    name: "Thread",
+  });
+  await within(openedRead).findByText(
+    "Checked: the thread isn’t marked unread",
+  );
+  expect(account.markFollowedThreadRead).toHaveBeenCalledOnce();
+  expect(account.readFollowedThreadState).toHaveBeenCalledTimes(3);
+
+  account.readFollowedThreadState.mockRejectedValueOnce(
+    new ResponseError(new Response(null, { status: 403 }), "Forbidden"),
+  );
+  const revoked = within(openedRead).getByRole("button", {
+    name: "Check read status",
+  });
+  revoked.focus();
+  await event.keyboard("{Enter}");
+  await within(openedRead).findByText(
+    "You don’t have access to this discussion",
+  );
+  expect(within(openedRead).queryByRole("textbox")).toBeNull();
+  expect(within(openedRead).queryByText("Unread proof")).toBeNull();
+  expect(document.activeElement).toBe(
+    within(openedRead).getByRole("heading", { name: "Thread" }),
+  );
+  expect(account.readFollowedThreadState).toHaveBeenCalledTimes(4);
+  expect(account.markFollowedThreadRead).toHaveBeenCalledOnce();
+});
+
+test("shows the cold root and returns to retained replies while the inbox revalidates", async () => {
+  const account = mount(true);
+  const first = inboxRow(account);
+  const second = {
+    ...first,
+    id: "y".repeat(26),
+    message: "Second inbox discussion",
+  };
+  const fixture = (
+    await account.readFollowedThreads({ teamId: team.id, unread: false })
+  ).items[0];
+  account.readFollowedThreads.mockClear();
+  account.readFollowedThreads.mockResolvedValue({
+    items: [first, second].map((post) => ({
+      ...fixture,
+      id: post.id,
+      post,
+      unreadReplies: 0,
+    })),
+    nextBefore: null,
+  });
+  const access = deferred<void>();
+  const warm = deferred<void>();
+  const revoked = deferred<void>();
+  const newest = deferred<void>();
+  const byId = new Map([
+    [first.id, first],
+    [second.id, second],
+  ]);
+  const destination = await account.readPostDestination(first.id);
+  account.readPostDestination.mockClear();
+  let selectFirst = 0;
+  account.readPostDestination.mockImplementation(async (id) => {
+    if (id === first.id) {
+      selectFirst++;
+      if (selectFirst === 1) await access.promise;
+      if (selectFirst === 2) await warm.promise;
+      if (selectFirst === 3) {
+        await revoked.promise;
+        throw new ResponseError(new Response(null, { status: 403 }), "Revoked");
+      }
+    }
+    return { ...destination, postId: id };
+  });
+  account.readPostAnchor.mockImplementation(async (id) => {
+    const post = byId.get(id);
+    if (!post) throw Error("Unknown fixture post");
+    return { postId: id, channelId: design, rootId: null, post };
+  });
+  const originalA = {
+    ...reply,
+    id: "k".repeat(26),
+    rootId: first.id,
+    channelId: design,
+    message: "Original cached answer",
+    userId: foreign,
+  };
+  const deletedA = {
+    ...originalA,
+    id: "j".repeat(26),
+    message: "Reply awaiting deletion",
+    createAt: originalA.createAt - 1,
+    updateAt: originalA.updateAt - 1,
+  };
+  const unobservedA = {
+    ...deletedA,
+    id: "i".repeat(26),
+    message: "Reply outside the partial update",
+    createAt: deletedA.createAt - 1,
+    updateAt: deletedA.updateAt - 1,
+  };
+  const freshA = {
+    ...originalA,
+    id: "l".repeat(26),
+    message: "Late additional answer",
+    createAt: 222,
+    updateAt: 222,
+  };
+  account.readThreadPage.mockImplementation(async (query) => {
+    const post = byId.get(query.rootId);
+    if (!post) throw Error("Unknown fixture root");
+    if (query.cursor && query.rootId === first.id) await newest.promise;
+    const replies =
+      query.rootId === first.id
+        ? query.cursor
+          ? [freshA]
+          : [unobservedA, deletedA, originalA]
+        : [
+            {
+              ...originalA,
+              id: "q".repeat(26),
+              rootId: second.id,
+              message: "Answer from second discussion",
+            },
+          ];
+    return {
+      kind: "page",
+      root: { ...post, rootId: "", messageSource: undefined },
+      replies,
+      next: null,
+    };
+  });
+  fireEvent.click(await screen.findByRole("button", { name: /^Threads/ }));
+  const select = async (pattern: RegExp) => {
+    await userEvent.click(await screen.findByRole("button", { name: pattern }));
+    return within(await screen.findByRole("complementary", { name: "Thread" }));
+  };
+  let pane = await select(/Review this build/);
+  expect(await pane.findByText(/Review/)).toBeTruthy();
+  const loading = await pane.findByText("Loading replies…");
+  expect(loading.classList.contains("panel-text--secondary")).toBe(true);
+  expect(account.readThreadPage).not.toHaveBeenCalled();
+  await act(async () => access.resolve());
+  await pane.findByText("Original cached answer");
+  const editor = await pane.findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Reply in thread…",
+  });
+  fireEvent.change(editor, { target: { value: "Keep this thread draft" } });
+  await waitFor(() => expect(account.saveDraft).toHaveBeenCalled());
+  pane = await select(/Second inbox discussion/);
+  await pane.findByText("Answer from second discussion");
+  const editedA = {
+    ...originalA,
+    updateAt: originalA.updateAt + 1,
+    message: "Confirmed edit while parked",
+  };
+  act(() =>
+    account.notifyChannelHistoryChanged(design, undefined, [
+      channelPostChange(design, editedA.id, editedA),
+      channelPostChange(design, deletedA.id, { ...deletedA, deleteAt: 221 }),
+    ]),
+  );
+  act(() =>
+    account.notifyChannelHistoryChanged(design, undefined, [
+      channelPostChange(design, originalA.id, originalA),
+      channelPostChange(design, deletedA.id, deletedA),
+    ]),
+  );
+
+  pane = await select(/Review this build/);
+  const originalLine = await pane.findByText("Confirmed edit while parked");
+  expect(pane.queryByText("Original cached answer")).toBeNull();
+  expect(pane.queryByText("Reply awaiting deletion")).toBeNull();
+  expect(pane.getByText("Reply outside the partial update")).toBeTruthy();
+  expect(pane.queryByText("Loading replies…")).toBeNull();
+  expect(account.readThreadPage).toHaveBeenCalledTimes(2);
+  await act(async () => warm.resolve());
+  await waitFor(() => expect(account.readThreadPage).toHaveBeenCalledTimes(3));
+  expect(account.readThreadPage.mock.lastCall?.[0]).toMatchObject({
+    direction: "down",
+    cursor: { id: originalA.id, createAt: originalA.createAt },
+  });
+  await pane.findByText("Updating…", {}, { timeout: 1800 });
+  await act(async () => newest.resolve());
+  expect(await pane.findByText("Late additional answer")).toBeTruthy();
+  expect(originalLine.isConnected).toBe(true);
+  expect(pane.queryByText("Updating…")).toBeNull();
+  expect(
+    (
+      await pane.findByRole<HTMLTextAreaElement>("textbox", {
+        name: "Reply in thread…",
+      })
+    ).value,
+  ).toBe("Keep this thread draft");
+  pane = await select(/Second inbox discussion/);
+  await pane.findByText("Answer from second discussion");
+  pane = await select(/Review this build/);
+  await pane.findByText("Late additional answer");
+  await userEvent.click(
+    await pane.findByRole("textbox", { name: "Reply in thread…" }),
+  );
+  await act(async () => revoked.resolve());
+  await pane.findByText("You don’t have access to this discussion");
+  expect(pane.queryByText("Confirmed edit while parked")).toBeNull();
+  expect(pane.queryByText("Reply outside the partial update")).toBeNull();
+  expect(pane.queryByText("Late additional answer")).toBeNull();
+  expect(pane.queryByRole("textbox")).toBeNull();
+  expect(document.activeElement).toBe(
+    pane.getByRole("heading", { name: "Thread" }),
+  );
+  expect(
+    account.readThreadPage.mock.calls.filter(
+      ([query]) => query.rootId === first.id,
+    ),
+  ).toHaveLength(2);
+  expect(account.markFollowedThreadRead).not.toHaveBeenCalled();
+});
+
+test("a replacement RID opens cold and discards the old window's late reply", async () => {
+  const account = mount(true);
+  const source = unreadInbox(account);
+  const prior = {
+    ...reply,
+    id: "z".repeat(26),
+    message: "Only on the closed RID",
+    rootId: source.id,
+    channelId: design,
+    userId: foreign,
+    createAt: 204,
+    updateAt: 204,
+  };
+  const newest = {
+    ...prior,
+    id: "y".repeat(26),
+    message: "Only on the new RID",
+    createAt: 206,
+    updateAt: 206,
+  };
+  const delayed = deferred<void>();
+  const cold = deferred<void>();
+  let replacement = false;
+  let oldSignal: AbortSignal | undefined;
+  account.readThreadPage.mockImplementation(async (query, signal) => {
+    if (query.cursor) {
+      oldSignal = signal;
+      await delayed.promise;
+    } else if (replacement) await cold.promise;
+    return {
+      kind: "page",
+      root: { ...source, rootId: "", messageSource: undefined },
+      replies: query.direction === "down" ? [replacement ? newest : prior] : [],
+      next: null,
+    };
+  });
+  const list = async () =>
+    fireEvent.click(await screen.findByRole("button", { name: /^Threads/ }));
+  const open = async () => {
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Review this build/ }),
+    );
+    return within(await screen.findByRole("complementary", { name: "Thread" }));
+  };
+  await list();
+  let pane = await open();
+  await pane.findByText("Only on the closed RID");
+  handleEscape();
+  pane = await open();
+  await pane.findByText("Only on the closed RID");
+  await waitFor(() => expect(oldSignal).toBeDefined());
+  replacement = true;
+  account.replaceRid(2);
+  expect(oldSignal?.aborted).toBe(true);
+  await list();
+  pane = await open();
+  await pane.findByText("Loading replies…");
+  expect(pane.queryByText("Only on the closed RID")).toBeNull();
+  await act(async () => delayed.resolve());
+  expect(pane.queryByText("Only on the new RID")).toBeNull();
+  await act(async () => cold.resolve());
+  await pane.findByText("Only on the new RID");
+});
+
+test("an automatic mark that failed before dispatch can be retried from the pane", async () => {
+  const account = mount(true);
+  const source = unreadInbox(account);
+  const sent = vi.fn();
+  account.markFollowedThreadRead.mockRejectedValueOnce(
+    new TypeError("Offline before dispatch"),
+  );
+  account.markFollowedThreadRead.mockImplementation(
+    async (_team, _root, lastViewedAt, _signal, onSend) => {
+      onSend?.();
+      sent();
+      return {
+        id: source.id,
+        lastViewedAt,
+        unreadReplies: 0,
+        unreadMentions: 0,
+      };
+    },
+  );
+  fireEvent.click(await screen.findByRole("button", { name: /^Threads/ }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Review this build/ }),
+  );
+  const pane = within(
+    await screen.findByRole("complementary", { name: "Thread" }),
+  );
+  const retry = await pane.findByRole("button", { name: "Try again" });
+  expect(sent).not.toHaveBeenCalled();
+  retry.focus();
+  await userEvent.keyboard("{Enter}");
+  await waitFor(() => expect(retry.isConnected).toBe(false));
+  expect(document.activeElement).toBe(
+    pane.getByRole("heading", { name: "Thread" }),
+  );
+  expect(sent).toHaveBeenCalledOnce();
+  expect(account.readFollowedThreadState).not.toHaveBeenCalled();
+  expect(pane.getByRole("separator", { name: "Unread replies" })).toBeTruthy();
+});
+
+test("switching accounts while a check is pending discards its observation and refresh", async () => {
+  const coordination = createThreadReadCoordination();
+  const old = mount(true, true, { coordination });
+  const source = unreadInbox(old);
+  old.markFollowedThreadRead.mockImplementation(
+    async (_team, _root, _time, _signal, onSend) => {
+      onSend?.();
+      throw new TypeError("Lost confirmation");
+    },
+  );
+  const result =
+    deferred<Awaited<ReturnType<Connection["readFollowedThreadState"]>>>();
+  old.readFollowedThreadState.mockReturnValueOnce(result.promise);
+  fireEvent.click(await screen.findByRole("button", { name: /^Threads/ }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Review this build/ }),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Check read status" }),
+  );
+  await screen.findByText("Checking read status…");
+  const counts = old.readFollowedThreadTotals.mock.calls.length;
+  const signal = old.readFollowedThreadState.mock.lastCall?.[1];
+  act(old.closeConnection);
+  old.unmount();
+  const next = mount(true, true, { coordination, viewer: "v".repeat(26) });
+  unreadInbox(next);
+  await act(async () =>
+    result.resolve({
+      id: source.id,
+      lastViewedAt: 220,
+      unreadReplies: 0,
+      unreadMentions: 0,
+      following: true,
+    }),
+  );
+  await screen.findByText(root.message);
+  expect(signal?.aborted).toBe(true);
+  expect(old.readFollowedThreadTotals).toHaveBeenCalledTimes(counts);
+  expect(old.markFollowedThreadRead).toHaveBeenCalledOnce();
+  expect(next.readFollowedThreadState).not.toHaveBeenCalled();
+  expect(next.markFollowedThreadRead).not.toHaveBeenCalled();
+  expect(screen.queryByText(/Checked: the thread/)).toBeNull();
+});
+
 test.each([false, true])(
   "opens a followed thread with its own channel permissions and preserves both drafts (direct conversation %s)",
   async (direct) => {
@@ -2668,3 +3248,238 @@ test("a readable direct conversation can follow a root with no replies", async (
   ).toBeTruthy();
   expect(connection.setThreadFollowing).toHaveBeenCalledOnce();
 });
+
+import { createThreadReadCoordination } from "../mattermost/thread-read-coordination.ts";
+
+test.each(["list_team_channels", "join_public_channels"])(
+  "the catalogue alone does not grant writes or public discovery with %s",
+  async (permission) => {
+    const account = mount(true, true, { directoryPermissions: [permission] });
+    await screen.findByText(root.message);
+    fireEvent.click(screen.getByRole("button", { name: "Directory" }));
+    await screen.findByRole("searchbox", { name: "Find a channel" });
+    expect(screen.queryByRole("tab", { name: "Available" })).toBeNull();
+    expect(account.readChannelDirectoryPage).not.toHaveBeenCalled();
+    expect(account.searchChannelDirectory).not.toHaveBeenCalled();
+    expect(account.changeOwnMembership).not.toHaveBeenCalled();
+  },
+);
+
+test("switching thread mode cannot expose channel history after a known refusal", async () => {
+  const account = mount(true);
+  const refresh =
+    deferred<Awaited<ReturnType<Connection["refreshChannelHistory"]>>>();
+  account.refreshChannelHistory
+    .mockRejectedValueOnce(
+      new ResponseError(new Response(null, { status: 403 })),
+    )
+    .mockReturnValueOnce(refresh.promise);
+  await screen.findByRole("heading", {
+    name: "This content is no longer available to your account.",
+  });
+  account.readChannelWindow.mockClear();
+  account.disableThreads();
+  await waitFor(() =>
+    expect(account.refreshChannelHistory).toHaveBeenCalledTimes(2),
+  );
+  expect(account.refreshChannelHistory.mock.lastCall?.[0]).toMatchObject({
+    collapsedThreads: false,
+  });
+  expect(account.readChannelWindow).not.toHaveBeenCalled();
+  expect(screen.queryByText(root.message)).toBeNull();
+  await act(async () => refresh.resolve({ kind: "applied" }));
+  await screen.findByText(root.message);
+  expect(account.readChannelWindow.mock.lastCall?.[0]).toMatchObject({
+    collapsedThreads: false,
+  });
+});
+
+test("a second warm return keeps the confirmed timeline while refresh is still pending", async () => {
+  const account = mount(true);
+  const retaining =
+    deferred<Awaited<ReturnType<Connection["refreshChannelHistory"]>>>();
+  const local =
+    deferred<Awaited<ReturnType<Connection["readChannelWindow"]>>>();
+  const firstFrame = async () => {
+    await screen.findByText(root.message);
+    const pane = screen.getByRole("region", { name: "Channel messages" });
+    Object.defineProperty(pane, "clientHeight", { value: 120 });
+  };
+  const pick = (name: string) =>
+    fireEvent.click(screen.getByRole("button", { name }));
+
+  await firstFrame();
+  await waitFor(() =>
+    expect(account.readChannelWindow).toHaveBeenCalledTimes(2),
+  );
+  const read = account.readChannelWindow.getMockImplementation();
+  if (!read) throw Error("The initial history reader is required.");
+  pick("Design");
+  await screen.findByRole("heading", { name: "Design" });
+  await waitFor(() =>
+    expect(account.readChannelWindow).toHaveBeenCalledTimes(4),
+  );
+  account.refreshChannelHistory.mockImplementation(({ channelId }) =>
+    channelId === general
+      ? retaining.promise
+      : Promise.resolve({ kind: "applied" }),
+  );
+  account.readChannelWindow.mockImplementation((input) =>
+    input.channelId === general ? local.promise : read(input),
+  );
+  pick("General");
+  await firstFrame();
+  pick("Design");
+  await screen.findByRole("heading", { name: "Design" });
+  pick("General");
+  await screen.findByRole("heading", { name: "General" });
+  expect(screen.getByText(root.message)).toBeTruthy();
+  expect(
+    account.readChannelWindow.mock.calls.filter(
+      ([input]) => input.channelId === general,
+    ),
+  ).toHaveLength(2);
+  expect(
+    account.refreshChannelHistory.mock.calls.filter(
+      ([input]) => input.channelId === general,
+    ),
+  ).toHaveLength(3);
+});
+
+test.each([
+  "directory",
+  "sidebar",
+  "other channel",
+  "team picker Back before acknowledgement",
+  "search Back before acknowledgement",
+])(
+  "a delayed local selection preserves newer navigation and focus from %s",
+  async (source) => {
+    const account = mount(true);
+    await screen.findByText(root.message);
+    await waitFor(() =>
+      expect(account.readChannelWindow).toHaveBeenCalledTimes(2),
+    );
+    const pane = screen.getByRole("region", { name: "Channel messages" });
+    Object.defineProperty(pane, "clientHeight", { value: 120 });
+    const draft = screen.getByRole<HTMLTextAreaElement>("textbox", {
+      name: "Message #General…",
+    });
+    const panes = draft.closest(".channels-panes");
+    if (!panes) throw Error("Missing workspace panes");
+    const text = "Draft stays with the current channel";
+    fireEvent.change(draft, { target: { value: text } });
+    const switchingChannel = source !== "directory" && source !== "sidebar";
+    const backFirst = source.endsWith("before acknowledgement");
+    const search = source.startsWith("search");
+    if (switchingChannel) {
+      fireEvent.click(screen.getByRole("button", { name: "Design" }));
+      await screen.findByRole("heading", { name: "Design" });
+      await waitFor(() =>
+        expect(account.readChannelWindow).toHaveBeenCalledTimes(4),
+      );
+    }
+    const navigate = () =>
+      fireEvent.click(screen.getByRole("button", { name: "Channels" }));
+    navigate();
+    const selected = deferred<boolean>();
+    account.selectSidebarChannel.mockReturnValueOnce(selected.promise);
+    const readCount = account.readChannelWindow.mock.calls.length;
+    if (source === "directory") {
+      fireEvent.click(screen.getByRole("button", { name: "Directory" }));
+      await screen.findByRole("heading", { name: "Directory" });
+      fireEvent.click(
+        screen.getByRole("button", { name: "General, Public channel" }),
+      );
+    } else fireEvent.click(screen.getByRole("button", { name: "General" }));
+    await waitFor(() =>
+      expect(account.selectSidebarChannel).toHaveBeenLastCalledWith(
+        team.id,
+        general,
+      ),
+    );
+    if (!search && panes.getAttribute("data-page") === "conversation")
+      navigate();
+    const opener = screen.getByRole("button", {
+      name: search ? "Search" : /^Switch team,/,
+    });
+    const dialog = {
+      name: search ? "What are you looking for?" : "Teams and servers",
+    };
+    fireEvent.click(opener);
+    await screen.findByRole("dialog", dialog);
+    async function back() {
+      fireEvent.keyDown(window, { key: "Escape" });
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog", dialog)).toBeNull(),
+      );
+      expect(document.activeElement).toBe(opener);
+    }
+    if (backFirst) await back();
+    await act(async () => selected.resolve(true));
+    expect(panes.getAttribute("data-page")).toBe(
+      search ? "conversation" : "navigation",
+    );
+    if (!backFirst) await back();
+    expect(document.activeElement).toBe(opener);
+    if (!switchingChannel) {
+      expect(draft.isConnected).toBe(true);
+      expect(draft.value).toBe(text);
+      expect(pane.isConnected).toBe(true);
+      expect(account.readChannelWindow).toHaveBeenCalledTimes(readCount);
+    }
+  },
+);
+
+test.each([{ rid: 2 }, { teamId: "n".repeat(26) }])(
+  "a new directory scope starts fresh and ignores an old pending answer (%o)",
+  async (scope) => {
+    const account = mount(true, true, {
+      directoryPermissions: ["list_team_channels", "join_public_channels"],
+    });
+    const old =
+      deferred<Awaited<ReturnType<Connection["readChannelDirectoryPage"]>>>();
+    account.readChannelDirectoryPage.mockImplementationOnce(() => old.promise);
+    await screen.findByText(root.message);
+    const trigger = screen.getByRole("button", { name: "Directory" });
+    fireEvent.click(trigger);
+    fireEvent.click(await screen.findByRole("tab", { name: "Available" }));
+    await waitFor(() =>
+      expect(account.readChannelDirectoryPage).toHaveBeenCalledTimes(1),
+    );
+    account.setDirectoryScope(scope);
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("tab", { name: "My channels" })
+          .getAttribute("aria-selected"),
+      ).toBe("true"),
+    );
+    expect(account.readChannelDirectoryPage.mock.calls[0][1]?.aborted).toBe(
+      true,
+    );
+    fireEvent.click(await screen.findByRole("tab", { name: "Available" }));
+    await screen.findByText("No available channels");
+    expect(account.readChannelDirectoryPage.mock.lastCall?.[0].teamId).toBe(
+      scope.teamId ?? team.id,
+    );
+    await act(async () =>
+      old.resolve({
+        hasMore: false,
+        items: [
+          {
+            id: "a".repeat(26),
+            kind: "O",
+            name: "former",
+            displayName: "Former scope",
+            purpose: "",
+            deleteAt: 0,
+          },
+        ],
+      }),
+    );
+    expect(screen.queryByText("Former scope")).toBeNull();
+    expect(screen.getByText("No available channels")).toBeTruthy();
+    expect(account.changeOwnMembership).not.toHaveBeenCalled();
+  },
+);

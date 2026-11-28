@@ -10,10 +10,14 @@ import {
 import type { EntryLanguage } from "../entry/language.ts";
 import type { IntegrationCard } from "../mattermost/integration-cards.ts";
 import { CollectionHeader } from "./CollectionHeader.tsx";
-import { CollectionReadNotice } from "./CollectionReadNotice.tsx";
+import {
+  CollectionReadNotice,
+  useCollectionRefreshVisibility,
+} from "./CollectionReadNotice.tsx";
 import { CollectionScroll, restoreCollectionRow } from "./CollectionScroll.tsx";
 import { collectionCopy } from "./collection-copy.ts";
 import type { openMentionList } from "./mention-list.ts";
+import { PanelState } from "./PanelState.tsx";
 import { publishedPostSummary } from "./published-post-summary.ts";
 import "./mentions.css";
 
@@ -94,6 +98,9 @@ export function MentionsPane({
   restore: { id: string; scroll: number } | null;
   close: () => void;
 }) {
+  const showRefresh = useCollectionRefreshVisibility(
+    state.status === "refreshing",
+  );
   const text = mentionCopy[language],
     common = collectionCopy[language];
   const id = useId();
@@ -177,6 +184,7 @@ export function MentionsPane({
         <CollectionReadNotice
           kind="mentions"
           status={state.status}
+          showRefresh={showRefresh}
           hasResponse={state.hasResponse}
           online={online}
           language={language}
@@ -226,13 +234,15 @@ export function MentionsPane({
         {state.status === "ready" &&
           !state.items.length &&
           state.nextPage === null && (
-            <div className="mentions-empty">
-              <MentionMark />
-              <h3>{text.empty}</h3>
-              <p>{text.detail}</p>
-            </div>
+            <PanelState
+              variant="empty"
+              title={text.empty}
+              message={text.detail}
+            />
           )}
-        {!online && state.hasResponse && <p role="status">{common.offline}</p>}
+        {!online && state.hasResponse && (
+          <PanelState variant="stale" role="status" message={common.offline} />
+        )}
         {state.status === "forbidden" && (
           <p role="alert">{common.unavailable}</p>
         )}

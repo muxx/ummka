@@ -269,11 +269,80 @@
   .channels-panes {
     background: var(--navigation);
   }
+  .channels-team {
+    --team-hover: rgb(255 255 255 / 12%);
+    --team-pressed: rgb(255 255 255 / 20%);
+    position: relative;
+    isolation: isolate;
+  }
+  :root[data-appearance="dark"] .channels-team {
+    --team-hover: rgb(255 255 255 / 8%);
+    --team-pressed: rgb(255 255 255 / 14%);
+  }
+  .channels-team:is(:hover, :active, :focus-visible) {
+    background: transparent;
+    outline: none;
+  }
+  .channels-team::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    inset: 4px 8px;
+    border-radius: 6px;
+    pointer-events: none;
+  }
+  .channels-team:hover::before {
+    background: var(--team-hover);
+  }
+  .channels-team:active::before {
+    background: var(--team-pressed);
+  }
+  :root[data-keyboard-navigation] .channels-team:focus-visible::before {
+    outline: 2px solid var(--on-navigation);
+    outline-offset: -2px;
+  }
+  @media (forced-colors: active) {
+    :root[data-keyboard-navigation] .channels-team:focus-visible::before {
+      outline-color: Highlight;
+    }
+  }
   .channels-conversation {
     border-start-start-radius: 12px;
   }
   .channels-conversation > .channels-pane-head {
     border-start-start-radius: inherit;
+  }
+  .channels-panes[data-inbox-single] > .inbox-placeholder,
+  .channels-panes[data-inbox-single][data-page="thread"]
+    > .channels-conversation {
+    display: none;
+  }
+  .channels-panes[data-inbox-single]
+    > .channels-thread:not(.inbox-placeholder) {
+    flex: 1;
+    min-width: 0;
+    border-inline-start: 0;
+    border-start-start-radius: 12px;
+  }
+  .channels-panes[data-inbox-single] .channels-thread-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: minmax(32px, auto) auto auto;
+    row-gap: 0;
+    border-start-start-radius: inherit;
+    padding-block: 10px;
+  }
+  .channels-panes[data-inbox-single] .channels-thread-head > .thread-close {
+    grid-column: 1;
+    grid-row: 3;
+    justify-items: start;
+    color: var(--muted);
+  }
+  .channels-panes[data-inbox-single] .thread-close-icon {
+    display: none;
+  }
+  .channels-panes[data-inbox-single] .thread-back-icon {
+    display: grid;
   }
 }
 @container (900px < width <= 1100px) {
