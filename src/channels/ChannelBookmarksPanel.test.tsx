@@ -362,6 +362,46 @@ test("keeps an uncertain creation visible and refreshes before another attempt",
   expect(ctx.account.createChannelBookmark).toHaveBeenCalledTimes(1);
 });
 
+test("renames a link without revalidating or writing its unchanged Unicode address", async () => {
+  const ctx = fixture();
+  ctx.can.mockImplementation((action) => action === "edit");
+  const href = `https://example.org/${"я".repeat(180)}`;
+  const bookmark = {
+    id: "g".repeat(26),
+    name: "Guide",
+    destination: { kind: "link", href } as const,
+  };
+  ctx.account.readChannelBookmarks.mockResolvedValue({
+    kind: "available",
+    bookmarks: [bookmark],
+  });
+  const updated = { ...bookmark, name: "Updated guide" };
+  ctx.account.updateChannelBookmark.mockResolvedValue({
+    updated,
+    removedId: null,
+  });
+  render(<Panel ctx={ctx} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Guide" }));
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  const editor = within(screen.getByRole("dialog", { name: "Edit bookmark" }));
+  expect(
+    (editor.getByLabelText("Link address") as HTMLInputElement).value,
+  ).toBe(href);
+  fireEvent.change(editor.getByLabelText("Name"), {
+    target: { value: updated.name },
+  });
+  fireEvent.click(editor.getByRole("button", { name: "Save" }));
+  const row = await screen.findByRole("button", { name: updated.name });
+  expect(ctx.account.updateChannelBookmark).toHaveBeenCalledExactlyOnceWith(
+    channel,
+    bookmark,
+    { displayName: updated.name },
+    expect.any(AbortSignal),
+  );
+  expect(document.activeElement).toBe(row);
+  expect(screen.queryByRole("dialog", { name: "Edit bookmark" })).toBeNull();
+});
+
 test("a permitted file rename stays available when the file itself is restricted", async () => {
   const ctx = fixture();
   ctx.can.mockImplementation((action: string) => action === "edit");

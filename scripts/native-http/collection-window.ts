@@ -31,7 +31,7 @@ export function collectionWindowFixture() {
     owner_id: foreignOwner,
     type: "link",
     display_name: "Team runbook",
-    link_url: "https://example.org/runbook",
+    link_url: `https://example.org/${"я".repeat(180)}`,
     delete_at: 0,
   };
   const links = new Map([[foreignLink, initialLink]]);

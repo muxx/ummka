@@ -11,11 +11,10 @@ export type Bookmark = Extract<
   { kind: "available" }
 >["bookmarks"][number];
 export type BookmarkEdit =
-  | { action: "add"; keyboard: boolean }
+  | { action: "add" }
   | {
       action: "edit" | "delete";
       item: Bookmark;
-      keyboard: boolean;
       openMenu: () => void;
     };
 export type BookmarkWrites = Pick<
@@ -99,7 +98,6 @@ export function BookmarkEditor({
     [href, setHref] = useState(
       existing?.destination.kind === "link" ? existing.destination.href : "",
     );
-  const [keyboard, setKeyboard] = useState(edit.keyboard);
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [needsRefresh, setNeedsRefresh] = useState(false);
@@ -134,17 +132,24 @@ export function BookmarkEditor({
   }
   async function save() {
     if (!online || pending.current || needsRefresh) return;
-    const label = name.trim();
+    const label = name.trim(),
+      address = href.trim(),
+      originalAddress =
+        existing?.destination.kind === "link"
+          ? existing.destination.href.trim()
+          : undefined;
+    const nameChanged = label !== existing?.name,
+      linkChanged = link && address !== originalAddress;
     let url = "";
     if (!removing) {
       if (!label || [...label].length > 64) {
         setError(t.shortName);
         return;
       }
-      if (link) {
+      if (linkChanged) {
         let parsed: URL;
         try {
-          parsed = new URL(href.trim());
+          parsed = new URL(address);
         } catch {
           setError(t.validUrl);
           return;
@@ -160,15 +165,7 @@ export function BookmarkEditor({
         }
         url = parsed.href;
       }
-      if (
-        existing &&
-        label === existing.name &&
-        (!link ||
-          href.trim() ===
-            (existing.destination.kind === "link"
-              ? existing.destination.href
-              : ""))
-      ) {
+      if (!nameChanged && !linkChanged) {
         close(false);
         return;
       }
@@ -193,12 +190,8 @@ export function BookmarkEditor({
         );
       else {
         const patch: { displayName?: string; linkUrl?: string } = {};
-        if (label !== edit.item.name) patch.displayName = label;
-        if (
-          edit.item.destination.kind === "link" &&
-          href.trim() !== edit.item.destination.href
-        )
-          patch.linkUrl = url;
+        if (nameChanged) patch.displayName = label;
+        if (linkChanged) patch.linkUrl = url;
         updated = (
           await account.updateChannelBookmark(
             channelId,
@@ -230,11 +223,11 @@ export function BookmarkEditor({
     }
   }
   return createPortal(
+    // biome-ignore lint/a11y/useKeyWithClickEvents: Escape uses the native dialog cancel event.
     <dialog
       ref={dialog}
       className="directory-join-dialog bookmark-editor modal-layout"
       aria-labelledby={id}
-      data-input={keyboard ? "keyboard" : "pointer"}
       onClick={(event) => {
         const node = event.currentTarget;
         if (event.target !== node) return;
@@ -247,8 +240,6 @@ export function BookmarkEditor({
         )
           dismiss();
       }}
-      onPointerDownCapture={() => setKeyboard(false)}
-      onKeyDown={() => setKeyboard(true)}
       onCancel={(e) => {
         e.preventDefault();
         back();

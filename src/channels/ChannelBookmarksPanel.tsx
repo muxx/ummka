@@ -96,7 +96,7 @@ function BookmarkActions({
   actions: {
     label: string;
     icon: "file" | "open" | "edit" | "delete";
-    run: (keyboard: boolean) => void;
+    run: () => void;
   }[];
   close: () => void;
 }) {
@@ -188,9 +188,9 @@ function BookmarkActions({
             ref={
               (preferred ? icon === preferred : i === 0) ? primary : undefined
             }
-            onClick={(e) => {
+            onClick={() => {
               returnToRow();
-              run(e.detail === 0);
+              run();
             }}
           >
             {icon === "file" ? <FileIcon /> : <BookmarkIcon kind={icon} />}
@@ -262,7 +262,7 @@ function BookmarkRow({
   const actions: {
     icon: "open" | "file" | "edit" | "delete";
     label: string;
-    run: (keyboard: boolean) => void;
+    run: () => void;
   }[] = [];
   if (!unavailable)
     actions.push({
@@ -283,12 +283,11 @@ function BookmarkRow({
           action === "edit"
             ? editorCopy[language].edit
             : editorCopy[language].remove,
-        run: (keyboard) => {
+        run: () => {
           setOpener(null);
           begin({
             action,
             item,
-            keyboard,
             openMenu: () => {
               setPreferred(action);
               setOpener(opener);
@@ -430,7 +429,7 @@ function EditableBookmarks({
             className="bookmark-add"
             disabled={!props.online || sendingInBackground}
             ref={add}
-            onClick={(e) => begin({ action: "add", keyboard: e.detail === 0 })}
+            onClick={() => begin({ action: "add" })}
           >
             {w.add}
           </button>

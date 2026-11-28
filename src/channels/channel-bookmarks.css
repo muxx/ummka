@@ -149,16 +149,15 @@
   height: 16px;
 }
 .bookmark-action {
+  --focus-offset: -3px;
   border-radius: 6px;
 }
 .bookmark-action strong {
   font-size: 0.85rem;
   font-weight: 510;
 }
-.bookmark-action:focus-visible {
-  outline-offset: -3px;
-}
-.bookmark-action:is(:hover, :focus-visible) svg {
+.bookmark-action:is(:hover, :where([data-keyboard-navigation] :focus-visible))
+  svg {
   color: var(--accent);
 }
 
@@ -282,11 +281,4 @@
 
 .bookmark-editor::backdrop {
   background: #06183966;
-}
-.bookmark-editor[data-input="pointer"] button:focus {
-  outline: none;
-}
-.bookmark-editor[data-input="keyboard"] button:focus {
-  outline: 2px solid var(--focus);
-  outline-offset: -3px;
 }
