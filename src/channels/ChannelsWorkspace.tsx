@@ -1852,7 +1852,10 @@ export function ChannelsWorkspace({
       {(savedSource || savedRevoked) && (
         <div role="status">
           {savedReminder && savedReminder.source === savedSource && (
-            <span key={savedReminder.sequence} className="post-action-notice">
+            <span
+              key={savedReminder.sequence}
+              className="post-action-notice saved-return-notice"
+            >
               {collectionLabels.savedIn(savedReminder.source.teamName)}
             </span>
           )}
