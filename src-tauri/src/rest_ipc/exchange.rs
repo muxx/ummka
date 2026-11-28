@@ -20,6 +20,7 @@ pub(crate) enum ExchangeError {
     InvalidDirectory,
     InvalidHistoryRequest,
     InvalidExchangeState,
+    EventStreamFailed,
     Cancelled,
     #[serde(untagged)]
     Transport(TransportError),
@@ -40,6 +41,9 @@ impl Resource for Exchange {}
 pub(super) struct Session {
     pub(super) http: Arc<RestConnection>,
     resources: Mutex<ResourceTable>,
+    pub(super) events: Mutex<super::events::WindowEvents>,
+    // A new observer resumes only after the previous reader releases its committed position.
+    pub(super) event_position: AsyncMutex<Option<crate::realtime::EventCursor>>,
     pub(super) history: super::history::LocalHistory,
     pub(super) lifetime: CancellationToken,
 }
@@ -64,6 +68,8 @@ impl Session {
         Self {
             http: Arc::new(http),
             resources: Mutex::default(),
+            events: Mutex::default(),
+            event_position: AsyncMutex::default(),
             history: super::history::LocalHistory::new(),
             lifetime,
         }

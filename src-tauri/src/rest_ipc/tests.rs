@@ -178,6 +178,10 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
                 "store_channel_history_page",
                 json!({"rid":0,"load":0,"page":null}),
             ),
+            (
+                "store_channel_history_changes",
+                json!({"rid":0,"load":0,"changes":null}),
+            ),
             ("cancel_channel_history_load", json!({"rid":0,"load":0})),
             ("read_joined_teams", json!({"rid":0})),
             ("select_joined_team", json!({"rid":0, "teamId":"x"})),
@@ -227,6 +231,23 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
             (
                 "dismiss_pending_post",
                 json!({"rid":0,"pendingId":"id","attempt":1}),
+            ),
+            ("prepare_channel_observer", json!({"rid":0,"active":true})),
+            (
+                "run_channel_observer",
+                json!({"rid":0,"observer":"owner","events":"__CHANNEL__:1"}),
+            ),
+            (
+                "set_channel_observer_active",
+                json!({"rid":0,"observer":"owner","active":true,"generation":1}),
+            ),
+            (
+                "acknowledge_channel_notice",
+                json!({"rid":0,"observer":"owner","receipt":"ticket"}),
+            ),
+            (
+                "close_channel_observer",
+                json!({"rid":0,"observer":"owner"}),
             ),
             ("read_workspace_settings", json!({"rid":0})),
             ("begin_workspace_policy_load", json!({"rid":0})),

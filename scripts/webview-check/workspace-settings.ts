@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import type { openAccountRestConnection } from "../../src/mattermost/native-rest.ts";
 import { effectiveWorkspacePreferences } from "../../src/mattermost/workspace-preferences.ts";
 import type { AccountEventRoute } from "../../src/mattermost/workspace-server.ts";
+import { checkWindowEvents } from "./channel-events.ts";
+import { withVisibleTestWindow } from "./visible-window.ts";
 
 type Account = Awaited<ReturnType<typeof openAccountRestConnection>>;
 export async function checkWorkspaceSettings(account: Account, other: Account) {
@@ -95,6 +97,20 @@ export async function checkWorkspaceSettings(account: Account, other: Account) {
     throw Error("server policy not published");
   if ((await other.readWorkspaceSettings()).server !== null)
     throw Error("server policy leaked to another account");
+  await withVisibleTestWindow(() =>
+    checkWindowEvents(account, other, async (allowed) => {
+      const route = await publish(
+        account.rid,
+        await begin(),
+        {
+          ...(await account.readWorkspaceSettings()).server,
+        },
+        allowed ? "" : "wss://elsewhere.example.test",
+      );
+      if (route !== (allowed ? "sameInstallation" : "unsupported"))
+        throw Error("event activity did not follow the accepted route");
+    }),
+  );
   const saved = await account.readWorkspaceSettings();
   if (!saved.server || !saved.preferences)
     throw Error("missing confirmed settings");

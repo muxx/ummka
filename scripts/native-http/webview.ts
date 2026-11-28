@@ -34,6 +34,7 @@ import { submissionFixture } from "./submit-post.ts";
 import { threadInboxWindowFixture } from "./thread-inbox-window.ts";
 import { respondToThreadList } from "./thread-list.ts";
 import { respondToThreadRead } from "./thread-read-state.ts";
+import { windowEventsFixture } from "./window-events.ts";
 import { respondToWorkspace } from "./workspace.ts";
 
 export function webviewServers(
@@ -2077,6 +2078,8 @@ export function webviewServers(
       res.writeHead(404).end();
     }
   });
+  const windowEvents = windowEventsFixture();
+  data.on("upgrade", (req, socket) => windowEvents.upgrade(req, socket));
   data.on("connection", () => {
     connections++;
   });
@@ -2457,6 +2460,7 @@ export function webviewServers(
           systemPostReads.has(read),
           "Missing native system-link request " + read,
         );
+      windowEvents.verify();
       assert.equal(
         offlineHistoryRequests,
         1,

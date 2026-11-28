@@ -2,7 +2,7 @@ use super::exchange::{ExchangeError, Session};
 use crate::{
     history::{
         AccountHistory, CachedPostObservation, CachedPostRead, ChannelHistoryPage, ChannelPostLoad,
-        HistoryError, PageWrite, PostObservation, StoredPost, WindowSlice,
+        HistoryError, PageWrite, PostChange, PostObservation, StoredPost, WindowSlice,
     },
     rest::TransportError,
     sessions::AccountSessions,
@@ -239,6 +239,28 @@ pub(crate) async fn store_channel_history_page<R: Runtime>(
 ) -> Result<PageWrite, ExchangeError> {
     super::session(&webview, rid)?
         .store_history_page(&webview.state::<AccountSessions>(), load, page)
+        .await
+}
+
+#[tauri::command]
+pub(crate) async fn store_channel_history_changes<R: Runtime>(
+    webview: Webview<R>,
+    rid: ResourceId,
+    load: ResourceId,
+    changes: serde_json::Value,
+) -> Result<PageWrite, ExchangeError> {
+    let session = super::session(&webview, rid)?;
+    let ticket = session.take_history_load(load)?;
+    session
+        .with_history(&webview.state::<AccountSessions>(), move |view| {
+            let count = changes.as_array().ok_or(HistoryError::InvalidPost)?.len();
+            if count > MAX_POSTS as usize {
+                return Err(HistoryError::InvalidPost);
+            }
+            let changes: Vec<PostChange> =
+                serde_json::from_value(changes).map_err(|_| HistoryError::InvalidPost)?;
+            view.apply_channel_page(ticket, &changes)
+        })
         .await
 }
 

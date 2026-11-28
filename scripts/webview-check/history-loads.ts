@@ -100,15 +100,49 @@ export async function prepareHistoryLoads(origin: string) {
     )
       throw Error("archive boundary lost on local history write");
 
-    const old = await begin(first.rid);
-    const removal = {
-      ...page,
-      source: { kind: "since", since: 1 },
-      order: [postId],
-      changes: [{ kind: "remove", id: postId, channelId: channel }],
+    const changes = (rid: number, load: number, updates: unknown) =>
+      invoke<Outcome>("store_channel_history_changes", {
+        rid,
+        load,
+        changes: updates,
+      });
+    const edit = {
+      ...saved(newId, 110),
+      updateAt: 112,
+      editAt: 112,
+      message: "peer edit",
     };
+    const editTicket = await begin(first.rid);
+    await expectCode(
+      changes(other.rid, editTicket, [edit]),
+      "unknown_history_load",
+    );
+    const before = await first.readChannelWindow(read);
+    if ((await changes(first.rid, editTicket, [edit])).kind !== "applied")
+      throw Error("point edit not stored");
+    const after = await first.readChannelWindow(read);
     if (
-      (await store(second.rid, await begin(second.rid), removal)).kind !==
+      !before ||
+      !after ||
+      after.posts.find((post) => post.id === newId)?.message !== "peer edit" ||
+      before.posts.map((post) => post.id).join() !==
+        after.posts.map((post) => post.id).join()
+    )
+      throw Error("point edit changed timeline order");
+    const invalidTicket = await begin(first.rid);
+    await expectCode(
+      changes(first.rid, invalidTicket, Array(201).fill(edit)),
+      "invalid_history_request",
+    );
+    await expectCode(
+      changes(first.rid, invalidTicket, []),
+      "unknown_history_load",
+    );
+
+    const old = await begin(first.rid);
+    const removal = [{ kind: "remove", id: postId, channelId: channel }];
+    if (
+      (await changes(second.rid, await begin(second.rid), removal)).kind !==
         "applied" ||
       (await store(first.rid, old, page)).kind !== "superseded"
     )

@@ -10,6 +10,7 @@ import {
 } from "../../vendor/mattermost/index.js";
 import { isAndroid } from "../build-platform.ts";
 import { accountBookmarkChanges } from "./account-bookmark-changes.ts";
+import { accountChannelEvents } from "./account-channel-events.ts";
 import { accountChannelReadState } from "./account-channel-read-state.ts";
 import { readCustomEmoji } from "./account-custom-emoji.ts";
 import { accountDelivery } from "./account-delivery.ts";
@@ -280,6 +281,7 @@ export async function openAccountRestConnection(
         signal,
       );
     },
+    observeChannelEvents: accountChannelEvents(rid),
     ...accountFollowedThreads(config, readWhileOpen),
     ...accountPostCollections(config, userId, readWhileOpen, savedPosts),
     ...accountCollectionActions(config, userId, readWhileOpen, savedPosts),

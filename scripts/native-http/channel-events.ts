@@ -1,24 +1,15 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { EventEmitter, once } from "node:events";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
 import { json } from "node:stream/consumers";
-
 import { activityEventsFixture } from "./activity-events.ts";
 import { appliedEventsFixture } from "./applied-events.ts";
 import { actionFixture } from "./channel-event-actions.ts";
+import { eventTextFrame as frame, upgradeEventSocket } from "./event-socket.ts";
 
 const fixtureId = "e".repeat(26);
 const prefix = "/Event%20Site//";
-function frame(text: string) {
-  const bytes = Buffer.from(text);
-  if (bytes.length < 126)
-    return Buffer.concat([Buffer.from([0x81, bytes.length]), bytes]);
-  const header = Buffer.from([0x81, 126, 0, 0]);
-  header.writeUInt16BE(bytes.length, 2);
-  return Buffer.concat([header, bytes]);
-}
 export function eventFixture() {
   const visits: string[] = [];
   const applied = appliedEventsFixture(frame);
@@ -119,18 +110,7 @@ export function eventFixture() {
         );
         return;
       }
-      const key = req.headers["sec-websocket-key"];
-      assert.equal(typeof key, "string");
-      assert(key);
-      const accept = createHash("sha1")
-        .update(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
-        .digest("base64");
-      socket.write(
-        "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Accept: " +
-          accept +
-          "\r\n\r\n",
-      );
-      socket.on("end", () => socket.end());
+      upgradeEventSocket(req, socket);
       if (mode.startsWith("activity")) {
         activity.frames(mode, socket);
         return;
@@ -148,8 +128,15 @@ export function eventFixture() {
           ? {
               event: "posted",
               seq: 1,
-              data: { post: "fixture" },
-              broadcast: {},
+              data: {
+                post: JSON.stringify({
+                  id: "p".repeat(26),
+                  channel_id: "c".repeat(26),
+                  root_id: "r".repeat(26),
+                  message: "Private reply",
+                }),
+              },
+              broadcast: { channel_id: "c".repeat(26) },
             }
           : {
               event: "hello",

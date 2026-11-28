@@ -135,6 +135,9 @@ export async function checkEventStream(
   userId: string,
   teamId: string,
   channelId: string,
+  peerPosts: PostsApi,
+  peerToken: string,
+  peerUserId: string,
 ) {
   const posts = new PostsApi(session);
   const createPost = (message: string, pendingPostId?: string) =>
@@ -166,6 +169,14 @@ export async function checkEventStream(
     assert.equal(wire.channel_id, channelId);
     assert.equal(wire.root_id, "");
     assert.equal(wire.pending_post_id, pendingPostId);
+    await checkPeerPostAddresses(first, peerPosts, channelId, userId);
+    const reverse = subscribe(base, peerToken, "", 0);
+    try {
+      assert.equal((await reverse.until(() => true)).event, "hello");
+      await checkPeerPostAddresses(reverse, posts, channelId, peerUserId);
+    } finally {
+      await reverse.close();
+    }
     const help = await new CommandsApi(session).executeCommand({
       executeCommandRequest: { channelId, teamId, command: "/help" },
     });
@@ -228,4 +239,45 @@ export async function checkEventStream(
   } finally {
     await resumed.close();
   }
+}
+
+/** Compare the addresses a second channel member can actually observe across all three event types. */
+async function checkPeerPostAddresses(
+  stream: ReturnType<typeof subscribe>,
+  author: PostsApi,
+  channelId: string,
+  viewerId: string,
+) {
+  const create = (message: string, rootId?: string) =>
+    author.createPost({ createPostRequest: { channelId, rootId, message } });
+  const root = await create("Channel event addresses");
+  assert.ok(root.id && root.userId && root.userId !== viewerId);
+  const observe = async (name: string, id: string, rootId: string) => {
+    const frame = await stream.until(
+      (f) =>
+        f.event === name &&
+        typeof f.data?.post === "string" &&
+        JSON.parse(f.data.post).id === id,
+    );
+    assert.equal(frame.broadcast?.channel_id, channelId);
+    assert.ok(frame.data?.post);
+    const post = JSON.parse(frame.data.post);
+    assert.equal(post.user_id, root.userId);
+    assert.equal(post.channel_id, channelId);
+    assert.equal(post.root_id, rootId);
+    if (name === "post_deleted") assert.equal(post.delete_at, 0);
+  };
+  await observe("posted", root.id, "");
+  const reply = await create("Reply event address", root.id);
+  assert.ok(reply.id);
+  await observe("posted", reply.id, root.id);
+  await author.patchPost({
+    postId: reply.id,
+    patchPostRequest: { message: "Edited reply address" },
+  });
+  await observe("post_edited", reply.id, root.id);
+  await author.deletePost({ postId: reply.id });
+  await observe("post_deleted", reply.id, root.id);
+  await author.deletePost({ postId: root.id });
+  await observe("post_deleted", root.id, "");
 }

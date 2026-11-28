@@ -1,7 +1,9 @@
 //! Decode a Mattermost message against the last event applied by this account.
 
 mod account;
+pub(crate) use account::EventConsumer;
 mod activity;
+pub(crate) use activity::run_groups;
 pub use activity::{EventActivity, EventAvailability};
 #[cfg(all(feature = "native-http-check", any(test, target_os = "android")))]
 pub(crate) mod checks;
@@ -10,8 +12,10 @@ mod connection;
 mod route;
 pub(crate) use route::{ClientEventAddress, EventRoute};
 mod delivery;
+mod post_change;
 mod typing;
 pub use connection::{EventConnectionError, EventReader, EventSettings};
+pub use post_change::{ChannelPostChange, PostChangeKind};
 pub use typing::TypingEvent;
 
 use crate::rest::is_mattermost_id;

@@ -1,4 +1,8 @@
-use super::{AccountEvents, Continuity, EventConnectionError, EventSettings, ServerEvent};
+use super::account::{Attempt, Each, EventConsumer, consume_groups};
+use super::{
+    AccountEvents, Continuity, EventConnectionError, EventCursor, EventSettings, ServerEvent,
+};
+use crate::rest::RestConnection;
 use std::time::Duration;
 use tokio::sync::watch;
 
@@ -44,62 +48,73 @@ impl AccountEvents<'_> {
 
     pub(super) async fn run_with_retry<F: Future<Output = ()>>(
         &mut self,
-        mut activity: EventAvailability,
+        activity: EventAvailability,
         settings: EventSettings<'_>,
-        mut apply: impl AsyncFnMut(ServerEvent, Continuity) -> Result<(), EventConnectionError>,
-        mut wait: impl FnMut(Duration) -> F,
+        apply: impl AsyncFnMut(ServerEvent, Continuity) -> Result<(), EventConnectionError>,
+        wait: impl FnMut(Duration) -> F,
     ) -> Result<(), EventConnectionError> {
-        let login = self.account.lifetime();
-        let run = async {
-            let mut failures = 0_u32;
-            while activity.0.wait_for(|active| *active).await.is_ok() {
-                let mut consumer_failed = false;
-                let mut opened = false;
-                let attempt =
-                    self.consume_attempt(settings, &mut opened, async |event, continuity| {
-                        let result = apply(event, continuity).await;
-                        if result.is_err() {
-                            consumer_failed = true;
-                        }
-                        result
-                    });
-                let result = tokio::select! {
-                    biased;
-                    changed = activity.0.changed() => {
-                        if changed.is_err() { break; }
-                        failures = 0;
-                        continue;
-                    }
-                    result = attempt => result,
-                };
-                match result {
-                    Ok(()) => {}
-                    Err(EventConnectionError::Network | EventConnectionError::Http(502..=504))
-                        if !consumer_failed => {}
-                    Err(error) => return Err(error),
+        run_groups(
+            self.account,
+            &mut self.applied,
+            activity,
+            settings,
+            Each(apply),
+            wait,
+        )
+        .await
+    }
+}
+
+pub(crate) async fn run_groups<C: EventConsumer, F: Future<Output = ()>>(
+    account: &RestConnection,
+    applied: &mut Option<EventCursor>,
+    mut activity: EventAvailability,
+    settings: EventSettings<'_>,
+    mut consumer: C,
+    mut wait: impl FnMut(Duration) -> F,
+) -> Result<(), EventConnectionError> {
+    let login = account.lifetime();
+    let run = async {
+        let mut failures = 0_u32;
+        while activity.0.wait_for(|active| *active).await.is_ok() {
+            let mut status = Attempt::default();
+            let attempt = consume_groups(account, applied, settings, &mut status, &mut consumer);
+            let result = tokio::select! {
+                biased;
+                changed = activity.0.changed() => {
+                    if changed.is_err() { break; }
+                    failures = 0;
+                    continue;
                 }
-                // Mattermost resets the backoff on open, including an empty successful resume.
-                failures = if opened {
-                    1
-                } else {
-                    failures.saturating_add(1)
-                };
-                tokio::select! {
-                    biased;
-                    changed = activity.0.changed() => {
-                        if changed.is_err() { break; }
-                        failures = 0;
-                    }
-                    () = wait(retry_delay(failures)) => {}
-                }
+                result = attempt => result,
+            };
+            match result {
+                Ok(()) => {}
+                Err(EventConnectionError::Network | EventConnectionError::Http(502..=504))
+                    if !status.consumer_failed => {}
+                Err(error) => return Err(error),
             }
-            Ok(())
-        };
-        tokio::select! {
-            biased;
-            () = login.cancelled() => Err(EventConnectionError::SessionUnavailable),
-            result = run => result,
+            // Mattermost resets the backoff on open, including an empty successful resume.
+            failures = if status.opened {
+                1
+            } else {
+                failures.saturating_add(1)
+            };
+            tokio::select! {
+                biased;
+                changed = activity.0.changed() => {
+                    if changed.is_err() { break; }
+                    failures = 0;
+                }
+                () = wait(retry_delay(failures)) => {}
+            }
         }
+        Ok(())
+    };
+    tokio::select! {
+        biased;
+        () = login.cancelled() => Err(EventConnectionError::SessionUnavailable),
+        result = run => result,
     }
 }
 

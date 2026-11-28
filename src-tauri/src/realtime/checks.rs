@@ -123,7 +123,9 @@ pub(crate) async fn wire(client: &NativeHttp, base: &str) -> CheckResult {
             else {
                 panic!("expected the next event on the same connection ID");
             };
-            assert_eq!(event.name, "posted");
+            assert_eq!(serde_json::to_value(event.channel_post_change(USER)?).unwrap(), serde_json::json!({
+                "kind":"created", "postId":"p".repeat(26), "channelId":"c".repeat(26), "rootId":"r".repeat(26)
+            }));
             assert_eq!(after.next_sequence(), 2);
             ready.send(()).unwrap();
             reader.next_frame(Some(&after)).await?;
