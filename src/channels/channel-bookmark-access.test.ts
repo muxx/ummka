@@ -101,7 +101,7 @@ test.each(["D", "G"])(
     }
   },
 );
-test("custom guest permissions are honored in team channels, including ordering a board", () => {
+test("custom guest permissions are honored in team channels", () => {
   const guest = savedChannelPermissions(
     {
       ...snapshot,
@@ -116,11 +116,26 @@ test("custom guest permissions are honored in team channels, including ordering 
   expect(
     channelBookmarkAccess(guest, "system_guest", room, "edit", "link"),
   ).toBe("allowed");
+});
+
+test("only ordering is supported for board bookmarks", () => {
+  expect(channelBookmarkAccess(check, snapshot.systemRoles, room, "add")).toBe(
+    "allowed",
+  );
   expect(
-    channelBookmarkAccess(guest, "system_guest", room, "edit", "board"),
+    channelBookmarkAccess(check, snapshot.systemRoles, room, "add", "board"),
   ).toBe("denied");
   expect(
     channelBookmarkAccess(check, snapshot.systemRoles, room, "delete", "board"),
+  ).toBe("denied");
+  expect(
+    channelBookmarkAccess(
+      check,
+      snapshot.systemRoles,
+      { ...room, kind: "P" },
+      "edit",
+      "board",
+    ),
   ).toBe("denied");
   expect(
     channelBookmarkAccess(

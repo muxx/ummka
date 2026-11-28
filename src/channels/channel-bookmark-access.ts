@@ -18,8 +18,7 @@ export function channelBookmarkAccess(
   bookmarkKind?: "link" | "file" | "board",
 ): ChannelPermission {
   if (channel?.deleteAt !== 0) return "denied";
-  if (bookmarkKind === "board" && (action === "edit" || action === "delete"))
-    return "denied";
+  if (bookmarkKind === "board" && action !== "order") return "denied";
   if (channel.kind === "O" || channel.kind === "P") {
     const scope = channel.kind === "O" ? "public" : "private";
     return permission(channel, `${action}_bookmark_${scope}_channel`);
