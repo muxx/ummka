@@ -1743,7 +1743,7 @@ test.each(["activated", "return bar", "draft"] as const)(
       post.getBoundingClientRect(),
     ] as unknown as DOMRectList);
     const back = await savedReturn();
-    const draft = screen.getByDisplayValue("Unfinished reply");
+    const draft = await screen.findByDisplayValue("Unfinished reply");
     (focused === "draft" ? draft : back).focus();
     revokeWinter(account);
     if (focused === "activated") fireEvent.click(back);
