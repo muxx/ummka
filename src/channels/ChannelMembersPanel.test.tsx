@@ -4,6 +4,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
 } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -47,20 +48,20 @@ afterEach(() => {
   vi.useRealTimers();
 });
 test("paginates at the visible boundary, deduplicates in server order and retries the same page", async () => {
-  let visible: () => void = () => {
-    throw Error("Boundary was not observed");
-  };
+  const observed = vi.fn<(target: Element, enter: () => void) => void>();
   vi.stubGlobal(
     "IntersectionObserver",
     class {
       constructor(
-        cb: (
+        private readonly onIntersection: (
           entries: { isIntersecting: boolean; intersectionRatio: number }[],
         ) => void,
-      ) {
-        visible = () => cb([{ isIntersecting: true, intersectionRatio: 1 }]);
+      ) {}
+      observe(target: Element) {
+        observed(target, () =>
+          this.onIntersection([{ isIntersecting: true, intersectionRatio: 1 }]),
+        );
       }
-      observe() {}
       disconnect() {}
     },
   );
@@ -71,8 +72,15 @@ test("paginates at the visible boundary, deduplicates in server order and retrie
     .mockResolvedValueOnce({ members: [ada, lin], nextPage: null });
   render(<ChannelMembersPanel {...props} />);
   const more = await screen.findByRole("button", { name: "Show more members" });
+  const enter = await waitFor(() => {
+    expect(observed).toHaveBeenCalledExactlyOnceWith(
+      more,
+      expect.any(Function),
+    );
+    return observed.mock.calls[0][1];
+  });
   more.focus();
-  act(visible);
+  act(enter);
   const retry = await screen.findByRole("button", { name: "Try again" });
   expect(document.activeElement).toBe(retry);
   fireEvent.click(retry);
