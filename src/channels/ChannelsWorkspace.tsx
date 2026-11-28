@@ -1351,7 +1351,7 @@ export function ChannelsWorkspace({
     infoChannel.direct === "memberCount";
   function openChannelInfo(
     opener: HTMLButtonElement,
-    stage: "overview" | "members" | "files" = "overview",
+    stage: "overview" | "members" | "files" | "bookmarks" = "overview",
     direct: "menu" | "memberCount" = "menu",
   ) {
     if (!channel || !infoAvailable || (stage === "files" && !allowChannelFiles))
@@ -2261,6 +2261,11 @@ export function ChannelsWorkspace({
                         ? (opener) => openChannelInfo(opener, "files")
                         : undefined
                     }
+                    onBookmarks={
+                      infoAvailable
+                        ? (opener) => openChannelInfo(opener, "bookmarks")
+                        : undefined
+                    }
                     onNotifications={
                       notificationKind
                         ? () => {
@@ -2348,6 +2353,7 @@ export function ChannelsWorkspace({
               online={online}
               language={language}
               sessionIssue={sessionIssue}
+              direct={Boolean(infoChannel.direct)}
               back={() => backToInfo("bookmarks")}
             />
           ) : infoOpen && channel ? (

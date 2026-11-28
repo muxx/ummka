@@ -2688,3 +2688,34 @@ test("channel bookmarks read only on opening and return to the selected overview
   fireEvent.keyDown(window, { key: "Escape" });
   expect(document.activeElement).toBe(info);
 });
+
+test("direct bookmarks report the confirmed license state only after selection and return to the title", async () => {
+  const { account } = fixture();
+  account.readChannelBookmarks.mockResolvedValue({ kind: "unlicensed" });
+  const menu = await screen.findByRole("button", {
+    name: "Channel menu, Home",
+  });
+  fireEvent.click(menu);
+  const items = screen.getAllByRole("menuitem");
+  const files = screen.getByRole("menuitem", { name: "Channel files" });
+  const bookmarks = screen.getByRole("menuitem", { name: "Channel bookmarks" });
+  expect(items.indexOf(bookmarks)).toBe(items.indexOf(files) + 1);
+  expect(account.readChannelBookmarks).not.toHaveBeenCalled();
+  fireEvent.click(bookmarks);
+  const panel = await screen.findByRole("complementary", {
+    name: "Channel bookmarks",
+  });
+  await within(panel).findByText(
+    "Channel bookmarks aren’t available on this server.",
+  );
+  expect(within(panel).queryByRole("button", { name: "Try again" })).toBeNull();
+  expect(account.readChannelBookmarks).toHaveBeenCalledExactlyOnceWith(
+    home,
+    expect.any(AbortSignal),
+  );
+  fireEvent.click(
+    within(panel).getByRole("button", { name: "Back to conversation" }),
+  );
+  expect(screen.queryByRole("complementary")).toBeNull();
+  expect(document.activeElement).toBe(menu);
+});

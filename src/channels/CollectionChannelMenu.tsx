@@ -6,6 +6,7 @@ import {
   useRef,
 } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
+import { BookmarkIcon, bookmarkCopy } from "./ChannelBookmarksPanel.tsx";
 import { FileIcon, filePanelCopy } from "./ChannelFilesPanel.tsx";
 import { channelKindIconPaths } from "./channel-kind-icon-paths.ts";
 import { notificationCopy } from "./channel-notification-copy.ts";
@@ -130,6 +131,7 @@ export function CollectionChannelMenu({
   onMembers,
   onPins,
   onFiles,
+  onBookmarks,
   onNotifications,
 }: {
   headingId: string;
@@ -148,6 +150,7 @@ export function CollectionChannelMenu({
   onMembers?: (trigger: HTMLButtonElement) => void;
   onPins: (trigger: HTMLButtonElement) => void;
   onFiles?: (trigger: HTMLButtonElement) => void;
+  onBookmarks?: (trigger: HTMLButtonElement) => void;
   onNotifications?: () => void;
 }) {
   const text = collectionCopy[language],
@@ -181,9 +184,15 @@ export function CollectionChannelMenu({
           { key: "pins", icon: "pin", label: text.pins, run: onPins } as const,
           {
             key: "files",
-            icon: null,
+            icon: <FileIcon />,
             label: filePanelCopy[language].title,
             run: onFiles,
+          } as const,
+          {
+            key: "bookmarks",
+            icon: <BookmarkIcon />,
+            label: bookmarkCopy[language].title,
+            run: onBookmarks,
           } as const,
           {
             key: "notifications",
@@ -286,7 +295,7 @@ export function CollectionChannelMenu({
               }}
             >
               {compact &&
-                (icon === null ? <FileIcon /> : <SheetIcon name={icon} />)}
+                (typeof icon === "string" ? <SheetIcon name={icon} /> : icon)}
               {label}
             </button>
           ),

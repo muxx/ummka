@@ -63,6 +63,7 @@ type Props = {
   serverUrl: string;
   online: boolean;
   language: EntryLanguage;
+  direct?: boolean;
   back: () => void;
   sessionIssue: (reason: "session" | "unauthorized") => void;
 };
@@ -328,7 +329,11 @@ export function ChannelBookmarksPanel(props: Props) {
         icon={<BookmarkIcon />}
         title={t.title}
         name={props.name}
-        backLabel={filePanelCopy[language].back}
+        backLabel={
+          props.direct
+            ? filePanelCopy[language].backToChannel
+            : filePanelCopy[language].back
+        }
         closeLabel={t.close}
         back={props.back}
         close={props.back}
