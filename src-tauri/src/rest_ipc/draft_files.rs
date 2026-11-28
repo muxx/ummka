@@ -6,13 +6,13 @@ use crate::{
 };
 use std::{
     collections::HashMap,
-    num::NonZeroU64,
     sync::{Arc, Mutex},
 };
 use tauri::{Resource, ResourceId, Runtime, Webview};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+pub(crate) mod bridge;
 mod stage;
 mod transfer;
 pub use stage::stage_post;
@@ -60,7 +60,8 @@ pub enum AddResult {
     LimitReached(DocumentInfo),
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum DraftFilesError {
     AccountUnavailable,
     UnknownWorkspace,
@@ -68,6 +69,8 @@ pub enum DraftFilesError {
     UnknownFile,
     SourceUnavailable,
     InvalidUploadPolicy,
+    PermissionDenied,
+    PolicyUnavailable,
     FilesChanged,
     FilesNotReady,
     HistoryUnavailable,
@@ -96,6 +99,17 @@ type Drafts = HashMap<DraftAddress, Vec<Entry>>;
 struct WorkspaceState {
     drafts: Drafts,
     channel_denials: HashMap<String, ChannelUploadDenial>,
+}
+
+impl WorkspaceState {
+    fn files(&self, draft: &DraftAddress) -> Vec<DraftFile> {
+        self.drafts
+            .get(draft)
+            .into_iter()
+            .flatten()
+            .map(Entry::info)
+            .collect()
+    }
 }
 
 struct Workspace {
@@ -196,7 +210,7 @@ pub async fn add<R: Runtime>(
     rid: ResourceId,
     workspace: ResourceId,
     draft: &DraftAddress,
-    max_size: NonZeroU64,
+    max_size: u64,
     documents: impl IntoIterator<
         Item = impl Future<Output = Result<Arc<SelectedDocument>, DocumentUnavailable>>,
     >,
@@ -209,7 +223,7 @@ async fn add_to_workspace(
     account: &Session,
     workspace: ResourceId,
     draft: &DraftAddress,
-    max_size: NonZeroU64,
+    max_size: u64,
     documents: impl IntoIterator<
         Item = impl Future<Output = Result<Arc<SelectedDocument>, DocumentUnavailable>>,
     >,
@@ -223,7 +237,7 @@ async fn add_to_workspace(
                 Err(_) => Err(AddResult::Unavailable),
                 Ok(source) => match source.info().size {
                     Some(0) => Err(AddResult::Empty(source.info().clone())),
-                    Some(size) if size > max_size.get() => {
+                    Some(size) if size > max_size => {
                         Err(AddResult::TooLarge(source.info().clone()))
                     }
                     // No more than ten sources in one batch can be published.
@@ -290,16 +304,7 @@ fn list_workspace(
     draft: &DraftAddress,
 ) -> Result<Vec<DraftFile>, DraftFilesError> {
     with_workspace(account, workspace, |owner| {
-        owner
-            .state
-            .lock()
-            .unwrap()
-            .drafts
-            .get(draft)
-            .into_iter()
-            .flatten()
-            .map(Entry::info)
-            .collect()
+        owner.state.lock().unwrap().files(draft)
     })
 }
 

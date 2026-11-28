@@ -15,6 +15,7 @@ import { accountChannelReadState } from "./account-channel-read-state.ts";
 import { readCustomEmoji } from "./account-custom-emoji.ts";
 import { accountDelivery } from "./account-delivery.ts";
 import { atDirectoryStep } from "./account-directory-error.ts";
+import { openDraftFileWorkspace } from "./account-draft-files.ts";
 import { accountFollowedThreads } from "./account-followed-threads.ts";
 import { accountPostCollections } from "./account-post-collections.ts";
 import { accountPostReactions } from "./account-post-reactions.ts";
@@ -723,6 +724,9 @@ export async function openAccountRestConnection(
       }
     },
     ...delivery,
+    openDraftFileWorkspace() {
+      return openDraftFileWorkspace(rid, readWhileOpen);
+    },
     submitDraftCommand(
       location: DraftLocation & { teamId: string },
       revision: string,

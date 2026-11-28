@@ -1,7 +1,6 @@
 //! Run with real documents returned by the system chooser in the native test fixture.
 use super::*;
 use crate::{draft_files, rest_ipc::close_rest_connection};
-use std::num::NonZeroU64;
 use tokio::io::AsyncReadExt;
 
 pub(super) async fn verify<R: Runtime>(
@@ -13,7 +12,7 @@ pub(super) async fn verify<R: Runtime>(
     let workspace = draft_files::open(view, connection).map_err(|_| "draft workspace")?;
     let draft =
         draft_files::DraftAddress::new("c".repeat(26), None).map_err(|_| "draft address")?;
-    let size_limit = NonZeroU64::new(1024).unwrap();
+    let size_limit = 1024;
     for (stage, mode, expected) in [
         ("one", SelectionMode::One, &["ummka-first.txt"][..]),
         (
@@ -97,16 +96,9 @@ async fn verify_unknown_size<R: Runtime>(
     let document = SelectedDocument::from_picker_uri(
         "content://io.github.muxx.ummka.dev.httpcheck.sourcecheck/stream".to_owned(),
     );
-    let added = draft_files::add(
-        view,
-        connection,
-        workspace,
-        draft,
-        NonZeroU64::new(2).unwrap(),
-        [document],
-    )
-    .await
-    .map_err(|_| "publish unknown-size draft file")?;
+    let added = draft_files::add(view, connection, workspace, draft, 2, [document])
+        .await
+        .map_err(|_| "publish unknown-size draft file")?;
     let [draft_files::AddResult::Added(file)] = added.as_slice() else {
         return Err("unknown size rejected");
     };

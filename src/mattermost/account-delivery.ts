@@ -33,7 +33,7 @@ export type PendingPost = {
   refusal: PostRefusal | null;
   retryRefusal?: PostRefusal;
 };
-type StagePost =
+export type StagePost =
   | { kind: "created"; post: PendingPost; draft: ComposerDraft }
   | { kind: "notStaged"; draft: ComposerDraft };
 type DeliverySource =
