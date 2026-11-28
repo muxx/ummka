@@ -1,4 +1,4 @@
-import { cp, readdir } from "node:fs/promises";
+import { cp, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { build } from "vite";
 import appConfig from "../../src-tauri/tauri.conf.json" with { type: "json" };
@@ -38,6 +38,19 @@ export async function buildWebviewFixture(
       errorOnExist: true,
     });
   }
+  const capabilityDir = "src-tauri/capabilities";
+  const installed = await Promise.all(
+    (await readdir(capabilityDir))
+      .filter((file) => file.endsWith(".json"))
+      .map(
+        async (file) =>
+          (
+            JSON.parse(await readFile(join(capabilityDir, file), "utf8")) as {
+              identifier: string;
+            }
+          ).identifier,
+      ),
+  );
   return JSON.stringify({
     build: { frontendDist, beforeBuildCommand: null },
     plugins: { ummkaFixture: { dataPort: ports[0] } },
@@ -52,6 +65,17 @@ export async function buildWebviewFixture(
         },
       ],
       ...(platform === "macos" && {
+        security: {
+          capabilities: [
+            ...installed,
+            {
+              identifier: "fixture-window-visibility",
+              webviews: ["main"],
+              local: true,
+              permissions: ["core:window:allow-show", "core:window:allow-hide"],
+            },
+          ],
+        },
         appDirectoriesOverride: { localData: join(dir, "data") },
       }),
     },

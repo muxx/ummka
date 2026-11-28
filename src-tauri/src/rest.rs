@@ -275,6 +275,12 @@ impl RestConnection {
         Ok(crate::realtime::AccountEvents::new(self))
     }
 
+    pub(crate) fn account_user_id(&self) -> Option<&str> {
+        self.account
+            .as_ref()
+            .map(|session| session.account().user_id())
+    }
+
     pub(crate) fn event_route(
         &self,
         address: &crate::realtime::ClientEventAddress,
@@ -292,6 +298,21 @@ impl RestConnection {
             &mut crate::realtime::EventReader,
         ) -> Result<T, crate::realtime::EventConnectionError>,
     ) -> Result<T, crate::realtime::EventConnectionError> {
+        self.with_event_reader(settings, applied, move |mut reader| async move {
+            consume(&mut reader).await
+        })
+        .await
+    }
+
+    pub(crate) async fn with_event_reader<T, F>(
+        &self,
+        settings: crate::realtime::EventSettings<'_>,
+        applied: Option<&crate::realtime::EventCursor>,
+        consume: impl FnOnce(crate::realtime::EventReader) -> F,
+    ) -> Result<T, crate::realtime::EventConnectionError>
+    where
+        F: Future<Output = Result<T, crate::realtime::EventConnectionError>>,
+    {
         use crate::realtime::EventConnectionError;
         let account = self
             .account
@@ -300,7 +321,12 @@ impl RestConnection {
         let request = settings.request(&self.base, applied)?;
         account
             .dispatch(|token| async move {
-                Ok(crate::realtime::EventReader::run(&self.http, request, &token, consume).await)
+                Ok(
+                    match crate::realtime::EventReader::open(&self.http, request, &token).await {
+                        Ok(reader) => consume(reader).await,
+                        Err(error) => Err(error),
+                    },
+                )
             })
             .await
             .map_err(|_| EventConnectionError::SessionUnavailable)?

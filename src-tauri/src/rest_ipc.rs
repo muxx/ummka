@@ -5,6 +5,7 @@ pub(crate) mod directory;
 #[cfg(any(target_os = "macos", target_os = "android"))]
 pub mod draft_files;
 pub(crate) mod drafts;
+pub(crate) mod events;
 mod exchange;
 pub(crate) mod history;
 #[cfg(all(

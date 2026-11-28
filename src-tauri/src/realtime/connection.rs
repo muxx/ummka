@@ -11,6 +11,7 @@ pub enum EventConnectionError {
     UnsupportedConfiguration,
     InvalidAction,
     SessionUnavailable,
+    ConsumerUnavailable,
     Http(u16),
     Network,
     Protocol(StreamError),
@@ -24,6 +25,7 @@ impl std::fmt::Display for EventConnectionError {
                 f.write_str("Unsupported Mattermost WebSocket address")
             }
             Self::InvalidAction => f.write_str("Invalid Mattermost event action"),
+            Self::ConsumerUnavailable => f.write_str("The event consumer is unavailable"),
             Self::SessionUnavailable => f.write_str("Mattermost session is unavailable"),
             Self::Http(code) => write!(f, "Mattermost WebSocket returned HTTP {code}"),
             Self::Network => f.write_str("Mattermost WebSocket connection failed"),
@@ -99,12 +101,11 @@ pub struct EventReader {
 }
 
 impl EventReader {
-    pub(crate) async fn run<T>(
+    pub(crate) async fn open(
         http: &NativeHttp,
         mut request: Request,
         token: &SessionToken,
-        consume: impl AsyncFnOnce(&mut Self) -> Result<T, EventConnectionError>,
-    ) -> Result<T, EventConnectionError> {
+    ) -> Result<Self, EventConnectionError> {
         token.authorize(&mut request);
         let response = http
             .prepare(request)
@@ -119,11 +120,10 @@ impl EventReader {
             .into_websocket()
             .await
             .map_err(|_| EventConnectionError::Network)?;
-        consume(&mut Self {
+        Ok(Self {
             socket: Some(socket),
             last_request: 0,
         })
-        .await
     }
 
     /// Send an application ping on this socket. Its reply does not advance the event cursor.

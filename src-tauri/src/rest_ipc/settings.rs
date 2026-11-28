@@ -48,14 +48,20 @@ pub(crate) async fn store_workspace_policy<R: Runtime>(
     let account = session(&webview, rid)?;
     let ticket =
         account.take_pending::<PendingPolicy>(load, ExchangeError::UnknownDirectoryLoad)?;
-    let accepted = account
+    let route = account.http.event_route(&event_address.unwrap_or_default());
+    let owner = account.clone();
+    account
         .with_history(&webview.state::<AccountSessions>(), move |view| {
             let policy =
                 serde_json::from_value(server).map_err(|_| HistoryError::InvalidDirectory)?;
-            view.store_server_policy(ticket.0, &policy)
+            if !view.store_server_policy(ticket.0, &policy)? {
+                return Ok(None);
+            }
+            // Publish the route in the same order as the accepted policy writes.
+            owner.events.lock().unwrap().set_route(&route);
+            Ok(Some(route))
         })
-        .await?;
-    Ok(accepted.then(|| account.http.event_route(&event_address.unwrap_or_default())))
+        .await
 }
 
 #[tauri::command]
