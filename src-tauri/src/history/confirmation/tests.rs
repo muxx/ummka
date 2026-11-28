@@ -5,6 +5,7 @@ use crate::history::{
     schema::{MIGRATIONS, Migration},
 };
 use crate::realtime::{EventConnectionError, ServerEvent, StreamError};
+use crate::rest::file_upload::UploadedFile;
 use crate::sessions::Account;
 use serde_json::{Value, json};
 use std::{path::Path, sync::Barrier, thread};
@@ -101,25 +102,49 @@ fn posted(payload: Value, broadcast: Value) -> ServerEvent {
 fn posted_and_http_can_arrive_in_either_order_and_survive_restart() {
     let path = tempdir().unwrap();
     let mut view = open(path.path());
+    let file = UploadedFile {
+        id: "f".repeat(26),
+        name: "sent.txt".into(),
+        size: 5,
+    };
     for (event_first, post_id, root) in [(true, ROOT, None), (false, REPLY, Some(ROOT))] {
-        let pending = stage(&mut view, root);
+        let StagePost::Created { post: pending, .. } = view
+            .stage_post_with_files(ROOM, root, None, std::slice::from_ref(&file))
+            .unwrap()
+        else {
+            panic!("expected a queued file post");
+        };
+        let pending = pending.pending_id;
         let post = canonical(post_id, root);
         let mut payload = wire_post(&post, &pending);
+        payload["file_ids"] = json!([file.id.as_str()]);
+        payload["message"] = "".into();
         payload["metadata"] = json!({"priority": {"priority": "important"}});
         payload["props"] = json!({"ai_generated_by": ME, "ai_generated_by_username": "fixture-ai"});
         let receipt = posted(payload.to_string().into(), json!({"channel_id": ROOM}));
+        payload["pending_post_id"] = "".into();
+        let empty_key = posted(payload.to_string().into(), json!({"channel_id": ROOM}));
+        assert!(!empty_key.confirm_delivery(&mut view).unwrap());
+        payload.as_object_mut().unwrap().remove("pending_post_id");
+        let missing_key = posted(payload.to_string().into(), json!({"channel_id": ROOM}));
+        assert!(!missing_key.confirm_delivery(&mut view).unwrap());
         if event_first {
             assert!(receipt.confirm_delivery(&mut view).unwrap());
         } else {
-            // The server reads the deduplicated post from SQL and can omit pending_post_id.
-            assert!(view.confirm_delivery(http(&pending), None, &post).unwrap());
+            // The server reads the deduplicated post from SQL and can return an empty key.
+            assert!(
+                view.confirm_delivery(http(&pending), Some(""), &post)
+                    .unwrap()
+            );
         }
         drop(view);
         view = open(path.path());
         let kept = view.pending_posts(ROOM, root, 0, 4).unwrap();
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].confirmed_post_id.as_deref(), Some(post_id));
-        assert_eq!(kept[0].message, "same text");
+        assert!(kept[0].message.is_empty());
+        assert_eq!(kept[0].files.len(), 1);
+        assert_eq!(kept[0].files[0].id, file.id);
         assert_eq!(view.retire_delivered_posts(&[post_id]).unwrap(), 0);
         assert!(
             view.confirm_delivery(http(&pending), Some(&pending), &post)
@@ -295,11 +320,13 @@ fn ordinary_history_identical_text_or_incorrect_scope_cannot_confirm_a_send() {
     apply(&mut view, saved(canonical(REPLY, Some(ROOT))));
     assert_eq!(view.retire_delivered_posts(&[REPLY]).unwrap(), 0);
     let mut reply = canonical(REPLY, Some(ROOT));
-    assert!(
-        !view
-            .confirm_delivery(DeliverySource::Posted, None, &reply)
-            .unwrap()
-    );
+    for echo in [None, Some("")] {
+        assert!(
+            !view
+                .confirm_delivery(DeliverySource::Posted, echo, &reply)
+                .unwrap()
+        );
+    }
     assert!(
         !view
             .confirm_delivery(http(&pending), Some(&other), &reply)
@@ -311,14 +338,28 @@ fn ordinary_history_identical_text_or_incorrect_scope_cannot_confirm_a_send() {
             .confirm_delivery(DeliverySource::Posted, Some(&pending), &reply)
             .unwrap()
     );
+    assert!(
+        !view
+            .confirm_delivery(http(&pending), Some(""), &reply)
+            .unwrap()
+    );
     reply.channel_id = ROOM.into();
     reply.user_id = OTHER.into();
-    assert!(!view.confirm_delivery(http(&pending), None, &reply).unwrap());
+    assert!(
+        !view
+            .confirm_delivery(http(&pending), Some(""), &reply)
+            .unwrap()
+    );
     reply.user_id = ME.into();
     reply.root_id = None;
     assert!(
         !view
             .confirm_delivery(DeliverySource::Posted, Some(&pending), &reply)
+            .unwrap()
+    );
+    assert!(
+        !view
+            .confirm_delivery(http(&pending), Some(""), &reply)
             .unwrap()
     );
     assert!(
@@ -328,7 +369,10 @@ fn ordinary_history_identical_text_or_incorrect_scope_cannot_confirm_a_send() {
             .all(|p| p.confirmed_post_id.is_none())
     );
     let reply = canonical(REPLY, Some(ROOT));
-    assert!(view.confirm_delivery(http(&pending), None, &reply).unwrap());
+    assert!(
+        view.confirm_delivery(http(&pending), Some(""), &reply)
+            .unwrap()
+    );
     assert!(!view.confirm_delivery(http(&other), None, &reply).unwrap());
     assert_eq!(view.retire_delivered_posts(&[REPLY]).unwrap(), 1);
     assert_eq!(

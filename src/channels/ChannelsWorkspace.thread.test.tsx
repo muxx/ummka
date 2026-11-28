@@ -982,6 +982,7 @@ test.each([0, 86400000])(
       attempt: 1,
       refusal: null,
       confirmedPostId: canonical.id,
+      files: [],
       message: "Own local reply",
     };
     connection.readPendingPosts.mockImplementation(async ({ rootId }) =>
@@ -1496,6 +1497,7 @@ const pendingCopyPost: PendingPost = {
   refusal: null,
   confirmedPostId: null,
   message: "Previous local attempt",
+  files: [],
 };
 
 function holdClipboardRead() {

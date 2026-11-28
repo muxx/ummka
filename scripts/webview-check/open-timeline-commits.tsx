@@ -314,6 +314,7 @@ async function checkWidth(account: Account, width: number) {
       createdAt: 100,
       previousLogin: false,
       confirmedPostId: null,
+      files: [],
       refusal: null,
       attempt: 1,
       message: Array.from(

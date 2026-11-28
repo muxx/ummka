@@ -12,6 +12,7 @@ const pending: PendingPost = {
   channelId,
   rootId: null,
   confirmedPostId: null,
+  files: [],
   message: "  Exact text\n",
   createdAt: 1,
   previousLogin: false,
@@ -70,10 +71,11 @@ test("never correlates a malformed, removed, foreign or differently keyed server
   const store = receipts();
   for (const response of [
     null,
-    { ...server, id: "" },
-    { ...server, userId: "another" },
+    { ...server, id: "", pendingPostId: "" },
+    { ...server, userId: "another", pendingPostId: "" },
     { ...server, rootId: server.id },
-    { ...server, channelId: "other" },
+    { ...server, rootId: "r".repeat(26), pendingPostId: "" },
+    { ...server, channelId: "other", pendingPostId: "" },
     { ...server, deleteAt: 1 },
     { ...server, pendingPostId: "different" },
   ]) {
@@ -87,6 +89,55 @@ test("never correlates a malformed, removed, foreign or differently keyed server
     ).resolves.toEqual({ kind: "unconfirmed" });
   }
   expect(store.confirmPostDelivery).not.toHaveBeenCalled();
+});
+
+test("keeps durable file order and confirms a file-only reply with a partial server attachment list", async () => {
+  const store = receipts();
+  const reply = {
+    ...pending,
+    message: "",
+    rootId: "r".repeat(26),
+    files: [
+      { id: "z".repeat(26), name: "first", size: 12 },
+      { id: "a".repeat(26), name: "second", size: 8 },
+    ],
+  };
+  const partial = {
+    ...server,
+    rootId: reply.rootId,
+    fileIds: [reply.files[1].id],
+    pendingPostId: reply.pendingId,
+  };
+  const replay = { ...partial, pendingPostId: "" };
+  const request = {
+    createPost: vi
+      .fn()
+      .mockResolvedValueOnce(partial)
+      .mockResolvedValueOnce(replay),
+  };
+  for (const [attempt, post] of [
+    [1, partial],
+    [2, replay],
+  ] as const) {
+    await expect(
+      deliverAccountPost(request, userId, { ...reply, attempt }, store),
+    ).resolves.toEqual({ kind: "accepted", post, matched: true });
+  }
+  const payload = {
+    createPostRequest: {
+      channelId,
+      rootId: reply.rootId,
+      message: "",
+      pendingPostId: reply.pendingId,
+      fileIds: ["z".repeat(26), "a".repeat(26)],
+    },
+  };
+  expect(request.createPost.mock.calls).toEqual([[payload], [payload]]);
+  expect(store.confirmPostDelivery.mock.calls).toEqual([
+    [{ kind: "response", requestPendingId: reply.pendingId }, partial],
+    [{ kind: "response", requestPendingId: reply.pendingId }, replay],
+  ]);
+  expect(store.recordPostRefusal).not.toHaveBeenCalled();
 });
 
 test("only a scoped public 4xx records a refusal and a lost response never starts another request", async () => {

@@ -62,13 +62,15 @@ impl AccountHistory {
         }
         let pending_id = match &source {
             DeliverySource::Response { request_pending_id } => {
-                if wire_pending_id.is_some_and(|actual| actual != request_pending_id) {
+                if wire_pending_id
+                    .is_some_and(|actual| !actual.is_empty() && actual != request_pending_id)
+                {
                     return Ok(false);
                 }
                 request_pending_id.as_str()
             }
             DeliverySource::Posted => {
-                let Some(id) = wire_pending_id else {
+                let Some(id) = wire_pending_id.filter(|id| !id.is_empty()) else {
                     return Ok(false);
                 };
                 id

@@ -45,6 +45,7 @@ import { checkPostContext } from "./post-context.ts";
 import { checkPostMutations } from "./post-mutations.ts";
 import { checkPostReactions } from "./post-reactions.ts";
 import { checkSubmissions } from "./submission.ts";
+import { checkFileSubmissions } from "./submission-files.ts";
 import { checkTeamReads } from "./team-reads.ts";
 import { checkRoleStorage } from "./team-role-storage.ts";
 import { checkThreadInbox } from "./thread-inbox.ts";
@@ -673,6 +674,9 @@ export async function checkGeneratedRequests(ports: string[]) {
     );
     await androidFixtureStep("post-submissions", () =>
       checkSubmissions(accountPrefix, accountRoot, userId, observed),
+    );
+    await fixtureStep("file-submissions", () =>
+      checkFileSubmissions(accountPrefix, userId, observed),
     );
     const cached = await accountPrefix.readJoinedTeams();
     check(

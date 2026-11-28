@@ -544,6 +544,7 @@ test("restores the selected team, channel, messages and account actions without 
               attempt: 1,
               refusal: null,
               confirmedPostId: null,
+              files: [],
               previousLogin: false,
             },
           ]
