@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useEffectEvent, useState } from "react";
+import { type ReactNode, useEffect, useEffectEvent } from "react";
 import { usesMacOSOverlay } from "../build-platform.ts";
 import type { EntryLanguage } from "../entry/language.ts";
 import { collectionCopy } from "./collection-copy.ts";
@@ -28,6 +28,7 @@ export function CollectionResultSteps({
   language,
   steps,
   sourceTeam,
+  remind,
   blocked,
   back,
   end,
@@ -48,17 +49,12 @@ export function CollectionResultSteps({
         open: (delta: -1 | 1, control: HTMLElement) => void;
       };
       sourceTeam?: never;
+      remind?: never;
     }
-  | { steps?: never; sourceTeam: string }
+  | { steps?: never; sourceTeam: string; remind: () => void }
 )) {
   const text = copy[language];
   const saved = collectionCopy[language];
-  const [reminder, setReminder] = useState(0);
-  useEffect(() => {
-    if (!reminder) return;
-    const timer = window.setTimeout(() => setReminder(0), 2600);
-    return () => window.clearTimeout(timer);
-  }, [reminder]);
   const onStepKey = useEffectEvent((event: KeyboardEvent) => {
     if (
       blocked ||
@@ -74,7 +70,7 @@ export function CollectionResultSteps({
       return;
     event.preventDefault();
     if (!steps) {
-      setReminder((n) => n + 1);
+      remind();
       return;
     }
     const delta = event.shiftKey ? -1 : 1;
@@ -136,18 +132,9 @@ export function CollectionResultSteps({
           </button>
         </>
       ) : (
-        <>
-          <span className="collection-step-count">
-            {saved.sourceTeam(sourceTeam)}
-          </span>
-          <span role="status">
-            {reminder > 0 && (
-              <span key={reminder} className="post-action-notice">
-                {saved.savedIn(sourceTeam)}
-              </span>
-            )}
-          </span>
-        </>
+        <span className="collection-step-count">
+          {saved.sourceTeam(sourceTeam)}
+        </span>
       )}
       <button
         type="button"

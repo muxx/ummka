@@ -11,7 +11,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ResponseError } from "../../vendor/mattermost/index.js";
-import { isAndroid } from "../build-platform.ts";
+import { isAndroid, usesMacOSOverlay } from "../build-platform.ts";
 import * as clipboardPolicy from "../device/clipboard-policy.ts";
 import type { TeamWorkspace } from "../entry/AccountTeamWindow.tsx";
 import type { PendingPost } from "../mattermost/account-delivery.ts";
@@ -339,6 +339,28 @@ function mount(
     saved,
     writeSavedPost,
     unmount: view.unmount,
+    setPosition(
+      position: Omit<
+        NonNullable<TeamWorkspace["messages"]["position"]>,
+        "sidebar"
+      >,
+    ) {
+      view.rerender(
+        <ChannelsWorkspace
+          workspace={{
+            ...workspace,
+            messages: {
+              ...workspace.messages,
+              position: {
+                ...position,
+                sidebar: { selectedChannel: general, data },
+              },
+            },
+          }}
+          language="en"
+        />,
+      );
+    },
     setOnline(next: boolean) {
       view.rerender(
         <ChannelsWorkspace
@@ -349,6 +371,59 @@ function mount(
     },
   };
 }
+
+test("keeps the Saved reminder while the return bar moves to the thread", async () => {
+  const account = mount(true);
+  await screen.findByText(root.message);
+  let resume!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    resume = resolve;
+  });
+  const read = account.readChannelWindow.getMockImplementation();
+  if (!read) throw Error("The channel window fixture is missing");
+  account.readChannelWindow.mockImplementation(async (query) => {
+    if (query.kind === "around") await gate;
+    return read(query);
+  });
+  const position = {
+    request: {
+      kind: "focus" as const,
+      requestId: 1,
+      rid: account.rid,
+      teamId: team.id,
+      post: { ...reply, messageSource: null },
+    },
+    membership: "",
+  };
+  account.setPosition({
+    ...position,
+    saved: {
+      teamId: "z".repeat(26),
+      teamName: "Summer",
+      channelId: null,
+      index: 0,
+      scroll: 0,
+      reading: null,
+    },
+  });
+  const back = { name: "Back to saved messages in team “Summer”" };
+  const initial = await screen.findByRole("button", back);
+  expect(initial.closest(".channels-conversation")).not.toBeNull();
+  fireEvent.keyDown(window, {
+    code: "KeyG",
+    metaKey: usesMacOSOverlay,
+    ctrlKey: !usesMacOSOverlay,
+  });
+  const copy = /The list is in team “Summer”/;
+  const reminder = await screen.findByText(copy);
+  await act(async () => resume());
+  const thread = await screen.findByRole("complementary", { name: "Thread" });
+  expect(within(thread).getByRole("button", back)).not.toBe(initial);
+  expect(initial.isConnected).toBe(false);
+  expect(screen.getByText(copy)).toBe(reminder);
+  account.setPosition(position);
+  expect(screen.queryByText(copy)).toBeNull();
+});
 
 test("opens a root by its reply count and returns focus to the same message with its channel draft intact", async () => {
   const connection = mount(true);
