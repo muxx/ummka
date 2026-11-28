@@ -325,3 +325,17 @@ test("the submitted transaction returns its own result after HTTP cancellation",
     { kind: "remove", id: removed, channelId },
   ]);
 });
+
+test("keeps a confirmed history cutoff even when an empty recent page leaves SQLite unchanged", async () => {
+  const { api, writer } = setup(async () =>
+    Response.json({ order: [], posts: {}, first_inaccessible_post_time: 20 }),
+  );
+  await expect(refreshChannelHistory(api, writer, request)).resolves.toEqual({
+    kind: "applied",
+    firstInaccessiblePostTime: 20,
+  });
+  expect(writer.store).toHaveBeenCalledWith(
+    17,
+    expect.objectContaining({ order: [], firstInaccessiblePostTime: 20 }),
+  );
+});

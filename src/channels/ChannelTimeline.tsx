@@ -100,6 +100,7 @@ class TimelineScroller extends Component<ScrollProps> {
       );
     if (!pane || !row) return false;
     this.lastCorrection = undefined;
+    this.followedEndAt = undefined;
     row.focus({ preventScroll: true });
     const bounds = row.getBoundingClientRect();
     pane.scrollTop +=
@@ -112,6 +113,7 @@ class TimelineScroller extends Component<ScrollProps> {
   private restoredRequest?: number;
   private hiddenPlace: TimelinePlace | null | undefined = null;
   private lastCorrection?: { top: number; remainder: number };
+  private followedEndAt?: number;
 
   componentDidMount() {
     const pane = this.pane.current;
@@ -159,7 +161,17 @@ class TimelineScroller extends Component<ScrollProps> {
 
   private place(pane: HTMLElement, historical: boolean) {
     const place = measureTimeline(pane, !historical);
-    return place.atBottom && !historical ? null : place;
+    // Content can grow before React's next update while the scrollTop stays
+    // where the reader last followed the end.
+    if (
+      !historical &&
+      (place.atBottom ||
+        (this.followedEndAt !== undefined &&
+          Math.abs(place.top - this.followedEndAt) <= 2))
+    )
+      return null;
+    this.followedEndAt = undefined;
+    return place;
   }
 
   componentDidUpdate(
@@ -185,16 +197,20 @@ class TimelineScroller extends Component<ScrollProps> {
 
   private restore(pane: HTMLElement, place: TimelinePlace | null) {
     const restored = this.props.restoredPosition;
-    if (restored && restored.requestId !== this.restoredRequest) {
+    const returning = restored && restored.requestId !== this.restoredRequest;
+    if (returning) {
       this.restoredRequest = restored.requestId;
       place = restored.place;
     }
     const correction = this.lastCorrection;
     this.lastCorrection = undefined;
-    if (!place) {
+    if (!place || (place.atBottom && !place.anchors.length)) {
       pane.scrollTop = pane.scrollHeight;
+      if (returning || this.followedEndAt !== undefined)
+        this.followedEndAt = pane.scrollTop;
       return;
     }
+    this.followedEndAt = undefined;
     const top = pane.getBoundingClientRect().top;
     for (const anchor of place.anchors) {
       const row = pane.querySelector<HTMLElement>(

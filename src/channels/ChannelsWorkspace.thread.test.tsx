@@ -3265,6 +3265,172 @@ test.each(["list_team_channels", "join_public_channels"])(
   },
 );
 
+test("switching thread mode cannot expose channel history after a known refusal", async () => {
+  const account = mount(true);
+  const refresh =
+    deferred<Awaited<ReturnType<Connection["refreshChannelHistory"]>>>();
+  account.refreshChannelHistory
+    .mockRejectedValueOnce(
+      new ResponseError(new Response(null, { status: 403 })),
+    )
+    .mockReturnValueOnce(refresh.promise);
+  await screen.findByRole("heading", {
+    name: "This content is no longer available to your account.",
+  });
+  account.readChannelWindow.mockClear();
+  account.disableThreads();
+  await waitFor(() =>
+    expect(account.refreshChannelHistory).toHaveBeenCalledTimes(2),
+  );
+  expect(account.refreshChannelHistory.mock.lastCall?.[0]).toMatchObject({
+    collapsedThreads: false,
+  });
+  expect(account.readChannelWindow).not.toHaveBeenCalled();
+  expect(screen.queryByText(root.message)).toBeNull();
+  await act(async () => refresh.resolve({ kind: "applied" }));
+  await screen.findByText(root.message);
+  expect(account.readChannelWindow.mock.lastCall?.[0]).toMatchObject({
+    collapsedThreads: false,
+  });
+});
+
+test("a second warm return keeps the confirmed timeline while refresh is still pending", async () => {
+  const account = mount(true);
+  const retaining =
+    deferred<Awaited<ReturnType<Connection["refreshChannelHistory"]>>>();
+  const local =
+    deferred<Awaited<ReturnType<Connection["readChannelWindow"]>>>();
+  const firstFrame = async () => {
+    await screen.findByText(root.message);
+    const pane = screen.getByRole("region", { name: "Channel messages" });
+    Object.defineProperty(pane, "clientHeight", { value: 120 });
+  };
+  const pick = (name: string) =>
+    fireEvent.click(screen.getByRole("button", { name }));
+
+  await firstFrame();
+  await waitFor(() =>
+    expect(account.readChannelWindow).toHaveBeenCalledTimes(2),
+  );
+  const read = account.readChannelWindow.getMockImplementation();
+  if (!read) throw Error("The initial history reader is required.");
+  pick("Design");
+  await screen.findByRole("heading", { name: "Design" });
+  await waitFor(() =>
+    expect(account.readChannelWindow).toHaveBeenCalledTimes(4),
+  );
+  account.refreshChannelHistory.mockImplementation(({ channelId }) =>
+    channelId === general
+      ? retaining.promise
+      : Promise.resolve({ kind: "applied" }),
+  );
+  account.readChannelWindow.mockImplementation((input) =>
+    input.channelId === general ? local.promise : read(input),
+  );
+  pick("General");
+  await firstFrame();
+  pick("Design");
+  await screen.findByRole("heading", { name: "Design" });
+  pick("General");
+  await screen.findByRole("heading", { name: "General" });
+  expect(screen.getByText(root.message)).toBeTruthy();
+  expect(
+    account.readChannelWindow.mock.calls.filter(
+      ([input]) => input.channelId === general,
+    ),
+  ).toHaveLength(2);
+  expect(
+    account.refreshChannelHistory.mock.calls.filter(
+      ([input]) => input.channelId === general,
+    ),
+  ).toHaveLength(3);
+});
+
+test.each([
+  "directory",
+  "sidebar",
+  "other channel",
+  "team picker Back before acknowledgement",
+  "search Back before acknowledgement",
+])(
+  "a delayed local selection preserves newer navigation and focus from %s",
+  async (source) => {
+    const account = mount(true);
+    await screen.findByText(root.message);
+    await waitFor(() =>
+      expect(account.readChannelWindow).toHaveBeenCalledTimes(2),
+    );
+    const pane = screen.getByRole("region", { name: "Channel messages" });
+    Object.defineProperty(pane, "clientHeight", { value: 120 });
+    const draft = screen.getByRole<HTMLTextAreaElement>("textbox", {
+      name: "Message #General…",
+    });
+    const panes = draft.closest(".channels-panes");
+    if (!panes) throw Error("Missing workspace panes");
+    const text = "Draft stays with the current channel";
+    fireEvent.change(draft, { target: { value: text } });
+    const switchingChannel = source !== "directory" && source !== "sidebar";
+    const backFirst = source.endsWith("before acknowledgement");
+    const search = source.startsWith("search");
+    if (switchingChannel) {
+      fireEvent.click(screen.getByRole("button", { name: "Design" }));
+      await screen.findByRole("heading", { name: "Design" });
+      await waitFor(() =>
+        expect(account.readChannelWindow).toHaveBeenCalledTimes(4),
+      );
+    }
+    const navigate = () =>
+      fireEvent.click(screen.getByRole("button", { name: "Channels" }));
+    navigate();
+    const selected = deferred<boolean>();
+    account.selectSidebarChannel.mockReturnValueOnce(selected.promise);
+    const readCount = account.readChannelWindow.mock.calls.length;
+    if (source === "directory") {
+      fireEvent.click(screen.getByRole("button", { name: "Directory" }));
+      await screen.findByRole("heading", { name: "Directory" });
+      fireEvent.click(
+        screen.getByRole("button", { name: "General, Public channel" }),
+      );
+    } else fireEvent.click(screen.getByRole("button", { name: "General" }));
+    await waitFor(() =>
+      expect(account.selectSidebarChannel).toHaveBeenLastCalledWith(
+        team.id,
+        general,
+      ),
+    );
+    if (!search && panes.getAttribute("data-page") === "conversation")
+      navigate();
+    const opener = screen.getByRole("button", {
+      name: search ? "Search" : /^Switch team,/,
+    });
+    const dialog = {
+      name: search ? "What are you looking for?" : "Teams and servers",
+    };
+    fireEvent.click(opener);
+    await screen.findByRole("dialog", dialog);
+    async function back() {
+      fireEvent.keyDown(window, { key: "Escape" });
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog", dialog)).toBeNull(),
+      );
+      expect(document.activeElement).toBe(opener);
+    }
+    if (backFirst) await back();
+    await act(async () => selected.resolve(true));
+    expect(panes.getAttribute("data-page")).toBe(
+      search ? "conversation" : "navigation",
+    );
+    if (!backFirst) await back();
+    expect(document.activeElement).toBe(opener);
+    if (!switchingChannel) {
+      expect(draft.isConnected).toBe(true);
+      expect(draft.value).toBe(text);
+      expect(pane.isConnected).toBe(true);
+      expect(account.readChannelWindow).toHaveBeenCalledTimes(readCount);
+    }
+  },
+);
+
 test.each([{ rid: 2 }, { teamId: "n".repeat(26) }])(
   "a new directory scope starts fresh and ignores an old pending answer (%o)",
   async (scope) => {
