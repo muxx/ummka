@@ -10,11 +10,16 @@ import {
 import type { EntryLanguage } from "../entry/language.ts";
 import type { IntegrationCard } from "../mattermost/integration-cards.ts";
 import { CollectionHeader } from "./CollectionHeader.tsx";
+import { CollectionPageBoundary } from "./CollectionPageBoundary.tsx";
 import {
   CollectionReadNotice,
   useCollectionRefreshVisibility,
 } from "./CollectionReadNotice.tsx";
-import { CollectionScroll, restoreCollectionRow } from "./CollectionScroll.tsx";
+import {
+  type CollectionReading,
+  CollectionScroll,
+  useCollectionReading,
+} from "./CollectionScroll.tsx";
 import { collectionCopy } from "./collection-copy.ts";
 import type { openMentionList } from "./mention-list.ts";
 import { PanelState } from "./PanelState.tsx";
@@ -83,6 +88,7 @@ export function MentionsPane({
   channelName,
   openRow,
   restore,
+  reading,
   close,
 }: {
   compact: boolean;
@@ -96,6 +102,7 @@ export function MentionsPane({
   channelName: (id: string) => string | undefined;
   openRow: (id: string, trigger: HTMLButtonElement, scroll: number) => void;
   restore: { id: string; scroll: number } | null;
+  reading?: CollectionReading;
   close: () => void;
 }) {
   const showRefresh = useCollectionRefreshVisibility(
@@ -105,6 +112,7 @@ export function MentionsPane({
     common = collectionCopy[language];
   const id = useId();
   const heading = useRef<HTMLHeadingElement>(null);
+  const emptyTitle = useRef<HTMLHeadingElement>(null);
   const list = useRef<HTMLElement>(null);
   const edge = useRef<HTMLButtonElement>(null);
   const focusedPage = useRef<number | null>(null);
@@ -131,13 +139,11 @@ export function MentionsPane({
     (row ?? edge.current ?? heading.current)?.focus({ preventScroll: true });
   }, [state]);
   const initial = useRef(restore);
-  useLayoutEffect(() => {
-    if (!restoreCollectionRow(list.current, initial.current))
-      heading.current?.focus();
-  }, []);
+  useCollectionReading(list, heading, initial, reading);
   useEffect(() => {
     if (
       !online ||
+      state.manualPage ||
       state.status !== "ready" ||
       state.edge !== "idle" ||
       state.nextPage === null ||
@@ -157,7 +163,14 @@ export function MentionsPane({
     );
     observer.observe(edge.current);
     return () => observer.disconnect();
-  }, [online, readNext, state.status, state.nextPage, state.edge]);
+  }, [
+    online,
+    readNext,
+    state.status,
+    state.nextPage,
+    state.edge,
+    state.manualPage,
+  ]);
   const date = useMemo(
     () => new Intl.DateTimeFormat(language, { day: "numeric", month: "long" }),
     [language],
@@ -180,7 +193,12 @@ export function MentionsPane({
           {text.title}
         </h2>
       </CollectionHeader>
-      <CollectionScroll pane={list} label={collectionCopy[language].content}>
+      <CollectionScroll
+        pane={list}
+        label={collectionCopy[language].content}
+        preserveLeading
+        keepTop={Boolean(state.newer)}
+      >
         <CollectionReadNotice
           kind="mentions"
           status={state.status}
@@ -190,7 +208,19 @@ export function MentionsPane({
           language={language}
           list={list}
           heading={heading}
-          refresh={() => void model.refresh()}
+          refresh={() => void model.retry(reading?.anchor())}
+        />
+        <CollectionPageBoundary
+          kind="mentions"
+          direction="newer"
+          status={state.newer}
+          usable={
+            online && state.status === "ready" && state.edge !== "loading"
+          }
+          language={language}
+          list={list}
+          heading={heading}
+          load={() => void model.loadNewer()}
         />
         {state.items.map((post) => {
           const name =
@@ -231,23 +261,42 @@ export function MentionsPane({
             </button>
           );
         })}
-        {state.status === "ready" &&
+        {state.hasResponse &&
           !state.items.length &&
+          !state.newer &&
           state.nextPage === null && (
             <PanelState
               variant="empty"
               title={text.empty}
+              titleRef={emptyTitle}
               message={text.detail}
             />
           )}
         {!online && state.hasResponse && (
           <PanelState variant="stale" role="status" message={common.offline} />
         )}
-        {state.status === "forbidden" && (
-          <p role="alert">{common.unavailable}</p>
+        <CollectionPageBoundary
+          kind="mentions"
+          direction="older"
+          status={
+            state.manualPage && state.nextPage !== null
+              ? state.edge === "idle"
+                ? "available"
+                : state.edge
+              : undefined
+          }
+          usable={
+            online && state.status === "ready" && state.newer !== "loading"
+          }
+          language={language}
+          list={list}
+          heading={heading}
+          load={() => void model.load()}
+        />
+        {!state.manualPage && state.edge === "loading" && (
+          <p role="status">{common.next}</p>
         )}
-        {state.edge === "loading" && <p role="status">{common.next}</p>}
-        {edgeFailed && (
+        {!state.manualPage && edgeFailed && (
           <p role="alert">
             {state.edge === "storage" ? common.storage : common.network}
           </p>
@@ -255,7 +304,8 @@ export function MentionsPane({
         {state.firstInaccessiblePostTime > 0 && (
           <p role="status">{common.unavailableHistory}</p>
         )}
-        {online &&
+        {!state.manualPage &&
+          online &&
           state.nextPage !== null &&
           state.status === "ready" &&
           state.edge !== "loading" && (

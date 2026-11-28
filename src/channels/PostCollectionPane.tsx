@@ -8,16 +8,16 @@ import {
 } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
 import { CollectionHeader } from "./CollectionHeader.tsx";
+import { CollectionPageBoundary } from "./CollectionPageBoundary.tsx";
 import {
   CollectionReadNotice,
   useCollectionRefreshVisibility,
 } from "./CollectionReadNotice.tsx";
 import {
-  type CollectionReadingPlace,
+  type CollectionReading,
   CollectionScroll,
-  collectionReadingPlace,
-  restoreCollectionReadingPlace,
   restoreCollectionRow,
+  useCollectionReading,
 } from "./CollectionScroll.tsx";
 import { ContextPanelHeader } from "./ContextPanelHeader.tsx";
 import { collectionCopy } from "./collection-copy.ts";
@@ -98,7 +98,7 @@ export function PostCollectionPane({
   authorName,
   savedIds,
   restore,
-  pinnedReading,
+  reading,
   openRow,
   back,
   close,
@@ -122,10 +122,7 @@ export function PostCollectionPane({
     offset?: number;
     index?: number;
   } | null;
-  pinnedReading?: {
-    place?: CollectionReadingPlace;
-    remember: (place: CollectionReadingPlace) => void;
-  };
+  reading?: CollectionReading;
   openRow: (
     id: string,
     trigger: HTMLButtonElement,
@@ -159,7 +156,6 @@ export function PostCollectionPane({
   const retry = useRef<HTMLButtonElement>(null);
   const retryRows = useRef<Set<string> | null>(null);
   const initial = useRef(restore);
-  const openingPlace = useRef(pinnedReading?.place);
   const returnedStatus = useRef<HTMLParagraphElement>(null);
   const returnedEmpty = useRef<HTMLHeadingElement>(null);
   const [missingReturn, setMissingReturn] = useState<{
@@ -167,22 +163,12 @@ export function PostCollectionPane({
     scroll: number;
     focus: boolean;
   } | null>(null);
+  useCollectionReading(list, heading, initial, reading);
   useLayoutEffect(() => {
     if (kind !== "all" || !online) return;
-    model.setVisible(true);
+    model.setVisible(true, reading?.anchor);
     return () => model.setVisible(false);
-  }, [kind, model, online]);
-  useLayoutEffect(() => {
-    if (restoreCollectionRow(list.current, initial.current))
-      initial.current = null;
-    else if (!restoreCollectionReadingPlace(list.current, openingPlace.current))
-      heading.current?.focus();
-  }, []);
-  useLayoutEffect(() => {
-    const pane = list.current;
-    if (pane && pinnedReading)
-      return () => pinnedReading.remember(collectionReadingPlace(pane));
-  }, [pinnedReading]);
+  }, [kind, model, online, reading]);
   const rows = useMemo(
     () => newestCollectionItems(state.value?.items ?? []),
     [state.value],
@@ -232,7 +218,9 @@ export function PostCollectionPane({
   }, [state.status, state.removing.length]);
   function refresh() {
     const place = initial.current;
-    void model.refresh(place?.index === undefined ? undefined : place.id);
+    if (kind === "pins" || place?.index !== undefined)
+      void model.refresh(place?.id);
+    else void model.revalidate(reading?.anchor());
   }
   const dates = useMemo(
     () => ({
@@ -304,11 +292,18 @@ export function PostCollectionPane({
     state.status === "refreshing",
   );
   const busy = state.status === "loading" || state.status === "refreshing";
+  const manualPage = Boolean(state.manualPage && !rows.length);
   const nextFailed =
     state.continuation === "network" || state.continuation === "storage";
   useEffect(() => {
     const boundary = edge.current;
-    if (!boundary || !canRead || busy || state.continuation !== "available")
+    if (
+      !boundary ||
+      !canRead ||
+      busy ||
+      manualPage ||
+      state.continuation !== "available"
+    )
       return;
     const observer = new IntersectionObserver(
       (entries) => {
@@ -323,7 +318,7 @@ export function PostCollectionPane({
     );
     observer.observe(boundary);
     return () => observer.disconnect();
-  }, [model, canRead, busy, state.continuation]);
+  }, [model, canRead, busy, manualPage, state.continuation]);
   useLayoutEffect(() => {
     const previous = retryRows.current;
     if (!previous || state.continuation === "loading") return;
@@ -392,6 +387,12 @@ export function PostCollectionPane({
         pane={list}
         label={collectionCopy[language].content}
         pins={kind === "pins"}
+        preserveLeading={kind === "all"}
+        ownRemoval={() => {
+          const id = removeFocus.current?.ids[0];
+          return id !== undefined && !rows.some((row) => row.id === id);
+        }}
+        keepTop={Boolean(state.newer)}
       >
         <CollectionReadNotice
           kind={kind}
@@ -403,6 +404,20 @@ export function PostCollectionPane({
           list={list}
           heading={heading}
           refresh={refresh}
+        />
+        <CollectionPageBoundary
+          kind="all"
+          direction="newer"
+          status={state.newer}
+          usable={
+            online &&
+            state.status === "ready" &&
+            state.continuation !== "loading"
+          }
+          language={language}
+          list={list}
+          heading={heading}
+          load={() => void model.loadNewer()}
         />
         {state.removing.length > 0 && (
           <p role="status">{kind === "all" ? text.removing : text.unpinning}</p>
@@ -419,7 +434,9 @@ export function PostCollectionPane({
         {!online && state.value && state.status !== "network" && (
           <PanelState variant="stale" role="status" message={text.offline} />
         )}
-        {state.status === "forbidden" && <p role="alert">{text.unavailable}</p>}
+        {kind === "pins" && state.status === "forbidden" && (
+          <p role="alert">{text.unavailable}</p>
+        )}
         {state.value && (
           <ul>
             {rows.map((row, index) => {
@@ -576,9 +593,10 @@ export function PostCollectionPane({
             })}
           </ul>
         )}
-        {(state.status === "ready" || (kind === "pins" && state.value)) &&
+        {state.value &&
           !rows.length &&
           state.continuation === "none" &&
+          !state.newer &&
           (missingReturn && !missingReturn.id ? (
             <PanelState
               variant="empty"
@@ -589,13 +607,25 @@ export function PostCollectionPane({
             <PanelState
               variant="empty"
               title={kind === "all" ? text.emptySaved : text.emptyPins}
-              titleRef={kind === "pins" ? returnedEmpty : undefined}
+              titleRef={returnedEmpty}
             />
           ))}
         {Boolean(state.value?.firstInaccessiblePostTime) && (
           <p role="status">{text.unavailableHistory}</p>
         )}
-        {state.value && state.continuation !== "none" && (
+        <CollectionPageBoundary
+          kind="all"
+          direction="older"
+          status={manualPage ? state.continuation : undefined}
+          usable={
+            online && state.status === "ready" && state.newer !== "loading"
+          }
+          language={language}
+          list={list}
+          heading={heading}
+          load={() => void model.loadMore()}
+        />
+        {!manualPage && state.value && state.continuation !== "none" && (
           <div className="collection-edge" ref={edge} tabIndex={-1}>
             <span role={nextFailed ? "alert" : "status"}>
               {nextFailed

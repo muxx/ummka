@@ -1473,9 +1473,20 @@ export function ChannelsWorkspace({
   const channelHistoryForbidden =
     timeline.status === "forbidden" || timeline.notice === "forbidden";
   const { invalidateChannel } = inbox;
+  const { setChannelDenied } = collections;
   useLayoutEffect(() => {
-    if (chosen && channelHistoryForbidden) invalidateChannel(chosen);
-  }, [chosen, channelHistoryForbidden, invalidateChannel]);
+    if (chosen && channelHistoryForbidden) {
+      invalidateChannel(chosen);
+      setChannelDenied(chosen, true);
+    } else if (chosen && timeline.status === "ready")
+      setChannelDenied(chosen, false);
+  }, [
+    chosen,
+    channelHistoryForbidden,
+    invalidateChannel,
+    setChannelDenied,
+    timeline.status,
+  ]);
   useLayoutEffect(() => {
     if (directoryDenied) return;
     if (chosen && (historyDenied || timeline.status === "inaccessible")) {
@@ -2563,10 +2574,12 @@ export function ChannelsWorkspace({
                 if (
                   active.current?.connection === connection &&
                   active.current.teamId === team.id
-                )
+                ) {
+                  setChannelDenied(channel.id, true);
                   discardListReadings(infoReadings, {
                     deniedChannel: channel.id,
                   });
+                }
               }}
               account={connection}
               teamId={team.id}
@@ -2702,6 +2715,7 @@ export function ChannelsWorkspace({
               }}
               openRow={openCollectionRow}
               restore={collections.restore}
+              reading={collections.reading}
               close={() => collections.close()}
             />
           ) : collections.view &&
@@ -2734,7 +2748,7 @@ export function ChannelsWorkspace({
               authorName={(id) => author(id)?.name}
               savedIds={knownSaves.ids}
               restore={collections.restore}
-              pinnedReading={collections.pinnedReading}
+              reading={collections.reading}
               openRow={openCollectionRow}
               back={pinsFromInfo ? backFromPins : undefined}
               close={closeCollection}

@@ -359,3 +359,56 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+.collection-edge--action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 6rem;
+  gap: 4px 8px;
+  margin: 14px 10px 8px;
+  padding: 10px 0 0;
+  border-block-start: 1px dashed var(--strong-divider);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: start;
+}
+.collection-edge--action:has(> [role="alert"]) {
+  color: var(--text);
+}
+.collection-edge--action > span {
+  min-block-size: 2.8em;
+  align-content: center;
+  text-wrap: balance;
+}
+.collection-edge__action {
+  min-block-size: 26px;
+  padding: 4px 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.collection-edge__action:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.collection-edge__action[data-waiting] {
+  visibility: hidden;
+}
+@container (width <= 740px) {
+  .collection-edge__action {
+    min-block-size: 44px;
+    padding-inline: 10px;
+  }
+}
+
+.collection-edge--action:has(> [data-collection-page="newer"])
+  ~ .collection-edge--action:has(> [data-collection-page="older"]) {
+  margin-block-start: 46px;
+}
+@container (width > 740px) {
+  .collection-rows:has(
+      > .collection-edge--action > [data-collection-page="newer"]
+    ):has(> .collection-edge--action > [data-collection-page="older"])
+    > .collection-edge--action {
+    min-height: 26px;
+  }
+}

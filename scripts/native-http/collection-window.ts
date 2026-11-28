@@ -37,7 +37,7 @@ export function collectionWindowFixture() {
   const links = new Map([[foreignLink, initialLink]]);
   let pinned = true;
   let failPinRefresh = false;
-  let markBoundary!: () => void;
+  let markBoundary: (() => void) | undefined;
   const boundaryArrived = new Promise<void>((resolve) => {
     markBoundary = resolve;
   });
@@ -340,11 +340,14 @@ export function collectionWindowFixture() {
         assert.equal(offset, 0);
         delete result.posts[reply];
         send(result);
-      } else if (offset === 60) {
+      } else if (offset === 60 && markBoundary) {
+        // Only the first continuation races the explicit removal. A later
+        // refresh can read the same offset without a corresponding removal.
         releasePrevious = () => {
           if (!res.destroyed) send(result);
         };
         markBoundary();
+        markBoundary = undefined;
       } else {
         if (offset === 59) {
           releasePrevious?.();
