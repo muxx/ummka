@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ChannelsFrame } from "./ChannelsFrame";
 
@@ -168,4 +174,54 @@ test("returns to the selected sidebar row or the team control when the row disap
   expect(document.activeElement).toBe(
     screen.getByRole("button", { name: "Switch team, Aurora" }),
   );
+});
+
+test("reserves the inbox size button for a selected discussion", () => {
+  const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get");
+  width.mockReturnValue(1440);
+  try {
+    const props = {
+      ...frame(),
+      inboxPlaceholder: {
+        title: "Discussion",
+        heading: "Choose a discussion",
+        hint: "Replies open next to the list.",
+      },
+    };
+    const thread = {
+      id: "selected",
+      title: "Replies",
+      content: <p>Reply content</p>,
+      close: vi.fn(),
+    };
+    const { rerender } = render(<ChannelsFrame {...props} />);
+    const placeholder = () =>
+      within(screen.getByRole("complementary", { name: "Discussion" }));
+    const selected = () =>
+      within(screen.getByRole("complementary", { name: "Replies" }));
+    const separator = () =>
+      screen.queryByRole("separator", { name: "Side pane width" });
+
+    expect(placeholder().queryAllByRole("button")).toHaveLength(0);
+    expect(separator()).toBeNull();
+
+    rerender(<ChannelsFrame {...props} thread={thread} />);
+    fireEvent.click(
+      selected().getByRole("button", { name: "Restore narrow panel" }),
+    );
+    expect(separator()?.getAttribute("aria-valuenow")).toBe("400");
+
+    rerender(<ChannelsFrame {...props} />);
+    expect(placeholder().queryAllByRole("button")).toHaveLength(0);
+    expect(separator()?.getAttribute("aria-valuenow")).toBe("400");
+
+    rerender(<ChannelsFrame {...props} thread={thread} />);
+    fireEvent.click(selected().getByRole("button", { name: "Expand panel" }));
+    expect(separator()).toBeNull();
+    expect(
+      selected().getByRole("button", { name: "Restore narrow panel" }),
+    ).toBe(document.activeElement);
+  } finally {
+    width.mockRestore();
+  }
 });

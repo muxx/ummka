@@ -421,7 +421,6 @@ export function ChannelsFrame({
               <header className="channels-pane-head">
                 <ThreadMark />
                 <h2 id={threadId}>{inboxPlaceholder.title}</h2>
-                <PaneSizeToggle />
               </header>
               <div className="inbox-prompt">
                 <ThreadMark />
