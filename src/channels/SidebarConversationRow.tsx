@@ -9,6 +9,14 @@ const icons = {
   muted:
     "M9.346 5.353c.21-.129.428-.246.654-.353a2 2 0 1 1 4 0a7 7 0 0 1 4 6v3m-1 3H4a4 4 0 0 0 2-3v-3a6.996 6.996 0 0 1 1.273-3.707 M9 17v1a3 3 0 0 0 6 0v-1 M3 3l18 18",
 };
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+function directInitial(name: string, language: EntryLanguage) {
+  const first = graphemes.segment(name.trimStart()).containing(0);
+  if (!first) return "";
+  const uppercase = first.segment.toLocaleUpperCase(language);
+  return graphemes.segment(uppercase).containing(0)?.segment ?? "";
+}
 
 function RowIcon({
   name,
@@ -60,8 +68,6 @@ export function SidebarConversationRow({
   ]
     .filter(Boolean)
     .join(" ");
-  const [initial = ""] = row.displayName.trim();
-
   return (
     <button
       className="sidebar-conversation-row"
@@ -77,7 +83,7 @@ export function SidebarConversationRow({
         <RowIcon name="archive" title={text.archived} />
       ) : row.kind === "D" ? (
         <span className="sidebar-conversation-row__initial" aria-hidden="true">
-          {initial.toLocaleUpperCase(language)}
+          {directInitial(row.displayName, language)}
         </span>
       ) : (
         <RowIcon
