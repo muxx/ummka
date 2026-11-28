@@ -235,8 +235,7 @@ test("moves focus into the single inbox thread and keeps the navigation resizer"
       ...frame(),
       inboxPlaceholder: {
         title: "Discussion",
-        heading: "Choose a discussion",
-        hint: "Replies open next to the list.",
+        message: "Choose a discussion",
       },
     };
     const { rerender } = render(<ChannelsFrame {...props} />);
