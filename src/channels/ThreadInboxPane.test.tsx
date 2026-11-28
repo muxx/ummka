@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { useSyncExternalStore } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -179,4 +180,48 @@ test("keeps delayed pages with their own tabs and restores the loaded tab withou
     await screen.findByRole("button", { name: /Followed only/ }),
   ).toBeTruthy();
   expect(read).toHaveBeenCalledTimes(2);
+});
+
+test("the header uses the full accessible mention count, an unread dot, or no marker", async () => {
+  const { model, read } = setup();
+  read.mockResolvedValueOnce({
+    items: [
+      {
+        ...item("a", "Last exact value"),
+        unreadReplies: 99,
+        unreadMentions: 99,
+      },
+      {
+        ...item("b", "Above the limit"),
+        unreadReplies: 126,
+        unreadMentions: 125,
+      },
+      { ...item("c", "Unread without mentions"), unreadReplies: 1 },
+      item("d", "Already read"),
+    ],
+    nextBefore: null,
+  });
+  await act(() => model.show("followed"));
+  for (const [message, count, printed] of [
+    ["Last exact value", 99, "99"],
+    ["Above the limit", 125, "99+"],
+  ] as const) {
+    const row = screen.getByRole("button", { name: new RegExp(message) });
+    const marker = within(row).getByRole("img", { name: `Mentions: ${count}` });
+    expect(marker.textContent).toBe(printed);
+    expect(marker.closest(".inbox-row-heading")).not.toBeNull();
+    expect(row.querySelector(".inbox-unread-dot")).toBeNull();
+  }
+  const unread = screen.getByRole("button", {
+    name: /Unread without mentions/,
+  });
+  expect(
+    unread.querySelector(".inbox-row-heading .inbox-unread-dot"),
+  ).not.toBeNull();
+  expect(unread.querySelector(".inbox-mention-count")).toBeNull();
+  expect(
+    screen
+      .getByRole("button", { name: /Already read/ })
+      .querySelector(".inbox-row-indicator"),
+  ).toBeNull();
 });

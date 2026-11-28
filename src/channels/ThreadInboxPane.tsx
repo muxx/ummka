@@ -367,6 +367,29 @@ export function ThreadInboxPane({
                       {profile ? (profile.avatar ?? Array.from(name)[0]) : "•"}
                     </span>
                     <span className="inbox-row-heading">
+                      {(row.unreadMentions > 0 || row.unreadReplies > 0) && (
+                        <span className="inbox-row-indicator">
+                          {row.unreadMentions > 0 ? (
+                            <span
+                              className="inbox-mention-count"
+                              data-over={row.unreadMentions > 99 || undefined}
+                              role="img"
+                              aria-label={workspace.formatMentions(
+                                row.unreadMentions,
+                              )}
+                            >
+                              {row.unreadMentions > 99
+                                ? "99+"
+                                : row.unreadMentions}
+                            </span>
+                          ) : (
+                            <span
+                              className="inbox-unread-dot"
+                              aria-hidden="true"
+                            />
+                          )}
+                        </span>
+                      )}
                       <strong>{name}</strong>
                       {row.lastReplyAt > 0 &&
                         Number.isFinite(time.getTime()) && (
@@ -403,16 +426,6 @@ export function ThreadInboxPane({
                         text.noReplies
                       )}
                       {room && <span className="inbox-channel">· {room}</span>}
-                      {row.unreadMentions > 0 && (
-                        <span
-                          role="img"
-                          aria-label={workspace.formatMentions(
-                            row.unreadMentions,
-                          )}
-                        >
-                          @{row.unreadMentions}
-                        </span>
-                      )}
                     </span>
                   </button>
                 </li>

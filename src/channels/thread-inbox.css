@@ -116,8 +116,7 @@
   font-size: 0.74rem;
   white-space: nowrap;
 }
-.inbox-replies strong,
-.inbox-replies [aria-label] {
+.inbox-replies strong {
   color: var(--accent);
 }
 .inbox-status {
@@ -184,15 +183,36 @@
 .inbox-row-heading strong {
   font-size: 0.875rem;
 }
-.inbox-entry[data-unread]::before {
-  content: "";
+.inbox-row-indicator {
   position: absolute;
-  inset-inline-start: 9px;
-  top: 22px;
-  width: 8px;
-  height: 8px;
+  inset-inline-start: 0;
+  top: 12px;
+  display: grid;
+  width: 24px;
+  height: 20px;
+  place-items: center;
+}
+.inbox-mention-count,
+.inbox-unread-dot {
   border-radius: 50%;
   background: var(--accent);
+}
+.inbox-unread-dot {
+  width: 8px;
+  height: 8px;
+}
+.inbox-mention-count {
+  width: 16px;
+  height: 16px;
+  color: var(--canvas);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.inbox-mention-count[data-over] {
+  font-size: 8px;
 }
 .inbox-replies .timeline-participants:empty {
   display: none;
