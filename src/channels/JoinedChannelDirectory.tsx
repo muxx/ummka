@@ -2,30 +2,13 @@ import { useId, useMemo, useState } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
 import type { TeamSidebar } from "../mattermost/team-sidebar.ts";
 import { DirectoryChannelIcon } from "./DirectoryChannelIcon.tsx";
+import {
+  DirectoryEmpty,
+  DirectorySearch,
+  directoryCopy,
+} from "./DirectorySurface.tsx";
 import { workspaceCopy } from "./workspace-copy.ts";
 import type { WorkspaceRead } from "./workspace-data.ts";
-import "./channel-directory.css";
-
-export const channelDirectoryCopy = {
-  en: {
-    title: "Directory",
-    joined: "My channels",
-    find: "Find a channel",
-    public: "Public channel",
-    private: "Private channel",
-    archived: "Archived",
-    noMatches: "No matching channels.",
-  },
-  ru: {
-    title: "Каталог",
-    joined: "Мои каналы",
-    find: "Найти канал",
-    public: "Открытый канал",
-    private: "Закрытый канал",
-    archived: "В архиве",
-    noMatches: "Совпадений нет.",
-  },
-} as const;
 
 const compareNames = new Intl.Collator().compare;
 
@@ -46,7 +29,7 @@ export function JoinedChannelDirectory({
   choose: (channelId: string) => void;
   retry: () => void;
 }) {
-  const text = channelDirectoryCopy[language],
+  const text = directoryCopy[language],
     workspace = workspaceCopy[language];
   const heading = useId();
   const [input, setInput] = useState("");
@@ -75,16 +58,16 @@ export function JoinedChannelDirectory({
     status === "forbidden" || status === "unauthorized" || status === "session";
   const unavailable = status === "network" || status === "storage";
   return (
-    <section className="channel-directory" aria-labelledby={heading}>
+    <section
+      className="channel-directory directory-column"
+      aria-labelledby={heading}
+    >
       <h2 id={heading} hidden={!headingVisible}>
         {text.joined}
       </h2>
       {!denied && state.value && (
-        <input
-          className="directory-filter"
-          type="search"
-          aria-label={text.find}
-          placeholder={text.find}
+        <DirectorySearch
+          language={language}
           value={input}
           onChange={(event) => setInput(event.target.value)}
         />
@@ -155,10 +138,14 @@ export function JoinedChannelDirectory({
                   </li>
                 ))}
               </ul>
+            ) : query ? (
+              <DirectoryEmpty
+                title={text.noMatches}
+                hint={headingVisible ? text.changeQuery : text.changeQueryOrTab}
+                kind="search"
+              />
             ) : (
-              <p role="status">
-                {rows.length ? text.noMatches : workspace.empty}
-              </p>
+              <p role="status">{workspace.empty}</p>
             ))}
         </>
       )}

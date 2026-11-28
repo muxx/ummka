@@ -3,10 +3,8 @@ import type { EntryLanguage } from "../entry/language.ts";
 import type { TeamSidebar } from "../mattermost/team-sidebar.ts";
 import { AvailableChannels } from "./AvailableChannels.tsx";
 import { availableDirectoryCopy } from "./available-directory-copy.ts";
-import {
-  channelDirectoryCopy,
-  JoinedChannelDirectory,
-} from "./JoinedChannelDirectory.tsx";
+import { directoryCopy } from "./DirectorySurface.tsx";
+import { JoinedChannelDirectory } from "./JoinedChannelDirectory.tsx";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
 import type { WorkspaceRead } from "./workspace-data.ts";
 
@@ -38,7 +36,7 @@ export function TeamChannelDirectory({
     canBrowse &&
     !["forbidden", "unauthorized", "session"].includes(props.state.status);
   const available = eligible && tab === "available";
-  const text = channelDirectoryCopy[props.language];
+  const text = directoryCopy[props.language];
   useEffect(() => {
     if (!eligible) {
       setStarted(false);
@@ -58,46 +56,56 @@ export function TeamChannelDirectory({
       headingVisible={!eligible}
     />
   );
-  if (!eligible) return joined;
+  if (!eligible)
+    return (
+      <div className="team-channel-directory">
+        <div className="directory-scroll">{joined}</div>
+      </div>
+    );
   return (
     <div className="team-channel-directory">
-      <div
-        role="tablist"
-        className="directory-tabs"
-        aria-label={text.title}
-        onKeyDown={(event) => {
-          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
-            return;
-          event.preventDefault();
-          const next =
-            event.key === "Home"
-              ? "joined"
-              : event.key === "End"
-                ? "available"
-                : available
-                  ? "joined"
-                  : "available";
-          select(next);
-          (next === "joined" ? joinedButton : availableButton).current?.focus();
-        }}
-      >
-        {(["joined", "available"] as const).map((name) => (
-          <button
-            type="button"
-            role="tab"
-            key={name}
-            id={id + name}
-            ref={name === "joined" ? joinedButton : availableButton}
-            aria-selected={name === tab}
-            aria-controls={`${id}${name}-panel`}
-            tabIndex={name === tab ? 0 : -1}
-            onClick={() => select(name)}
-          >
-            {name === "joined"
-              ? text.joined
-              : availableDirectoryCopy[props.language].available}
-          </button>
-        ))}
+      <div className="directory-tab-strip">
+        <div
+          role="tablist"
+          className="directory-tabs directory-column"
+          aria-label={text.title}
+          onKeyDown={(event) => {
+            if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
+              return;
+            event.preventDefault();
+            const next =
+              event.key === "Home"
+                ? "joined"
+                : event.key === "End"
+                  ? "available"
+                  : available
+                    ? "joined"
+                    : "available";
+            select(next);
+            (next === "joined"
+              ? joinedButton
+              : availableButton
+            ).current?.focus();
+          }}
+        >
+          {(["joined", "available"] as const).map((name) => (
+            <button
+              type="button"
+              role="tab"
+              key={name}
+              id={id + name}
+              ref={name === "joined" ? joinedButton : availableButton}
+              aria-selected={name === tab}
+              aria-controls={`${id}${name}-panel`}
+              tabIndex={name === tab ? 0 : -1}
+              onClick={() => select(name)}
+            >
+              {name === "joined"
+                ? text.joined
+                : availableDirectoryCopy[props.language].available}
+            </button>
+          ))}
+        </div>
       </div>
       <div
         className="directory-scroll"

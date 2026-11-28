@@ -12,6 +12,7 @@ export async function checkAvailableDirectoryWindow(
   openChannelNavigation(host, "Channels");
   click(await ui.findByRole("button", { name: "Directory" }));
   const catalog = within(await ui.findByRole("main", { name: "Directory" }));
+  catalog.getByText("Browser team", { exact: true });
   click(await catalog.findByRole("tab", { name: "Available" }));
   const potential = await catalog.findByRole("button", {
     name: "Release Notes",
@@ -19,6 +20,14 @@ export async function checkAvailableDirectoryWindow(
   const filter = catalog.getByRole<HTMLInputElement>("searchbox", {
     name: "Find a channel",
   });
+  const field = filter.getBoundingClientRect();
+  const frame = filter.parentElement?.getBoundingClientRect();
+  if (
+    !filter.parentElement?.querySelector("svg") ||
+    field.width !== frame?.width ||
+    field.height !== frame.height
+  )
+    throw Error("The full directory search field is not interactive");
   flushSync(() => fireEvent.input(filter, { target: { value: "#release" } }));
   await catalog.findByText("Searching…");
   const result = await catalog.findByRole("button", {
@@ -42,8 +51,12 @@ export async function checkAvailableDirectoryWindow(
     await control.close();
   }
   await waitFor(() => {
-    if (catalog.queryByRole("dialog") || document.activeElement !== result)
-      throw Error("Missing directory row focus");
+    if (
+      catalog.queryByRole("dialog") ||
+      document.activeElement !== result ||
+      filter.value !== "#release"
+    )
+      throw Error("Directory Back did not restore the row and search");
   });
   click(result);
   click(

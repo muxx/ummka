@@ -39,6 +39,7 @@ type FrameProps = {
   onAccount: () => void;
   navigation: ReactNode;
   children: ReactNode;
+  navigationIcon?: ReactNode;
   searchTrigger?: ReactNode;
   toolbar?: ReactNode;
   channelHeading?: (
@@ -116,6 +117,7 @@ export function ChannelsFrame({
   onAccount,
   navigation,
   children,
+  navigationIcon,
   searchTrigger,
   toolbar,
   channelHeading,
@@ -372,7 +374,7 @@ export function ChannelsFrame({
               aria-label={labels.navigation}
               onClick={onNavigation}
             >
-              <Chevron direction="back" />
+              {navigationIcon ?? <Chevron direction="back" />}
             </button>
             {channelHeading ? (
               channelHeading(headingId, heading)

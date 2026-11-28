@@ -219,7 +219,15 @@ test("a second click cannot repeat an in-flight join; an old team never navigate
 test("a guest or missing permission never opens public rows; revocation withdraws an open confirmation", async () => {
   const { account, update } = setup(false);
   expect(screen.queryByRole("tab", { name: "Available" })).toBeNull();
+  const filter = screen.getByRole("searchbox");
+  fireEvent.change(filter, { target: { value: "General" } });
+  expect(
+    screen.getByRole("button", { name: "General, Public channel" }),
+  ).toBeTruthy();
+  fireEvent.change(filter, { target: { value: "hidden" } });
+  expect(screen.getByText("Change your search.")).toBeTruthy();
   expect(account.readChannelDirectoryPage).not.toHaveBeenCalled();
+  expect(account.searchChannelDirectory).not.toHaveBeenCalled();
   update({ canBrowse: true });
   browse();
   fireEvent.click(await screen.findByRole("button", { name: "Release notes" }));
@@ -228,6 +236,36 @@ test("a guest or missing permission never opens public rows; revocation withdraw
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(screen.queryByText("Release notes")).toBeNull();
   expect(account.changeOwnMembership).not.toHaveBeenCalled();
+});
+
+test("empty available results distinguish a search miss from an empty catalog", async () => {
+  const { account } = setup();
+  account.readChannelDirectoryPage.mockResolvedValueOnce({
+    items: [mine],
+    hasMore: false,
+  });
+  account.searchChannelDirectory.mockResolvedValueOnce([]);
+  browse();
+  const field = screen.getByRole("searchbox");
+  const empty = await screen.findByRole("heading", {
+    name: "No available channels",
+  });
+  expect(empty.closest('[role="status"]')?.textContent).toContain(
+    "You’ve joined all public channels on this team.",
+  );
+  fireEvent.change(field, { target: { value: "release" } });
+  const miss = await screen.findByRole("heading", {
+    name: "No matching channels",
+  });
+  expect(miss.closest('[role="status"]')?.textContent).toContain(
+    "Change your search or switch tabs.",
+  );
+  fireEvent.change(field, { target: { value: "" } });
+  expect(
+    screen.getByRole("heading", { name: "No available channels" }),
+  ).toBeTruthy();
+  expect(account.readChannelDirectoryPage).toHaveBeenCalledOnce();
+  expect(account.searchChannelDirectory).toHaveBeenCalledOnce();
 });
 
 test("a queued scroll notification does not fetch another page after leaving Available", async () => {

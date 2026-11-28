@@ -13,7 +13,11 @@ import {
   type DirectoryChannel,
   DirectoryJoinDialog,
 } from "./DirectoryJoinDialog.tsx";
-import { channelDirectoryCopy } from "./JoinedChannelDirectory.tsx";
+import {
+  DirectoryEmpty,
+  DirectorySearch,
+  directoryCopy,
+} from "./DirectorySurface.tsx";
 import {
   availableDirectoryChannels,
   openChannelDirectoryList,
@@ -161,17 +165,14 @@ export function AvailableChannels({
   return (
     <section
       ref={region}
-      className="channel-directory"
+      className="channel-directory directory-column"
       aria-label={text.available}
     >
       {state.value && !denied && (
-        <input
+        <DirectorySearch
           ref={filter}
-          type="search"
-          className="directory-filter"
+          language={language}
           value={input}
-          aria-label={text.find}
-          placeholder={text.find}
           onChange={(event) => {
             const value = event.target.value;
             setInput(value);
@@ -212,7 +213,7 @@ export function AvailableChannels({
                     <span className="directory-channel-info">
                       <strong>{row.displayName}</strong>
                       <span id={id + row.id}>
-                        {row.purpose || channelDirectoryCopy[language].public}
+                        {row.purpose || directoryCopy[language].public}
                       </span>
                     </span>
                     <span className="directory-channel-meta">{text.join}</span>
@@ -244,7 +245,17 @@ export function AvailableChannels({
             </p>
           )}
           {status === "ready" && !rows.length && !tail && (
-            <p role="status">{search?.query ? text.empty : text.none}</p>
+            <DirectoryEmpty
+              title={
+                search?.query ? directoryCopy[language].noMatches : text.none
+              }
+              hint={
+                search?.query
+                  ? directoryCopy[language].changeQueryOrTab
+                  : text.noneHint
+              }
+              kind={search?.query ? "search" : "channels"}
+            />
           )}
           {status === "ready" && rows.length > 0 && !tail && !search?.query && (
             <p role="status">{text.end}</p>

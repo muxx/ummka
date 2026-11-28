@@ -39,9 +39,14 @@ import { ConversationTimeline } from "./ConversationTimeline.tsx";
 import { channelDraftActions } from "./channel-draft-actions.ts";
 import { collectionCopy } from "./collection-copy.ts";
 import { channelComposerAccess } from "./composer-access.ts";
+import {
+  DirectoryCompass,
+  DirectoryHeading,
+  DirectoryNavigationIcon,
+  directoryCopy,
+} from "./DirectorySurface.tsx";
 import { DraftComposer } from "./DraftComposer.tsx";
 import { draftCopy } from "./draft-copy.ts";
-import { channelDirectoryCopy } from "./JoinedChannelDirectory.tsx";
 import { MentionMark, MentionsPane, mentionCopy } from "./MentionsPane.tsx";
 import { CollectionMark, PostCollectionPane } from "./PostCollectionPane.tsx";
 import { PrivateChannelIcon } from "./PrivateChannelIcon.tsx";
@@ -305,7 +310,8 @@ export function ChannelsWorkspace({
   const directoryButton = useRef<HTMLButtonElement>(null);
   const restoreDirectoryFocus = useRef(false);
   const [directoryOpen, setDirectoryOpen] = useState(false);
-  const directoryTitle = channelDirectoryCopy[language].title;
+  const directoryTitle = directoryCopy[language].title;
+  const teamName = team.displayName || team.name;
   useLayoutEffect(() => {
     if (!directoryOpen && restoreDirectoryFocus.current) {
       restoreDirectoryFocus.current = false;
@@ -1163,19 +1169,7 @@ export function ChannelsWorkspace({
           setPage("conversation");
         }}
       >
-        <svg
-          aria-hidden="true"
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.7"
-          strokeLinejoin="round"
-        >
-          <circle cx="12" cy="12" r="9" />
-          <path d="m16 8-2.5 5.5L8 16l2.5-5.5z" />
-        </svg>
+        <DirectoryCompass />
         {directoryTitle}
       </button>
       {directoryIssue && notice(directoryIssue, directory.retry, true)}
@@ -2011,8 +2005,18 @@ export function ChannelsWorkspace({
                     }
                   />
                 )
-              : undefined
+              : directoryOpen
+                ? (id, ref) => (
+                    <DirectoryHeading
+                      id={id}
+                      heading={ref}
+                      title={directoryTitle}
+                      teamName={teamName}
+                    />
+                  )
+                : undefined
         }
+        navigationIcon={directoryOpen ? <DirectoryNavigationIcon /> : undefined}
         sidePanel={
           position ? null : collections.view &&
             collections.mentionState &&
@@ -2177,7 +2181,7 @@ export function ChannelsWorkspace({
         accountDescription={
           accountName ? undefined : teamChoiceText[language].profilePending
         }
-        teamName={team.displayName || team.name}
+        teamName={teamName}
         channel={
           inbox.visible
             ? { id: "team-threads", title: inboxText.title }
