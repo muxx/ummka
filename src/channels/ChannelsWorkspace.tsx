@@ -1319,9 +1319,10 @@ export function ChannelsWorkspace({
     setInfoChannel(null);
   function openChannelInfo(
     opener: HTMLButtonElement,
-    stage: "overview" | "members" = "overview",
+    stage: "overview" | "members" | "files" = "overview",
   ) {
-    if (!channel || !infoAvailable) return;
+    if (!channel || !infoAvailable || (stage === "files" && !allowChannelFiles))
+      return;
     if (!position) {
       collections.close(false);
       search.dismiss();
@@ -2200,6 +2201,11 @@ export function ChannelsWorkspace({
                     }
                     open={channelMenuOpen}
                     setOpen={setChannelMenuOpen}
+                    onFiles={
+                      infoAvailable && allowChannelFiles
+                        ? (opener) => openChannelInfo(opener, "files")
+                        : undefined
+                    }
                     onNotifications={
                       notificationKind
                         ? () => {
@@ -2254,6 +2260,7 @@ export function ChannelsWorkspace({
               language={language}
               online={online}
               back={() => backToInfo("files")}
+              direct={infoChannel.direct}
               close={closeInfo}
               sessionIssue={sessionIssue}
               showMessage={openFileMessage}

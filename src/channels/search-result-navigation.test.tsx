@@ -2417,6 +2417,32 @@ test("members in the channel menu are loaded only by selecting the item and Back
   expect(document.activeElement).toBe(menu);
 });
 
+test("files from the title menu are scoped to the selected channel and Back skips details", async () => {
+  const { account } = fixture();
+  fireEvent.click(await screen.findByRole("button", { name: "Design" }));
+  const menu = await screen.findByRole("button", {
+    name: "Channel menu, Design",
+  });
+  fireEvent.click(menu);
+  const action = screen.getByRole("menuitem", { name: "Channel files" });
+  expect(account.readFileSearchPage).not.toHaveBeenCalled();
+  fireEvent.click(action);
+  const panel = await screen.findByRole("complementary", {
+    name: "Channel files",
+  });
+  await within(panel).findByRole("button", {
+    name: "Open attachment first.pdf",
+  });
+  expect(account.readFileSearchPage).toHaveBeenCalledWith(
+    expect.objectContaining({ terms: `channel:${design}`, page: 0 }),
+    expect.any(AbortSignal),
+  );
+  expect(account.readChannelMemberCount).not.toHaveBeenCalled();
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(screen.queryByRole("complementary")).toBeNull();
+  expect(document.activeElement).toBe(menu);
+});
+
 test("opens scoped files from channel info and returns from the message to the same file and list", async () => {
   const { account } = fixture();
   fireEvent.click(await screen.findByRole("button", { name: "Design" }));
@@ -2518,6 +2544,12 @@ test("channel files discard loaded rows after removal and retry the same page on
 
 test("the server's file-search policy controls the channel info action", async () => {
   const { account } = fixture({ fileSearch: false });
+  const menu = await screen.findByRole("button", {
+    name: "Channel menu, Home",
+  });
+  fireEvent.click(menu);
+  expect(screen.queryByRole("menuitem", { name: "Channel files" })).toBeNull();
+  fireEvent.keyDown(window, { key: "Escape" });
   fireEvent.click(await screen.findByRole("button", { name: "Channel info" }));
   const about = await screen.findByRole("complementary", {
     name: "About this channel",

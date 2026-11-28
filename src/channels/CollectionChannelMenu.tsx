@@ -6,6 +6,7 @@ import {
   useRef,
 } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
+import { FileIcon, filePanelCopy } from "./ChannelFilesPanel.tsx";
 import { channelKindIconPaths } from "./channel-kind-icon-paths.ts";
 import { notificationCopy } from "./channel-notification-copy.ts";
 import { collectionCopy } from "./collection-copy.ts";
@@ -128,6 +129,7 @@ export function CollectionChannelMenu({
   onInfo,
   onMembers,
   onPins,
+  onFiles,
   onNotifications,
 }: {
   headingId: string;
@@ -145,6 +147,7 @@ export function CollectionChannelMenu({
   onInfo?: (trigger: HTMLButtonElement) => void;
   onMembers?: (trigger: HTMLButtonElement) => void;
   onPins: (trigger: HTMLButtonElement) => void;
+  onFiles?: (trigger: HTMLButtonElement) => void;
   onNotifications?: () => void;
 }) {
   const text = collectionCopy[language],
@@ -176,6 +179,12 @@ export function CollectionChannelMenu({
             run: onMembers,
           } as const,
           { key: "pins", icon: "pin", label: text.pins, run: onPins } as const,
+          {
+            key: "files",
+            icon: null,
+            label: filePanelCopy[language].title,
+            run: onFiles,
+          } as const,
           {
             key: "notifications",
             icon: "bell",
@@ -276,7 +285,8 @@ export function CollectionChannelMenu({
                 run(opener);
               }}
             >
-              {compact && <SheetIcon name={icon} />}
+              {compact &&
+                (icon === null ? <FileIcon /> : <SheetIcon name={icon} />)}
               {label}
             </button>
           ),

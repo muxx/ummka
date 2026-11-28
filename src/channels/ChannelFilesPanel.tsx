@@ -20,6 +20,7 @@ export const filePanelCopy = {
     title: "Channel files",
     close: "Close channel files",
     back: "Back to channel info",
+    backToChannel: "Back to conversation",
     empty: "No files yet",
     hint: "Attachments from the channel and its threads will appear here.",
     loading: "Loading files…",
@@ -33,6 +34,7 @@ export const filePanelCopy = {
     title: "Файлы канала",
     close: "Закрыть файлы канала",
     back: "Вернуться к сведениям о канале",
+    backToChannel: "Вернуться в беседу",
     empty: "Файлов пока нет",
     hint: "Вложения из канала и его тредов появятся здесь.",
     loading: "Загрузка файлов…",
@@ -73,6 +75,7 @@ type Props = {
   hidden: boolean;
   restoreButton?: HTMLButtonElement;
   back: () => void;
+  direct?: boolean;
   close: () => void;
   sessionIssue: (reason: "session" | "unauthorized") => void;
   showMessage: (postId: string, button: HTMLButtonElement) => void;
@@ -254,7 +257,7 @@ export function ChannelFilesPanel(props: Props) {
         <button
           type="button"
           className="channels-icon-action"
-          aria-label={t.back}
+          aria-label={props.direct ? t.backToChannel : t.back}
           onClick={props.back}
         >
           <svg
