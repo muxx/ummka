@@ -13,6 +13,10 @@ export const channelListCopy = {
     failedMore: "Couldn’t load the rest: the server didn’t return the list",
     retry: "Try again",
     retrying: "Trying again…",
+    updating: "Updating the list…",
+    updateFailed: "Update failed: no response",
+    updateAnnouncement:
+      "Couldn’t update the list. The server didn’t return the list.",
   },
   ru: {
     failed: "Не загрузилось",
@@ -23,6 +27,9 @@ export const channelListCopy = {
     failedMore: "Не загрузили остальное: сервер не вернул список",
     retry: "Повторить",
     retrying: "Повторяем…",
+    updating: "Обновляем список…",
+    updateFailed: "Не обновились: нет ответа",
+    updateAnnouncement: "Список не обновился. Сервер не вернул список.",
   },
 };
 

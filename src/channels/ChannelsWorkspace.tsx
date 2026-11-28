@@ -51,6 +51,10 @@ import { ComposerAccessNotice } from "./ComposerAccessNotice.tsx";
 import { ConversationTimeline } from "./ConversationTimeline.tsx";
 import { channelBookmarkAccess } from "./channel-bookmark-access.ts";
 import { channelDraftActions } from "./channel-draft-actions.ts";
+import {
+  createListReadings,
+  discardListReadings,
+} from "./channel-list-reading.ts";
 import { collectionCopy } from "./collection-copy.ts";
 import { channelComposerAccess } from "./composer-access.ts";
 import {
@@ -610,6 +614,7 @@ export function ChannelsWorkspace({
       connection,
       teamId: team.id,
       channels: new Map<string, ChannelHistoryAccess>(),
+      listReadings: createListReadings(),
     }),
     [connection, team.id],
   );
@@ -622,6 +627,7 @@ export function ChannelsWorkspace({
     [historyAccessScope, settings?.collapsedThreads],
   );
   const channelHistoryAccess = historyAccessScope.channels;
+  const infoReadings = historyAccessScope.listReadings;
   const retainedChannels = historyWindowScope.windows;
   useLayoutEffect(() => () => retainedChannels.clear(), [retainedChannels]);
   const inbox = useWorkspaceThreadInbox(
@@ -1668,6 +1674,17 @@ export function ChannelsWorkspace({
       !(chosen === pinsSource && historyDenied) &&
       pinsRoom !== undefined);
   const deniedPinsChannel = historyDenied ? chosen : null;
+  const rememberedInfo =
+    chosen && channelHistoryAccess.get(chosen)?.revoked
+      ? undefined
+      : infoReadings;
+  useLayoutEffect(() => {
+    discardListReadings(infoReadings, {
+      allowed: confirmedChannelIds,
+      deniedChannel: deniedPinsChannel,
+      filesAllowed: allowChannelFiles,
+    });
+  }, [infoReadings, confirmedChannelIds, deniedPinsChannel, allowChannelFiles]);
   const { retainPins, close: dismissCollection } = collections;
   useLayoutEffect(() => {
     retainPins(confirmedChannelIds, deniedPinsChannel);
@@ -2541,6 +2558,16 @@ export function ChannelsWorkspace({
           channel ? (
             <ChannelFilesPanel
               key={channel.id}
+              history={rememberedInfo?.files}
+              channelDenied={() => {
+                if (
+                  active.current?.connection === connection &&
+                  active.current.teamId === team.id
+                )
+                  discardListReadings(infoReadings, {
+                    deniedChannel: channel.id,
+                  });
+              }}
               account={connection}
               teamId={team.id}
               channelId={channel.id}
@@ -2562,6 +2589,7 @@ export function ChannelsWorkspace({
           ) : infoOpen && channel && infoChannel.stage === "members" ? (
             <ChannelMembersPanel
               key={channel.id}
+              history={rememberedInfo?.members}
               account={connection}
               channelId={channel.id}
               name={
@@ -2580,6 +2608,7 @@ export function ChannelsWorkspace({
           ) : infoOpen && channel && infoChannel.stage === "bookmarks" ? (
             <ChannelBookmarksPanel
               key={`${serverUrl}:${userId}:${channel.id}`}
+              history={rememberedInfo?.bookmarks}
               account={connection}
               writes={workspace.bookmarkWrites}
               channelId={channel.id}

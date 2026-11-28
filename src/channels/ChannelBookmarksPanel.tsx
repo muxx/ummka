@@ -17,6 +17,7 @@ import {
 } from "./BookmarkEditor.tsx";
 import { BookmarkIcon } from "./BookmarkIcon.tsx";
 import { FileIcon } from "./ChannelFilesPanel.tsx";
+import { ChannelListPosition } from "./ChannelListPosition.tsx";
 import {
   ChannelListStatus,
   channelListCopy,
@@ -26,6 +27,13 @@ import {
 import { useCollectionRefreshVisibility } from "./CollectionReadNotice.tsx";
 import { ContextPanelHeader } from "./ContextPanelHeader.tsx";
 import type { ChannelBookmarkWrites } from "./channel-bookmark-writes.ts";
+import {
+  type BookmarkReading,
+  nearbyRows,
+  type RowPlace,
+  rememberList,
+  withinPlace,
+} from "./channel-list-reading.ts";
 import { channelPanelBack } from "./context-panel-copy.ts";
 import { PaneSizeToggle } from "./PaneWidthControls.tsx";
 import {
@@ -90,6 +98,7 @@ type Props = {
     kind?: Bookmark["destination"]["kind"],
   ) => boolean;
   channelId: string;
+  history?: Map<string, BookmarkReading>;
   name: string;
   serverUrl: string;
   online: boolean;
@@ -345,6 +354,7 @@ function BookmarkRow({
       <button
         type="button"
         className="channel-bookmark-row"
+        data-channel-list-row={item.id}
         data-bookmark-id={item.id}
         disabled={!menuAvailable}
         aria-labelledby={row + "-label"}
@@ -561,13 +571,23 @@ function EditableBookmarks({
 }
 
 export function ChannelBookmarksPanel(props: Props) {
+  const { account, writes, history, channelId, online, language } = props;
+  const [starting] = useState(() =>
+    online ? history?.get(channelId) : undefined,
+  );
+  const [returning, setReturning] = useState(Boolean(starting));
+  const [writeCheck, setWriteCheck] = useState(starting?.writeCheck);
   const [editorOpen, setEditorOpen] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [items, setItems] = useState<{
     channelId: string;
-    response: object;
+    response: object | null;
     current: Bookmark[];
-  } | null>(null);
+  } | null>(() =>
+    starting
+      ? { channelId, response: null, current: [...starting.rows] }
+      : null,
+  );
   const [announcement, setAnnouncement] = useState("");
   const heading = useRef<HTMLHeadingElement>(null);
   const noticeHeading = useRef<HTMLHeadingElement>(null);
@@ -578,7 +598,6 @@ export function ChannelBookmarksPanel(props: Props) {
   const retryFocus = useRef(false);
   const hadRefresh = useRef(false);
   const id = useId();
-  const { account, writes, channelId, online, language } = props;
   const t = bookmarkCopy[language];
   const listText = channelListCopy[language];
   const pending = useSyncExternalStore(writes.subscribe, () =>
@@ -590,23 +609,38 @@ export function ChannelBookmarksPanel(props: Props) {
   const [writeRevision, setWriteRevision] = useState(0);
   if (previousWrite !== pendingFromOtherView) {
     setPreviousWrite(pendingFromOtherView);
-    if (previousWrite && !pendingFromOtherView)
+    if (previousWrite && !pendingFromOtherView) {
+      setWriteCheck("checking");
       setWriteRevision(writeRevision + 1);
+    }
   }
-  const { value, retry } = useInfoRead(
-    channelId,
+  const waitForWrite = Boolean(returning && pendingFromOtherView);
+  const { value: reading, retry } = useInfoRead(
+    waitForWrite || writeCheck === "failed" ? null : channelId,
     online || editorOpen,
     (s, id) => account.readChannelBookmarks(id, s),
     props.sessionIssue,
     undefined,
     writeRevision,
   );
+  const value =
+    online && writeCheck === "failed" ? { status: "failed" as const } : reading;
   const unlicensed =
     value.status === "ready" && value.value.kind === "unlicensed";
+  const closed = value.status === "denied" || unlicensed;
   const confirmed =
     value.status === "ready" && value.value.kind === "available"
       ? value.value.bookmarks
       : null;
+  if (writeCheck === "checking") {
+    if (reading.status === "failed") setWriteCheck("failed");
+    else if (confirmed || closed) setWriteCheck(undefined);
+  }
+  if (returning && (confirmed || closed || value.status === "offline"))
+    setReturning(false);
+  useLayoutEffect(() => {
+    if (closed) history?.delete(channelId);
+  }, [closed, history, channelId]);
   if (confirmed && (items?.response !== value || items.channelId !== channelId))
     setItems({ channelId, response: value, current: confirmed });
   else if (
@@ -621,11 +655,11 @@ export function ChannelBookmarksPanel(props: Props) {
   const visible = items?.channelId === channelId && !unlicensed ? items : null;
   const loading = value.status === "loading";
   const failed = value.status === "failed";
-  const refreshing = Boolean(visible) && loading;
+  const revisiting = returning && !writeCheck;
+  const refreshing = Boolean(visible) && loading && !waitForWrite;
   const refreshFailed = Boolean(visible) && failed;
   const showRefresh = useCollectionRefreshVisibility(refreshing);
   const updateRetry = refreshFailed || (refreshing && retrying);
-  const closed = value.status === "denied" || unlicensed;
   const focusHeading = () => heading.current?.focus({ preventScroll: true });
   function reload(focus?: BookmarkFocus) {
     refreshFocus.current = focus;
@@ -639,6 +673,7 @@ export function ChannelBookmarksPanel(props: Props) {
       }
     }
     setAnnouncement("");
+    setWriteCheck("checking");
     retry();
   }
   function takeRefreshFocus() {
@@ -656,7 +691,20 @@ export function ChannelBookmarksPanel(props: Props) {
     }
     setRetrying(true);
     setAnnouncement("");
+    if (writeCheck === "failed") setWriteCheck("checking");
     retry();
+  }
+  function remember(place: RowPlace) {
+    if (!history || !visible || !online || closed) return;
+    const rows = nearbyRows(visible.current, place, (item) => item.id);
+    rememberList(history, channelId, {
+      rows,
+      writeCheck: writeCheck ?? (pending ? "checking" : undefined),
+      place: withinPlace(
+        place,
+        rows.map((item) => item.id),
+      ),
+    });
   }
   useLayoutEffect(() => {
     heading.current?.focus({ preventScroll: true });
@@ -668,7 +716,9 @@ export function ChannelBookmarksPanel(props: Props) {
     }
     if (retrying) setRetrying(false);
     if (refreshFailed) {
-      setAnnouncement(t.updateAnnouncement);
+      setAnnouncement(
+        revisiting ? listText.updateAnnouncement : t.updateAnnouncement,
+      );
       return;
     }
     if (hadRefresh.current) {
@@ -698,6 +748,8 @@ export function ChannelBookmarksPanel(props: Props) {
     closed,
     confirmed,
     failed,
+    revisiting,
+    listText,
     t,
   ]);
   const notice = closed
@@ -734,7 +786,11 @@ export function ChannelBookmarksPanel(props: Props) {
           (updateRetry || showRefresh) && (
             <>
               <span className="panel-text--secondary">
-                {updateRetry ? t.updateFailed : t.updating}
+                {updateRetry
+                  ? t.updateFailed
+                  : revisiting
+                    ? listText.updating
+                    : t.updating}
               </span>
               {updateRetry && (
                 <button
@@ -759,43 +815,52 @@ export function ChannelBookmarksPanel(props: Props) {
         close={{ label: t.close, run: props.close }}
         actions={<PaneSizeToggle />}
       />
-      <div
-        className="channel-bookmark-body"
-        ref={body}
-        data-channel-files=""
-        aria-busy={loading || undefined}
+      <ChannelListPosition
+        scroll={body}
+        heading={heading}
+        leadingControl={Boolean(pendingFromOtherView)}
+        rows={visible?.current}
+        start={starting?.place}
+        remember={remember}
       >
-        {visible && (
-          <EditableBookmarks
-            key={channelId}
-            {...props}
-            items={visible.current}
-            setItems={(current) => setItems({ ...visible, current })}
-            reading={refreshing || refreshFailed}
-            pendingFromOtherView={Boolean(pendingFromOtherView)}
-            panelId={id}
-            reload={reload}
-            setEditorOpen={setEditorOpen}
-            focusHeading={focusHeading}
-            takeRefreshFocus={takeRefreshFocus}
+        <div
+          className="channel-bookmark-body"
+          ref={body}
+          data-channel-files=""
+          aria-busy={loading || undefined}
+        >
+          {visible && (
+            <EditableBookmarks
+              key={channelId}
+              {...props}
+              items={visible.current}
+              setItems={(current) => setItems({ ...visible, current })}
+              reading={refreshing || refreshFailed}
+              pendingFromOtherView={Boolean(pendingFromOtherView)}
+              panelId={id}
+              reload={reload}
+              setEditorOpen={setEditorOpen}
+              focusHeading={focusHeading}
+              takeRefreshFocus={takeRefreshFocus}
+            />
+          )}
+          <ChannelListStatus
+            language={language}
+            notice={notice}
+            heading={noticeHeading}
+            announcement={announcement}
+            retry={
+              !visible && (failed || retrying)
+                ? {
+                    running: retrying,
+                    button: retryButton,
+                    read: () => repeat(retryButton.current),
+                  }
+                : undefined
+            }
           />
-        )}
-        <ChannelListStatus
-          language={language}
-          notice={notice}
-          heading={noticeHeading}
-          announcement={announcement}
-          retry={
-            !visible && (failed || retrying)
-              ? {
-                  running: retrying,
-                  button: retryButton,
-                  read: () => repeat(retryButton.current),
-                }
-              : undefined
-          }
-        />
-      </div>
+        </div>
+      </ChannelListPosition>
     </aside>
   );
 }

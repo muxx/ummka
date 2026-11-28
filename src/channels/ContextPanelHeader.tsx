@@ -61,14 +61,16 @@ export function ContextPanelHeader({
           id={id}
           ref={heading}
           tabIndex={heading ? -1 : undefined}
-          aria-describedby={subtitle ? subtitleId : undefined}
+          aria-describedby={subtitle || status ? subtitleId : undefined}
           title={title}
         >
           {icon}
           <span>{title}</span>
         </h2>
         {status ? (
-          <div className="context-panel-header__status">{status}</div>
+          <div className="context-panel-header__status" id={subtitleId}>
+            {status}
+          </div>
         ) : (
           subtitle && (
             <p

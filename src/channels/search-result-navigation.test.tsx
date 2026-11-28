@@ -2671,7 +2671,10 @@ test("members open from details, restore the opening row and cancel a pending re
     () => new Promise(() => {}),
   );
   fireEvent.click(returned);
-  await screen.findByRole("searchbox", { name: "Find a member" });
+  expect(screen.getByText("No members")).toBeTruthy();
+  await waitFor(() =>
+    expect(account.readChannelMemberDirectory).toHaveBeenCalledTimes(2),
+  );
   const signal = account.readChannelMemberDirectory.mock.calls.at(-1)?.[2];
   expect(signal?.aborted).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "Design" }));
@@ -3044,6 +3047,261 @@ test("direct bookmarks report the confirmed license state only after selection a
   expect(screen.queryByRole("complementary")).toBeNull();
   expect(document.activeElement).toBe(menu);
 });
+
+test.each([
+  ["Members", "No members", "No access to channel members"],
+  ["Channel files", "No files yet", "No access to channel files"],
+  ["Channel bookmarks", "No bookmarks yet", "No access to channel bookmarks"],
+] as const)(
+  "keeps the confirmed empty %s until a delayed denial and clears that reading",
+  async (section, empty, denied) => {
+    const { account } = fixture();
+    let reject!: (error: ResponseError) => void;
+    const failure = new Promise<never>((_, fail) => {
+      reject = fail;
+    });
+    const next = new Promise<never>(() => {});
+    if (section === "Members") {
+      account.readChannelMemberDirectory
+        .mockResolvedValueOnce({ members: [], nextPage: null })
+        .mockReturnValueOnce(failure)
+        .mockReturnValueOnce(next);
+    } else if (section === "Channel files") {
+      account.readChannelIdentity.mockResolvedValueOnce({
+        id: home,
+        kind: "O",
+        teamId: winter,
+        name: "home",
+        displayName: "Home",
+        deleteAt: 0,
+      });
+      account.readFileSearchPage
+        .mockResolvedValueOnce({
+          items: [],
+          isEnd: true,
+          firstInaccessibleFileTime: 0,
+        })
+        .mockReturnValueOnce(failure)
+        .mockReturnValueOnce(next);
+    } else {
+      account.readChannelBookmarks
+        .mockResolvedValueOnce({ kind: "available", bookmarks: [] })
+        .mockReturnValueOnce(failure)
+        .mockReturnValueOnce(next);
+    }
+    const read = () => {
+      if (section === "Members") return account.readChannelMemberDirectory;
+      if (section === "Channel files") return account.readFileSearchPage;
+      return account.readChannelBookmarks;
+    };
+    const info = await screen.findByRole("button", { name: "Channel info" });
+    const row = () =>
+      within(
+        screen.getByRole("complementary", { name: "About this channel" }),
+      ).getByRole("button", {
+        name: section === "Members" ? /^Members/ : section,
+      });
+    const open = () => {
+      fireEvent.click(row());
+      return within(screen.getByRole("complementary", { name: section }));
+    };
+    const back = () => {
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(document.activeElement).toBe(row());
+    };
+    fireEvent.click(info);
+    const first = await open().findByRole("heading", { name: empty });
+    back();
+    expect(first.isConnected).toBe(false);
+    const returned = open();
+    expect(returned.getByRole("heading", { name: empty })).toBeTruthy();
+    expect(document.activeElement).toBe(
+      returned.getByRole("heading", { name: section }),
+    );
+    await waitFor(() => expect(read()).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      reject(new ResponseError(new Response(null, { status: 403 })));
+    });
+    await returned.findByRole("heading", { name: denied });
+    back();
+    const deniedReturn = open();
+    expect(deniedReturn.queryByRole("heading", { name: empty })).toBeNull();
+    await waitFor(() => expect(read()).toHaveBeenCalledTimes(3));
+  },
+);
+
+test("restores a confirmed member filter and forgets it when cleared before a new answer", async () => {
+  const { account } = fixture();
+  const ada = {
+    profile: channelProfile({ id: user, username: "ada", firstName: "Ada" }),
+    roles: "",
+    schemeAdmin: false,
+    schemeGuest: false,
+  };
+  const pending = new Promise<never>(() => {});
+  account.readChannelMemberDirectory
+    .mockResolvedValueOnce({ members: [ada], nextPage: null })
+    .mockResolvedValueOnce({ members: [], nextPage: null })
+    .mockReturnValue(pending);
+  fireEvent.click(await screen.findByRole("button", { name: "Channel info" }));
+  const open = () => {
+    fireEvent.click(screen.getByRole("button", { name: /^Members/ }));
+    return within(screen.getByRole("complementary", { name: "Members" }));
+  };
+  const panel = open();
+  await panel.findByText("@ada");
+  fireEvent.change(panel.getByRole("searchbox"), {
+    target: { value: "missing" },
+  });
+  const empty = "No members match “missing”";
+  await panel.findByRole("heading", { name: empty });
+  fireEvent.keyDown(window, { key: "Escape" });
+  const returned = open();
+  const term = returned.getByRole<HTMLInputElement>("searchbox");
+  expect(term.value).toBe("missing");
+  expect(returned.getByRole("heading", { name: empty })).toBeTruthy();
+  expect(account.readChannelMemberDirectory).toHaveBeenLastCalledWith(
+    home,
+    { kind: "search", term: "missing" },
+    expect.any(AbortSignal),
+  );
+  const old = account.readChannelMemberDirectory.mock.calls.at(-1)?.[2];
+  fireEvent.change(term, { target: { value: "" } });
+  expect(old?.aborted).toBe(true);
+  fireEvent.keyDown(window, { key: "Escape" });
+  const cleared = open();
+  expect(cleared.getByRole<HTMLInputElement>("searchbox").value).toBe("");
+  expect(cleared.queryByRole("heading", { name: empty })).toBeNull();
+  expect(account.readChannelMemberDirectory).toHaveBeenLastCalledWith(
+    home,
+    { kind: "page", page: 0 },
+    expect.any(AbortSignal),
+  );
+});
+
+test("forgets the opened section when the same channel ID is present in a different team", async () => {
+  const { account } = fixture();
+  const ada = {
+    profile: channelProfile({ id: user, username: "ada", firstName: "Ada" }),
+    roles: "",
+    schemeAdmin: false,
+    schemeGuest: false,
+  };
+  account.readChannelMemberDirectory.mockResolvedValueOnce({
+    members: [ada],
+    nextPage: null,
+  });
+  fireEvent.click(await screen.findByRole("button", { name: "Third channel" }));
+  await screen.findByRole("heading", { level: 1, name: "Third channel" });
+  const open = async () => {
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Channel info" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Members/ }));
+    return within(screen.getByRole("complementary", { name: "Members" }));
+  };
+  await (await open()).findByText("@ada");
+  fireEvent.keyDown(window, { key: "Escape" });
+  fireEvent.keyDown(window, { key: "Escape" });
+  fireEvent.click(screen.getByRole("button", { name: "Switch team, Winter" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Summer" }));
+  await screen.findByRole("heading", { level: 1, name: "Other" });
+  account.readChannelMemberDirectory.mockReturnValueOnce(new Promise(() => {}));
+  const another = await open();
+  expect(another.queryByText("@ada")).toBeNull();
+  expect(another.getByText("Loading members…")).toBeTruthy();
+  expect(
+    account.readChannelMemberDirectory.mock.calls.map(([id]) => id),
+  ).toEqual([other, other]);
+});
+
+test.each(["channel", "files", "cancelled"] as const)(
+  "scopes %s file denial to the authority of its request",
+  async (source) => {
+    const { account } = fixture({ homeKind: "P" });
+    const member = {
+      profile: channelProfile({ id: user, username: "ada", firstName: "Ada" }),
+      roles: "",
+      schemeAdmin: false,
+      schemeGuest: false,
+    };
+    const bookmark = {
+      id: "bookmark-id",
+      name: "Old source",
+      destination: {
+        kind: "link" as const,
+        href: "https://example.test/source",
+      },
+    };
+    account.readChannelMemberDirectory.mockResolvedValueOnce({
+      members: [member],
+      nextPage: null,
+    });
+    account.readChannelBookmarks.mockResolvedValueOnce({
+      kind: "available",
+      bookmarks: [bookmark],
+    });
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Channel info" }),
+    );
+    const open = (name: string) => {
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: name === "Members" ? /^Members/ : name,
+        }),
+      );
+      return within(screen.getByRole("complementary", { name }));
+    };
+    const back = () => fireEvent.keyDown(window, { key: "Escape" });
+    await open("Members").findByText("@ada");
+    back();
+    await open("Channel bookmarks").findByRole("button", {
+      name: "Old source",
+    });
+    back();
+    const denied = new ResponseError(new Response(null, { status: 403 }));
+    let rejectIdentity!: (cause: ResponseError) => void;
+    if (source === "files")
+      account.readFileSearchPage.mockRejectedValueOnce(denied);
+    else {
+      account.readFileSearchPage.mockResolvedValueOnce({
+        items: [],
+        isEnd: true,
+        firstInaccessibleFileTime: 0,
+      });
+      account.readChannelIdentity.mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            rejectIdentity = reject;
+          }),
+      );
+    }
+    const files = open("Channel files");
+    if (source !== "files") {
+      await waitFor(() =>
+        expect(account.readChannelIdentity).toHaveBeenCalledTimes(1),
+      );
+      if (source === "cancelled") back();
+      await act(async () => rejectIdentity(denied));
+    }
+    if (source !== "cancelled") {
+      await files.findByRole("heading", { name: "No access to channel files" });
+      back();
+    }
+    account.readChannelBookmarks.mockReturnValueOnce(new Promise(() => {}));
+    account.readChannelMemberDirectory.mockReturnValueOnce(
+      new Promise(() => {}),
+    );
+    const bookmarks = open("Channel bookmarks");
+    expect(
+      Boolean(bookmarks.queryByRole("button", { name: "Old source" })),
+    ).toBe(source !== "channel");
+    back();
+    expect(Boolean(open("Members").queryByText("@ada"))).toBe(
+      source !== "channel",
+    );
+  },
+);
 
 test.each([
   ["Pinned messages", "Close collection"],

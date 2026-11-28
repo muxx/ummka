@@ -11,6 +11,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { ResponseError } from "../../vendor/mattermost/index.js";
 import { ChannelBookmarksPanel } from "./ChannelBookmarksPanel.tsx";
 import { createChannelBookmarkWrites } from "./channel-bookmark-writes.ts";
+import type { BookmarkReading } from "./channel-list-reading.ts";
 import {
   AttachmentWindow,
   useAttachmentWindow,
@@ -59,10 +60,12 @@ function Panel({
   ctx: { account, writes, open, sessionIssue, back, can },
   id = channel,
   online = true,
+  history,
 }: {
   ctx: ReturnType<typeof fixture>;
   id?: string;
   online?: boolean;
+  history?: Map<string, BookmarkReading>;
 }) {
   const attachment = useAttachmentWindow(
     { connection: account, online, sessionIssue },
@@ -81,6 +84,7 @@ function Panel({
           writes={writes}
           can={can}
           channelId={id}
+          history={history}
           name="# Releases"
           serverUrl={base}
           online={online}
@@ -1023,3 +1027,182 @@ test.each(["confirmed", "uncertain"] as const)(
     expect(ctx.account.createChannelBookmark).toHaveBeenCalledTimes(1);
   },
 );
+
+async function submitRename(name: string) {
+  fireEvent.click(
+    await screen.findByRole("button", { name: editableLink.name }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  const editor = within(screen.getByRole("dialog", { name: "Edit bookmark" }));
+  fireEvent.change(editor.getByLabelText("Name"), { target: { value: name } });
+  fireEvent.click(editor.getByRole("button", { name: "Save" }));
+  fireEvent.click(editor.getByRole("button", { name: "Close" }));
+}
+
+test.each(["confirmed", "denied"] as const)(
+  "keeps a manual retry when returning after a failed rename check, then handles %s access",
+  async (outcome) => {
+    const ctx = fixture();
+    const history = new Map<string, BookmarkReading>();
+    ctx.can.mockReturnValue(true);
+    const renamed = { ...editableLink, name: "Renamed runbook" };
+    const operation =
+      heldBookmarkResult<
+        Awaited<ReturnType<WorkspaceConnection["updateChannelBookmark"]>>
+      >();
+    type Listing = Awaited<
+      ReturnType<WorkspaceConnection["readChannelBookmarks"]>
+    >;
+    const check = heldBookmarkResult<Listing>();
+    const retry = heldBookmarkResult<Listing>();
+    ctx.account.readChannelBookmarks
+      .mockResolvedValueOnce({ kind: "available", bookmarks: [editableLink] })
+      .mockReturnValueOnce(check.promise)
+      .mockReturnValue(retry.promise);
+    ctx.account.updateChannelBookmark.mockReturnValue(operation.promise);
+    const panel = <Panel ctx={ctx} history={history} />;
+    const app = render(panel);
+    const button = (name: string) =>
+      screen.getByRole<HTMLButtonElement>("button", { name });
+    await submitRename(renamed.name);
+    app.rerender(null);
+    app.rerender(panel);
+    await screen.findByText("Saving bookmark…");
+    expect(button("Add link").disabled).toBe(true);
+    expect(ctx.account.readChannelBookmarks).toHaveBeenCalledTimes(1);
+
+    await act(async () => operation.reject(new TypeError("Response lost")));
+    await screen.findByText("Updating bookmarks…", {}, { timeout: 2000 });
+    expect(ctx.account.readChannelBookmarks).toHaveBeenCalledTimes(2);
+    await act(async () => check.reject(new TypeError("Read incomplete")));
+    await screen.findByText("Update failed: no response");
+
+    app.rerender(null);
+    app.rerender(panel);
+    expect(document.activeElement).toBe(
+      screen.getByRole("heading", { name: "Channel bookmarks" }),
+    );
+    expect(ctx.account.readChannelBookmarks).toHaveBeenCalledTimes(2);
+    expect(button("Add link").disabled).toBe(true);
+    fireEvent.click(button(editableLink.name));
+    const menu = within(
+      screen.getByRole("dialog", { name: editableLink.name }),
+    );
+    expect(menu.getByRole("button", { name: "Open link" })).toBeTruthy();
+    expect(menu.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(menu.queryByRole("button", { name: "Delete" })).toBeNull();
+    fireEvent.click(menu.getByRole("button", { name: "Close" }));
+    fireEvent.click(button("Try again"));
+    expect(document.activeElement).toBe(button("Trying again…"));
+    expect(ctx.account.readChannelBookmarks).toHaveBeenCalledTimes(3);
+    expect(ctx.account.updateChannelBookmark).toHaveBeenCalledTimes(1);
+    expect(button("Add link").disabled).toBe(true);
+
+    if (outcome === "denied") {
+      await act(async () =>
+        retry.reject(new ResponseError(new Response(null, { status: 403 }))),
+      );
+      expect(document.activeElement).toBe(
+        screen.getByRole("heading", { name: "No access to channel bookmarks" }),
+      );
+      expect(screen.queryByRole("list")).toBeNull();
+      expect(history.has(channel)).toBe(false);
+    } else {
+      await act(async () =>
+        retry.resolve({ kind: "available", bookmarks: [renamed] }),
+      );
+      expect(document.activeElement).toBe(button(renamed.name));
+      expect(button("Add link").disabled).toBe(false);
+      expect(
+        screen.getAllByRole("button", { name: renamed.name }),
+      ).toHaveLength(1);
+    }
+  },
+);
+
+test.each(["sending", "checking"] as const)(
+  "reconciles a rename after closing the whole panel while %s",
+  async (phase) => {
+    const ctx = fixture();
+    ctx.can.mockReturnValue(true);
+    const history = new Map<string, BookmarkReading>();
+    const renamed = { ...editableLink, name: "Renamed runbook" };
+    const operation =
+      heldBookmarkResult<
+        Awaited<ReturnType<WorkspaceConnection["updateChannelBookmark"]>>
+      >();
+    type Listing = Awaited<
+      ReturnType<WorkspaceConnection["readChannelBookmarks"]>
+    >;
+    const interrupted = heldBookmarkResult<Listing>(),
+      current = heldBookmarkResult<Listing>();
+    const { readChannelBookmarks, updateChannelBookmark } = ctx.account;
+    readChannelBookmarks.mockResolvedValueOnce({
+      kind: "available",
+      bookmarks: [editableLink],
+    });
+    if (phase === "checking")
+      readChannelBookmarks.mockReturnValueOnce(interrupted.promise);
+    readChannelBookmarks.mockReturnValueOnce(current.promise);
+    updateChannelBookmark.mockReturnValue(operation.promise);
+    const panel = <Panel ctx={ctx} history={history} />;
+    const app = render(panel);
+    await submitRename(renamed.name);
+    if (phase === "checking") {
+      await act(async () => operation.reject(new TypeError("Response lost")));
+      expect(readChannelBookmarks).toHaveBeenCalledTimes(2);
+      app.rerender(null);
+      expect(readChannelBookmarks.mock.calls[1][1]?.aborted).toBe(true);
+    } else {
+      app.rerender(null);
+      await act(async () => operation.reject(new TypeError("Response lost")));
+      expect(readChannelBookmarks).toHaveBeenCalledTimes(1);
+    }
+
+    const reads = readChannelBookmarks.mock.calls.length;
+    app.rerender(panel);
+    if (phase === "checking") {
+      await act(async () => interrupted.reject(new TypeError("Late failure")));
+    }
+    await screen.findByText("Updating bookmarks…", {}, { timeout: 2000 });
+    expect(readChannelBookmarks).toHaveBeenCalledTimes(reads + 1);
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    const add = screen.getByRole<HTMLButtonElement>("button", {
+      name: "Add link",
+    });
+    expect(add.disabled).toBe(true);
+    await act(async () =>
+      current.resolve({ kind: "available", bookmarks: [renamed] }),
+    );
+    expect(add.disabled).toBe(false);
+    expect(screen.getByRole("button", { name: renamed.name })).toBeTruthy();
+    expect(updateChannelBookmark).toHaveBeenCalledTimes(1);
+  },
+);
+
+test("ordinary warm bookmark refresh retries automatically at the next open", async () => {
+  const ctx = fixture();
+  const history = new Map<string, BookmarkReading>();
+  const check =
+    heldBookmarkResult<
+      Awaited<ReturnType<WorkspaceConnection["readChannelBookmarks"]>>
+    >();
+  ctx.account.readChannelBookmarks
+    .mockResolvedValue({ kind: "available", bookmarks: [editableLink] })
+    .mockResolvedValueOnce({ kind: "available", bookmarks: [editableLink] })
+    .mockReturnValueOnce(check.promise);
+  const panel = <Panel ctx={ctx} history={history} />;
+  const app = render(panel);
+  await screen.findByRole("button", { name: editableLink.name });
+  app.rerender(null);
+  app.rerender(panel);
+  await screen.findByText("Updating the list…", {}, { timeout: 2000 });
+  await act(async () => check.reject(new TypeError("Read incomplete")));
+  await screen.findByText("Update failed: no response");
+  expect(ctx.account.readChannelBookmarks).toHaveBeenCalledTimes(2);
+  app.rerender(null);
+  app.rerender(panel);
+  expect(ctx.account.readChannelBookmarks).toHaveBeenCalledTimes(3);
+  expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  await screen.findByText("Bookmarks updated");
+});
