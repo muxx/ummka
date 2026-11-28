@@ -3718,6 +3718,120 @@ test.each([
       expect(screen.getByRole("heading", { name: "Thread" })).toBeTruthy();
   },
 );
+test.each([true, false])(
+  "opens the exact recipient conversation after a pasted message link, saved membership %s",
+  async (existing) => {
+    const { account } = fixture();
+    vi.mocked(listInstallations).mockResolvedValue(["https://example.test"]);
+    vi.mocked(getCurrentAccountId).mockResolvedValue(user);
+    const peer = channelProfile({
+      id: "x".repeat(26),
+      username: "recipient",
+      deleteAt: 0,
+    });
+    const conversation = "m".repeat(26);
+    const outdatedConversation = "n".repeat(26);
+    const read = account.readTeamSidebar.getMockImplementation();
+    if (!read) throw Error("Missing sidebar fixture");
+    let permalink = false;
+    let created = false;
+    account.readTeamSidebar.mockImplementation(async (team) => {
+      const sidebar = await read(team);
+      const sampleRoom = sidebar?.data.channels[0];
+      if (!sidebar || !sampleRoom)
+        throw Error("Missing current workspace membership");
+      // The navigation handoff may have an earlier complete snapshot than the sidebar observer.
+      const id = permalink
+        ? outdatedConversation
+        : existing || created
+          ? conversation
+          : null;
+      const channels = id
+        ? [
+            ...sidebar.data.channels,
+            {
+              ...sampleRoom,
+              id,
+              kind: "D",
+              name: `${user}__${peer.id}`,
+              displayName: "",
+            },
+          ]
+        : sidebar.data.channels;
+      return {
+        ...sidebar,
+        data: {
+          channels,
+          categories: [
+            ...sidebar.data.categories,
+            {
+              id: "direct-category",
+              kind: "direct_messages",
+              displayName: "Direct messages",
+              sorting: "recent",
+              collapsed: false,
+              muted: false,
+              channelIds: id ? [id] : [],
+            },
+          ],
+        },
+      };
+    });
+    account.readConversationRecipients.mockResolvedValue({
+      profiles: [peer],
+      nextPage: null,
+    });
+    account.openRecipientConversation.mockImplementation(async () => {
+      created = true;
+      return { kind: "applied", channelId: conversation, channelKind: "D" };
+    });
+    await screen.findByRole("button", { name: "Direct message actions" });
+    await waitFor(() =>
+      expect(account.readTeamSidebar.mock.calls.length).toBeGreaterThanOrEqual(
+        2,
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Find a channel" }));
+    const link = within(
+      await screen.findByRole("dialog", { name: "Find a channel" }),
+    );
+    fireEvent.change(link.getByRole("combobox"), {
+      target: { value: `https://example.test/winter/pl/${root.id}` },
+    });
+    permalink = true;
+    fireEvent.click(link.getByRole("option", { name: "Go to message" }));
+    await screen.findByText(root.message);
+    permalink = false;
+    account.selectSidebarChannel.mockClear();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Direct message actions" }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Write a message" }));
+    const picker = within(
+      await screen.findByRole("dialog", { name: "New direct message" }),
+    );
+    fireEvent.click(await picker.findByRole("checkbox", { name: "recipient" }));
+    fireEvent.click(picker.getByRole("button", { name: "Open conversation" }));
+    await waitFor(() =>
+      expect(account.selectSidebarChannel).toHaveBeenCalledExactlyOnceWith(
+        winter,
+        conversation,
+      ),
+    );
+    expect(account.openRecipientConversation).toHaveBeenCalledTimes(
+      existing ? 0 : 1,
+    );
+    await waitFor(() =>
+      expect(account.reopenKnownConversation).toHaveBeenCalledExactlyOnceWith(
+        winter,
+        conversation,
+        expect.any(AbortSignal),
+      ),
+    );
+  },
+);
+
 test("refused pasted post returns to the source and its original draft", async () => {
   const { account } = fixture();
   vi.mocked(listInstallations).mockResolvedValue(["https://example.test"]);

@@ -30,6 +30,7 @@ import { integrationCardRaceFixture } from "./integration-card-race.ts";
 import { collectionFixture } from "./post-collections.ts";
 import { respondToPostContext } from "./post-context.ts";
 import { respondToPostMutation } from "./post-mutations.ts";
+import { recipientWindowFixture } from "./recipient-window.ts";
 import { submissionFixture } from "./submit-post.ts";
 import { threadInboxWindowFixture } from "./thread-inbox-window.ts";
 import { respondToThreadList } from "./thread-list.ts";
@@ -107,6 +108,7 @@ export function webviewServers(
   let workspaceConfigReads = 0;
   const systemPostReads = new Set<string>();
   const collectionWindow = collectionWindowFixture();
+  const recipientWindow = recipientWindowFixture();
   const inboxWindow = threadInboxWindowFixture(
     () => swipeAndroid !== undefined,
     async () => {
@@ -804,6 +806,7 @@ export function webviewServers(
       return;
     }
     if (await collectionWindow(req, res, url)) return;
+    if (await recipientWindow.serve(req, res, url)) return;
     if (url.pathname === `/team/chat/api/v4/channels/${channelId}/bookmarks`) {
       assert.equal(req.method, "POST");
       assert.equal(url.search, "");
@@ -2112,6 +2115,8 @@ export function webviewServers(
           "disconnect",
           "external-handoff",
           "search-ime-back",
+          "recipient-picker-ime-back",
+          "recipient-picker-back",
           "first-team-empty",
           "first-team-back",
           "first-team-invite",
@@ -2192,6 +2197,15 @@ export function webviewServers(
       assert(swipeAndroid && pressWorkspaceBack && !tableBack);
       if (!(await press(pressWorkspaceBack))) return;
       tableBack = true;
+    } else if (step === "recipient-picker-ime-back") {
+      const dismiss = pressSearchImeBack;
+      const point = /^([1-9]\d{0,3}),([1-9]\d{0,3})$/u.exec(name);
+      assert(dismiss && point);
+      if (!(await press(() => dismiss(Number(point[1]), Number(point[2])))))
+        return;
+    } else if (step === "recipient-picker-back") {
+      assert(pressWorkspaceBack);
+      if (!(await press(pressWorkspaceBack))) return;
     } else if (step === "search-ime-back") {
       const dismiss = pressSearchImeBack;
       const point = /^([1-9]\d{0,3}),([1-9]\d{0,3})$/u.exec(name);
@@ -2875,6 +2889,7 @@ export function webviewServers(
         "live-members",
       );
       assert.equal(stepIndex, backSteps.length);
+      recipientWindow.verify();
       console.log(
         `${platform} verified native return through search, the quick switcher and the thread with both composer drafts intact.`,
       );
