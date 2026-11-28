@@ -72,6 +72,9 @@
   color: var(--text);
   font: inherit;
 }
+.directory-filter:focus {
+  border-color: var(--focus);
+}
 .directory-filter::placeholder,
 .directory-channel-info > span,
 .directory-channel-meta {
