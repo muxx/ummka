@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter, once } from "node:events";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { json } from "node:stream/consumers";
 import { respondToAccount } from "./account.ts";
@@ -9,12 +10,23 @@ export function recipientWindowFixture() {
     team = "Team0123456789012345678901";
   const peer = "p".repeat(26),
     second = "q".repeat(26),
+    remote = "r".repeat(26),
     direct = "s".repeat(26);
   const people = [
     { id: own, username: "fixture-author", delete_at: 0 },
     { id: peer, username: "north", delete_at: 0 },
     { id: second, username: "south", delete_at: 0 },
   ];
+  const remotePerson = {
+    id: remote,
+    username: "remote",
+    delete_at: 0,
+    remote_id: "x".repeat(26),
+  };
+  const remoteCheck = `sharedchannels/users/me/can_dm/${remote}`;
+  const signals = new EventEmitter();
+  const checked = once(signals, "checked");
+  const eligibility = once(signals, "eligible");
   const visibility: { selfOpenedAt?: string } = {};
   const prefix = "/recipient-window/api/v4/";
   const browserToken = "fixture-recipient-window";
@@ -22,6 +34,10 @@ export function recipientWindowFixture() {
   let created = false;
   let refreshFailed = false;
   return {
+    async confirmRemote() {
+      await checked;
+      signals.emit("eligible");
+    },
     async serve(req: IncomingMessage, res: ServerResponse, url: URL) {
       if (!url.pathname.startsWith(prefix)) return false;
       const path = url.pathname.slice(prefix.length);
@@ -34,6 +50,15 @@ export function recipientWindowFixture() {
         visits.push(path);
         return true;
       };
+      if (path === "config/client" && req.headers.authorization !== undefined) {
+        assert.equal(req.method, "GET");
+        assert.equal(url.search, "?format=old");
+        return send({
+          CollapsedThreads: "always_on",
+          TeammateNameDisplay: "username",
+          FeatureFlagEnableSharedChannelsDMs: "true",
+        });
+      }
       if (path === "users") {
         assert.equal(req.method, "GET");
         assert.deepEqual(Object.fromEntries(url.searchParams), {
@@ -42,7 +67,14 @@ export function recipientWindowFixture() {
           page: "0",
           per_page: "100",
         });
-        return send(people);
+        return send([people[0], remotePerson, ...people.slice(1)]);
+      }
+      if (path === remoteCheck) {
+        assert.equal(req.method, "GET");
+        assert.equal(url.search, "");
+        signals.emit("checked");
+        await eligibility;
+        return send({ can_dm: true });
       }
       if (path === "users/search") {
         assert.equal(req.method, "POST");
@@ -116,6 +148,10 @@ export function recipientWindowFixture() {
         1,
       );
       assert.equal(visits.filter((path) => path === "users/search").length, 1);
+      assert.ok(
+        visits.includes(remoteCheck),
+        "Recipient picker did not check the remote recipient",
+      );
       assert.ok(
         refreshFailed,
         "Recipient picker did not retry reading the sidebar",

@@ -209,6 +209,14 @@
   color: var(--text);
   font-size: var(--panel-body-size);
 }
+.recipient-picker__announcement {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .recipient-picker .recipient-picker__page .panel-state__action {
   padding: 0;
 }

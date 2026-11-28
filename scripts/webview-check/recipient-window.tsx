@@ -83,8 +83,29 @@ export async function checkRecipientWindow(port: string, controlPort: string) {
       if (first.dialog.isConnected || document.activeElement !== trigger)
         throw Error("Back did not restore the category trigger");
     });
+    const readingHeight = window.visualViewport?.height;
     const { picker, field } = await pick();
-    click(await picker.findByRole("checkbox", { name: "north" }));
+    const local = await picker.findByRole<HTMLInputElement>("checkbox", {
+      name: "north",
+    });
+    click(local);
+    local.focus();
+    picker.getByText("Checking people from other installations…");
+    if (picker.queryByRole("checkbox", { name: "remote" }))
+      throw Error("Remote recipient was shown before permission was confirmed");
+    await press("recipient-picker-confirm");
+    await picker.findByRole("checkbox", { name: "remote" });
+    const order = picker
+      .getAllByRole("checkbox")
+      .map((entry) => entry.getAttribute("aria-label"));
+    if (
+      order.indexOf("remote") + 1 !== order.indexOf("north") ||
+      !local.checked ||
+      document.activeElement !== local
+    )
+      throw Error(
+        "Remote confirmation lost the catalog order, local selection or focus",
+      );
     type(field, "@south");
     click(await picker.findByRole("checkbox", { name: "south" }));
     click(picker.getByRole("button", { name: "Open conversation" }));
@@ -114,9 +135,13 @@ export async function checkRecipientWindow(port: string, controlPort: string) {
       const tag = innerWidth <= 740 ? "H1" : "TEXTAREA";
       if (focused?.tagName !== tag || !host.contains(focused))
         throw Error(`The destination should focus its ${tag.toLowerCase()}`);
+      if (android && window.visualViewport?.height !== readingHeight)
+        throw Error(
+          "Opening the conversation changed the Android keyboard viewport",
+        );
     });
     openChannelNavigation(host, "Channels");
-    click(ui.getByRole("button", { name: "Town Square" }));
+    click(await ui.findByRole("button", { name: "Town Square" }));
     const restored = await ui.findByRole<HTMLTextAreaElement>("textbox", {
       name: "Message #Town Square…",
     });
@@ -126,6 +151,7 @@ export async function checkRecipientWindow(port: string, controlPort: string) {
     });
     openChannelNavigation(host, "Channels");
     await ui.findByRole("button", { name: "fixture-author" });
+    await press("recipient-picker-complete");
   } finally {
     root.unmount();
     host.remove();

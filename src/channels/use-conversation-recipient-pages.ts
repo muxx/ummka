@@ -17,8 +17,9 @@ const firstPage = (term: string): PageRequest => ({
   retry: false,
 });
 type PageState = RecipientPage & {
-  status: "loading" | "ready" | "failed" | "offline" | "denied";
+  status: "loading" | "checking" | "ready" | "failed" | "offline" | "denied";
   focus?: string;
+  added?: number;
 };
 
 export function useConversationRecipientPages(
@@ -30,7 +31,6 @@ export function useConversationRecipientPages(
   const [request, setRequest] = useState(() => firstPage(""));
   const [result, setResult] = useState<{
     request: PageRequest;
-    online: boolean;
     state: PageState;
   }>();
   const onSessionIssue = useEffectEvent(sessionIssue);
@@ -39,24 +39,43 @@ export function useConversationRecipientPages(
     const controller = new AbortController();
     const { signal } = controller;
     function publish(state: PageState) {
-      if (!signal.aborted) setResult({ request, online, state });
+      if (!signal.aborted) setResult({ request, state });
     }
     async function load() {
       const { page, term, previous, retry } = request;
+      const completed = new Map(previous.map((person) => [person.id, person]));
+      function join(profiles: ChannelProfile[]) {
+        const joined = new Map(completed);
+        for (const person of profiles) joined.set(person.id, person);
+        return [...joined.values()];
+      }
+      let local: Set<string> | undefined;
       publish({ status: "loading", profiles: previous, nextPage: null });
       try {
         const next = await account.readConversationRecipients(
           teamId,
           term ? { kind: "search", term } : { kind: "page", page },
           signal,
+          (partial) => {
+            if (signal.aborted) return;
+            local = new Set(partial.profiles.map(({ id }) => id));
+            publish({
+              status: "checking",
+              profiles: join(partial.profiles),
+              nextPage: null,
+            });
+          },
         );
-        const profiles = new Map(previous.map((person) => [person.id, person]));
-        const firstNew = next.profiles.find(({ id }) => !profiles.has(id));
-        for (const person of next.profiles) profiles.set(person.id, person);
+        const firstNew = next.profiles.find(({ id }) => !completed.has(id));
         publish({
           status: "ready",
-          profiles: [...profiles.values()],
+          profiles: join(next.profiles),
           nextPage: next.nextPage,
+          added:
+            local &&
+            next.profiles.filter(
+              ({ id }) => !local?.has(id) && !completed.has(id),
+            ).length,
           focus: retry
             ? page > 0 && firstNew
               ? firstNew.id
@@ -82,7 +101,7 @@ export function useConversationRecipientPages(
   }, [account, teamId, online, request]);
   const state: PageState = !online
     ? { status: "offline", profiles: [], nextPage: null }
-    : result?.request === request && result.online === online
+    : result?.request === request
       ? result.state
       : { status: "loading", profiles: request.previous, nextPage: null };
 

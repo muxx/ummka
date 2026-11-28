@@ -410,6 +410,9 @@ export function StartConversationDialog({
           </div>
         )}
       </section>
+      <span className="recipient-picker__announcement" role="status">
+        {state.added ? text.added(state.added) : ""}
+      </span>
       <footer className="recipient-picker__footer">
         <span
           id={statusId}
@@ -482,6 +485,8 @@ function readNotice(
   text: Copy,
 ): Parameters<typeof PanelState>[0] | null {
   switch (status) {
+    case "checking":
+      return { variant: "pending", message: text.checking, role: "status" };
     case "loading":
       return {
         variant: "pending",

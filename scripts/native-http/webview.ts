@@ -2117,6 +2117,8 @@ export function webviewServers(
           "search-ime-back",
           "recipient-picker-ime-back",
           "recipient-picker-back",
+          "recipient-picker-confirm",
+          "recipient-picker-complete",
           "first-team-empty",
           "first-team-back",
           "first-team-invite",
@@ -2197,6 +2199,13 @@ export function webviewServers(
       assert(swipeAndroid && pressWorkspaceBack && !tableBack);
       if (!(await press(pressWorkspaceBack))) return;
       tableBack = true;
+    } else if (step === "recipient-picker-confirm") {
+      await recipientWindow.confirmRemote();
+    } else if (step === "recipient-picker-complete") {
+      recipientWindow.verify();
+      console.log(
+        "Verified the recipient picker, its signed requests and its single creation across a failed sidebar read.",
+      );
     } else if (step === "recipient-picker-ime-back") {
       const dismiss = pressSearchImeBack;
       const point = /^([1-9]\d{0,3}),([1-9]\d{0,3})$/u.exec(name);

@@ -17,6 +17,9 @@ export const startConversationCopy = {
     group: (count: number) => `${count} of 7 selected · group`,
     loading: "Loading people…",
     loadingMore: "Loading more…",
+    checking: "Checking people from other installations…",
+    added: (count: number) =>
+      `${count} ${count === 1 ? "person" : "people"} added`,
     more: "Show more",
     retry: "Retry",
     empty: "No people found",
@@ -56,6 +59,8 @@ export const startConversationCopy = {
     group: (count: number) => `Выбрано ${count} из 7 · группа`,
     loading: "Загружаем людей…",
     loadingMore: "Загружаем ещё…",
+    checking: "Проверяем людей из других установок…",
+    added: (count: number) => `Добавлено людей: ${count}`,
     more: "Показать ещё",
     retry: "Повторить",
     empty: "Людей не нашли",

@@ -7,6 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
+import { ResponseError } from "../../vendor/mattermost/index.js";
 import "./workspace-dom.test-utils.ts";
 import { channelProfile } from "../mattermost/channel-profiles.ts";
 import type { TeamSidebar } from "../mattermost/team-sidebar.ts";
@@ -317,4 +318,106 @@ test("keeps the selection offline and reports an expired session through the acc
   await waitFor(() =>
     expect(p.sessionIssue).toHaveBeenCalledExactlyOnceWith("unauthorized"),
   );
+});
+
+test("selects a local result before remote eligibility and keeps the server order on subsequent pages", async () => {
+  const p = setup();
+  const later = deferred<{ profiles: typeof peers; nextPage: null }>();
+  vi.mocked(p.account.readConversationRecipients).mockImplementation(
+    async (_team, q, _signal, partial) => {
+      if (q.kind === "page" && q.page === 0)
+        return { profiles: [peers[0]], nextPage: 1 };
+      partial?.({ profiles: [peers[2]], nextPage: null });
+      return later.promise;
+    },
+  );
+  render(<StartConversationDialog {...p} />);
+  const more = await screen.findByRole("button", { name: "Show more" });
+  fireEvent.click(more);
+  const local = await screen.findByRole<HTMLInputElement>("checkbox", {
+    name: "person-3",
+  });
+  fireEvent.click(local);
+  local.focus();
+  expect(
+    screen.getByText("Checking people from other installations…"),
+  ).toBeTruthy();
+  expect(local.checked).toBe(true);
+  expect(screen.queryByRole("checkbox", { name: "person-2" })).toBeNull();
+  await act(async () =>
+    later.resolve({ profiles: [peers[1], peers[2]], nextPage: null }),
+  );
+  expect(
+    screen
+      .getAllByRole("checkbox")
+      .map((row) => row.getAttribute("aria-label")),
+  ).toEqual(["person-1", "person-2", "person-3"]);
+  expect(tick("person-3")).toBe(local);
+  expect(local.checked).toBe(true);
+  expect(document.activeElement).toBe(local);
+  expect(screen.getByText("1 person added")).toBeTruthy();
+});
+
+test("keeps paging filtered pages, and restarts at page zero after access is refused", async () => {
+  const p = setup();
+  const reads = vi.mocked(p.account.readConversationRecipients);
+  reads
+    .mockResolvedValueOnce({ profiles: [], nextPage: 1 })
+    .mockRejectedValueOnce(
+      new ResponseError(new Response(null, { status: 403 })),
+    )
+    .mockResolvedValueOnce({ profiles: [peers[0]], nextPage: null });
+  const view = render(<StartConversationDialog {...p} />);
+  const more = await screen.findByRole("button", { name: "Show more" });
+  expect(screen.queryByText("No people found")).toBeNull();
+  fireEvent.click(more);
+  await screen.findByText("You don’t have access to this list");
+  expect(screen.getByRole("searchbox").getAttribute("aria-disabled")).toBe(
+    "true",
+  );
+  expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  view.unmount();
+  render(<StartConversationDialog {...p} />);
+  await screen.findByRole("checkbox", { name: "person-1" });
+  expect(reads.mock.calls.map(([, q]) => q)).toEqual([
+    { kind: "page", page: 0 },
+    { kind: "page", page: 1 },
+    { kind: "page", page: 0 },
+  ]);
+});
+
+test("ignores a superseded search's partial and final recipients", async () => {
+  const p = setup();
+  const late = deferred<{ profiles: typeof peers; nextPage: null }>();
+  let update: Parameters<Account["readConversationRecipients"]>[3];
+  let old: AbortSignal | undefined;
+  const reads = vi.mocked(p.account.readConversationRecipients);
+  reads.mockImplementation(async (_team, q, signal, progress) => {
+    if (q.kind === "page") return { profiles: [own], nextPage: null };
+    if (q.term === "first") {
+      update = progress;
+      old = signal;
+      progress?.({ profiles: [peers[0]], nextPage: null });
+      return late.promise;
+    }
+    return { profiles: [peers[1]], nextPage: null };
+  });
+  const view = render(<StartConversationDialog {...p} />);
+  const search = screen.getByRole("searchbox");
+  fireEvent.input(search, { target: { value: "first" } });
+  await screen.findByRole("checkbox", { name: "person-1" });
+  fireEvent.input(search, { target: { value: "second" } });
+  await screen.findByRole("checkbox", { name: "person-2" });
+  expect(old?.aborted).toBe(true);
+  await act(async () => {
+    update?.({ profiles: [peers[2]], nextPage: null });
+    late.resolve({ profiles: [peers[3]], nextPage: null });
+  });
+  expect(
+    screen
+      .getAllByRole("checkbox")
+      .map((row) => row.getAttribute("aria-label")),
+  ).toEqual(["person-2"]);
+  view.unmount();
+  expect(reads.mock.calls.at(-1)?.[2]?.aborted).toBe(true);
 });
