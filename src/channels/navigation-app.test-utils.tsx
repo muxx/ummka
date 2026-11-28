@@ -223,6 +223,8 @@ export function fixture({
       return true;
     }),
     readTeamSidebar: vi.fn<Account["readTeamSidebar"]>(readSidebar),
+    readConversationRecipients: vi.fn<Account["readConversationRecipients"]>(),
+    openRecipientConversation: vi.fn<Account["openRecipientConversation"]>(),
     readChannelMemberCount: vi
       .fn<Account["readChannelMemberCount"]>()
       .mockResolvedValue(7),

@@ -520,22 +520,30 @@ function offlineWorkspace() {
             sorting: "manual",
             channelIds: [channelId, otherId],
           },
-          ...(directIds.length
-            ? [
-                {
-                  id: "direct-category",
-                  kind: "direct_messages",
-                  displayName: "Direct messages",
-                  collapsed: false,
-                  muted: false,
-                  sorting: "recent",
-                  channelIds: directIds,
-                },
-              ]
-            : []),
+          {
+            id: "direct-category",
+            kind: "direct_messages",
+            displayName: "Direct messages",
+            collapsed: false,
+            muted: false,
+            sorting: "recent",
+            channelIds: directIds,
+          },
         ],
       },
     })),
+    readConversationRecipients:
+      vi.fn<
+        Awaited<
+          ReturnType<typeof openAccountRestConnection>
+        >["readConversationRecipients"]
+      >(),
+    openRecipientConversation:
+      vi.fn<
+        Awaited<
+          ReturnType<typeof openAccountRestConnection>
+        >["openRecipientConversation"]
+      >(),
     selectSidebarChannel: vi.fn(async (_team: string, id: string) => {
       selected = id;
       return true;
@@ -1380,3 +1388,83 @@ test.each(["edit", "dismiss", "unmount"])(
     expect(connection.selectSidebarChannel).not.toHaveBeenCalled();
   },
 );
+
+test("opens a new direct conversation from the empty direct category and returns to the original draft", async () => {
+  const { channelId, channel, rooms, directIds, team, connection } =
+    offlineWorkspace();
+  vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
+  const id = "h".repeat(26),
+    peer = "m".repeat(26);
+  const person = channelProfile({
+    id: peer,
+    username: "river-owl",
+    deleteAt: 0,
+  });
+  connection.readSavedProfiles.mockResolvedValue({
+    profiles: { [peer]: person },
+    usernames: {},
+  });
+  connection.readConversationRecipients.mockResolvedValue({
+    profiles: [person],
+    nextPage: null,
+  });
+  connection.reopenKnownConversation.mockResolvedValue("alreadyShown");
+  const settings = await connection.readWorkspaceSettings();
+  connection.readWorkspaceSettings.mockResolvedValue({
+    ...settings,
+    preferences: { ...settings.preferences, directShown: { [peer]: true } },
+  });
+  let created = false;
+  connection.openRecipientConversation.mockImplementation(async () => {
+    created = true;
+    return { kind: "applied", channelId: id, channelKind: "D" };
+  });
+  connection.refreshTeamSidebar.mockImplementation(async () => {
+    if (created && !directIds.includes(id)) {
+      rooms.push({
+        ...channel(id, `${user}__${peer}`),
+        kind: "D",
+        displayName: "",
+      });
+      directIds.push(id);
+    }
+  });
+  render(<App language="en" />);
+  await screen.findByDisplayValue("Text saved on this device");
+  const trigger = screen.getByLabelText("Direct message actions");
+  fireEvent.click(trigger);
+  fireEvent.click(screen.getByRole("menuitem", { name: "Write a message" }));
+  const first = within(
+    await screen.findByRole("dialog", { name: "New direct message" }),
+  );
+  expect(document.activeElement).toBe(first.getByRole("searchbox"));
+  fireEvent.keyDown(first.getByRole("searchbox"), { key: "Escape" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(trigger);
+  fireEvent.click(trigger);
+  fireEvent.click(screen.getByRole("menuitem", { name: "Write a message" }));
+  const picker = within(
+    await screen.findByRole("dialog", { name: "New direct message" }),
+  );
+  fireEvent.change(picker.getByRole("searchbox"), {
+    target: { value: "@river" },
+  });
+  fireEvent.click(await picker.findByRole("checkbox", { name: "river-owl" }));
+  fireEvent.click(picker.getByRole("button", { name: "Open conversation" }));
+  await screen.findByRole("heading", { name: "river-owl" });
+  expect(connection.openRecipientConversation).toHaveBeenCalledExactlyOnceWith(
+    [peer],
+    expect.any(AbortSignal),
+  );
+  expect(connection.selectSidebarChannel).toHaveBeenCalledWith(team.id, id);
+  fireEvent.click(screen.getByRole("button", { name: "General" }));
+  const prior = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Message #General…",
+  });
+  await waitFor(() => expect(prior.value).toBe("Text saved on this device"));
+  expect(connection.selectSidebarChannel).toHaveBeenLastCalledWith(
+    team.id,
+    channelId,
+  );
+  expect(connection.saveDraft).not.toHaveBeenCalled();
+});

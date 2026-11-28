@@ -121,12 +121,14 @@ export async function respondToWorkspace(
     systemLinks = false,
     acceptedThreadReply = false,
     ordinaryReadingThread = false,
+    browserToken = "fixture-browser-action",
     visible,
   }: {
     joinedPublicRoom?: boolean;
     systemLinks?: boolean;
     acceptedThreadReply?: boolean;
     ordinaryReadingThread?: boolean;
+    browserToken?: string;
     visible?: { selfOpenedAt?: string };
   } = {},
 ): Promise<string | undefined> {
@@ -157,7 +159,7 @@ export async function respondToWorkspace(
     path === "users/me/preferences" &&
     (req.method === "PUT" || visible.selfOpenedAt)
   ) {
-    assert.equal(req.headers.authorization, "Bearer fixture-browser-action");
+    assert.equal(req.headers.authorization, `Bearer ${browserToken}`);
     assert.equal(req.headers.cookie, undefined);
     assert.equal(url.search, "");
     const ownRows = (stamp: string) => [
@@ -422,9 +424,7 @@ export async function respondToWorkspace(
     return;
   assert.equal(
     req.headers.authorization,
-    systemLinks
-      ? "Bearer fixture-system-post"
-      : "Bearer fixture-browser-action",
+    systemLinks ? "Bearer fixture-system-post" : `Bearer ${browserToken}`,
   );
   assert.equal(req.headers.cookie, undefined);
   assert.equal(req.method, post ? "POST" : "GET");

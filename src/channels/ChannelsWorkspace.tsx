@@ -92,6 +92,8 @@ import {
   publishedOriginLink,
 } from "./published-reading-history.ts";
 import { SidebarConversationRow } from "./SidebarConversationRow.tsx";
+import { StartConversationCategoryMenu } from "./StartConversationCategoryMenu.tsx";
+import { StartConversationDialog } from "./StartConversationDialog.tsx";
 import type { ReactionThread } from "./submit-channel-reaction.ts";
 import { TeamChannelDirectory } from "./TeamChannelDirectory.tsx";
 import { ThreadInboxPane } from "./ThreadInboxPane.tsx";
@@ -136,10 +138,12 @@ type Sections = ReturnType<typeof visibleSidebar>;
 function Sidebar({
   sections,
   choose,
+  startConversation,
   language,
 }: {
   sections: Sections;
   choose: (id: string) => void;
+  startConversation: (opener: HTMLButtonElement) => void;
   language: EntryLanguage;
 }) {
   const text = workspaceCopy[language],
@@ -150,12 +154,23 @@ function Sidebar({
         .filter(
           (section) =>
             section.rows.length ||
+            section.kind === "direct_messages" ||
             section.kind === "custom" ||
             section.kind === "managed",
         )
         .map((section, i) => (
           <section key={section.id} aria-labelledby={`${prefix}-${i}`}>
-            <h2 id={`${prefix}-${i}`}>{section.title}</h2>
+            {section.kind === "direct_messages" ? (
+              <div className="direct-message-category">
+                <h2 id={`${prefix}-${i}`}>{section.title}</h2>
+                <StartConversationCategoryMenu
+                  language={language}
+                  start={startConversation}
+                />
+              </div>
+            ) : (
+              <h2 id={`${prefix}-${i}`}>{section.title}</h2>
+            )}
             <ul>
               {section.rows.map((row) => (
                 <li key={row.id}>
@@ -254,6 +269,8 @@ export function ChannelsWorkspace({
     null,
   );
   const accountOverlayReturn = useRef<HTMLButtonElement | null>(null);
+  const [recipientOpener, setRecipientOpener] =
+    useState<HTMLButtonElement | null>(null);
   const draftSelections = useRef(new Map<string, DraftSelection>());
   const [conversationFocus, focusConversation] = useState(0);
   const appearanceButton = useRef<HTMLButtonElement>(null);
@@ -1349,13 +1366,16 @@ export function ChannelsWorkspace({
   const notice = (message: string, retry?: () => void, alert = false) => (
     <Notice message={message} label={text.retry} retry={retry} alert={alert} />
   );
-  function chooseKnownConversation(id: string, origin: HTMLElement | null) {
+  function chooseKnownConversation(
+    id: string,
+    origin: HTMLElement | null,
+    room = current?.data.channels.find((row) => row.id === id),
+  ) {
     if (search.panel) search.dismiss();
     if (id === chosen) {
       closeThread();
       focusConversation((request) => request + 1);
     }
-    const room = current?.data.channels.find((row) => row.id === id);
     choose(id, false, {
       origin,
       afterSaved:
@@ -1487,7 +1507,12 @@ export function ChannelsWorkspace({
           !!policyIssue,
         )}
       {settings && (
-        <Sidebar sections={sections} language={language} choose={choose} />
+        <Sidebar
+          sections={sections}
+          language={language}
+          choose={choose}
+          startConversation={setRecipientOpener}
+        />
       )}
       {choiceFailed && notice(text.selected, undefined, true)}
     </>
@@ -1926,6 +1951,7 @@ export function ChannelsWorkspace({
   );
   const overlayOpen =
     accountOverlay !== null ||
+    recipientOpener !== null ||
     Boolean(quickSwitch.dialog) ||
     notification !== null ||
     workspace.messages.dialogOpen ||
@@ -3265,6 +3291,27 @@ export function ChannelsWorkspace({
         </div>
       </ChannelsFrame>
       {quickSwitch.dialog}
+      {recipientOpener && settings && (
+        <StartConversationDialog
+          account={connection}
+          teamId={team.id}
+          userId={userId}
+          language={language}
+          format={settings.nameFormat}
+          online={online}
+          directory={directory.state}
+          refresh={directory.retry}
+          sessionIssue={sessionIssue}
+          dismiss={() => {
+            setRecipientOpener(null);
+            recipientOpener.focus({ preventScroll: true });
+          }}
+          choose={(room) => {
+            setRecipientOpener(null);
+            chooseKnownConversation(room.id, recipientOpener, room);
+          }}
+        />
+      )}
       {search.dialog}
       {notification && notification.room === chosen && notificationKind && (
         <ChannelNotificationsDialog
