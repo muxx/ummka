@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { accountFollowedThreads } from "../../../src/mattermost/account-followed-threads.ts";
 import {
+  ChannelsApi,
   type Configuration,
   PostsApi,
   ThreadsApi,
@@ -30,6 +32,8 @@ export async function checkThreadUnreadPost(
   },
 ) {
   const reader = new ThreadsApi(readerSession);
+  const account = accountFollowedThreads(readerSession, (read) => read());
+  const channels = new ChannelsApi(readerSession);
   const writer = new ThreadsApi(writerSession);
   const posts = new PostsApi(writerSession);
   const list = async (threads: ThreadsApi, team: string, id: string) => {
@@ -46,12 +50,14 @@ export async function checkThreadUnreadPost(
     postId: string,
     expected: number[],
   ) => {
-    const response = await reader.setThreadUnreadByPostIdRaw({
-      ...scope,
-      postId,
-    });
-    assert.equal(response.raw.status, 200);
-    assert.deepEqual(receipt(await response.value(), scope.threadId), expected);
+    const [lastViewedAt, unreadReplies, unreadMentions] = expected;
+    assert.deepEqual(
+      await account.markThreadUnreadFromPost(scope.teamId, {
+        id: postId,
+        rootId: postId === scope.threadId ? null : scope.threadId,
+      }),
+      { id: scope.threadId, lastViewedAt, unreadReplies, unreadMentions },
+    );
     assert.deepEqual(
       receipt(await list(reader, scope.teamId, scope.threadId), scope.threadId),
       expected,
@@ -87,6 +93,9 @@ export async function checkThreadUnreadPost(
       0,
     ]);
     const writerBefore = receipt(await list(writer, teamId, root.id), root.id);
+    const channelScope = { channelId, userId: "me" };
+    const channelBefore = await channels.getChannelMember(channelScope);
+    assert.ok(Number.isSafeInteger(channelBefore.lastViewedAt));
 
     const boundary = last.createAt - 1;
     const fromLast = [
@@ -104,9 +113,11 @@ export async function checkThreadUnreadPost(
       receipt(await list(writer, teamId, root.id), root.id),
       writerBefore,
     );
+    const channelAfter = await channels.getChannelMember(channelScope);
+    assert.equal(channelAfter.lastViewedAt, channelBefore.lastViewedAt);
   }
   console.log(
-    `Mattermost ${version} verified unread from a reply and its root, repeated marks, automatic follow, personal state and team-scoped DM.`,
+    `Mattermost ${version} verified the signed account marking unread from a reply and its root, repeated marks, automatic follow, independent peer and channel positions and team-scoped DM.`,
   );
   // The fixture importer fixes three timestamps. The reader still uses its
   // ordinary authenticated session for marking and verifying read state.

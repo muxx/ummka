@@ -2251,6 +2251,8 @@ export function webviewServers(
         "read-team-threads",
         "unread-thread-reply",
         "unread-thread-root",
+        "unread-thread-reply",
+        "unread-thread-root",
         "read-thread",
         "read-team-threads",
         "account-direct-conversation",
