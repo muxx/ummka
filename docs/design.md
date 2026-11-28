@@ -29,7 +29,7 @@ Give context panels a shared header. Put Back on the left when the panel has a v
 
 On desktop, place persistent actions as a group at the right edge. Use 32 × 32 px targets, 4 px between them and an 11 px right inset. Adding or removing Expand leaves Close in place. Give the heading and subtitle separate single lines with ellipsis, accessible full text, and a tooltip. Reserve room for controls as either line grows. On a compact side pane, keep a 44 × 44 px Back target and use the space at the right for the heading and subtitle.
 
-Give groups of action rows their own padding. Leave 8 px from the preceding divider to the first row’s hover surface and draw its keyboard focus ring inside the row. Use targets at least 44 px high in compact layouts. Apply these roles in both themes.
+Align action groups at the start and place targets next to each other without gaps or margins. Use a 32 px minimum for desktop rows and 44 px when a row has supporting text. In compact layouts each target is at least 44 px. Give rows 4 px of vertical padding and let them grow for wrapped or enlarged text. Keep 8 px from the preceding divider to the first hover surface and draw the focus ring inside each row. Apply these roles in both themes.
 
 [Context panel examples](https://github.com/muxx/ummka-docs/blob/main/prototypes/screens.md#channel-info-frame)
 

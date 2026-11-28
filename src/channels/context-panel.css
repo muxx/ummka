@@ -152,15 +152,18 @@
 
 .context-panel-group {
   display: grid;
-  padding: 8px 15px;
+  align-content: start;
+  row-gap: 0;
+  padding: 8px 15px 20px;
 }
 .context-panel-group__row {
   --focus-offset: -2px;
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 44px;
-  padding: 9px 10px;
+  min-block-size: 32px;
+  margin: 0;
+  padding: 4px 10px;
   border: 0;
   border-radius: 7px;
   background: transparent;
@@ -168,6 +171,14 @@
   font: inherit;
   text-align: start;
   cursor: pointer;
+}
+.context-panel-group__row--with-detail {
+  min-block-size: 44px;
+}
+@container (width <= 740px) {
+  .context-panel-group__row {
+    min-block-size: 44px;
+  }
 }
 .context-panel-group__row > svg {
   flex: none;
@@ -177,6 +188,7 @@
   display: grid;
   gap: 2px;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 .context-panel-group__row strong {
   font-size: 0.87rem;

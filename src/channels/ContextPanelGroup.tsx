@@ -20,7 +20,11 @@ export function ContextPanelRow({
 }) {
   return (
     <button
-      className="context-panel-group__row"
+      className={
+        detail
+          ? "context-panel-group__row context-panel-group__row--with-detail"
+          : "context-panel-group__row"
+      }
       ref={ref}
       type="button"
       onClick={onClick}
