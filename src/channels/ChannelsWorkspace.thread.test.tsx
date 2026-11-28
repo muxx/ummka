@@ -1356,10 +1356,14 @@ test("a cold direct message keeps its initial empty until the profile is availab
   expect(account.refreshSavedProfiles).not.toHaveBeenCalled();
 
   const peer = "v".repeat(26);
+  const profile = channelProfile({ id: peer, username: "vera" });
   account.readSavedProfiles.mockResolvedValue({
-    profiles: { [peer]: channelProfile({ id: peer, username: "vera" }) },
+    profiles: { [peer]: profile },
     usernames: { vera: peer },
   });
+  account.refreshSavedProfiles.mockImplementation(async ({ ids }) =>
+    ids.includes(peer) ? [profile] : [],
+  );
   account.setOnline(true);
   expect(
     await sidebar.findByRole("button", { name: "vera", current: "page" }),

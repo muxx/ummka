@@ -6,6 +6,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import type { ChannelProfile } from "../mattermost/channel-profiles.ts";
 import type { SavedProfiles } from "../mattermost/native-rest.ts";
 import type { VisibleProfileQuery } from "../mattermost/visible-profiles.ts";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
@@ -20,7 +21,6 @@ const warm = new WeakMap<
   ProfileConnection,
   ReturnType<typeof createWarmAuthorProfiles>
 >();
-const empty: SavedProfiles = { profiles: {}, usernames: {} };
 
 function authorsFor(connection: ProfileConnection) {
   let authors = warm.get(connection);
@@ -36,35 +36,33 @@ export function useWorkspaceProfiles(
   query: VisibleProfileQuery,
   online: boolean,
   sessionIssue: (issue: "session" | "unauthorized") => void,
-  postAuthorIds = query.ids,
 ) {
-  const key = JSON.stringify([query.ids, query.usernames, postAuthorIds]);
-  const { keys, authorIds } = useMemo(() => {
-    const [ids, usernames, authors]: [string[], string[], string[]] =
-      JSON.parse(key);
-    const requested = new Set(ids);
-    return {
-      keys: { ids, usernames },
-      authorIds: authors.filter((id) => requested.has(id)),
-    };
+  const key = JSON.stringify([query.ids, query.usernames]);
+  const keys = useMemo<VisibleProfileQuery>(() => {
+    const [ids, usernames]: [string[], string[]] = JSON.parse(key);
+    return { ids, usernames };
   }, [key]);
   const authors = authorsFor(connection);
   const [owner] = useState(() => ({}));
   useLayoutEffect(() => () => authors.pin(owner, []), [authors, owner]);
-  useLayoutEffect(
-    () => authors.pin(owner, authorIds),
-    [authors, owner, authorIds],
-  );
-  const select = useMemo(() => authors.select(authorIds), [authors, authorIds]);
-  const selected = useSyncExternalStore(authors.subscribe, select);
+  useLayoutEffect(() => authors.pin(owner, keys.ids), [authors, owner, keys]);
   const [result, setResult] = useState<{
     connection: ProfileConnection;
-    rows: SavedProfiles;
+    aliases: ChannelProfile[];
   } | null>(null);
+  const aliases = useMemo(() => {
+    if (result?.connection !== connection) return [];
+    const names = new Set(keys.usernames);
+    return result.aliases.filter(({ username }) => names.has(username));
+  }, [connection, keys, result]);
+  const select = useMemo(
+    () => authors.select([...keys.ids, ...aliases.map(({ id }) => id)]),
+    [authors, keys, aliases],
+  );
+  const selected = useSyncExternalStore(authors.subscribe, select);
   const checked = useRef<{
     connection: ProfileConnection;
     online: boolean;
-    ids: Set<string>;
     names: Set<string>;
   } | null>(null);
   useEffect(() => {
@@ -73,61 +71,59 @@ export function useWorkspaceProfiles(
       checked.current.connection !== connection ||
       checked.current.online !== online
     )
-      checked.current = {
-        connection,
-        online,
-        ids: new Set<string>(),
-        names: new Set<string>(),
-      };
+      checked.current = { connection, online, names: new Set<string>() };
     const seen = checked.current;
     const controller = new AbortController();
     const { signal } = controller;
     const { ids, usernames } = keys;
-    const read = authors.begin(authorIds);
-    const scopedAuthors = new Set(authorIds);
-    let attempted: readonly string[] = ids;
+    const names = new Set(usernames);
+    for (const name of seen.names)
+      if (!names.has(name)) seen.names.delete(name);
+    const read = authors.begin(ids);
+    let attempted = ids;
+
+    function publishNames(rows: SavedProfiles) {
+      // Only SQLite's current, unambiguous lookup can resolve a username.
+      const aliases = usernames.flatMap((name) => {
+        const profile = rows.profiles[rows.usernames[name]];
+        return profile?.username === name ? [profile] : [];
+      });
+      setResult({ connection, aliases });
+    }
+
     async function load() {
       const saved = await connection.readSavedProfiles(keys);
       if (signal.aborted) return;
-      read.publish(authorIds, (id) => saved.profiles[id], "saved");
-      setResult({ connection, rows: saved });
+      read.publish(ids, (id) => saved.profiles[id], "saved");
+      publishNames(saved);
       if (!online) return;
 
       const missing = {
-        ids: ids.filter(
-          (id) =>
-            !seen.ids.has(id) || (scopedAuthors.has(id) && authors.refused(id)),
-        ),
+        ids: ids.filter((id) => !authors.verified(id, seen)),
         usernames: usernames.filter((name) => !seen.names.has(name)),
       };
       if (!missing.ids.length && !missing.usernames.length) return;
       attempted = missing.ids;
       const refreshed = await connection.refreshSavedProfiles(missing, signal);
       if (signal.aborted) return;
-      const returned = new Set(refreshed.map(({ id }) => id));
-      const verified = new Set(missing.ids);
-      // Publish omissions before reopening SQLite, which can still hold old rows.
-      read.publish(
-        missing.ids.filter((id) => !returned.has(id)),
-        () => undefined,
-        "server",
+      const returned = new Map(
+        refreshed.map((profile) => [profile.id, profile]),
       );
+      read.publish(missing.ids, (id) => returned.get(id), "server", seen);
       attempted = ids;
       const rows = await connection.readSavedProfiles(keys);
       if (signal.aborted) return;
+      // The SQLite echo may contain older fields. It can still supply a
+      // newer version written by another process and resolve current aliases.
       read.publish(
-        authorIds.filter((id) => !verified.has(id)),
+        ids.filter(
+          (id) => !returned.has(id) || rows.profiles[id] !== undefined,
+        ),
         (id) => rows.profiles[id],
         "saved",
       );
-      read.publish(
-        missing.ids.filter((id) => returned.has(id)),
-        (id) => rows.profiles[id],
-        "server",
-      );
-      for (const id of missing.ids) seen.ids.add(id);
       for (const name of missing.usernames) seen.names.add(name);
-      setResult({ connection, rows });
+      publishNames(rows);
     }
     void load()
       .catch((error) => {
@@ -139,30 +135,29 @@ export function useWorkspaceProfiles(
           authors.close();
           sessionIssue(issue);
         } else return;
-        setResult({ connection, rows: empty });
+        setResult(null);
       })
       .finally(read.stop);
     return () => {
       controller.abort();
       read.stop();
     };
-  }, [connection, authorIds, authors, keys, online, sessionIssue]);
+  }, [connection, authors, keys, online, sessionIssue]);
 
   return useMemo(() => {
-    const rows = result?.connection === connection ? result.rows : empty;
-    const names = new Set(keys.usernames);
-    const usernames = Object.fromEntries(
-      Object.entries(rows.usernames).filter(([name]) => names.has(name)),
-    );
-    const ids = new Set([...keys.ids, ...Object.values(usernames)]);
-    const profiles = Object.fromEntries(
-      Object.entries(rows.profiles).filter(([id]) => ids.has(id)),
-    );
-    for (const id of authorIds) {
-      const author = selected.get(id);
-      if (author) profiles[id] = author;
-      else delete profiles[id];
+    const profiles: SavedProfiles["profiles"] = {};
+    const usernames: SavedProfiles["usernames"] = {};
+    for (const id of keys.ids) {
+      const profile = selected.get(id);
+      if (profile) profiles[id] = profile;
+    }
+    for (const alias of aliases) {
+      const selectedProfile = selected.get(alias.id);
+      const profile = selectedProfile === undefined ? alias : selectedProfile;
+      if (profile?.username !== alias.username) continue;
+      profiles[profile.id] = profile;
+      usernames[profile.username] = profile.id;
     }
     return { profiles, usernames };
-  }, [connection, keys, authorIds, result, selected]);
+  }, [keys, aliases, selected]);
 }

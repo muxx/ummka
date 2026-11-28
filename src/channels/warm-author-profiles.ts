@@ -1,14 +1,28 @@
 import type { ChannelProfile } from "../mattermost/channel-profiles.ts";
 
 // Two 60-post channel pages and two retained 120-reply thread windows.
-const retainedAuthors = 384;
+const retainedProfiles = 384;
+type Source = "saved" | "server";
+type Entry = {
+  profile: ChannelProfile;
+  source: Source;
+  verifiedBy: WeakSet<object>;
+};
+
+function strictlyNewer(first: ChannelProfile, second: ChannelProfile) {
+  return (
+    first.updateAt !== null &&
+    second.updateAt !== null &&
+    first.updateAt > second.updateAt
+  );
+}
 
 export function createWarmAuthorProfiles() {
   // Null records a server omission or refusal. A saved row cannot replace it.
-  const rows = new Map<string, ChannelProfile | null>();
+  const rows = new Map<string, Entry | null>();
   const active = new Map<object, ReadonlySet<string>>();
   const listeners = new Set<() => void>();
-  const reads = new Set<Set<string>>();
+  const reads = new Set<{ saved: Map<string, boolean>; server: Set<string> }>();
   let revision = 0;
   let closed = false;
 
@@ -18,12 +32,12 @@ export function createWarmAuthorProfiles() {
   }
 
   function trim() {
-    if (rows.size <= retainedAuthors) return false;
+    if (rows.size <= retainedProfiles) return false;
     const views = [...active.values()];
     const dormant = [...rows.keys()].filter(
       (id) => !views.some((ids) => ids.has(id)),
     );
-    const excess = dormant.length - retainedAuthors;
+    const excess = dormant.length - retainedProfiles;
     if (excess <= 0) return false;
     for (const id of dormant.slice(0, excess)) rows.delete(id);
     return true;
@@ -41,14 +55,14 @@ export function createWarmAuthorProfiles() {
     },
     select(ids: readonly string[]) {
       let seen = -1;
-      let selected = new Map<string, ChannelProfile>();
+      let selected = new Map<string, ChannelProfile | null>();
       return () => {
         if (seen !== revision) {
           seen = revision;
-          const next = new Map<string, ChannelProfile>();
+          const next = new Map<string, ChannelProfile | null>();
           for (const id of ids) {
-            const row = rows.get(id);
-            if (row) next.set(id, row);
+            const entry = closed ? null : rows.get(id);
+            if (entry !== undefined) next.set(id, entry?.profile ?? null);
           }
           if (
             next.size !== selected.size ||
@@ -59,37 +73,69 @@ export function createWarmAuthorProfiles() {
         return selected;
       };
     },
-    refused(id: string) {
-      return rows.get(id) === null;
+    verified(id: string, receipt: object) {
+      return rows.get(id)?.verifiedBy.has(receipt) === true;
     },
     begin(ids: readonly string[]) {
-      const pending = new Set(ids);
+      const pending = {
+        saved: new Map(ids.map((id) => [id, false])),
+        server: new Set(ids),
+      };
       if (!closed) reads.add(pending);
       return {
         publish(
           observed: Iterable<string>,
           profile: (id: string) => ChannelProfile | undefined,
-          source: "saved" | "server",
+          source: Source,
+          receipt?: object,
         ) {
           if (!reads.has(pending)) return;
-          const applied: string[] = [];
+          const applied = new Map<string, boolean>();
           let replaced = false;
           for (const id of observed) {
-            if (!pending.has(id)) continue;
+            if (!pending[source].has(id)) continue;
             const prior = rows.get(id);
-            if (prior === null && source === "saved") continue;
-            const next =
-              profile(id) ?? (source === "server" ? null : undefined);
+            if (source === "saved" && prior === null) continue;
+            const candidate = profile(id);
+            if (
+              source === "saved" &&
+              pending.saved.get(id) &&
+              (!candidate || !prior || !strictlyNewer(candidate, prior.profile))
+            )
+              continue;
+            let next: Entry | null | undefined;
+            if (candidate) {
+              if (
+                source === "saved" &&
+                prior &&
+                ((candidate.updateAt === null &&
+                  prior.profile.updateAt !== null) ||
+                  strictlyNewer(prior.profile, candidate) ||
+                  (prior.source === "server" &&
+                    !strictlyNewer(candidate, prior.profile)))
+              )
+                continue;
+              const verifiedBy = prior?.verifiedBy ?? new WeakSet<object>();
+              next =
+                prior && strictlyNewer(prior.profile, candidate)
+                  ? prior
+                  : { profile: candidate, source, verifiedBy };
+              if (receipt) verifiedBy.add(receipt);
+            } else if (source === "server") next = null;
             rows.delete(id);
             if (next !== undefined) rows.set(id, next);
-            replaced ||= next !== prior;
-            applied.push(id);
+            replaced ||= (next?.profile ?? next) !== (prior?.profile ?? prior);
+            applied.set(id, candidate !== undefined);
           }
-          // A newer accepted reading fences only its overlapping IDs, even
-          // if one of those entries is later evicted before an old read ends.
+          // Positive observations leave older SQLite reads eligible to supply
+          // a strictly newer version. Absence suppresses both sources.
           for (const earlier of reads) {
             if (earlier === pending) break;
-            for (const id of applied) earlier.delete(id);
+            for (const [id, found] of applied) {
+              if (!found) earlier.saved.delete(id);
+              else if (earlier.saved.has(id)) earlier.saved.set(id, true);
+              if (source === "server" || !found) earlier.server.delete(id);
+            }
           }
           const evicted = trim();
           if (replaced || evicted) changed();

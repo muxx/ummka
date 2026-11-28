@@ -1121,10 +1121,14 @@ test.each([
       homeKind,
       homeName: [user, peer].join("__"),
     });
+    const profile = channelProfile({ id: peer, username: "aurora" });
     account.readSavedProfiles.mockResolvedValue({
-      profiles: { [peer]: channelProfile({ id: peer, username: "aurora" }) },
+      profiles: { [peer]: profile },
       usernames: {},
     });
+    account.refreshSavedProfiles.mockImplementation(async ({ ids }) =>
+      ids.includes(peer) ? [profile] : [],
+    );
     const name = homeKind === "D" ? "aurora" : "Home";
     fireEvent.click(
       await screen.findByRole("button", { name: `Channel menu, ${name}` }),
@@ -1198,10 +1202,14 @@ test("a saved direct message keeps its known location when absent from the sideb
   const { account } = fixture({ direct: true });
   const trigger = await screen.findByRole("button", { name: "Saved messages" });
   const peer = "z".repeat(26);
+  const profile = channelProfile({ id: peer, username: "aurora" });
   account.readSavedProfiles.mockResolvedValue({
-    profiles: { [peer]: channelProfile({ id: peer, username: "aurora" }) },
+    profiles: { [peer]: profile },
     usernames: {},
   });
+  account.refreshSavedProfiles.mockImplementation(async ({ ids }) =>
+    ids.includes(peer) ? [profile] : [],
+  );
   fireEvent.click(trigger);
   const saved = within(
     await screen.findByRole("complementary", { name: "Saved messages" }),

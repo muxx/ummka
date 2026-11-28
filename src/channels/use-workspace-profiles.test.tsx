@@ -266,3 +266,40 @@ test("publishes a rename to an overlapping view before releasing the older read"
   });
   expect(second.result.current.profiles).toEqual({ [oldAuthor.id]: newer });
 });
+
+test("uses the latest server fields at equal versions across an offline cycle", async () => {
+  const connection = account();
+  const row = { ...oldAuthor, firstName: "Stored", updateAt: 100 };
+  const hidden = { ...row, firstName: "" };
+  const allowed = { ...row, firstName: "Allowed again" };
+  const savedRows = (row: typeof oldAuthor) => ({
+    profiles: { [row.id]: row },
+    usernames: {},
+  });
+  const query = { ids: [row.id], usernames: [] };
+  connection.readSavedProfiles.mockResolvedValue(savedRows(row));
+  connection.refreshSavedProfiles
+    .mockResolvedValueOnce([hidden])
+    .mockResolvedValueOnce([allowed]);
+  const view = renderHook(
+    (online: boolean) =>
+      useWorkspaceProfiles(connection, query, online, sessionIssue),
+    { initialProps: true },
+  );
+  await waitFor(() =>
+    expect(view.result.current.profiles[row.id]).toBe(hidden),
+  );
+  view.rerender(false);
+  await act(async () => {});
+  expect(view.result.current.profiles[row.id]).toBe(hidden);
+  view.rerender(true);
+  await waitFor(() =>
+    expect(view.result.current.profiles[row.id]).toBe(allowed),
+  );
+  expect(connection.refreshSavedProfiles).toHaveBeenCalledTimes(2);
+  const later = { ...row, firstName: "New SQLite version", updateAt: 101 };
+  connection.readSavedProfiles.mockResolvedValue(savedRows(later));
+  view.rerender(false);
+  await waitFor(() => expect(view.result.current.profiles[row.id]).toBe(later));
+  expect(connection.refreshSavedProfiles).toHaveBeenCalledTimes(2);
+});
