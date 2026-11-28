@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { channelBookmarkAccess } from "../../../src/channels/channel-bookmark-access.ts";
 import { channelManagementAccess } from "../../../src/channels/channel-management-access.ts";
 import { channelComposerAccess } from "../../../src/channels/composer-access.ts";
 import { readChannelNotifications } from "../../../src/mattermost/channel-notifications.ts";
@@ -127,6 +128,20 @@ export async function checkNavigationMemberships(
       );
       const direct = projection.channels.find((row) => row.id === directId);
       assert.ok(town && direct);
+      for (const action of ["add", "edit", "delete", "order"] as const) {
+        assert.ok(allows(town.id, `${action}_bookmark_public_channel`));
+        assert.equal(
+          channelBookmarkAccess(check, snapshot.systemRoles, town, action),
+          "allowed",
+        );
+        assert.equal(
+          channelBookmarkAccess(check, snapshot.systemRoles, direct, action),
+          "allowed",
+        );
+      }
+      console.log(
+        "Verified all four bookmark permissions for an ordinary member in Town Square and a joined direct conversation.",
+      );
       const townManagement = channelManagementAccess(check, town);
       assert.equal(townManagement.createPublic, "allowed");
       assert.equal(townManagement.createPrivate, "allowed");
