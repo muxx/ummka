@@ -183,7 +183,7 @@ export async function checkMacSystemLinks(
       ...background,
       "-a",
       bundle,
-      posts?.warm ?? warmLink,
+      (windowMode ? posts?.warm : posts?.warmNamedReply) ?? warmLink,
     ]);
     assert.equal(await acknowledged(2), pid);
     if (posts) await trace(/^UMMKA_WEBVIEW_CHECK system-posts-shown$/mu);
