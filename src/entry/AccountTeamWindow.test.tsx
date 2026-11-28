@@ -52,6 +52,7 @@ function fixture(snapshot: JoinedTeams | null) {
     readSavedProfiles: vi
       .fn()
       .mockResolvedValue({ profiles: {}, usernames: {} }),
+    observeChannelEvents: vi.fn(async () => {}),
     readWorkspaceSettings: vi
       .fn()
       .mockResolvedValue({ server: null, preferences: null }),

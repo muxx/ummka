@@ -625,6 +625,14 @@ export function createTimelineReader(
       pending = undefined;
       activeEdge = undefined;
     },
+    denyAccess() {
+      changed = false;
+      retryChange = false;
+      projection?.abort();
+      pending?.abort();
+      pending = undefined;
+      clearPage("forbidden");
+    },
     retry() {
       if (activeEdge) return;
       if (!retryChange) return read();

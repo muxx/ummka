@@ -420,6 +420,10 @@ export function fixture({
       firstInaccessiblePostTime: 0,
     })),
     refreshChannelHistory: vi.fn().mockResolvedValue({ kind: "applied" }),
+    observeChannelEvents: vi.fn<Account["observeChannelEvents"]>(
+      async () => {},
+    ),
+    applyChannelPostEvents: vi.fn<Account["applyChannelPostEvents"]>(),
     readSavedPost: vi.fn().mockResolvedValue(root),
     readThreadPage: vi.fn().mockResolvedValue({
       kind: "page",

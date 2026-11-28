@@ -39,6 +39,7 @@ import { androidFixtureStep, fixtureStep } from "./fixture-step.ts";
 import { checkChannelHistory } from "./history.ts";
 import { prepareHistoryLoads } from "./history-loads.ts";
 import { checkUnavailableHistoryServer } from "./local-history.ts";
+import { checkOpenChannelEvents } from "./open-channel-events.tsx";
 import { checkOpenTimelineCommits } from "./open-timeline-commits.tsx";
 import { checkCollectionRemoval } from "./post-collections.ts";
 import { checkPostContext } from "./post-context.ts";
@@ -619,6 +620,10 @@ export async function checkGeneratedRequests(ports: string[]) {
       "generated-user",
     );
     const rootSession = new Configuration(accountRoot);
+    // The account responses below retire this disposable second login.
+    await androidFixtureStep("open-channel-events", () =>
+      checkOpenChannelEvents(`${prefixed.basePath}/secondary`, observed),
+    );
     await androidFixtureStep("account-responses", () =>
       checkAccountResponses(accountPrefix, userId, observed),
     );

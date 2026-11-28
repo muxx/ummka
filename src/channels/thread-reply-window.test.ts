@@ -8,6 +8,7 @@ import {
   ResponseError,
 } from "../../vendor/mattermost/index.js";
 import type { LocalPost } from "../mattermost/local-history.ts";
+import { PostObservationSuperseded } from "../mattermost/message-anchors.ts";
 import {
   readThreadPage,
   type ThreadPageRequest,
@@ -682,7 +683,156 @@ test("an inaccessible unread window exposes the server limit without claiming no
   expect(view.getSnapshot()).toMatchObject({
     unavailable: "limited",
     firstInaccessiblePostTime: 33,
+  });
+});
+
+test("a newly created reply sorting before the old tail in the same millisecond appears from the actual thread end", async () => {
+  const first = local("z", 100),
+    last = local("a", 100);
+  const readThreadPage = vi
+    .fn()
+    .mockResolvedValueOnce(page([first]))
+    .mockResolvedValueOnce(page([first, last]));
+  const view = openThreadReplyWindow({ readThreadPage }, scope);
+  await view.open();
+  const signal = new AbortController().signal;
+  await view.refreshEvents(
+    false,
+    [{ kind: "created", channelId, postId: last.id, rootId }],
+    [],
+    signal,
+  );
+  expect(readThreadPage.mock.calls[1][0]).toMatchObject({
+    direction: "up",
+    cursor: undefined,
+  });
+  expect(messages(view)).toEqual(["a", "z"]);
+  await view.refreshEvents(
+    false,
+    [{ kind: "edited", channelId, postId: first.id, rootId }],
+    [{ kind: "save", ...first, message: "updated", updateAt: 201 }],
+    signal,
+  );
+  expect(messages(view)).toEqual(["a", "updated"]);
+  expect(readThreadPage).toHaveBeenCalledTimes(2);
+});
+
+test("a superseded live thread read obtains a fresh permit before publishing its reply", async () => {
+  const first = local("a", 100);
+  const reply = local("z", 110);
+  const readThreadPage = vi
+    .fn()
+    .mockResolvedValueOnce(page([first]))
+    .mockRejectedValueOnce(new PostObservationSuperseded())
+    .mockResolvedValueOnce(page([reply, first]));
+  const view = openThreadReplyWindow({ readThreadPage }, scope);
+  await view.open();
+  await view.refreshEvents(
+    false,
+    [{ kind: "created", channelId, postId: reply.id, rootId }],
+    [],
+    new AbortController().signal,
+  );
+  expect(readThreadPage).toHaveBeenCalledTimes(3);
+  expect(view.getSnapshot().unavailable).toBeUndefined();
+  expect(messages(view)).toEqual(["a", "z"]);
+});
+
+test("a confirmed root deletion clears the thread and a delayed page cannot restore it", async () => {
+  const next = pendingPage(),
+    first = local("a", 100);
+  const readThreadPage = vi
+    .fn()
+    .mockResolvedValueOnce(page([first]))
+    .mockReturnValueOnce(next.promise);
+  const view = openThreadReplyWindow({ readThreadPage }, scope);
+  await view.open();
+  const signal = new AbortController().signal;
+  const late = view.refreshEvents(
+    false,
+    [{ kind: "created", channelId, postId: local("z", 110).id, rootId }],
+    [],
+    signal,
+  );
+  await view.refreshEvents(
+    false,
+    [{ kind: "deleted", channelId, postId: rootId, rootId: null }],
+    [{ kind: "remove", id: rootId, channelId }],
+    signal,
+  );
+  next.resolve(page([local("z", 110)]));
+  await late;
+  expect(view.getSnapshot()).toMatchObject({
+    unavailable: "forbidden",
     root: null,
     replies: [],
   });
+});
+
+test("reconciling a bounded reply interval removes vanished replies inside the interval and keeps both neighboring rows", async () => {
+  const [first, missing, last] = ["a", "b", "z"].map((k) => local(k, 100));
+  const next = local("y", 100);
+  const readThreadPage = vi
+    .fn()
+    .mockResolvedValueOnce(page([first, missing, last]))
+    .mockResolvedValueOnce(page([next], cursor(next)));
+  const view = openThreadReplyWindow({ readThreadPage }, scope);
+  await view.open();
+  await view.refreshEvents(
+    true,
+    [],
+    [],
+    new AbortController().signal,
+    missing.id,
+  );
+  expect(readThreadPage.mock.calls[1][0].cursor).toEqual(cursor(first));
+  expect(messages(view)).toEqual(["a", "y", "z"]);
+  expect(view.getSnapshot().down.status).toBe("end");
+});
+
+test("a created reply beyond an unloaded edge waits for the user's forward page", async () => {
+  const first = local("a", 100),
+    last = local("z", 100);
+  const readThreadPage = vi
+    .fn()
+    .mockResolvedValueOnce(page([first], cursor(first)))
+    .mockResolvedValueOnce(page([last]));
+  const view = openThreadReplyWindow({ readThreadPage }, scope);
+  await view.open();
+  await view.refreshEvents(
+    false,
+    [{ kind: "created", channelId, postId: last.id, rootId }],
+    [],
+    new AbortController().signal,
+  );
+  expect(readThreadPage).toHaveBeenCalledTimes(1);
+  await view.more("down");
+  expect(messages(view)).toEqual(["a", "z"]);
+});
+
+test("a newer full thread page disconnected from the prior end leaves a real forward gap", async () => {
+  const first = local("a", 80),
+    next = local("f", 100),
+    far = local("z", 200);
+  const readThreadPage = vi
+    .fn()
+    .mockResolvedValueOnce(page([first]))
+    .mockResolvedValueOnce(page([far], cursor(far)))
+    .mockResolvedValueOnce(page([next, far]));
+  const view = openThreadReplyWindow({ readThreadPage }, scope);
+  await view.open();
+  await view.refreshEvents(
+    false,
+    [{ kind: "created", channelId, postId: far.id, rootId }],
+    [],
+    new AbortController().signal,
+  );
+  expect(messages(view)).toEqual(["a"]);
+  expect(view.getSnapshot().down.status).toBe("ready");
+  await view.more("down");
+  expect(readThreadPage.mock.calls[2][0]).toMatchObject({
+    direction: "down",
+    cursor: cursor(first),
+  });
+  expect(messages(view)).toEqual(["a", "f", "z"]);
 });

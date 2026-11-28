@@ -32,6 +32,10 @@ import {
 } from "../mattermost/workspace-preferences.ts";
 import { ChannelsWorkspace } from "./ChannelsWorkspace.tsx";
 import { createChannelBookmarkWrites } from "./channel-bookmark-writes.ts";
+import {
+  ChannelEventTargetContext,
+  type OpenEventTarget,
+} from "./use-account-post-observer.ts";
 import * as workspaceSearch from "./use-workspace-search.tsx";
 import "./workspace-dom.test-utils.ts";
 
@@ -133,6 +137,7 @@ function mount(
     viewer?: string;
     coordination?: ReturnType<typeof createThreadReadCoordination>;
     directoryPermissions?: string[];
+    eventSlot?: { current: OpenEventTarget | null };
   } = {},
 ) {
   const data = projectTeamSidebar({
@@ -319,6 +324,7 @@ function mount(
     ),
     refreshChannelHistory: vi.fn(),
     readPostFiles: vi.fn<Connection["readPostFiles"]>().mockResolvedValue([]),
+    applyChannelPostEvents: vi.fn<Connection["applyChannelPostEvents"]>(),
     readThreadPage,
     setThreadFollowing: vi
       .fn<Connection["setThreadFollowing"]>()
@@ -405,8 +411,17 @@ function mount(
       retry: vi.fn(),
     },
   };
+  const content = <ChannelsWorkspace workspace={workspace} language="en" />;
   const view = render(
-    <ChannelsWorkspace workspace={workspace} language="en" />,
+    options.eventSlot ? (
+      <ChannelEventTargetContext.Provider
+        value={{ active: options.eventSlot, retry: vi.fn() }}
+      >
+        {content}
+      </ChannelEventTargetContext.Provider>
+    ) : (
+      content
+    ),
   );
   return {
     ...connection,
@@ -3561,3 +3576,42 @@ test.each([{ rid: 2 }, { teamId: "n".repeat(26) }])(
     expect(account.changeOwnMembership).not.toHaveBeenCalled();
   },
 );
+test("a denied live channel read removes the open messages and the thread composer from the current workspace", async () => {
+  const slot: { current: OpenEventTarget | null } = { current: null };
+  const account = mount(true, true, { eventSlot: slot });
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Open thread, 1 reply/ }),
+  );
+  await screen.findByRole("textbox", { name: "Reply in thread…" });
+  account.refreshChannelHistory.mockRejectedValueOnce(
+    new ResponseError(new Response(null, { status: 403 })),
+  );
+  const target = slot.current;
+  if (!target) throw Error("No current channel event consumer");
+  await act(async () =>
+    target.apply(
+      {
+        kind: "posts",
+        changes: [
+          {
+            kind: "created",
+            channelId: general,
+            postId: "j".repeat(26),
+            rootId: null,
+          },
+        ],
+      },
+      new AbortController().signal,
+    ),
+  );
+  expect(
+    await screen.findByRole("heading", {
+      name: "This content is no longer available to your account.",
+    }),
+  ).toBeTruthy();
+  expect(screen.queryByText(root.message)).toBeNull();
+  expect(
+    screen.queryByRole("textbox", { name: "Reply in thread…" }),
+  ).toBeNull();
+  expect(target.signal.aborted).toBe(true);
+});

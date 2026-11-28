@@ -477,6 +477,7 @@ test("restores the selected team, channel, messages and account actions without 
   const rooms = [channel(channelId, "General"), channel(otherId, "Design")];
   let selected = channelId;
   const connection = {
+    observeChannelEvents: vi.fn(async () => {}),
     readWorkspaceSettings: vi.fn().mockResolvedValue({
       preferences: {
         nameFormat: null,

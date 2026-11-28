@@ -13,6 +13,20 @@ export class PostObservationSuperseded extends Error {
   }
 }
 
+export async function retryPostObservation<T>(
+  read: () => Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  signal.throwIfAborted();
+  try {
+    return await read();
+  } catch (error) {
+    if (!(error instanceof PostObservationSuperseded)) throw error;
+    signal.throwIfAborted();
+    return read();
+  }
+}
+
 export async function readPostAnchor(
   posts: Pick<PostsApi, "getPost">,
   postId: string,

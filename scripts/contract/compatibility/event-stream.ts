@@ -8,6 +8,8 @@ import {
   PostsApi,
 } from "../../../vendor/mattermost/index.js";
 
+import { openPostEventFlow } from "./open-post-events.ts";
+
 type FixtureFrame = {
   event?: string;
   seq?: number;
@@ -169,11 +171,25 @@ export async function checkEventStream(
     assert.equal(wire.channel_id, channelId);
     assert.equal(wire.root_id, "");
     assert.equal(wire.pending_post_id, pendingPostId);
-    await checkPeerPostAddresses(first, peerPosts, channelId, userId);
+    await checkPeerPostAddresses(
+      first,
+      peerPosts,
+      posts,
+      channelId,
+      userId,
+      true,
+    );
     const reverse = subscribe(base, peerToken, "", 0);
     try {
       assert.equal((await reverse.until(() => true)).event, "hello");
-      await checkPeerPostAddresses(reverse, posts, channelId, peerUserId);
+      await checkPeerPostAddresses(
+        reverse,
+        posts,
+        peerPosts,
+        channelId,
+        peerUserId,
+        false,
+      );
     } finally {
       await reverse.close();
     }
@@ -245,9 +261,12 @@ export async function checkEventStream(
 async function checkPeerPostAddresses(
   stream: ReturnType<typeof subscribe>,
   author: PostsApi,
+  viewer: PostsApi,
   channelId: string,
   viewerId: string,
+  collapsedThreads: boolean,
 ) {
+  const opened = openPostEventFlow(viewer, channelId, collapsedThreads);
   const create = (message: string, rootId?: string) =>
     author.createPost({ createPostRequest: { channelId, rootId, message } });
   const root = await create("Channel event addresses");
@@ -266,6 +285,16 @@ async function checkPeerPostAddresses(
     assert.equal(post.channel_id, channelId);
     assert.equal(post.root_id, rootId);
     if (name === "post_deleted") assert.equal(post.delete_at, 0);
+    const kind =
+      name === "posted"
+        ? "created"
+        : name === "post_edited"
+          ? "edited"
+          : "deleted";
+    await opened.apply(
+      { kind, channelId, postId: id, rootId: rootId || null },
+      post.message,
+    );
   };
   await observe("posted", root.id, "");
   const reply = await create("Reply event address", root.id);
@@ -280,4 +309,5 @@ async function checkPeerPostAddresses(
   await observe("post_deleted", reply.id, root.id);
   await author.deletePost({ postId: root.id });
   await observe("post_deleted", root.id, "");
+  opened.verify();
 }

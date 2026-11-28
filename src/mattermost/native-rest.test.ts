@@ -658,6 +658,7 @@ test("opens a native account by installation and user ID", async () => {
   });
   expect(Object.keys(connection).sort()).toEqual([
     "addOwnReaction",
+    "applyChannelPostEvents",
     "basePath",
     "changeOwnMembership",
     "close",
