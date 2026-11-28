@@ -7,6 +7,7 @@ import {
   PreferencesApi,
   ResponseError,
   type Team,
+  type TeamMember,
   TeamsApi,
 } from "../../vendor/mattermost/index.js";
 import {
@@ -71,6 +72,29 @@ function hasTeamIdentity(
   );
 }
 
+export function indexOwnTeamMemberships(members: TeamMember[], userId: string) {
+  if (!Array.isArray(members))
+    throw new DirectoryValueError(
+      "memberships.row",
+      "Invalid Mattermost team membership list.",
+    );
+  const byTeam = new Map<string, TeamMember>();
+  for (const member of members) {
+    if (
+      !isMattermostId(member?.teamId) ||
+      member.userId !== userId ||
+      !isMattermostTime(member.deleteAt, 0) ||
+      byTeam.has(member.teamId)
+    )
+      throw new DirectoryValueError(
+        "memberships.row",
+        "Invalid Mattermost team membership.",
+      );
+    byTeam.set(member.teamId, member);
+  }
+  return byTeam;
+}
+
 export function loadAccountDirectory(
   config: Configuration,
   userId: string,
@@ -95,20 +119,7 @@ export function loadAccountDirectory(
         ),
       ),
     ]);
-    const byTeam = new Map<string, (typeof members)[number]>();
-    for (const member of members) {
-      if (
-        !isMattermostId(member?.teamId) ||
-        member.userId !== userId ||
-        !isMattermostTime(member.deleteAt, 0) ||
-        byTeam.has(member.teamId)
-      )
-        throw new DirectoryValueError(
-          "memberships.row",
-          "Invalid Mattermost team membership.",
-        );
-      byTeam.set(member.teamId, member);
-    }
+    const byTeam = indexOwnTeamMemberships(members, userId);
     const seen = new Set<string>();
     const joined = teams.flatMap((team) => {
       if (

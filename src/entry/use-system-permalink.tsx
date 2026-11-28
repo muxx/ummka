@@ -27,8 +27,22 @@ import {
 import type { EntryLanguage } from "./language.ts";
 import { membershipConfirmationText } from "./use-message-navigation";
 
-type Target = Extract<ChannelsTarget, { kind: "permalink" }>;
+type Target =
+  | Extract<ChannelsTarget, { kind: "permalink" }>
+  | (Extract<ChannelsTarget, { kind: "conversation" }> & {
+      route: "channels";
+      postId: string;
+    });
 type RejectedTarget = Exclude<ChannelsTarget, Target>;
+
+function isPostTarget(target: ChannelsTarget | undefined): target is Target {
+  return (
+    target?.kind === "permalink" ||
+    (target?.kind === "conversation" &&
+      target.route === "channels" &&
+      target.postId !== null)
+  );
+}
 type RejectedLink =
   | { kind: "unknown" }
   | {
@@ -315,7 +329,7 @@ export function useSystemPermalink(
       let launchingExternal = false;
       try {
         // A completed manual selection determines which account the next link sees.
-        if (gate.source || gate.route?.target.kind === "permalink")
+        if (gate.source || isPostTarget(gate.route?.target))
           await lastSelection.current.catch(() => {});
         signal.throwIfAborted();
         if (gate.source && !gate.route) {
@@ -343,7 +357,7 @@ export function useSystemPermalink(
             ? gate.route.userId
             : undefined;
         const target = gate.route?.target;
-        if (target?.kind !== "permalink") {
+        if (!isPostTarget(target)) {
           setState({
             ...describeRejectedLink(target),
             id: gate.deliveryId,

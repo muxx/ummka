@@ -88,6 +88,8 @@ const base = "https://example.test",
   nested = base + "/install",
   otherUser = "z".repeat(26);
 const href = (id: string, server = base) => server + "/_redirect/pl/" + id;
+const namedHref = (id: string, team: string, channel = "design") =>
+  `${base}/${team}/channels/${channel}/${id}`;
 const foreign = "https://outside.example.test/private/path";
 const unsupported = `${base}/winter/threads/${"s".repeat(26)}`;
 type QueueItem = { id: string; href: string };
@@ -122,6 +124,31 @@ function boot(options: Parameters<typeof fixture>[0] = {}) {
             installations: saved,
           },
   });
+}
+function namedPostDestination(teamId: string, name: string) {
+  return {
+    kind: "channel",
+    team: { id: teamId, name, displayName: name },
+    channel: {
+      id: design,
+      name: "design",
+      displayName: "Design",
+      type: "O",
+      archived: false,
+      membership: "member",
+    },
+  } as const;
+}
+function namedPost(options?: Parameters<typeof boot>[0]) {
+  const setup = boot(options);
+  const name = options?.cross ? "summer" : "winter";
+  const destination = namedPostDestination(setup.targetInfo.team.id, name);
+  setup.account.resolveConversationIdentifier.mockResolvedValue({
+    kind: "channel-name",
+    name: destination.channel.name,
+  });
+  setup.account.readNamedChannelDestination.mockResolvedValue(destination);
+  return { ...setup, destination, name };
 }
 beforeEach(() => {
   queue = [];
@@ -213,6 +240,174 @@ test("cold root waits until the focused row enters the actual viewport; the next
     root.id,
     reply.id,
     reply.id,
+  ]);
+});
+test("a cold named post opens in its team and a warm named reply is delivered inside its thread", async () => {
+  visible = false;
+  queue.push({ id: "root", href: namedHref(root.id, "summer") });
+  const { account } = namedPost({ cross: true });
+  await waitFor(() =>
+    expect((document.activeElement as HTMLElement).dataset.postId).toBe(
+      root.id,
+    ),
+  );
+  expect(account.selectJoinedTeam).toHaveBeenCalledExactlyOnceWith(summer);
+  expect(account.selectSidebarChannel).toHaveBeenCalledExactlyOnceWith(
+    summer,
+    design,
+  );
+  expect(account.readNamedChannelDestination).toHaveBeenCalledExactlyOnceWith(
+    "summer",
+    "design",
+    expect.any(AbortSignal),
+  );
+  expect(account.readChannelWindow.mock.calls.map(([q]) => q.kind)).toEqual([
+    "around",
+  ]);
+  expect(acks).toEqual([]);
+  act(() => enqueue("reply", namedHref(reply.id, "summer")));
+  visible = true;
+  fireEvent.scroll(document.activeElement as Element);
+  await waitFor(() =>
+    expect(acks).toEqual([
+      { id: "root", row: root.id, thread: false },
+      { id: "reply", row: reply.id, thread: true },
+    ]),
+  );
+  expect(account.readNamedChannelDestination).toHaveBeenCalledTimes(2);
+  expect(account.readPostAnchor.mock.calls.map(([id]) => id)).toEqual([
+    root.id,
+    reply.id,
+  ]);
+  expect(account.changeOwnMembership).not.toHaveBeenCalled();
+});
+
+test.each([
+  "channel ID",
+  "team ID",
+  "channel kind",
+  "lost channel membership",
+  "lost team membership",
+  "absent named membership",
+] as const)(
+  "a scoped post with %s mismatch keeps the source and does not read its text",
+  async (mismatch) => {
+    const { account, targetInfo, destination, name } = namedPost({
+      cross: true,
+    });
+    const draft = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+      name: "Message #Home…",
+    });
+    const initialDraft = draft.value;
+    const channel = {
+      ...targetInfo.channel,
+      ...(mismatch === "channel ID" && { id: other }),
+      ...(mismatch === "channel kind" && { kind: "P" as const }),
+      ...(mismatch === "lost channel membership" && { joined: false }),
+    };
+    const team = {
+      ...targetInfo.team,
+      ...(mismatch === "team ID" && { id: winter }),
+      ...(mismatch === "lost team membership" && { joined: false }),
+    };
+    account.readPostDestination.mockResolvedValueOnce({
+      postId: reply.id,
+      channel,
+      team,
+    });
+    if (mismatch === "absent named membership")
+      account.readNamedChannelDestination.mockResolvedValueOnce({
+        ...destination,
+        channel: { ...destination.channel, membership: "absent" },
+      });
+    act(() => enqueue("refused", namedHref(reply.id, name)));
+    const outcome = await screen.findByRole("dialog");
+    expect(within(outcome).getByText(/Message unavailable/)).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Message #Home…" })).toBe(draft);
+    expect(draft.value).toBe(initialDraft);
+    expect(account.readPostDestination).toHaveBeenCalledTimes(
+      mismatch === "absent named membership" ? 0 : 1,
+    );
+    expect(account.readPostAnchor).not.toHaveBeenCalled();
+    expect(account.readThreadPage).not.toHaveBeenCalled();
+    expect(account.selectJoinedTeam).not.toHaveBeenCalled();
+    expect(account.selectSidebarChannel).not.toHaveBeenCalled();
+    expect(account.changeOwnMembership).not.toHaveBeenCalled();
+    expect(acks).toEqual([]);
+    fireEvent.click(within(outcome).getByRole("button", { name: "OK" }));
+    await waitFor(() =>
+      expect(acks).toEqual([{ id: "refused", row: undefined, thread: false }]),
+    );
+  },
+);
+
+test("a cached named-channel collision is scoped to the link's team", async () => {
+  const { account, name } = namedPost({ cross: true, homeName: design });
+  await screen.findByRole("textbox", { name: "Message #Home…" });
+  account.resolveConversationIdentifier.mockResolvedValueOnce({
+    kind: "channel-id",
+    id: design,
+    name: "design",
+    teamId: summer,
+  });
+  act(() => enqueue("root", namedHref(root.id, name, design)));
+  await waitFor(() => expect(acks.at(-1)?.row).toBe(root.id));
+  expect(account.resolveConversationIdentifier).toHaveBeenCalledWith(
+    expect.objectContaining({ team: name, identifier: design }),
+    undefined,
+    expect.any(AbortSignal),
+  );
+  expect(account.selectJoinedTeam).toHaveBeenCalledExactlyOnceWith(summer);
+});
+
+test("the same team's known channel name takes precedence over a different channel's ID", async () => {
+  const { account, destination } = namedPost({ homeName: design });
+  await screen.findByRole("textbox", { name: "Message #Home…" });
+  account.resolveConversationIdentifier.mockResolvedValueOnce({
+    kind: "channel-name",
+    name: design,
+  });
+  account.readNamedChannelDestination.mockResolvedValueOnce({
+    ...destination,
+    channel: { ...destination.channel, id: home, name: design },
+  });
+  act(() => enqueue("collision", namedHref(root.id, "winter", design)));
+  await screen.findByText(/Message unavailable/);
+  expect(account.resolveConversationIdentifier).toHaveBeenCalledWith(
+    expect.objectContaining({ team: "winter", identifier: design }),
+    { serverUrl: base, userId: user, team: "winter", name: design, kind: "O" },
+    expect.any(AbortSignal),
+  );
+  expect(account.readNamedChannelDestination).toHaveBeenCalledWith(
+    "winter",
+    design,
+    expect.any(AbortSignal),
+  );
+  expect(account.readPostAnchor).not.toHaveBeenCalled();
+});
+
+test("a named destination takes priority over the channel's warm latest window", async () => {
+  const { account } = namedPost();
+  await screen.findByRole("textbox", { name: "Message #Home…" });
+  await openSyntheticDesign();
+  await screen.findByRole("textbox", { name: "Message #Design…" });
+  await waitFor(() =>
+    expect(account.readChannelWindow).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "latest", channelId: design }),
+    ),
+  );
+  fireEvent.click(screen.getByRole("button", { name: /^(# )?Home$/ }));
+  await screen.findByRole("textbox", { name: "Message #Home…" });
+  account.readChannelWindow.mockClear();
+  act(() => enqueue("focused", namedHref(root.id, "winter")));
+  await waitFor(() =>
+    expect(acks).toEqual([{ id: "focused", row: root.id, thread: false }]),
+  );
+  const addressed = account.readChannelWindow.mock.calls
+    .map(([q]) => q)
+    .filter(({ channelId }) => channelId === design);
+  expect(addressed).toEqual([
+    expect.objectContaining({ kind: "around", postId: root.id }),
   ]);
 });
 test("a flat reply received in the foreground switches to its actual team and focuses its exact row", async () => {
@@ -3278,11 +3473,19 @@ test.each([
   },
 );
 
-test.each(["resolving route", "checking post"] as const)(
+test.each([
+  "resolving route",
+  "checking post",
+  "checking named channel",
+] as const)(
   "a manual channel choice cancels a published link still %s",
   async (stage) => {
+    const address =
+      stage === "checking named channel"
+        ? namedHref(reply.id, "winter")
+        : href(reply.id);
     const { account, targetInfo } = publishedConversation(
-      `[Open reply](${href(reply.id)})`,
+      `[Open reply](${address})`,
     );
     await openSyntheticDesign();
     const link = await screen.findByRole("link", { name: "Open reply" });
@@ -3302,13 +3505,27 @@ test.each(["resolving route", "checking post"] as const)(
         await gate;
         return user;
       });
-    else
+    else if (stage === "checking post")
       account.readPostDestination.mockImplementationOnce(async (id, active) => {
         signal = active;
         started();
         await gate;
         return { ...targetInfo, postId: id };
       });
+    else {
+      account.resolveConversationIdentifier.mockResolvedValueOnce({
+        kind: "channel-name",
+        name: "design",
+      });
+      account.readNamedChannelDestination.mockImplementationOnce(
+        async (_team, _channel, active) => {
+          signal = active;
+          started();
+          await gate;
+          return namedPostDestination(winter, "winter");
+        },
+      );
+    }
     fireEvent.click(link);
     await entered;
     const designChoice = screen.getByRole("button", { name: /^(# )?Design$/ });
@@ -3318,8 +3535,10 @@ test.each(["resolving route", "checking post"] as const)(
     );
     // This choice leaves the original link mounted so DOM removal alone cannot cancel it.
     expect(link.isConnected).toBe(true);
-    if (stage === "checking post") expect(signal?.aborted).toBe(true);
+    if (stage !== "resolving route") expect(signal?.aborted).toBe(true);
     await act(async () => release());
+    if (stage === "checking named channel")
+      expect(account.readPostDestination).not.toHaveBeenCalled();
     expect(account.readPostAnchor).not.toHaveBeenCalled();
     expect(screen.queryByText(reply.message)).toBeNull();
     expect(

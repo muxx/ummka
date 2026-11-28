@@ -1,3 +1,4 @@
+import { inspectConversationTarget } from "../../src/channels/inspect-conversation-target.ts";
 import { openChannelDirectoryList } from "../../src/channels/open-channel-directory.ts";
 import { openDirectorySearch } from "../../src/channels/open-directory-search.ts";
 import type { openAccountRestConnection } from "../../src/mattermost/native-rest.ts";
@@ -125,6 +126,26 @@ export async function checkTeamReads(
     named.type !== "O"
   )
     throw Error("generated signed channel by team and channel names");
+  const postId = "w".repeat(26);
+  const destination = await inspectConversationTarget(prefixedAccount, {
+    kind: "conversation",
+    serverUrl: prefixedAccount.basePath,
+    team: "fixture-team",
+    route: "channels",
+    identifier: "old_room",
+    postId,
+  });
+  if (
+    destination.kind !== "channel" ||
+    destination.team.id !== teamId ||
+    destination.team.displayName !== "Fixture Team" ||
+    destination.channel.id !== named.id ||
+    destination.channel.displayName !== "Old room" ||
+    !destination.channel.archived ||
+    destination.channel.membership !== "member" ||
+    destination.postId !== postId
+  )
+    throw Error("signed named conversation post target");
   const location = "j".repeat(26);
   const inspected = await prefixedAccount.readChannelIdentity(location);
   if (

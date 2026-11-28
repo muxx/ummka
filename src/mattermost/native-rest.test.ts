@@ -9,6 +9,7 @@ import {
   PostsApi,
   type Reaction,
   ReactionsApi,
+  TeamsApi,
   type User,
   UsersApi,
 } from "../../vendor/mattermost/index.js";
@@ -299,6 +300,44 @@ test.each(["close", "abort"])(
     }
   },
 );
+
+test("retiring a signed named destination stops the remaining reads", async () => {
+  ipc.mockResolvedValueOnce(41);
+  const account = await openAccountRestConnection(
+    "https://chat.example.test/prefix",
+    "u".repeat(26),
+  );
+  const lookup = vi.spyOn(TeamsApi.prototype, "getTeamByNameRaw");
+  const memberships = vi.spyOn(TeamsApi.prototype, "getTeamMembersForUserRaw");
+  const row = {
+    id: "t".repeat(26),
+    name: "engineering",
+    displayName: "Engineering",
+    type: "O",
+    deleteAt: 0,
+  };
+  let deliver!: () => void;
+  lookup.mockReturnValueOnce(
+    new Promise((resolve) => {
+      deliver = () =>
+        resolve({ raw: Response.json({}), value: async () => row });
+    }),
+  );
+  try {
+    const result = account.readNamedChannelDestination("Engineering", "Build");
+    await account.close();
+    deliver();
+    await expect(result).rejects.toBe("cancelled");
+    expect(lookup).toHaveBeenCalledExactlyOnceWith(
+      { name: "engineering" },
+      { signal: expect.any(AbortSignal) },
+    );
+    expect(memberships).not.toHaveBeenCalled();
+  } finally {
+    lookup.mockRestore();
+    memberships.mockRestore();
+  }
+});
 
 test.each(["close", "abort"])(
   "discards collection responses after %s",
@@ -664,6 +703,7 @@ test("opens a native account by installation and user ID", async () => {
     "readFollowedThreads",
     "readJoinedTeams",
     "readMentionGroupCounts",
+    "readNamedChannelDestination",
     "readOwnChannelMembership",
     "readPendingPosts",
     "readPinnedChannelPosts",

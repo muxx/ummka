@@ -260,6 +260,7 @@ export function webviewServers(
         body: {
           id: teamId,
           name: "fixture-team",
+          display_name: "Fixture Team",
           type: "O",
           allow_open_invite: true,
           delete_at: 0,
@@ -274,6 +275,7 @@ export function webviewServers(
           id: channelId,
           team_id: teamId,
           name: "old_room",
+          display_name: "Old room",
           type: "O",
           delete_at: 41,
         },
