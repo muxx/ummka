@@ -1,4 +1,10 @@
-import { useId, useLayoutEffect, useRef, useState } from "react";
+import {
+  useEffectEvent,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import type { EntryLanguage } from "../entry/language.ts";
 import { BookmarkIcon } from "./BookmarkIcon.tsx";
@@ -74,6 +80,7 @@ export function BookmarkEditor({
   account,
   channelId,
   online,
+  authorized,
   language,
   close,
   leavePending,
@@ -84,6 +91,7 @@ export function BookmarkEditor({
   account: BookmarkWrites;
   channelId: string;
   online: boolean;
+  authorized: boolean;
   language: EntryLanguage;
   close: (reload: boolean, dismissed?: boolean) => void;
   leavePending: () => void;
@@ -117,12 +125,18 @@ export function BookmarkEditor({
     };
   }, [removing]);
   function dismiss() {
+    dialog.current?.close();
     if (pending.current) {
       dismissed.current = true;
-      dialog.current?.close();
       leavePending();
     } else close(needsRefresh);
   }
+  const closeRevokedAction = useEffectEvent(() => {
+    if (!dismissed.current) dismiss();
+  });
+  useLayoutEffect(() => {
+    if (!authorized) closeRevokedAction();
+  }, [authorized]);
   function back() {
     if (edit.action === "add" || needsRefresh || pending.current) dismiss();
     else {
@@ -131,7 +145,7 @@ export function BookmarkEditor({
     }
   }
   async function save() {
-    if (!online || pending.current || needsRefresh) return;
+    if (!online || !authorized || pending.current || needsRefresh) return;
     const label = name.trim(),
       address = href.trim(),
       originalAddress =

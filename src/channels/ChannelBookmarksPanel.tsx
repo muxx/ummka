@@ -1,11 +1,4 @@
-import {
-  useContext,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { useContext, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { EntryLanguage } from "../entry/language.ts";
 import {
@@ -102,6 +95,7 @@ function BookmarkActions({
 }) {
   const dialog = useRef<HTMLDialogElement>(null),
     primary = useRef<HTMLButtonElement>(null),
+    lastFocused = useRef<EventTarget | null>(null),
     id = useId();
   useLayoutEffect(() => {
     const node = dialog.current;
@@ -137,6 +131,17 @@ function BookmarkActions({
       node.close();
     };
   }, [owner]);
+  useLayoutEffect(() => {
+    const node = dialog.current;
+    if (
+      lastFocused.current instanceof HTMLElement &&
+      !lastFocused.current.isConnected &&
+      !node?.contains(document.activeElement)
+    )
+      node
+        ?.querySelector<HTMLButtonElement>(".bookmark-action")
+        ?.focus({ preventScroll: true });
+  });
   function returnToRow() {
     dialog.current?.close();
     owner.focus({ preventScroll: true });
@@ -145,11 +150,18 @@ function BookmarkActions({
     returnToRow();
     close();
   }
+  const first = actions.some(({ icon }) => icon === preferred)
+    ? preferred
+    : actions[0]?.icon;
   return createPortal(
     <dialog
       ref={dialog}
       className="bookmark-actions modal-layout"
+      data-bookmark-menu={owner.dataset.bookmarkId}
       aria-labelledby={id}
+      onFocus={(event) => {
+        lastFocused.current = event.target;
+      }}
       onCancel={(e) => {
         e.preventDefault();
         dismiss();
@@ -178,16 +190,14 @@ function BookmarkActions({
         </button>
       </header>
       <div className="modal-scroll">
-        {actions.map(({ label, icon, run }, i) => (
+        {actions.map(({ label, icon, run }) => (
           <button
             key={icon}
             type="button"
             className={
               "bookmark-action" + (icon === "delete" ? " destructive" : "")
             }
-            ref={
-              (preferred ? icon === preferred : i === 0) ? primary : undefined
-            }
+            ref={icon === first ? primary : undefined}
             onClick={() => {
               returnToRow();
               run();
@@ -211,9 +221,11 @@ function BookmarkRow({
   language,
   can,
   begin,
+  focusHeading,
 }: Pick<Props, "account" | "channelId" | "serverUrl" | "language" | "can"> & {
   item: Bookmark;
   begin: (edit: BookmarkEdit) => void;
+  focusHeading: () => void;
 }) {
   const [opener, setOpener] = useState<HTMLButtonElement | null>(null),
     [preferred, setPreferred] = useState<"edit" | "delete" | null>(null);
@@ -295,13 +307,20 @@ function BookmarkRow({
           });
         },
       });
+  const menuAvailable = actions.length > 0;
+  useLayoutEffect(() => {
+    if (opener && !menuAvailable) {
+      setOpener(null);
+      focusHeading();
+    }
+  }, [opener, menuAvailable, focusHeading]);
   return (
     <li>
       <button
         type="button"
         className="channel-bookmark-row"
         data-bookmark-id={item.id}
-        disabled={!actions.length}
+        disabled={!menuAvailable}
         aria-labelledby={row + "-label"}
         aria-describedby={detail ? row + "-detail" : undefined}
         aria-haspopup="dialog"
@@ -312,7 +331,7 @@ function BookmarkRow({
       >
         {label}
       </button>
-      {opener && (
+      {opener && menuAvailable && (
         <BookmarkActions
           title={item.name}
           language={language}
@@ -334,16 +353,20 @@ function BookmarkRow({
   );
 }
 
+type BookmarkFocus = { id?: string; index?: number };
+
 function EditableBookmarks({
   initial,
   reload,
   focusHeading,
+  takeRefreshFocus,
   setEditorOpen,
   ...props
 }: Props & {
   initial: Bookmark[];
-  reload: () => void;
+  reload: (focus?: BookmarkFocus) => void;
   focusHeading: () => void;
+  takeRefreshFocus: () => BookmarkFocus | undefined;
   setEditorOpen: (open: boolean) => void;
 }) {
   const [items, setItems] = useState(initial),
@@ -351,73 +374,82 @@ function EditableBookmarks({
     [sendingInBackground, setSendingInBackground] = useState(false);
   const panel = useRef<HTMLDivElement>(null),
     add = useRef<HTMLButtonElement>(null);
-  const target = useRef<string | number | null>(null),
+  const target = useRef<BookmarkFocus | null>(null),
     t = bookmarkCopy[props.language],
     w = editorCopy[props.language];
   function begin(next: BookmarkEdit) {
     setEdit(next);
     setEditorOpen(true);
   }
-  function restore(focus: string | number | null, dismissed: boolean) {
-    target.current = dismissed ? null : (focus ?? "");
+  function restore(focus?: BookmarkFocus) {
+    target.current = focus ?? null;
     setSendingInBackground(false);
     setEdit(null);
     setEditorOpen(false);
   }
+  function focusedRow(): BookmarkFocus | undefined {
+    const active = document.activeElement;
+    const button = active?.closest<HTMLButtonElement>(
+      "button[data-bookmark-id]",
+    );
+    const id =
+      button && panel.current?.contains(button)
+        ? button.dataset.bookmarkId
+        : active?.closest<HTMLDialogElement>("dialog[data-bookmark-menu]")
+            ?.dataset.bookmarkMenu;
+    if (id === undefined) return;
+    const index = items.findIndex((item) => item.id === id);
+    if (index >= 0) return { id, index };
+  }
   useLayoutEffect(() => {
-    if (edit || target.current === null) return;
-    const focus = target.current;
+    if (edit) return;
+    const focus = target.current ?? takeRefreshFocus();
+    if (!focus) return;
     const rows = Array.from(
       panel.current?.querySelectorAll<HTMLButtonElement>(
         "button[data-bookmark-id]",
       ) ?? [],
     );
+    const { id, index } = focus;
     const row =
-      typeof focus === "number"
-        ? (rows.slice(focus).find((node) => !node.disabled) ??
+      rows.find((node) => node.dataset.bookmarkId === id && !node.disabled) ??
+      (index === undefined
+        ? undefined
+        : (rows.slice(index).find((node) => !node.disabled) ??
           rows
-            .slice(0, focus)
+            .slice(0, index)
             .reverse()
-            .find((node) => !node.disabled))
-        : rows.find(
-            (node) => node.dataset.bookmarkId === focus && !node.disabled,
-          );
+            .find((node) => !node.disabled)));
     target.current = null;
-    if (row ?? add.current)
-      (row ?? add.current)?.focus({ preventScroll: true });
+    const button = row ?? (add.current?.disabled ? null : add.current);
+    if (button) button.focus({ preventScroll: true });
     else focusHeading();
-  }, [edit, focusHeading]);
+  }, [edit, focusHeading, takeRefreshFocus]);
   const authorized =
     !edit ||
     !props.online ||
     (edit.action === "add"
       ? props.can("add")
       : props.can(edit.action, edit.item.destination.kind));
-  useEffect(() => {
-    if (!authorized) {
-      target.current = "";
-      setSendingInBackground(false);
-      setEdit(null);
-      setEditorOpen(false);
-    }
-  }, [authorized, setEditorOpen]);
   function confirm(updated: Bookmark | null, dismissed: boolean) {
     if (!edit) return;
     if (edit.action === "add") {
       if (!updated) return;
       setItems([...items, updated]);
-      restore(updated.id, dismissed);
+      restore(dismissed ? undefined : { id: updated.id });
     } else {
       const index = items.findIndex((item) => item.id === edit.item.id);
       if (index < 0) {
-        restore(null, dismissed);
-        reload();
+        reload(dismissed ? focusedRow() : undefined);
+        restore();
         return;
       }
       const next = items.slice();
       next.splice(index, 1, ...(updated ? [updated] : []));
       setItems(next);
-      restore(updated?.id ?? index, dismissed);
+      const lostRow =
+        updated?.id !== edit.item.id && focusedRow()?.id === edit.item.id;
+      restore(!dismissed || lostRow ? { id: updated?.id, index } : undefined);
     }
   }
   return (
@@ -447,6 +479,7 @@ function EditableBookmarks({
               }
               item={item}
               begin={begin}
+              focusHeading={focusHeading}
             />
           ))}
         </ul>
@@ -457,12 +490,13 @@ function EditableBookmarks({
           <p>{props.can("add") ? w.empty : t.hint}</p>
         </div>
       )}
-      {edit && authorized && (
+      {edit && (
         <BookmarkEditor
           edit={edit}
           account={props.account}
           channelId={props.channelId}
           online={props.online}
+          authorized={authorized}
           language={props.language}
           sessionIssue={props.sessionIssue}
           confirm={confirm}
@@ -471,10 +505,18 @@ function EditableBookmarks({
             focusHeading();
           }}
           close={(refresh, dismissed = false) => {
-            restore(edit.action === "add" ? null : edit.item.id, dismissed);
             if (refresh) {
               if (!dismissed) focusHeading();
-              reload();
+              reload(dismissed ? focusedRow() : undefined);
+              restore();
+            } else {
+              restore(
+                dismissed
+                  ? undefined
+                  : edit.action === "add"
+                    ? {}
+                    : { id: edit.item.id },
+              );
             }
           }}
         />
@@ -486,6 +528,7 @@ function EditableBookmarks({
 export function ChannelBookmarksPanel(props: Props) {
   const [editorOpen, setEditorOpen] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null),
+    refreshFocus = useRef<BookmarkFocus | undefined>(undefined),
     id = useId();
   const { account, channelId, online, language } = props,
     t = bookmarkCopy[language];
@@ -495,6 +538,22 @@ export function ChannelBookmarksPanel(props: Props) {
     (s, id) => account.readChannelBookmarks(id, s),
     props.sessionIssue,
   );
+  const focusHeading = () => heading.current?.focus({ preventScroll: true });
+  function reload(focus?: BookmarkFocus) {
+    refreshFocus.current = focus;
+    if (focus) {
+      document.activeElement
+        ?.closest<HTMLDialogElement>("dialog[data-bookmark-menu]")
+        ?.close();
+      focusHeading();
+    }
+    retry();
+  }
+  function takeRefreshFocus() {
+    const focus = refreshFocus.current;
+    refreshFocus.current = undefined;
+    if (document.activeElement === heading.current) return focus;
+  }
   useLayoutEffect(() => {
     heading.current?.focus({ preventScroll: true });
   }, []);
@@ -526,11 +585,10 @@ export function ChannelBookmarksPanel(props: Props) {
             <EditableBookmarks
               {...props}
               initial={value.value.bookmarks}
-              reload={retry}
+              reload={reload}
               setEditorOpen={setEditorOpen}
-              focusHeading={() =>
-                heading.current?.focus({ preventScroll: true })
-              }
+              focusHeading={focusHeading}
+              takeRefreshFocus={takeRefreshFocus}
             />
           )
         ) : (

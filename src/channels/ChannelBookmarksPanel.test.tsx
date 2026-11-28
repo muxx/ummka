@@ -641,3 +641,286 @@ test("after deleting a bookmark, focus advances past rows without any available 
   );
   expect(ctx.account.readChannelBookmarks).toHaveBeenCalledTimes(1);
 });
+
+const editableLink = {
+  id: "a".repeat(26),
+  name: "Runbook link",
+  destination: { kind: "link" as const, href: "https://example.org/runbook" },
+};
+const nextLink = { ...editableLink, id: "b".repeat(26), name: "Next link" };
+
+function heldBookmarkResult<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((done, failed) => {
+    resolve = done;
+    reject = failed;
+  });
+  return { promise, resolve, reject };
+}
+
+test("frozen review keeps a submitted edit pending when only edit permission is revoked", async () => {
+  const ctx = fixture();
+  ctx.can.mockReturnValue(true);
+  const updated = { ...editableLink, name: "Confirmed rename" };
+  const request = heldBookmarkResult<{
+    updated: typeof updated;
+    removedId: string | null;
+  }>();
+  let serverRows = [editableLink];
+  ctx.account.readChannelBookmarks.mockImplementation(async () => ({
+    kind: "available",
+    bookmarks: serverRows,
+  }));
+  ctx.account.updateChannelBookmark.mockReturnValue(request.promise);
+
+  const view = render(<Panel ctx={ctx} />);
+  fireEvent.click(
+    await screen.findByRole("button", { name: editableLink.name }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  const editor = within(screen.getByRole("dialog", { name: "Edit bookmark" }));
+  fireEvent.change(editor.getByLabelText("Name"), {
+    target: { value: updated.name },
+  });
+  fireEvent.click(editor.getByRole("button", { name: "Save" }));
+  expect(ctx.account.updateChannelBookmark).toHaveBeenCalledTimes(1);
+
+  ctx.can.mockImplementation((action) => action !== "edit");
+  view.rerender(<Panel ctx={ctx} />);
+  expect(screen.queryByRole("dialog", { name: "Edit bookmark" })).toBeNull();
+  const add = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Add link",
+  });
+  const secondWriteBlocked = add.disabled;
+
+  serverRows = [updated];
+  await act(async () => request.resolve({ updated, removedId: null }));
+  expect({
+    secondWriteBlocked,
+    confirmationVisible:
+      screen.queryByRole("button", { name: updated.name }) !== null,
+    mayAddAfterConfirmation: !add.disabled,
+  }).toEqual({
+    secondWriteBlocked: true,
+    confirmationVisible: true,
+    mayAddAfterConfirmation: true,
+  });
+});
+
+test.each(["delete", "replace"] as const)(
+  "frozen review preserves active row context after a dismissed editor confirms %s",
+  async (change) => {
+    const ctx = fixture();
+    ctx.can.mockReturnValue(true);
+    const updated = {
+      ...editableLink,
+      id: "r".repeat(26),
+      name: "Replacement",
+    };
+    const edit = heldBookmarkResult<{
+      updated: typeof updated;
+      removedId: string | null;
+    }>();
+    const remove = heldBookmarkResult<string>();
+    ctx.account.readChannelBookmarks.mockResolvedValue({
+      kind: "available",
+      bookmarks: [editableLink, nextLink],
+    });
+    ctx.account.updateChannelBookmark.mockReturnValue(edit.promise);
+    ctx.account.deleteChannelBookmark.mockReturnValue(remove.promise);
+
+    render(<Panel ctx={ctx} />);
+    const original = await screen.findByRole("button", {
+      name: editableLink.name,
+    });
+    fireEvent.click(original);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: change === "delete" ? "Delete" : "Edit",
+      }),
+    );
+    const editor = within(
+      screen.getByRole("dialog", {
+        name: change === "delete" ? "Delete bookmark?" : "Edit bookmark",
+      }),
+    );
+    if (change === "replace") {
+      fireEvent.change(editor.getByLabelText("Name"), {
+        target: { value: updated.name },
+      });
+    }
+    fireEvent.click(
+      editor.getByRole("button", {
+        name: change === "delete" ? "Delete" : "Save",
+      }),
+    );
+    fireEvent.click(editor.getByRole("button", { name: "Close" }));
+    await screen.findByText("Saving bookmark…");
+    original.focus();
+    expect(document.activeElement === original).toBe(true);
+
+    const expected = change === "delete" ? nextLink : updated;
+    await act(async () => {
+      if (change === "delete") remove.resolve(editableLink.id);
+      else edit.resolve({ updated, removedId: editableLink.id });
+    });
+    expect(
+      screen.queryByRole("button", { name: editableLink.name }),
+    ).toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: expected.name })
+        .getAttribute("data-bookmark-id"),
+    ).toBe(expected.id);
+    expect({
+      tag: document.activeElement?.tagName,
+      bookmark: document.activeElement?.getAttribute("data-bookmark-id"),
+    }).toEqual({ tag: "BUTTON", bookmark: expected.id });
+  },
+);
+
+test("frozen review restores the same focused row after an uncertain background write reloads the list", async () => {
+  const ctx = fixture();
+  ctx.can.mockReturnValue(true);
+  const request = heldBookmarkResult<string>();
+  ctx.account.readChannelBookmarks
+    .mockResolvedValueOnce({
+      kind: "available",
+      bookmarks: [editableLink, nextLink],
+    })
+    .mockResolvedValue({ kind: "available", bookmarks: [nextLink] });
+  ctx.account.deleteChannelBookmark.mockReturnValue(request.promise);
+  render(<Panel ctx={ctx} />);
+  fireEvent.click(
+    await screen.findByRole("button", { name: editableLink.name }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+  const editor = within(
+    screen.getByRole("dialog", { name: "Delete bookmark?" }),
+  );
+  fireEvent.click(editor.getByRole("button", { name: "Delete" }));
+  fireEvent.click(editor.getByRole("button", { name: "Close" }));
+  await screen.findByText("Saving bookmark…");
+  const next = screen.getByRole("button", { name: nextLink.name });
+  next.focus();
+  expect(document.activeElement === next).toBe(true);
+
+  await act(async () =>
+    request.reject(new TypeError("Connection lost after sending")),
+  );
+  await waitFor(() =>
+    expect(ctx.account.readChannelBookmarks).toHaveBeenCalledTimes(2),
+  );
+  await screen.findByRole("button", { name: nextLink.name });
+  expect(screen.queryByRole("button", { name: editableLink.name })).toBeNull();
+  expect({
+    tag: document.activeElement?.tagName,
+    bookmark: document.activeElement?.getAttribute("data-bookmark-id"),
+  }).toEqual({ tag: "BUTTON", bookmark: nextLink.id });
+});
+
+test("frozen review dismisses the action dialog when a restricted file loses all available actions", async () => {
+  const ctx = fixture();
+  ctx.can.mockReturnValue(true);
+  const restricted = {
+    id: "q".repeat(26),
+    name: "Restricted file",
+    destination: {
+      kind: "file" as const,
+      fileId,
+      fileName: null,
+      fileMimeType: null,
+    },
+  };
+  ctx.account.readChannelBookmarks.mockResolvedValue({
+    kind: "available",
+    bookmarks: [restricted],
+  });
+  const view = render(<Panel ctx={ctx} />);
+  const row = await screen.findByRole<HTMLButtonElement>("button", {
+    name: restricted.name,
+  });
+  fireEvent.click(row);
+  const edit = screen.getByRole("button", { name: "Edit" });
+  expect(document.activeElement === edit).toBe(true);
+
+  ctx.can.mockImplementation((action) => action === "add");
+  view.rerender(<Panel ctx={ctx} />);
+  expect(row.disabled).toBe(true);
+  expect(screen.queryByRole("dialog", { name: restricted.name }) === null).toBe(
+    true,
+  );
+});
+
+test("an action menu moves focus when one permission is lost", async () => {
+  const ctx = fixture();
+  ctx.can.mockReturnValue(true);
+  ctx.account.readChannelBookmarks.mockResolvedValue({
+    kind: "available",
+    bookmarks: [editableLink],
+  });
+  const view = render(<Panel ctx={ctx} />);
+  fireEvent.click(
+    await screen.findByRole("button", { name: editableLink.name }),
+  );
+  const menu = within(screen.getByRole("dialog", { name: editableLink.name }));
+  menu.getByRole("button", { name: "Edit" }).focus();
+  ctx.can.mockImplementation((action) => action !== "edit");
+  view.rerender(<Panel ctx={ctx} />);
+  expect(menu.queryByRole("button", { name: "Edit" })).toBeNull();
+  expect(document.activeElement).toBe(
+    menu.getByRole("button", { name: "Open link" }),
+  );
+});
+
+test("a revoked edit with a lost response holds writes until a fresh list returns", async () => {
+  const ctx = fixture();
+  ctx.can.mockReturnValue(true);
+  const request =
+    heldBookmarkResult<
+      Awaited<ReturnType<WorkspaceConnection["updateChannelBookmark"]>>
+    >();
+  const refresh =
+    heldBookmarkResult<
+      Awaited<ReturnType<WorkspaceConnection["readChannelBookmarks"]>>
+    >();
+  ctx.account.readChannelBookmarks
+    .mockResolvedValueOnce({
+      kind: "available",
+      bookmarks: [editableLink],
+    })
+    .mockReturnValueOnce(refresh.promise);
+  ctx.account.updateChannelBookmark.mockReturnValue(request.promise);
+  const view = render(<Panel ctx={ctx} />);
+  fireEvent.click(
+    await screen.findByRole("button", { name: editableLink.name }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  const editor = within(screen.getByRole("dialog", { name: "Edit bookmark" }));
+  const updated = { ...editableLink, name: "Confirmed later" };
+  fireEvent.change(editor.getByLabelText("Name"), {
+    target: { value: updated.name },
+  });
+  fireEvent.click(editor.getByRole("button", { name: "Save" }));
+
+  ctx.can.mockImplementation((action) => action !== "edit");
+  view.rerender(<Panel ctx={ctx} />);
+  await screen.findByText("Saving bookmark…");
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Add link" })
+      .disabled,
+  ).toBe(true);
+  await act(async () => request.reject(new TypeError("Response lost")));
+  await screen.findByText("Loading bookmarks…");
+  expect(screen.queryByRole("button", { name: "Add link" })).toBeNull();
+  expect(ctx.account.updateChannelBookmark).toHaveBeenCalledTimes(1);
+  await act(async () =>
+    refresh.resolve({ kind: "available", bookmarks: [updated] }),
+  );
+  expect(screen.getByRole("button", { name: updated.name })).toBeTruthy();
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Add link" })
+      .disabled,
+  ).toBe(false);
+});
