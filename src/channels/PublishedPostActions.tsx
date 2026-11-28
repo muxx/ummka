@@ -7,23 +7,32 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
 } from "react";
 import { createPortal } from "react-dom";
 import { isMobile } from "../build-platform.ts";
+import type { EntryLanguage } from "../entry/language.ts";
 import type { LocalPost } from "../mattermost/local-history.ts";
 import { isMattermostId } from "../mattermost/model-fields.ts";
 import { CollectionMark } from "./PostCollectionPane.tsx";
 import { copyToClipboard, PostActionScope } from "./post-action-scope.ts";
+import { attachmentName, cardFiles } from "./post-attachment-cards.ts";
+import { publishedPostDocument } from "./published-post-document.ts";
+import { publishedPostExcerpt } from "./published-post-excerpt.ts";
 
 type Scope = NonNullable<ContextType<typeof PostActionScope>>;
+type PostTime = { label: string; dateTime: string; dayLabel: string };
 type PublishedActions = {
   post: LocalPost;
   author: string;
   avatar: ReactNode;
+  language: EntryLanguage;
   openThread?: () => void;
+  postTime?: PostTime;
+  editedLabel?: string;
 };
 
 function guardButtonActivation(
@@ -55,7 +64,10 @@ function AvailableActions({
   post,
   author,
   avatar,
+  language,
   openThread,
+  postTime,
+  editedLabel,
   scope,
 }: PublishedActions & { scope: Scope }) {
   const id = useId();
@@ -84,7 +96,11 @@ function AvailableActions({
         aria-haspopup="dialog"
         aria-controls={anchor ? `${id}-menu` : undefined}
         aria-expanded={Boolean(anchor)}
-        aria-label={scope.text.actions}
+        aria-label={
+          postTime
+            ? `${scope.text.actions} · ${author}, ${postTime.label}`
+            : scope.text.actions
+        }
         title={scope.text.actions}
         onKeyDown={guardButtonActivation}
         onClick={(e) => {
@@ -110,10 +126,13 @@ function AvailableActions({
             anchor={anchor}
             author={author}
             avatar={avatar}
-            postId={post.id}
+            post={post}
+            language={language}
             scope={scope}
             openThread={thread}
             bookmark={bookmark}
+            postTime={postTime}
+            editedLabel={editedLabel}
           />,
           document.body,
         )}
@@ -194,18 +213,24 @@ function ActionDialog({
   anchor,
   author,
   avatar,
-  postId,
+  post,
+  language,
   scope,
   openThread,
   bookmark,
+  postTime,
+  editedLabel,
 }: {
   anchor: HTMLButtonElement;
   author: string;
   avatar: ReactNode;
-  postId: string;
+  post: LocalPost;
+  language: EntryLanguage;
   scope: Scope;
   openThread?: () => void;
   bookmark: ReturnType<typeof savePresentation>;
+  postTime?: PostTime;
+  editedLabel?: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const action = useRef<HTMLButtonElement>(null);
@@ -215,6 +240,19 @@ function ActionDialog({
   const dismissed = useRef(false);
   const copying = useRef(false);
   const title = useId();
+  const { message, attachments } = post;
+  const showExcerpt = Boolean(postTime);
+  const excerpt = useMemo(() => {
+    if (!showExcerpt) return "";
+    if (message)
+      return publishedPostExcerpt(publishedPostDocument({ message }));
+    return attachments
+      ? cardFiles(attachments)
+          .map((file, index) => attachmentName(file, index + 1, language))
+          .join(", ")
+          .replace(/\s+/gu, " ")
+      : "";
+  }, [attachments, language, message, showExcerpt]);
   const { close, ownsRoute, text } = scope;
   useLayoutEffect(() => {
     const modal = dialog.current;
@@ -304,7 +342,7 @@ function ActionDialog({
     // Begin the clipboard operation in the initiating gesture on desktop WebKit.
     try {
       const copied = await copyToClipboard(
-        scope.prefix + encodeURIComponent(postId),
+        scope.prefix + encodeURIComponent(post.id),
         () => !dismissed.current && isCurrent(),
       );
       if (!copied) return;
@@ -337,8 +375,10 @@ function ActionDialog({
           event.clientX > bounds.right ||
           event.clientY < bounds.top ||
           event.clientY > bounds.bottom
-        )
+        ) {
+          event.preventDefault();
           dismiss();
+        }
       }}
     >
       <div className="post-actions-heading">
@@ -350,7 +390,23 @@ function ActionDialog({
         </span>
         <div>
           <h2 id={title}>{text.actions}</h2>
-          <small>{author}</small>
+          <small>
+            {author}
+            {postTime && (
+              <>
+                {" · "}
+                <time dateTime={postTime.dateTime}>
+                  {postTime.dayLabel}, {postTime.label}
+                </time>
+                {editedLabel && ` · ${editedLabel}`}
+              </>
+            )}
+          </small>
+          {excerpt && (
+            <p className="post-actions-excerpt" dir="auto">
+              {excerpt}
+            </p>
+          )}
         </div>
         <button type="button" aria-label={text.close} onClick={dismiss}>
           <svg
@@ -400,7 +456,7 @@ function ActionDialog({
           menu
           onChange={() => {
             if (!dismissed.current)
-              scope.save(postId, !bookmark.filled, anchor, dismiss);
+              scope.save(post.id, !bookmark.filled, anchor, dismiss);
           }}
         />
         {scope.allowed && (

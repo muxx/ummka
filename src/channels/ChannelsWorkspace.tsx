@@ -770,7 +770,10 @@ export function ChannelsWorkspace({
   function author(id: string) {
     const profile = profiles.byId.get(id);
     return profile && settings
-      ? { name: teammateName(profile, settings.nameFormat) }
+      ? {
+          name: teammateName(profile, settings.nameFormat),
+          isBot: profile.isBot,
+        }
       : undefined;
   }
   function showCollection(

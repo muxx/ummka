@@ -190,7 +190,8 @@ test("the empty first choice returns from saved servers to the same account and 
   const input = await screen.findByRole("textbox", { name: "Server address" });
   fireEvent.change(input, { target: { value: "chat.example.test/Work/Lab/" } });
   fireEvent.submit(input.closest("form") as HTMLFormElement);
-  await screen.findByTitle(next);
+  await screen.findByRole("heading", { name: "No teams yet" });
+  expect(screen.getByTitle(next)).toBeTruthy();
   expect(selectInstallation).toHaveBeenCalledExactlyOnceWith(next);
   expect(open.mock.calls).toEqual([
     [origin, user],
@@ -274,7 +275,8 @@ test.each([true, false])(
       expect(open).toHaveBeenCalledExactlyOnceWith(origin, user);
       authenticatedThird = true;
       await add();
-      await screen.findByTitle(third);
+      await screen.findByRole("heading", { name: "No teams yet" });
+      expect(screen.getByTitle(third)).toBeTruthy();
       expect(open.mock.calls).toEqual([
         [origin, user],
         [third, otherUser],

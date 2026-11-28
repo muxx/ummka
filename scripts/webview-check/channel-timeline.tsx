@@ -91,7 +91,8 @@ export async function checkChannelTimeline() {
       const avatar = host
         .querySelector(".timeline-avatar")
         ?.getBoundingClientRect();
-      if (avatar?.width !== 32 || avatar.height !== 32)
+      const avatarSize = matchMedia("(max-width: 740px)").matches ? 30 : 34;
+      if (avatar?.width !== avatarSize || avatar.height !== avatarSize)
         throw Error("timeline-avatar-slot");
       pane.scrollTop = 0;
       draw(`${channel}-next`, 30, 1);
@@ -217,6 +218,68 @@ export async function checkChannelTimeline() {
       empty.top - pane.getBoundingClientRect().top >= pane.clientHeight / 2
     )
       throw Error("Empty channel explanation moved away from the start");
+    const grouped: LocalChannelWindow["posts"] = (
+      ["standard", "standard", "important", "urgent", "standard"] as const
+    ).map((displayPriority, index) => ({
+      id: String(index),
+      channelId: "groups",
+      userId: "ada",
+      rootId: null,
+      createAt: stamp + index * 60_000,
+      updateAt: stamp + index * 60_000,
+      editAt: 0,
+      isPinned: false,
+      type: "",
+      hashtags: "",
+      message: "Short message",
+      messageSource: null,
+      displayPriority,
+      aiAttribution: { kind: "none" },
+      fromWebhook: false,
+    }));
+    for (const width of [390, 820]) {
+      await resize(width, 260);
+      flushSync(() =>
+        root.render(
+          <ChannelTimeline
+            channelId="groups"
+            locale="en"
+            timeZone="UTC"
+            offline={false}
+            author={() => ({ name: "Ada Example", isBot: false })}
+            page={{
+              posts: [...grouped].reverse(),
+              older: { kind: "end" },
+              newer: { kind: "end" },
+              firstInaccessiblePostTime: 0,
+            }}
+          />,
+        ),
+      );
+      const rows = [...pane.querySelectorAll(".timeline-post")];
+      const continued = rows
+        .filter((row) => row.hasAttribute("data-continuation"))
+        .map((row) => row.getAttribute("data-post-id"))
+        .join(",");
+      const body = (row: Element) =>
+        row.querySelector(".published-post")?.getBoundingClientRect();
+      const first = body(rows[0]);
+      const second = body(rows[1]);
+      if (
+        continued !== "1,4" ||
+        !first ||
+        !second ||
+        Math.abs(first.left - second.left) > 0.5 ||
+        rows[1].getBoundingClientRect().height >=
+          rows[0].getBoundingClientRect().height ||
+        rows[2].querySelector(".timeline-priority")?.textContent !==
+          "Important" ||
+        rows[3].querySelector(".timeline-priority")?.textContent !== "Urgent"
+      )
+        throw Error(
+          "Grouped channel changed its aligned body or priority headings",
+        );
+    }
   } finally {
     root.unmount();
     fixture.remove();

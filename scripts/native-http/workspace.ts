@@ -10,6 +10,7 @@ const team = "Team0123456789012345678901";
 const town = "c".repeat(26);
 const townFile = "h".repeat(26);
 const replyFile = "g".repeat(26);
+const earlierReplyId = "n".repeat(26);
 const design = "d".repeat(26);
 const member = "f".repeat(26);
 const townMessage =
@@ -207,6 +208,15 @@ export async function respondToWorkspace(
       ],
     },
   };
+  const earlierReply = {
+    ...reply,
+    id: earlierReplyId,
+    create_at: 560,
+    update_at: 560,
+    message: "Earlier reply by the same author.",
+    file_ids: [],
+    metadata: undefined,
+  };
   const destination = {
     channel_id: town,
     channel_type: "O",
@@ -352,8 +362,14 @@ export async function respondToWorkspace(
     return json(
       {
         ...page,
-        order: [townRoot, townReply],
-        posts: { ...page.posts, [townReply]: reply },
+        order: systemLinks
+          ? [townRoot, townReply]
+          : [townRoot, earlierReplyId, townReply],
+        posts: {
+          ...page.posts,
+          ...(systemLinks ? {} : { [earlierReplyId]: earlierReply }),
+          [townReply]: reply,
+        },
         has_next: false,
       },
       "live-window-thread",

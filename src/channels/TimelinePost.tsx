@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useMemo } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
 import type { LocalPost } from "../mattermost/local-history.ts";
 import type { TimelineMessage } from "./conversation-rows.ts";
@@ -7,20 +7,30 @@ import { PublishedAttachments } from "./PublishedAttachments.tsx";
 import { PublishedPostActions } from "./PublishedPostActions.tsx";
 import { PublishedPostBody } from "./PublishedPostBody.tsx";
 import { initials } from "./profile-initials.ts";
+import { useTimelinePostTouchLayout } from "./timeline-post-touch.ts";
+import "./grouped-posts.css";
 
 const copy = {
   en: {
     unknown: "Unknown user",
+    today: "today",
     edited: "edited",
     pinned: "Pinned",
+    important: "Important",
+    urgent: "Urgent",
+    bot: "Bot",
     open: "Open thread",
     replies: { one: "reply", few: "replies", other: "replies" },
     last: "Last reply",
   },
   ru: {
     unknown: "Неизвестный пользователь",
+    today: "сегодня",
     edited: "изменено",
     pinned: "Закреплено",
+    important: "Важно",
+    urgent: "Срочно",
+    bot: "Бот",
     open: "Открыть тред",
     replies: { one: "ответ", few: "ответа", other: "ответов" },
     last: "Последний ответ",
@@ -30,10 +40,38 @@ const plurals = {
   en: new Intl.PluralRules("en"),
   ru: new Intl.PluralRules("ru"),
 };
+export function useTimelinePostFormat(
+  locale: EntryLanguage,
+  timeZone?: string,
+) {
+  const touch = useTimelinePostTouchLayout();
+  const format = useMemo(
+    () => ({
+      clock: new Intl.DateTimeFormat(locale, {
+        hour: "numeric",
+        minute: "2-digit",
+        timeZone,
+      }),
+      date: new Intl.DateTimeFormat(locale, {
+        day: "numeric",
+        month: "long",
+        timeZone,
+      }),
+      dayKey: new Intl.DateTimeFormat("sv-SE", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        timeZone,
+      }),
+    }),
+    [locale, timeZone],
+  );
+  return { ...format, today: touch ? format.dayKey.format(Date.now()) : null };
+}
 
 export type TimelineAuthor = (
   id: string,
-) => { name: string; avatar?: ReactNode } | undefined;
+) => { name: string; avatar?: ReactNode; isBot?: boolean } | undefined;
 
 type ThreadSummary = NonNullable<LocalPost["threadSummary"]>;
 
@@ -116,10 +154,12 @@ export function TimelinePost({
   post,
   locale,
   time,
+  menuDate,
   author,
   ownName,
   focusable,
   addressed,
+  continuation = false,
   inThread,
   collapsedThreads,
   onOpenThread,
@@ -129,10 +169,15 @@ export function TimelinePost({
   post: TimelineMessage;
   locale: EntryLanguage;
   time: Intl.DateTimeFormat;
+  menuDate?: Pick<
+    ReturnType<typeof useTimelinePostFormat>,
+    "date" | "dayKey" | "today"
+  >;
   author: TimelineAuthor;
   ownName?: string;
   focusable?: boolean;
   addressed?: boolean;
+  continuation?: boolean;
   inThread?: boolean;
   collapsedThreads?: boolean;
   onOpenThread?: (post: LocalPost) => void;
@@ -146,6 +191,11 @@ export function TimelinePost({
     person?.avatar ??
     (person?.name || (post.outgoing && ownName) ? initials(name) : "•");
   const when = new Date(post.createAt);
+  const stamp = Number.isFinite(when.getTime()) && {
+    dateTime: when.toISOString(),
+    label: time.format(when),
+  };
+  const priority = post.outgoing ? undefined : post.displayPriority;
   const open =
     !post.outgoing && onOpenThread ? () => onOpenThread(post) : undefined;
   const summary =
@@ -164,57 +214,121 @@ export function TimelinePost({
       className="timeline-post"
       data-post-id={post.id}
       data-navigation-target={addressed || undefined}
+      data-continuation={continuation || undefined}
       data-local-id={post.localId}
       data-outgoing={post.outgoing ? "" : undefined}
       tabIndex={focusable || post.outgoing || hasAttachments ? -1 : undefined}
     >
-      <div className="timeline-avatar" aria-hidden="true">
-        {avatar}
-      </div>
+      {continuation ? (
+        stamp && (
+          <time
+            className="timeline-continuation-time"
+            dateTime={stamp.dateTime}
+          >
+            {stamp.label}
+          </time>
+        )
+      ) : (
+        <div className="timeline-avatar" aria-hidden="true">
+          {avatar}
+        </div>
+      )}
       <div className="timeline-post-body">
         <header>
-          <strong>{name}</strong>
-          {Number.isFinite(when.getTime()) && (
-            <time dateTime={when.toISOString()}>{time.format(when)}</time>
+          <strong
+            className={
+              continuation ? "timeline-continuation-author" : undefined
+            }
+          >
+            {name}
+          </strong>
+          {person?.isBot && !continuation && (
+            <span className="timeline-bot">{text.bot}</span>
+          )}
+          {!continuation && stamp && (
+            <time dateTime={stamp.dateTime}>{stamp.label}</time>
           )}
           {post.editAt > 0 && (
             <small className="timeline-edited">{text.edited}</small>
           )}
-          {post.isPinned && <span className="timeline-pin">{text.pinned}</span>}
-          {open && !showCount && (
-            <button
-              type="button"
-              className="timeline-open-thread"
-              aria-label={text.open}
-              title={text.open}
-              aria-expanded={expanded}
-              onClick={open}
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                aria-hidden="true"
-              >
-                <path
-                  d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H10l-6 2 1.6-5.3A8.5 8.5 0 1 1 21 11.5Z"
-                  stroke="currentColor"
-                  strokeWidth="1.7"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </button>
+          {!continuation && post.isPinned && (
+            <span className="timeline-pin">{text.pinned}</span>
           )}
           {!post.outgoing && (
-            <PublishedPostActions
-              post={post}
-              author={name}
-              avatar={avatar}
-              openThread={inThread ? undefined : open}
-            />
+            <div className="timeline-post-tools">
+              {open && !showCount && (
+                <button
+                  type="button"
+                  className="timeline-open-thread"
+                  aria-label={text.open}
+                  title={text.open}
+                  aria-expanded={expanded}
+                  onClick={open}
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H10l-6 2 1.6-5.3A8.5 8.5 0 1 1 21 11.5Z"
+                      stroke="currentColor"
+                      strokeWidth="1.7"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+              )}
+              <PublishedPostActions
+                post={post}
+                author={name}
+                avatar={avatar}
+                language={locale}
+                openThread={inThread ? undefined : open}
+                editedLabel={post.editAt > 0 ? text.edited : undefined}
+                postTime={
+                  stamp && menuDate?.today
+                    ? {
+                        ...stamp,
+                        dayLabel:
+                          menuDate.dayKey.format(when) === menuDate.today
+                            ? text.today
+                            : menuDate.date.format(when),
+                      }
+                    : undefined
+                }
+              />
+            </div>
           )}
         </header>
+        {continuation && post.isPinned && (
+          <span className="timeline-pin">{text.pinned}</span>
+        )}
+        {(priority === "important" || priority === "urgent") && (
+          <div className="timeline-priority">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              {priority === "urgent" ? (
+                <path d="M13 3v7h6l-8 11v-7H5l8-11Z" />
+              ) : (
+                <>
+                  <path d="M8 12a4 4 0 1 0 8 0a4 4 0 1 0-8 0" />
+                  <path d="M16 12v1.5a2.5 2.5 0 0 0 5 0V12a9 9 0 1 0-5.5 8.28" />
+                </>
+              )}
+            </svg>
+            {text[priority]}
+          </div>
+        )}
         {post.outgoing ? (
           <p className="timeline-attempt-text">{post.message}</p>
         ) : (

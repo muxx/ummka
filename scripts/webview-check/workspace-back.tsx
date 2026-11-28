@@ -115,9 +115,18 @@ export async function verifyWorkspaceBack(
       .closest("article");
     if (!replyRow) throw Error("Missing thread attachment row");
     await fixtureStep("return-from-reply-message-actions", async () => {
-      const trigger = within(replyRow).getByRole("button", {
-        name: "Message actions",
+      await waitFor(() => {
+        if (!replyRow.hasAttribute("data-continuation"))
+          throw Error("The native Back control reply did not group");
       });
+      const trigger = within(replyRow).getByRole("button", {
+        name: /^Message actions(?: · .+)?$/,
+      });
+      const feed = replyRow.closest(".thread-feed");
+      if (!feed) throw Error("Missing scroll region for native Back");
+      const offset = () =>
+        replyRow.getBoundingClientRect().top - feed.getBoundingClientRect().top;
+      const before = offset();
       flushSync(() => fireEvent.click(trigger));
       const menu = within(document.body).getByRole("dialog", {
         name: "Message actions",
@@ -130,6 +139,7 @@ export async function verifyWorkspaceBack(
           menu.isConnected ||
           document.activeElement !== trigger ||
           !pane.isConnected ||
+          Math.abs(offset() - before) > 1 ||
           reply.value !== threadText ||
           channel.value !== channelText
         )

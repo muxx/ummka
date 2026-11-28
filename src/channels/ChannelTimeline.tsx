@@ -1,11 +1,4 @@
-import {
-  Component,
-  createRef,
-  type ReactNode,
-  useEffect,
-  useMemo,
-  useRef,
-} from "react";
+import { Component, createRef, type ReactNode, useEffect, useRef } from "react";
 import type { PendingPost } from "../mattermost/account-delivery.ts";
 import type {
   LocalChannelWindow,
@@ -14,7 +7,12 @@ import type {
 import type { TimelineMessage } from "./conversation-rows.ts";
 import { showPostArrival } from "./post-arrival.ts";
 import { TimelineDays } from "./TimelineDays.tsx";
-import { type TimelineAuthor, TimelinePost } from "./TimelinePost.tsx";
+import {
+  type TimelineAuthor,
+  TimelinePost,
+  useTimelinePostFormat,
+} from "./TimelinePost.tsx";
+import { createTimelinePostTouch } from "./timeline-post-touch.ts";
 import {
   measureTimeline,
   type TimelinePlace,
@@ -86,6 +84,7 @@ type ScrollProps = {
 };
 class TimelineScroller extends Component<ScrollProps> {
   private readonly pane = createRef<HTMLElement>();
+  private readonly postTouch = createTimelinePostTouch();
   private readonly frame = createRef<HTMLDivElement>();
   private resize?: ResizeObserver;
   private clearArrival?: () => void;
@@ -229,6 +228,7 @@ class TimelineScroller extends Component<ScrollProps> {
       <div className="timeline-frame" ref={this.frame}>
         <section
           className="timeline-scroll"
+          {...this.postTouch}
           data-latest={
             (!this.props.historical && this.props.hasRows) || undefined
           }
@@ -281,15 +281,7 @@ export function ChannelTimeline({
       positioned.current = address.requestId;
   }, [address, page]);
   const text = copy[locale];
-  const time = useMemo(
-    () =>
-      new Intl.DateTimeFormat(locale, {
-        hour: "numeric",
-        minute: "2-digit",
-        timeZone,
-      }),
-    [locale, timeZone],
-  );
+  const time = useTimelinePostFormat(locale, timeZone);
   const limited = Boolean(
     inaccessibleBefore || page?.firstInaccessiblePostTime,
   );
@@ -339,17 +331,20 @@ export function ChannelTimeline({
           messages={ordered}
           locale={locale}
           timeZone={timeZone}
+          author={author}
           unknownDate={text.unknownDate}
         >
-          {(post) => (
+          {(post, continuation) => (
             <TimelinePost
               key={post.localId ?? post.id}
               post={post}
+              continuation={continuation}
               addressed={address?.anchorId === post.id}
               focusable={address?.anchorId === post.id}
               locale={locale}
               author={author}
-              time={time}
+              time={time.clock}
+              menuDate={time}
               ownName={ownName}
               onOpenThread={onOpenThread}
               expanded={openThreadPostId === post.id}
