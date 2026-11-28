@@ -956,8 +956,14 @@ test("labels empty published bodies and attachments in saved rows", async () => 
   const trigger = await screen.findByRole("button", { name: "Saved messages" });
   account.readSavedPosts.mockResolvedValueOnce({
     items: [
-      { id: root.id, channelId: design, message: "---" },
-      { id: reply.id, channelId: design, message: "", fileIds: [bookmark] },
+      { id: root.id, channelId: design, message: "---", cards: [] },
+      {
+        id: reply.id,
+        channelId: design,
+        message: "",
+        fileIds: [bookmark],
+        cards: [],
+      },
     ],
     firstInaccessiblePostTime: 0,
   });
@@ -980,7 +986,14 @@ test("a hidden saved page remains traversable, preserves the previous rows on re
     .mockResolvedValueOnce({ items: [], firstInaccessiblePostTime: 0 })
     .mockRejectedValueOnce(new TypeError("offline"))
     .mockResolvedValueOnce({
-      items: [{ id: bookmark, channelId: design, message: "Oldest visible" }],
+      items: [
+        {
+          id: bookmark,
+          channelId: design,
+          message: "Oldest visible",
+          cards: [],
+        },
+      ],
       firstInaccessiblePostTime: 1,
     });
   let onVisible: (() => void) | undefined;
@@ -1507,7 +1520,9 @@ test("saved messages resolve an unlisted direct conversation using the peer prof
     }),
   );
   account.readSavedPosts.mockResolvedValue({
-    items: [{ id: root.id, channelId: outside, message: "Saved outside" }],
+    items: [
+      { id: root.id, channelId: outside, message: "Saved outside", cards: [] },
+    ],
     firstInaccessiblePostTime: 0,
   });
   fireEvent.click(
@@ -1527,8 +1542,13 @@ test("search labels an outside channel and retains its result when another chann
     unavailable = "z".repeat(26);
   account.readPostSearchPage.mockResolvedValue({
     items: [
-      { id: root.id, channelId: outside, message: "Release note" },
-      { id: reply.id, channelId: unavailable, message: "Other note" },
+      { id: root.id, channelId: outside, message: "Release note", cards: [] },
+      {
+        id: reply.id,
+        channelId: unavailable,
+        message: "Other note",
+        cards: [],
+      },
     ],
     matches: null,
     isEnd: true,
@@ -1740,7 +1760,13 @@ test("dropping offline during a collection step preserves the verified result an
       ...data,
       items: [
         ...data.items,
-        { id: bookmark, channelId: design, createAt: 1, message: "Old sample" },
+        {
+          id: bookmark,
+          channelId: design,
+          createAt: 1,
+          message: "Old sample",
+          cards: [],
+        },
       ],
     };
   });

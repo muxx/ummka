@@ -66,6 +66,7 @@ import { checkFileContent } from "./file-content.ts";
 import { checkFileSearch } from "./file-search.ts";
 import { checkFocusedConversation } from "./focused-conversation.ts";
 import { verifyHistoryRefresh } from "./history-refresh.ts";
+import { checkIntegrationCards } from "./integration-cards.ts";
 import { checkJoinPostTarget } from "./join-post-target.ts";
 import { checkKnownConversationVisibility } from "./known-conversation-visibility.ts";
 import {
@@ -1860,6 +1861,13 @@ console.log(
   `Mattermost ${version} verified attachment representations, ranges and channel access.`,
 );
 await checkPublishedPostDocument(readerPosts, base, channelId, version);
+await checkIntegrationCards(
+  base,
+  { ...reader, token: readerToken },
+  team.id,
+  channelId,
+  version,
+);
 const conversationPeers: string[] = [observer.id, otherSaver.id, user.id];
 for (let i = conversationPeers.length; i < 8; i++) {
   const name = `conversation-peer-${i}`;

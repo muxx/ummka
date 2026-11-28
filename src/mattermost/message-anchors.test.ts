@@ -32,7 +32,18 @@ const visible = {
   isPinned: true,
 };
 function open() {
-  vi.mocked(invoke).mockResolvedValueOnce(27).mockResolvedValue(null);
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    if (command === "open_rest_connection") return 27;
+    if (command === "begin_cached_post_observation") return 17;
+    if (
+      command === "finish_cached_post_observation" &&
+      args &&
+      "observation" in args &&
+      args.observation !== null
+    )
+      return { kind: "uncached" };
+    return null;
+  });
   return openAccountRestConnection(
     "https://fixture.test/subpath",
     "u".repeat(26),
@@ -172,6 +183,7 @@ test("one account read returns the published post with its address; files identi
         fromWebhook: false,
         displayPriority: "standard",
         aiAttribution: { kind: "none" },
+        cards: [],
       },
     });
     expect(post).toHaveBeenCalledExactlyOnceWith(

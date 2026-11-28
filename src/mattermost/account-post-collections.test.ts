@@ -66,6 +66,44 @@ test("pins request a single channel and only listed posts become rows", async ()
   );
 });
 
+test("an empty-message release exposes its card alongside ordinary rows in one Saved read", async () => {
+  const { fetchApi, account } = fixture();
+  fetchApi.mockResolvedValueOnce(
+    Response.json({
+      ...list,
+      posts: {
+        ...posts,
+        [first]: {
+          ...posts[first],
+          message: "",
+          file_ids: [],
+          props: {
+            attachments: [
+              {
+                title: "Релиз macOS и Android",
+                text: "Все проверки прошли",
+                image_url: { malformed: true },
+              },
+            ],
+          },
+          metadata: { embeds: [{ type: "message_attachment" }] },
+        },
+      },
+    }),
+  );
+  const result = await account.readSavedPosts({ kind: "all" }, 0);
+  expect(result.items).toMatchObject([
+    { id: last, message: "last", cards: [] },
+    {
+      id: first,
+      message: "",
+      fileIds: [],
+      cards: [{ title: "Релиз macOS и Android", text: "Все проверки прошли" }],
+    },
+  ]);
+  expect(fetchApi).toHaveBeenCalledTimes(1);
+});
+
 test("refuses malformed rows, duplicate IDs, cross-channel rows and invalid retention", async () => {
   const { fetchApi, account } = fixture();
   for (const invalid of [

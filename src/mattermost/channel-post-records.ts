@@ -1,4 +1,9 @@
 import type { Post, PostList } from "../../vendor/mattermost/index.js";
+import {
+  type EmbedCoverage,
+  type IntegrationCard,
+  receivedIntegrationCards,
+} from "./integration-cards.ts";
 import { isMattermostId, isMattermostTime } from "./model-fields.ts";
 import { receivedPostAttachments } from "./post-attachments.ts";
 
@@ -8,7 +13,7 @@ type AiAttribution =
 
 type DisplayPriority = "standard" | "important" | "urgent" | "other";
 
-/** Project the complete REST dictionary into the native history store's text records. */
+/** Project the complete REST dictionary into the native history store's post records. */
 export function channelPostChanges(
   channelId: string,
   page: PostList,
@@ -39,7 +44,14 @@ export function channelPostChange(
   {
     collapsedThreads = false,
     priority = "full",
-  }: { collapsedThreads?: boolean; priority?: "full" | "partial" } = {},
+    embeds = "complete",
+    cardObservation,
+  }: {
+    collapsedThreads?: boolean;
+    priority?: "full" | "partial";
+    embeds?: EmbedCoverage;
+    cardObservation?: { cards?: readonly IntegrationCard[] };
+  } = {},
 ) {
   if (
     !isMattermostId(id) ||
@@ -81,6 +93,9 @@ export function channelPostChange(
   const summary =
     collapsedThreads && rootId === "" ? threadSummary(post) : undefined;
   const attachments = receivedPostAttachments(post);
+  const cards = cardObservation
+    ? cardObservation.cards
+    : receivedIntegrationCards(post, embeds);
   const fromWebhook = webhookOrigin(post.props);
   const displayPriority = readDisplayPriority(
     post.metadata?.priority?.priority,
@@ -89,6 +104,7 @@ export function channelPostChange(
   const aiAttribution = readAiAttribution(post.props);
   return {
     ...(attachments && { attachments }),
+    ...(cards !== undefined && { cards }),
     ...(fromWebhook !== undefined && { fromWebhook }),
     ...(displayPriority !== undefined && { displayPriority }),
     ...(aiAttribution && { aiAttribution }),
@@ -156,6 +172,7 @@ export function mergePostObservation<
     fromWebhook?: boolean;
     displayPriority?: DisplayPriority;
     aiAttribution?: AiAttribution;
+    cards?: readonly IntegrationCard[];
   },
 >(
   previous: T | null | undefined,
@@ -177,11 +194,15 @@ export function mergePostObservation<
     newer || allowEqualPriority
       ? (received.displayPriority ?? previous.displayPriority)
       : (previous.displayPriority ?? received.displayPriority);
+  const cards = newer
+    ? (received.cards ?? previous.cards)
+    : (previous.cards ?? received.cards);
   return row.fromWebhook === fromWebhook &&
     row.aiAttribution === aiAttribution &&
-    row.displayPriority === displayPriority
+    row.displayPriority === displayPriority &&
+    row.cards === cards
     ? row
-    : { ...row, fromWebhook, aiAttribution, displayPriority };
+    : { ...row, fromWebhook, aiAttribution, displayPriority, cards };
 }
 
 // Flat pages can report zero for a root with replies. Only a collapsed read calls this.

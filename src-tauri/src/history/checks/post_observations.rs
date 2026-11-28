@@ -3,7 +3,8 @@ use super::{
     posts::{CHANNEL, ROOT},
 };
 use crate::history::{
-    AccountHistory, HistoryDatabase, HistoryError, PageWrite, PostChange, PostObservation,
+    AccountHistory, CachedPostRead, HistoryDatabase, HistoryError, PageWrite, PostChange,
+    PostObservation,
     posts::{AiAttribution, DisplayPriority, READ},
     schema::{MIGRATIONS, Migration},
     windows::read::LATEST,
@@ -106,13 +107,13 @@ fn cached_point_observations_share_page_order_and_respect_owner_and_removal()
     let account = account(URL, ALICE);
     let mut first = AccountHistory::open(root, &account)?;
     let mut second = AccountHistory::open(root, &account)?;
-    assert!(first.begin_cached_post_observation(ROOT.into())?.is_none());
     let sample_root = |priority| sample(ROOT, CHANNEL, VERSION, priority, None);
     let observation = |priority| PostObservation {
         channel_id: CHANNEL.into(),
         update_at: VERSION,
         display_priority: Some(priority),
         ai_attribution: Some(AiAttribution::None),
+        cards: None,
     };
     let source = || AiAttribution::Source {
         user_id: BOB.into(),
@@ -124,14 +125,17 @@ fn cached_point_observations_share_page_order_and_respect_owner_and_removal()
         sample_root(Some(DisplayPriority::Important)),
     )?;
     let stale_page = first.begin_channel_load(CHANNEL)?;
-    let point = second.begin_cached_post_observation(ROOT.into())?.unwrap();
-    assert!(second.observe_cached_post(
-        point,
-        PostObservation {
-            ai_attribution: Some(source()),
-            ..observation(DisplayPriority::Standard)
-        }
-    )?);
+    let point = second.begin_cached_post_observation(ROOT.into())?;
+    assert!(matches!(
+        second.observe_cached_post(
+            point,
+            PostObservation {
+                ai_attribution: Some(source()),
+                ..observation(DisplayPriority::Standard)
+            }
+        )?,
+        CachedPostRead::Cached { changed: true, .. }
+    ));
     assert_eq!(
         first.apply_channel_page(stale_page, &[sample_root(Some(DisplayPriority::Important))])?,
         PageWrite::Applied
@@ -140,27 +144,33 @@ fn cached_point_observations_share_page_order_and_respect_owner_and_removal()
         first.read_post(ROOT)?.unwrap().display_priority,
         Some(DisplayPriority::Standard)
     );
-    let stale_point = second.begin_cached_post_observation(ROOT.into())?.unwrap();
+    let stale_point = second.begin_cached_post_observation(ROOT.into())?;
     apply(
         &mut first,
         CHANNEL,
         sample_root(Some(DisplayPriority::Standard)),
     )?;
-    assert!(!second.observe_cached_post(stale_point, observation(DisplayPriority::Important))?);
-    let old_version = second.begin_cached_post_observation(ROOT.into())?.unwrap();
-    assert!(!second.observe_cached_post(
-        old_version,
-        PostObservation {
-            update_at: VERSION - 1,
-            ..observation(DisplayPriority::Important)
-        }
-    )?);
+    assert!(matches!(
+        second.observe_cached_post(stale_point, observation(DisplayPriority::Important))?,
+        CachedPostRead::Cached { changed: false, .. }
+    ));
+    let old_version = second.begin_cached_post_observation(ROOT.into())?;
+    assert!(matches!(
+        second.observe_cached_post(
+            old_version,
+            PostObservation {
+                update_at: VERSION - 1,
+                ..observation(DisplayPriority::Important)
+            }
+        )?,
+        CachedPostRead::Cached { changed: false, .. }
+    ));
     apply(&mut first, CHANNEL, sample_root(None))?;
     let confirmed = second.read_post(ROOT)?.unwrap();
     assert_eq!(confirmed.display_priority, Some(DisplayPriority::Standard));
     assert_eq!(confirmed.ai_attribution, Some(source()));
 
-    let removed = second.begin_cached_post_observation(ROOT.into())?.unwrap();
+    let removed = second.begin_cached_post_observation(ROOT.into())?;
     apply(
         &mut first,
         CHANNEL,
@@ -169,14 +179,17 @@ fn cached_point_observations_share_page_order_and_respect_owner_and_removal()
             channel_id: CHANNEL.into(),
         },
     )?;
-    assert!(!second.observe_cached_post(removed, observation(DisplayPriority::Important))?);
+    assert_eq!(
+        second.observe_cached_post(removed, observation(DisplayPriority::Important))?,
+        CachedPostRead::Unavailable
+    );
     assert!(first.read_post(ROOT)?.is_none());
     apply(
         &mut first,
         CHANNEL,
         sample_root(Some(DisplayPriority::Standard)),
     )?;
-    let retired = second.begin_cached_post_observation(ROOT.into())?.unwrap();
+    let retired = second.begin_cached_post_observation(ROOT.into())?;
     let stale = first.begin_channel_load(CHANNEL)?;
     second.database.new_login(&account)?;
     let mut current = AccountHistory::open(root, &account)?;

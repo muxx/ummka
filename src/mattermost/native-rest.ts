@@ -47,6 +47,7 @@ import {
   fetchTeamRoleSnapshot,
   type TeamRoleSnapshot,
 } from "./channel-permissions.ts";
+import { channelPostChange } from "./channel-post-records.ts";
 import type { ChannelProfile } from "./channel-profiles.ts";
 import type { ChannelsTarget } from "./channels-link.ts";
 import {
@@ -62,6 +63,11 @@ import {
   type CommandIntent,
   executeSavedCommand,
 } from "./execute-saved-command.ts";
+import type {
+  CardRevision,
+  CardSnapshot,
+  IntegrationCard,
+} from "./integration-cards.ts";
 import { type JoinedTeams, projectJoinedTeams } from "./joined-teams.ts";
 import { reopenKnownConversation } from "./known-conversation-visibility.ts";
 import {
@@ -75,6 +81,7 @@ import type {
 } from "./local-history.ts";
 import { accountMentionGroups } from "./mention-group-reads.ts";
 import {
+  PostObservationSuperseded,
   readChannelFile,
   readFileAnchor,
   readPostAnchor,
@@ -231,6 +238,25 @@ export async function openAccountRestConnection(
   const delivery = accountDelivery(rid, readWhileOpen, posts, userId, activity);
   const commands = new CommandsApi(config);
   const search = accountSearch(config, readWhileOpen);
+  const historyWriter = {
+    begin: (channelId: string) =>
+      invoke<number>("begin_channel_history_load", { rid, channelId }),
+    store: <Result = ChannelRefreshResult>(load: number, page: object) =>
+      invoke<Result>("store_channel_history_page", {
+        rid,
+        load,
+        page,
+      }),
+    cancel: async (load: number) => {
+      try {
+        await invoke<void>("cancel_channel_history_load", { rid, load });
+      } catch (error) {
+        // A closed resource has already discarded all its pending loads.
+        if (error !== "unknown_connection" && error !== "cancelled")
+          throw error;
+      }
+    },
+  };
   let latestPolicyRead: symbol | undefined;
   let liveFileUpload: ServerPolicy["fileUpload"];
   function readSavedProfiles(query: VisibleProfileQuery) {
@@ -295,7 +321,70 @@ export async function openAccountRestConnection(
       );
     },
     readThreadPage(query: ThreadPageRequest, signal?: AbortSignal) {
-      return readWhileOpen(() => readThreadPage(posts, query, signal), signal);
+      return readWhileOpen(async () => {
+        signal?.throwIfAborted();
+        const { channelId, rootId } = query;
+        const load = await historyWriter.begin(channelId);
+        let page: Awaited<ReturnType<typeof readThreadPage>>;
+        let changes: ReturnType<typeof channelPostChange>[] = [];
+        try {
+          if (retired) throw "cancelled";
+          page = await readThreadPage(posts, query, signal);
+          signal?.throwIfAborted();
+          if (page.kind === "page") {
+            changes = [page.root, ...page.replies].map((post) =>
+              channelPostChange(channelId, post.id, post),
+            );
+          }
+        } catch (error) {
+          await historyWriter.cancel(load);
+          throw error;
+        }
+        if (page.kind !== "page") {
+          await historyWriter.cancel(load);
+          return page;
+        }
+        const stored = await historyWriter.store<
+          | { kind: "thread"; cards: (CardSnapshot | null)[] }
+          | { kind: "superseded" }
+        >(load, {
+          channelId,
+          collapsedThreads: false,
+          source: { kind: "thread", rootId },
+          order: [],
+          changes,
+        });
+        if (stored.kind !== "thread") throw "cancelled";
+        if (stored.cards.length !== changes.length)
+          throw new TypeError("Incomplete cached thread observations.");
+        const attachCards = (
+          post: typeof page.root,
+          index: number,
+        ): typeof post & {
+          cards?: readonly IntegrationCard[];
+          cardRevision?: CardRevision;
+        } => {
+          const snapshot = stored.cards[index];
+          return {
+            ...post,
+            cards: snapshot?.cards,
+            cardRevision: snapshot
+              ? {
+                  updateAt: snapshot.updateAt,
+                  dispatch: snapshot.dispatch,
+                }
+              : undefined,
+          };
+        };
+        historyChanges.notify(channelId, signal);
+        return {
+          ...page,
+          root: attachCards(page.root, 0),
+          replies: page.replies.map((post, index) =>
+            attachCards(post, index + 1),
+          ),
+        };
+      }, signal);
     },
     readSearchTimezone(signal?: AbortSignal) {
       return readWhileOpen(
@@ -314,10 +403,10 @@ export async function openAccountRestConnection(
         signal?.throwIfAborted();
         if (!isMattermostId(postId))
           throw new TypeError("Invalid Mattermost post ID.");
-        const load = await invoke<number | null>(
-          "begin_cached_post_observation",
-          { rid, postId },
-        );
+        const load = await invoke<number>("begin_cached_post_observation", {
+          rid,
+          postId,
+        });
         let anchor: Awaited<ReturnType<typeof readPostAnchor>>;
         try {
           if (retired) throw "cancelled";
@@ -325,7 +414,7 @@ export async function openAccountRestConnection(
           if (retired) throw "cancelled";
           signal?.throwIfAborted();
         } catch (error) {
-          if (load !== null && !retired) {
+          if (!retired) {
             try {
               await invoke("finish_cached_post_observation", {
                 rid,
@@ -339,29 +428,45 @@ export async function openAccountRestConnection(
           }
           throw error;
         }
-        if (load !== null) {
-          const { channelId, post } = anchor;
-          const applied = await invoke<boolean>(
-            "finish_cached_post_observation",
-            {
-              rid,
-              load,
-              observation:
-                !post ||
-                (post.displayPriority === undefined &&
-                  post.aiAttribution === undefined)
-                  ? null
-                  : {
-                      channelId,
-                      updateAt: post.updateAt,
-                      displayPriority: post.displayPriority,
-                      aiAttribution: post.aiAttribution,
-                    },
-            },
-          );
-          if (applied) historyChanges.notify(channelId, signal);
+        const { channelId, post } = anchor;
+        if (!post) {
+          await invoke("finish_cached_post_observation", {
+            rid,
+            load,
+            observation: null,
+          });
+          return anchor;
         }
-        return anchor;
+        const accepted = await invoke<
+          | { kind: "uncached" }
+          | { kind: "unavailable" }
+          | { kind: "superseded" }
+          | { kind: "cached"; changed: boolean; cards: CardSnapshot | null }
+        >("finish_cached_post_observation", {
+          rid,
+          load,
+          observation: {
+            channelId,
+            updateAt: post.updateAt,
+            displayPriority: post.displayPriority,
+            aiAttribution: post.aiAttribution,
+            cards: post.cards,
+          },
+        });
+        switch (accepted.kind) {
+          case "uncached":
+            return anchor;
+          case "unavailable":
+            return { postId, channelId, post: null };
+          case "superseded":
+            throw new PostObservationSuperseded();
+          case "cached":
+            if (accepted.changed) historyChanges.notify(channelId, signal);
+            return {
+              ...anchor,
+              post: { ...post, cards: accepted.cards?.cards },
+            };
+        }
       }, signal);
     },
     readPostFiles(channelId: string, postId: string, signal?: AbortSignal) {
@@ -774,25 +879,7 @@ export async function openAccountRestConnection(
       const { channelId } = query;
       const result = await refreshChannelHistory(
         posts,
-        {
-          begin: (channelId) =>
-            invoke<number>("begin_channel_history_load", { rid, channelId }),
-          store: (load, page) =>
-            invoke<ChannelRefreshResult>("store_channel_history_page", {
-              rid,
-              load,
-              page,
-            }),
-          cancel: async (load) => {
-            try {
-              await invoke<void>("cancel_channel_history_load", { rid, load });
-            } catch (error) {
-              // A closed resource has already discarded all its pending loads.
-              if (error !== "unknown_connection" && error !== "cancelled")
-                throw error;
-            }
-          },
-        },
+        historyWriter,
         query,
         signal,
       );

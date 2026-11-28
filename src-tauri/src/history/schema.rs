@@ -111,11 +111,14 @@ macro_rules! directory_objects {
         directory_objects!(@posts CREATE_POSTS; $joined_teams, $sidebar_channel, $composer_draft $(, $extra)*)
     };
     (@posts $posts:expr; $joined_teams:expr, $sidebar_channel:expr, $composer_draft:expr $(, $extra:expr)* $(,)?) => {
+        directory_objects!(@history $posts, CREATE_DELETIONS; $joined_teams, $sidebar_channel, $composer_draft $(, $extra)*)
+    };
+    (@history $posts:expr, $deletions:expr; $joined_teams:expr, $sidebar_channel:expr, $composer_draft:expr $(, $extra:expr)* $(,)?) => {
         [
             CREATE_OWNER,
             $posts,
             INDEX_REPLIES,
-            CREATE_DELETIONS,
+            $deletions,
             WINDOWS,
             WINDOW_POSTS,
             NEIGHBORS,
@@ -697,12 +700,37 @@ pub(super) const MIGRATIONS: &[Migration] = &[
             POST_OBSERVATION,
         ),
     },
+    Migration {
+        statements: &[
+            "ALTER TABLE history_post ADD COLUMN cards TEXT",
+            "ALTER TABLE history_post ADD COLUMN card_update_at INTEGER CHECK (card_update_at > 0)",
+            "ALTER TABLE history_post ADD COLUMN card_observation INTEGER CHECK (card_observation > 0)",
+            "ALTER TABLE history_channel_deletion ADD COLUMN observation INTEGER CHECK (observation > 0)",
+        ],
+        objects: &directory_objects!(
+            @history POSTS_V31, DELETIONS_V31;
+            JOINED_TEAM_V19,
+            SIDEBAR_CHANNEL_V19,
+            COMPOSER_DRAFT_V21,
+            TEAM_SEARCH,
+            TEAM_SEARCH_ORDER,
+            THREAD_SUMMARY,
+            POST_ATTACHMENT,
+            CHANNEL_MEMBERSHIP_CHANGE,
+            DEPARTED_BY_TEAM,
+            POSTS_BY_CHANNEL,
+            WINDOWS_BY_CHANNEL,
+            POST_OBSERVATION,
+        ),
+    },
 ];
 
 const ADD_POST_WEBHOOK_ORIGIN: &str =
     "ALTER TABLE history_post ADD COLUMN from_webhook INTEGER CHECK (from_webhook IN (0, 1))";
 const POSTS_V29: &str = include_str!("migrations/0029_posts_schema.sql");
 const POSTS_V30: &str = include_str!("migrations/0030_posts_schema.sql");
+const POSTS_V31: &str = include_str!("migrations/0031_posts_schema.sql");
+const DELETIONS_V31: &str = include_str!("migrations/0031_channel_deletions_schema.sql");
 const POST_OBSERVATION: &str = include_str!("migrations/0030_post_observation.sql");
 
 const THREAD_SUMMARY: &str = include_str!("migrations/0024_thread_summary.sql");

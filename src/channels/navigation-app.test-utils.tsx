@@ -264,6 +264,7 @@ export function fixture({
           channelId: design,
           userId: user,
           message: "Saved **root** [preview](https://example.test/notes)",
+          cards: [],
           createAt: 123,
           isPinned: true,
         },
@@ -272,6 +273,7 @@ export function fixture({
           channelId: design,
           userId: user,
           message: "Saved\n\n- reply\n- preview",
+          cards: [],
           createAt: 345,
           rootId: root.id,
         },
@@ -295,6 +297,7 @@ export function fixture({
             channelId: home,
             userId: user,
             message: "Home ![pin](https://example.test/badge)",
+            cards: [],
             isPinned: true,
           },
         ],
@@ -309,15 +312,27 @@ export function fixture({
     setPostPinned: vi
       .fn<Account["setPostPinned"]>()
       .mockResolvedValue(undefined),
-    readPostSearchPage: vi.fn().mockResolvedValue({
-      items: [
-        { id: root.id, channelId: design, message: "Search root snippet" },
-        { id: reply.id, channelId: design, message: "Search reply snippet" },
-      ],
-      matches: null,
-      isEnd: true,
-      firstInaccessiblePostTime: 0,
-    }),
+    readPostSearchPage: vi
+      .fn<Account["readPostSearchPage"]>()
+      .mockResolvedValue({
+        items: [
+          {
+            id: root.id,
+            channelId: design,
+            message: "Search root snippet",
+            cards: [],
+          },
+          {
+            id: reply.id,
+            channelId: design,
+            message: "Search reply snippet",
+            cards: [],
+          },
+        ],
+        matches: null,
+        isEnd: true,
+        firstInaccessiblePostTime: 0,
+      }),
     readFileSearchPage: vi.fn<Account["readFileSearchPage"]>(async (q) => ({
       items:
         q.page === 0

@@ -19,7 +19,8 @@
       "kind": "source",
       "userId": "bbbbbbbbbbbbbbbbbbbbbbbbbb",
       "hasUsername": true
-    }
+    },
+    "cards": []
   },
   {
     "kind": "save",
@@ -36,7 +37,8 @@
     "hashtags": "#sky",
     "isPinned": false,
     "fromWebhook": false,
-    "aiAttribution": { "kind": "none" }
+    "aiAttribution": { "kind": "none" },
+    "cards": [{ "title": "Release reply", "text": "**Ready**", "fields": [] }]
   },
   {
     "kind": "remove",

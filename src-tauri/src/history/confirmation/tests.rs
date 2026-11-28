@@ -66,6 +66,7 @@ fn saved(post: DeliveryPost) -> PostChange {
         ai_attribution: None,
         thread_summary: None,
         attachments: None,
+        cards: None,
     }))
 }
 fn apply(view: &mut AccountHistory, change: PostChange) {

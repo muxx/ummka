@@ -22,7 +22,7 @@ function fixture() {
 }
 function page(ids: string[], time = 0) {
   return {
-    items: ids.map((id) => ({ id, channelId: c, message: "old" })),
+    items: ids.map((id) => ({ id, channelId: c, message: "old", cards: [] })),
     isEnd: ids.length === 0,
     firstInaccessiblePostTime: time,
     matches: null,
@@ -84,7 +84,7 @@ test("overlapping pages update rows in place, retain highlights and stop on an e
     })
     .mockResolvedValueOnce({
       ...page([first]),
-      items: [{ id: first, channelId: c, message: "edited" }],
+      items: [{ id: first, channelId: c, message: "edited", cards: [] }],
       matches: { [first]: ["edited"] },
     })
     .mockResolvedValueOnce(page([]));

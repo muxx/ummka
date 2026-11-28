@@ -12,6 +12,30 @@ export function historyRefreshFixture(userId: string, onHold: () => void) {
   const calls: string[] = [];
   let anchorReads = 0;
   let delayed: ServerResponse | undefined;
+  const imageUrl = "https://images.example.test/build.png";
+  const card = (title: string) => ({
+    title,
+    title_link: "https://example.test/builds",
+    text: "**Build passed**",
+    fields: [{ title: "Target", value: "`Android`", short: true }],
+    image_url: imageUrl,
+    actions: [
+      {
+        name: "Details",
+        integration: {
+          url: "https://hidden.test/callback",
+          context: { private: true },
+        },
+        cookie: "private",
+      },
+    ],
+  });
+  const cardMetadata = {
+    embeds: [{ type: "message_attachment" }],
+    images: {
+      [imageUrl]: { width: 4, height: 3, format: "png", frame_count: 0 },
+    },
+  };
   function record(id: string, at: number, parent = "") {
     return {
       id,
@@ -33,9 +57,11 @@ export function historyRefreshFixture(userId: string, onHold: () => void) {
     props: {
       from_webhook: "true",
       ai_generated_by_username: "fixture-unresolved-ai",
+      attachments: [card("Channel release"), card("Build notes")],
     },
     file_ids: ["b".repeat(26), "a".repeat(26)],
     metadata: {
+      ...cardMetadata,
       priority: { priority: "important" },
       files: [{ id: "a".repeat(26), name: "offline.txt", size: 0 }],
     },
@@ -43,11 +69,17 @@ export function historyRefreshFixture(userId: string, onHold: () => void) {
   const records = {
     [reply]: {
       ...record(reply, 300, root),
+      message: "",
+      props: { attachments: [card("Release reply")] },
       file_ids: [],
-      metadata: { redacted_file_count: 2 },
+      metadata: { ...cardMetadata, redacted_file_count: 2 },
     },
     [root]: cachedRoot,
-    [old]: record(old, 100),
+    [old]: {
+      ...record(old, 100),
+      props: { attachments: [card("Deleted release")] },
+      metadata: cardMetadata,
+    },
     [urgent]: {
       ...record(urgent, 450),
       metadata: { priority: { priority: "urgent" } },
@@ -89,20 +121,36 @@ export function historyRefreshFixture(userId: string, onHold: () => void) {
       const time = q.get("fromCreateAt");
       if (anchor) {
         assert.equal(q.size, 0);
-        assert(anchorReads < 2);
-        const restored = ++anchorReads === 2;
-        calls.push(restored ? "anchor-important" : "anchor-standard");
+        assert(anchorReads < 3);
+        anchorReads++;
+        const restored = anchorReads !== 1;
+        const newer = anchorReads === 3;
+        if (restored) {
+          cachedRoot.props.attachments = [
+            card(newer ? "Updated linked release" : "Linked release"),
+            card("Build notes"),
+          ];
+          if (newer) cachedRoot.update_at++;
+        }
+        calls.push(
+          newer
+            ? "anchor-newer"
+            : restored
+              ? "anchor-important"
+              : "anchor-standard",
+        );
         res.writeHead(200, { "Content-Type": "application/json" }).end(
           JSON.stringify({
             ...cachedRoot,
             props: {
               ...cachedRoot.props,
+              attachments: restored ? cachedRoot.props.attachments : null,
               ai_generated_by: userId,
               ai_generated_by_username: "fixture-ai",
             },
             metadata: restored
               ? cachedRoot.metadata
-              : { files: cachedRoot.metadata.files },
+              : { ...cardMetadata, files: cachedRoot.metadata.files },
           }),
         );
       } else if (thread && (time === "300" || time === "301")) {
@@ -119,7 +167,13 @@ export function historyRefreshFixture(userId: string, onHold: () => void) {
         const selected = up
           ? records[reply]
           : continuing
-            ? { ...record("z".repeat(26), 301, root), user_id: "v".repeat(26) }
+            ? {
+                ...record("z".repeat(26), 301, root),
+                user_id: "v".repeat(26),
+                message: "",
+                props: { attachments: [card("Thread-only release")] },
+                metadata: cardMetadata,
+              }
             : record(own, 301, root);
         calls.push(
           up ? "unread-up" : continuing ? "unread-next" : "unread-down",
@@ -235,6 +289,7 @@ export function historyRefreshFixture(userId: string, onHold: () => void) {
           "after",
           "anchor-standard",
           "anchor-important",
+          "anchor-newer",
           "error",
           "delayed",
           "remove",

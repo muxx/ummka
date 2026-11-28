@@ -3,6 +3,10 @@ import {
   channelPostChange,
   mergePostObservation,
 } from "../mattermost/channel-post-records.ts";
+import type {
+  CardRevision,
+  IntegrationCard,
+} from "../mattermost/integration-cards.ts";
 import type { LocalPost } from "../mattermost/local-history.ts";
 import {
   isMattermostId,
@@ -34,12 +38,20 @@ interface ReplyWindow {
   down: Edge;
 }
 
-function visibleRow(channelId: string, post: Post & { id: string }): LocalPost {
-  const change = channelPostChange(channelId, post.id, post);
+type ThreadPost = Post & {
+  id: string;
+  cards?: readonly IntegrationCard[];
+  cardRevision?: CardRevision;
+};
+
+function visibleRow(channelId: string, post: ThreadPost) {
+  const change = channelPostChange(channelId, post.id, post, {
+    cardObservation: post,
+  });
   if (change.kind !== "save")
     throw new TypeError("Expected a visible thread post.");
   const { kind: _kind, ...row } = change;
-  return row;
+  return { ...row, cardRevision: post.cardRevision };
 }
 
 export function openThreadReplyWindow(
@@ -93,8 +105,9 @@ export function openThreadReplyWindow(
     down: { status: time === Number.MAX_SAFE_INTEGER ? "end" : "ready" },
   };
   const seen = new Set(focus ? [focus.id] : []);
-  let priorityObservation = 0;
+  let observation = 0;
   const priorityByPost = new Map<string, number>();
+  const cardsByPost = new Map<string, CardRevision>();
   function publish(next: ReplyWindow) {
     state = next;
     for (const listener of listeners) listener();
@@ -111,6 +124,7 @@ export function openThreadReplyWindow(
     lifetime.abort();
     seen.clear();
     priorityByPost.clear();
+    cardsByPost.clear();
     publish({
       unavailable,
       ...(firstInaccessiblePostTime && { firstInaccessiblePostTime }),
@@ -126,7 +140,7 @@ export function openThreadReplyWindow(
       const { signal } = lifetime;
       signal.throwIfAborted();
       // Full observations of the same post version are ordered by dispatch, not completion.
-      const stamp = ++priorityObservation;
+      const stamp = ++observation;
       const page = await account.readThreadPage(
         {
           channelId,
@@ -150,7 +164,7 @@ export function openThreadReplyWindow(
       if (direction === "up") received.reverse();
       function merge(
         prior: LocalPost | null | undefined,
-        row: LocalPost,
+        { cardRevision, ...row }: ReturnType<typeof visibleRow>,
         equal: "keep" | "refresh",
       ) {
         const allowEqualPriority = (priorityByPost.get(row.id) ?? 0) < stamp;
@@ -161,7 +175,22 @@ export function openThreadReplyWindow(
             (row.updateAt === prior.updateAt && allowEqualPriority))
         )
           priorityByPost.set(row.id, stamp);
-        return mergePostObservation(prior, row, equal, allowEqualPriority);
+        const merged = mergePostObservation(
+          prior,
+          row,
+          equal,
+          allowEqualPriority,
+        );
+        const previousRevision = cardsByPost.get(row.id);
+        const accepted =
+          cardRevision &&
+          (!previousRevision ||
+            cardRevision.updateAt > previousRevision.updateAt ||
+            (cardRevision.updateAt === previousRevision.updateAt &&
+              cardRevision.dispatch > previousRevision.dispatch));
+        if (accepted) cardsByPost.set(row.id, cardRevision);
+        const cards = accepted ? row.cards : prior?.cards;
+        return merged.cards === cards ? merged : { ...merged, cards };
       }
       let replies: LocalPost[];
       if (received.some((row) => seen.has(row.id))) {
@@ -175,13 +204,11 @@ export function openThreadReplyWindow(
             a.createAt - b.createAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
         );
       } else {
-        for (const row of received)
-          if (row.displayPriority !== undefined)
-            priorityByPost.set(row.id, stamp);
+        const appended = received.map((row) => merge(null, row, "keep"));
         replies =
           direction === "up"
-            ? [...received, ...state.replies]
-            : [...state.replies, ...received];
+            ? [...appended, ...state.replies]
+            : [...state.replies, ...appended];
       }
       for (const row of received) seen.add(row.id);
       cursors[direction] = page.next ?? undefined;

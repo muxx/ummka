@@ -1,6 +1,9 @@
 use super::attachments::{self, PostAttachments};
+use super::cards::{self, CardSnapshot, IntegrationCard};
 use super::thread_summary::{LAST_OBSERVATION, ThreadSummary};
-use super::{AccountHistory, ChannelHistoryPage, HistoryError, HistoryOwner, windows};
+use super::{
+    AccountHistory, ChannelHistoryPage, HistoryError, HistoryOwner, WindowSource, windows,
+};
 use crate::rest::is_mattermost_id;
 use rusqlite::{
     OptionalExtension, Row, Transaction, TransactionBehavior, params,
@@ -37,6 +40,8 @@ pub struct StoredPost {
     pub thread_summary: Option<Box<ThreadSummary>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) attachments: Option<Box<PostAttachments>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) cards: Option<Vec<IntegrationCard>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -114,12 +119,14 @@ pub struct ChannelPostLoad {
     revision: i64,
     observed_summary: i64,
     observed_attachments: i64,
-    priority_order: i64,
+    observation_order: i64,
 }
 
 pub(crate) struct CachedPostObservation {
-    load: ChannelPostLoad,
+    owner: HistoryOwner,
     post_id: String,
+    channel_revision: Option<(String, i64)>,
+    observation_order: i64,
 }
 
 #[derive(Deserialize)]
@@ -129,6 +136,19 @@ pub(crate) struct PostObservation {
     pub update_at: i64,
     pub display_priority: Option<DisplayPriority>,
     pub ai_attribution: Option<AiAttribution>,
+    pub(super) cards: Option<Vec<IntegrationCard>>,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub(crate) enum CachedPostRead {
+    Uncached,
+    Unavailable,
+    Superseded,
+    Cached {
+        changed: bool,
+        cards: Option<CardSnapshot>,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
@@ -139,6 +159,9 @@ pub(crate) struct PostObservation {
 )]
 pub enum PageWrite {
     Applied,
+    Thread {
+        cards: Vec<Option<CardSnapshot>>,
+    },
     /// A removal was accepted in this channel since the load began. Retain the caller's cursor.
     Superseded,
     Inaccessible {
@@ -150,7 +173,7 @@ pub(super) const READ: &str =
      "SELECT p.id, p.channel_id, p.user_id, p.root_id, p.create_at, p.update_at, p.edit_at,
               p.type, p.message, p.message_source, p.hashtags, p.is_pinned,
               s.reply_count, s.last_reply_at, s.participant_ids, a.payload, p.from_webhook,
-              p.display_priority, p.ai_source, p.ai_has_username
+              p.display_priority, p.ai_source, p.ai_has_username, p.cards
        FROM history_post p LEFT JOIN history_thread_summary s ON s.post_id=p.id AND p.root_id IS NULL
        LEFT JOIN history_post_attachment a ON a.post_id=p.id
        WHERE p.id=?1";
@@ -181,7 +204,7 @@ const CONFIRM_OBSERVATIONS: &str = "UPDATE history_post SET
       (COALESCE(priority_observation,0) < ?4 OR
        (from_webhook IS NULL AND ?2 IS NOT NULL) OR
        (ai_source IS NULL AND ?5 IS NOT NULL))";
-const ADVANCE_PRIORITY_OBSERVATION: &str =
+const ADVANCE_POST_OBSERVATION: &str =
     "INSERT INTO history_post_observation(owner,priority) VALUES(1,1)
      ON CONFLICT(owner) DO UPDATE SET priority=history_post_observation.priority+1
      RETURNING priority";
@@ -220,6 +243,7 @@ impl StoredPost {
             ai_attribution,
             thread_summary: ThreadSummary::from_row(row)?.map(Box::new),
             attachments: PostAttachments::from_row(row)?,
+            cards: cards::from_row(row, 20)?,
         })
     }
 }
@@ -251,10 +275,11 @@ pub(super) fn advance_deletion_revision(
     tx: &Transaction<'_>,
     channel: &str,
 ) -> rusqlite::Result<()> {
+    let observation = reserve_observation(tx)?;
     tx.execute(
-        "INSERT INTO history_channel_deletion (channel_id, revision) VALUES (?1, 1)
-         ON CONFLICT(channel_id) DO UPDATE SET revision = revision + 1",
-        [channel],
+        "INSERT INTO history_channel_deletion (channel_id, revision, observation) VALUES (?1, 1, ?2)
+         ON CONFLICT(channel_id) DO UPDATE SET revision = revision + 1, observation=excluded.observation",
+        params![channel, observation],
     )?;
     Ok(())
 }
@@ -264,6 +289,25 @@ fn deletion_revision(tx: &Transaction<'_>, channel: &str) -> rusqlite::Result<i6
         .query_row([channel], |row| row.get(0))
         .optional()
         .map(Option::unwrap_or_default)
+}
+
+fn last_channel_invalidation(tx: &Transaction<'_>, channel: &str) -> rusqlite::Result<Option<i64>> {
+    tx.prepare_cached("SELECT observation FROM history_channel_deletion WHERE channel_id=?1")?
+        .query_row([channel], |row| row.get(0))
+        .optional()
+        .map(Option::flatten)
+}
+
+fn cached_channel(tx: &Transaction<'_>, post_id: &str) -> rusqlite::Result<Option<String>> {
+    tx.prepare_cached("SELECT channel_id FROM history_post WHERE id=?1")?
+        .query_row([post_id], |row| row.get(0))
+        .optional()
+}
+
+fn reserve_observation(tx: &Transaction<'_>) -> rusqlite::Result<i64> {
+    // Reserve before dispatch; responses may commit in either order.
+    tx.prepare_cached(ADVANCE_POST_OBSERVATION)?
+        .query_row([], |row| row.get(0))
 }
 
 impl ChannelPostLoad {
@@ -279,10 +323,7 @@ impl ChannelPostLoad {
             observed_summary: tx.query_row(LAST_OBSERVATION, [], |row| row.get(0))?,
             observed_attachments: tx
                 .query_row(attachments::LAST_OBSERVATION, [], |row| row.get(0))?,
-            // Reserve before dispatch; responses may commit in either order.
-            priority_order: tx
-                .prepare_cached(ADVANCE_PRIORITY_OBSERVATION)?
-                .query_row([], |row| row.get(0))?,
+            observation_order: reserve_observation(tx)?,
         })
     }
 
@@ -307,24 +348,21 @@ impl AccountHistory {
     pub(crate) fn begin_cached_post_observation(
         &mut self,
         post_id: String,
-    ) -> Result<Option<CachedPostObservation>, HistoryError> {
+    ) -> Result<CachedPostObservation, HistoryError> {
         if !is_mattermost_id(&post_id) {
             return Err(HistoryError::InvalidPost);
         }
         let owner = self.owner.clone();
         self.write(|tx| {
-            let channel = tx
-                .prepare_cached("SELECT channel_id FROM history_post WHERE id=?1")?
-                .query_row([&post_id], |row| row.get(0))
-                .optional()?;
-            channel
-                .map(|channel_id| {
-                    Ok(CachedPostObservation {
-                        load: ChannelPostLoad::begin(tx, owner, channel_id)?,
-                        post_id,
-                    })
-                })
-                .transpose()
+            let channel_revision = cached_channel(tx, &post_id)?
+                .map(|channel| deletion_revision(tx, &channel).map(|revision| (channel, revision)))
+                .transpose()?;
+            Ok(CachedPostObservation {
+                owner,
+                post_id,
+                channel_revision,
+                observation_order: reserve_observation(tx)?,
+            })
         })
     }
 
@@ -332,36 +370,90 @@ impl AccountHistory {
         &mut self,
         ticket: CachedPostObservation,
         observation: PostObservation,
-    ) -> Result<bool, HistoryError> {
-        let CachedPostObservation { load, post_id } = ticket;
-        if load.owner != self.owner {
+    ) -> Result<CachedPostRead, HistoryError> {
+        if ticket.owner != self.owner {
             return Err(HistoryError::StaleOwner);
         }
         let ai = observation.ai_attribution.as_ref();
-        if observation.channel_id != load.channel_id
+        let cards = observation
+            .cards
+            .as_deref()
+            .map(cards::encode)
+            .transpose()?;
+        let channel_id = observation.channel_id.as_str();
+        if !is_mattermost_id(channel_id)
+            || ticket
+                .channel_revision
+                .as_ref()
+                .is_some_and(|(channel, _)| channel != channel_id)
             || observation.update_at <= 0
             || matches!(ai, Some(AiAttribution::Source {user_id, ..}) if !is_mattermost_id(user_id))
         {
             return Err(HistoryError::InvalidPost);
         }
-        self.write(|tx| {
-            if !load.is_current(tx)? {
-                return Ok(false);
-            }
-            // Point navigation may confirm current metadata. A page owns post versions and position.
-            let (ai_source, ai_has_username) = ai.map(AiAttribution::columns).unzip();
-            let count = tx.prepare_cached(CONFIRM_OBSERVATIONS)?.execute(params![
-                post_id,
-                None::<bool>,
-                observation.display_priority,
-                observation.display_priority.map(|_| load.priority_order),
-                ai_source,
-                ai_has_username,
-                load.channel_id,
-                observation.update_at,
-            ])?;
-            Ok(count != 0)
-        })
+        self.database
+            .access(&self.owner, TransactionBehavior::Immediate, |tx| {
+                // The post may have reached SQLite while this first GET was in flight.
+                let current = cached_channel(tx, &ticket.post_id)?;
+                if current
+                    .as_deref()
+                    .is_some_and(|channel| channel != channel_id)
+                {
+                    return Err(HistoryError::InvalidPost);
+                }
+                if super::departure::is_departed(tx, channel_id)? {
+                    return Ok(CachedPostRead::Unavailable);
+                }
+                let invalidated = if let Some((_, revision)) = ticket.channel_revision {
+                    if current.is_none() {
+                        return Ok(CachedPostRead::Unavailable);
+                    }
+                    deletion_revision(tx, channel_id)? != revision
+                } else {
+                    last_channel_invalidation(tx, channel_id)?
+                        .is_some_and(|order| order > ticket.observation_order)
+                };
+                if invalidated {
+                    return Ok(CachedPostRead::Superseded);
+                }
+                if current.is_none() {
+                    return Ok(CachedPostRead::Uncached);
+                }
+                // Point navigation may confirm current metadata. A page owns post versions and position.
+                let (ai_source, ai_has_username) = ai.map(AiAttribution::columns).unzip();
+                let count = tx.prepare_cached(CONFIRM_OBSERVATIONS)?.execute(params![
+                    ticket.post_id,
+                    None::<bool>,
+                    observation.display_priority,
+                    observation
+                        .display_priority
+                        .map(|_| ticket.observation_order),
+                    ai_source,
+                    ai_has_username,
+                    channel_id,
+                    observation.update_at,
+                ])?;
+                let accepted_cards = if let Some(payload) = cards {
+                    cards::store(
+                        tx,
+                        &ticket.post_id,
+                        channel_id,
+                        observation.update_at,
+                        ticket.observation_order,
+                        &payload,
+                    )?
+                } else {
+                    false
+                };
+                let mut read = tx.prepare_cached(cards::READ)?;
+                Ok(match cards::read(&mut read, &ticket.post_id, channel_id)? {
+                    Some(cards) => CachedPostRead::Cached {
+                        changed: accepted_cards || count != 0,
+                        cards,
+                    },
+                    None => CachedPostRead::Unavailable,
+                })
+            })
     }
 
     pub fn read_post(&mut self, id: &str) -> Result<Option<StoredPost>, HistoryError> {
@@ -413,6 +505,17 @@ impl AccountHistory {
                 )?;
                 if let Some(page) = page {
                     page.validate(&load.channel_id)?;
+                    if matches!(page.source, WindowSource::Thread { .. }) {
+                        let mut read = tx.prepare_cached(cards::READ)?;
+                        let cards = changes
+                            .iter()
+                            .map(|change| {
+                                let (id, channel) = change.identity()?;
+                                cards::read(&mut read, id, channel)?.ok_or(HistoryError::Storage)
+                            })
+                            .collect::<Result<_, _>>()?;
+                        return Ok(PageWrite::Thread { cards });
+                    }
                     return windows::record(tx, page, &removed);
                 }
                 Ok(PageWrite::Applied)
@@ -461,13 +564,14 @@ fn write_changes(
                 if let Some(attachments) = &p.attachments {
                     attachments.validate()?;
                 }
+                let cards = p.cards.as_deref().map(cards::encode).transpose()?;
                 let old_version = stored.as_ref().map(|row| row.update_at);
                 if old_version.is_some_and(|version| version > p.update_at) {
                     continue;
                 }
                 let newer = old_version != Some(p.update_at);
                 let priority = p.display_priority;
-                let stamp = priority.map(|_| load.priority_order);
+                let stamp = priority.map(|_| load.observation_order);
                 let (ai_source, ai_has_username) = p
                     .ai_attribution
                     .as_ref()
@@ -510,6 +614,16 @@ fn write_changes(
                         channel,
                         p.update_at,
                     ])?;
+                }
+                if let Some(payload) = cards {
+                    cards::store(
+                        tx,
+                        id,
+                        channel,
+                        p.update_at,
+                        load.observation_order,
+                        &payload,
+                    )?;
                 }
                 attachments::store(tx, p, load.observed_attachments)?;
                 if let Some(summary) = &p.thread_summary {

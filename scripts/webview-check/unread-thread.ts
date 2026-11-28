@@ -34,6 +34,15 @@ export async function checkUnreadThread(
       throw Error(
         "Signed thread window lost the first foreign reply beyond its cursor.",
       );
+    const stored = await account.readSavedPost(channelId, foreign);
+    const previous = await account.readSavedPost(channelId, "l".repeat(26));
+    if (
+      stored?.cards?.[0]?.title !== "Thread-only release" ||
+      previous?.cards?.[0]?.title !== "Release reply"
+    )
+      throw Error(
+        "Thread paging lost a card from the current or previous page",
+      );
   } finally {
     window.close();
   }
