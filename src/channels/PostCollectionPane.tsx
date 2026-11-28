@@ -19,8 +19,11 @@ import {
   restoreCollectionReadingPlace,
   restoreCollectionRow,
 } from "./CollectionScroll.tsx";
+import { ContextPanelHeader } from "./ContextPanelHeader.tsx";
 import { collectionCopy } from "./collection-copy.ts";
+import { channelPanelBack } from "./context-panel-copy.ts";
 import { PanelState } from "./PanelState.tsx";
+import { PaneSizeToggle } from "./PaneWidthControls.tsx";
 import { attachmentExcerpt } from "./post-attachment-cards.ts";
 import {
   newestCollectionItems,
@@ -97,6 +100,7 @@ export function PostCollectionPane({
   restore,
   pinnedReading,
   openRow,
+  back,
   close,
 }: {
   compact: boolean;
@@ -128,6 +132,7 @@ export function PostCollectionPane({
     scroll: number,
     offset?: number,
   ) => void;
+  back?: () => void;
   close: () => void;
 }) {
   const text = collectionCopy[language];
@@ -340,28 +345,46 @@ export function PostCollectionPane({
   }, [nextFailed, rows, state.continuation]);
   return (
     <aside className="post-collection-pane" aria-labelledby={headingId}>
-      <CollectionHeader
-        compact={compact}
-        icon={<CollectionMark kind={kind} />}
-        caption={
-          caption && (
-            <span id={captionId} title={roomTitle ? caption : undefined}>
-              {caption}
-            </span>
-          )
-        }
-        closeLabel={text.close}
-        close={close}
-      >
-        <h2
-          tabIndex={-1}
+      {kind === "pins" ? (
+        <ContextPanelHeader
           id={headingId}
-          aria-describedby={caption ? captionId : undefined}
-          ref={heading}
+          heading={heading}
+          icon={<CollectionMark kind="pins" />}
+          title={text.pins}
+          subtitle={caption}
+          subtitleId={captionId}
+          back={{
+            label: channelPanelBack[language][back ? "info" : "conversation"],
+            run: back ?? close,
+            compactOnly: !back,
+          }}
+          close={{ label: text.close, run: close }}
+          actions={<PaneSizeToggle />}
+        />
+      ) : (
+        <CollectionHeader
+          compact={compact}
+          icon={<CollectionMark kind={kind} />}
+          caption={
+            caption && (
+              <span id={captionId} title={roomTitle ? caption : undefined}>
+                {caption}
+              </span>
+            )
+          }
+          closeLabel={text.close}
+          close={close}
         >
-          {kind === "all" ? text.saved : text.pins}
-        </h2>
-      </CollectionHeader>
+          <h2
+            tabIndex={-1}
+            id={headingId}
+            aria-describedby={caption ? captionId : undefined}
+            ref={heading}
+          >
+            {text.saved}
+          </h2>
+        </CollectionHeader>
+      )}
       <span className="collection-announcement" role="status">
         {announcement}
       </span>

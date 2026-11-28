@@ -1345,7 +1345,9 @@ export function ChannelsWorkspace({
     const visible = visibleResult(position?.request.post.id);
     const heading = control
       .closest(".channels-conversation, .channels-thread")
-      ?.querySelector<HTMLElement>(".channels-pane-head :is(h1, h2)");
+      ?.querySelector<HTMLElement>(
+        ":is(.channels-pane-head, .context-panel-header) :is(h1, h2)",
+      );
     collections.close(false);
     if (savedSource) workspace.messages.endSaved();
     (visible ?? heading)?.focus({ preventScroll: true });
@@ -1604,7 +1606,7 @@ export function ChannelsWorkspace({
     restoreConversation(id, fileReading.current);
     choose(id, true);
   }
-  function backToInfo(focusRow: "members" | "files" | "bookmarks") {
+  function backToInfo(focusRow: "members" | "pins" | "files" | "bookmarks") {
     if (infoChannel?.direct) return closeInfo();
     if (infoChannel)
       setInfoChannel({
@@ -1614,10 +1616,14 @@ export function ChannelsWorkspace({
         focusRow,
       });
   }
+  function backFromPins() {
+    collections.close(false);
+    backToInfo("pins");
+  }
   function closeCollection() {
-    if (pinsFromInfo && collections.state?.status !== "forbidden") {
+    if (pinsFromInfo) {
       collections.close(false);
-      setInfoChannel({ ...infoChannel, stage: "overview", focusRow: "pins" });
+      closeInfo();
     } else {
       setInfoChannel(null);
       collections.close();
@@ -1747,7 +1753,7 @@ export function ChannelsWorkspace({
         : closeInfo;
     }
     if (fileDestination && chosen) return () => returnToFiles(chosen);
-    if (pinsFromInfo && !collectionDestination) return closeCollection;
+    if (pinsFromInfo && !collectionDestination) return backFromPins;
     if (selection) return closeInboxThread;
     if (inbox.visible && compact && page !== "navigation")
       return () => setPage("navigation");
@@ -2422,7 +2428,7 @@ export function ChannelsWorkspace({
               )}
               <ChannelInformationButton
                 language={language}
-                expanded={infoOpen && !infoChannel.direct}
+                expanded={pinsFromInfo || (infoOpen && !infoChannel.direct)}
                 control={infoButton}
                 onClick={() => {
                   if (infoOpen && !infoChannel.direct) return closeInfo();
@@ -2593,6 +2599,7 @@ export function ChannelsWorkspace({
               sessionIssue={sessionIssue}
               direct={Boolean(infoChannel.direct)}
               back={() => backToInfo("bookmarks")}
+              close={closeInfo}
             />
           ) : infoOpen && channel ? (
             <ChannelInformationPanel
@@ -2700,6 +2707,7 @@ export function ChannelsWorkspace({
               restore={collections.restore}
               pinnedReading={collections.pinnedReading}
               openRow={openCollectionRow}
+              back={pinsFromInfo ? backFromPins : undefined}
               close={closeCollection}
             />
           ) : (
@@ -3173,6 +3181,7 @@ export function ChannelsWorkspace({
             directory.retry();
           }}
           sessionIssue={sessionIssue}
+          fromInfo={notification.source === "info"}
           back={() => closeNotification(true)}
           dismiss={() => closeNotification(false)}
         />

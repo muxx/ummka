@@ -9,6 +9,7 @@ import {
 } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
 import { ChannelNotificationFields } from "./ChannelNotificationFields.tsx";
+import { ContextPanelHeader } from "./ContextPanelHeader.tsx";
 import { notificationCopy } from "./channel-notification-copy.ts";
 import { ChannelNotificationForm } from "./channel-notification-form.ts";
 import { createNotificationSoundPreview } from "./notification-sounds.ts";
@@ -27,6 +28,7 @@ type Props = {
   language: EntryLanguage;
   online: boolean;
   collapsed: boolean;
+  fromInfo?: boolean;
   saved: () => void;
   back: () => void;
   dismiss: () => void;
@@ -55,6 +57,7 @@ function NotificationDialog({
   language,
   online,
   collapsed,
+  fromInfo,
   back,
   dismiss,
   sessionIssue,
@@ -158,6 +161,7 @@ function NotificationDialog({
   return (
     <dialog
       className="channel-notifications-dialog modal-layout"
+      data-from-info={fromInfo || undefined}
       ref={dialog}
       aria-labelledby={id}
       onCancel={(event) => {
@@ -165,43 +169,18 @@ function NotificationDialog({
         back();
       }}
     >
-      <header>
-        <button type="button" aria-label={t.back} onClick={back}>
-          <svg
-            aria-hidden="true"
-            viewBox="0 0 24 24"
-            width="18"
-            height="18"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-          >
-            <path d="m10 5-7 7 7 7M3 12h18" />
-          </svg>
-        </button>
-        <div>
-          <h2 id={id}>{t.title}</h2>
-          <small>{name}</small>
-        </div>
-        <button
-          type="button"
-          className="notify-close"
-          aria-label={language === "ru" ? "Закрыть" : "Close"}
-          onClick={dismiss}
-        >
-          <svg
-            aria-hidden="true"
-            viewBox="0 0 24 24"
-            width="18"
-            height="18"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-          >
-            <path d="m6 6 12 12M6 18 18 6" />
-          </svg>
-        </button>
-      </header>
+      <ContextPanelHeader
+        id={id}
+        title={t.title}
+        subtitle={name}
+        dialog
+        back={{ label: t.back, run: back }}
+        close={{
+          label: language === "ru" ? "Закрыть" : "Close",
+          run: dismiss,
+          compact: !fromInfo,
+        }}
+      />
       <form
         className="modal-form"
         onSubmit={(event) => {

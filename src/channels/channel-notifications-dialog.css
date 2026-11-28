@@ -1,6 +1,3 @@
-.channel-notifications-dialog :where(header) small {
-  font-size: 0.74rem;
-}
 .channel-notifications-dialog {
   width: min(560px, calc(100% - 24px));
   box-sizing: border-box;
@@ -15,7 +12,7 @@
 .channel-notifications-dialog::backdrop {
   background: #06183966;
 }
-.channel-notifications-dialog button {
+.channel-notifications-dialog :where(form) button {
   font: inherit;
   font-weight: 600;
   border: 1px solid var(--field-border);
@@ -24,7 +21,7 @@
   background: var(--canvas);
   cursor: pointer;
 }
-.channel-notifications-dialog button:hover:not(:disabled) {
+.channel-notifications-dialog :where(form) button:hover:not(:disabled) {
   background: var(--row-hover);
 }
 .channel-notifications-dialog .primary,
@@ -33,38 +30,11 @@
   background: var(--accent);
   color: var(--on-accent);
 }
-.channel-notifications-dialog button:is(:disabled, [aria-disabled="true"]) {
+.channel-notifications-dialog
+  :where(form)
+  button:is(:disabled, [aria-disabled="true"]) {
   opacity: 0.65;
   cursor: default;
-}
-.channel-notifications-dialog header {
-  display: flex;
-  align-items: center;
-  border-bottom: 1px solid var(--divider);
-  justify-content: flex-start;
-  gap: 8px;
-  box-sizing: border-box;
-  min-height: 61.6px;
-  padding: 8px 16px;
-  background: var(--surface);
-}
-.channel-notifications-dialog header h2 {
-  margin: 0;
-  font-size: 1rem;
-  line-height: 1.35;
-}
-.channel-notifications-dialog header button {
-  padding: 0;
-  border: 0;
-  display: grid;
-  place-items: center;
-  min-width: 38px;
-  min-height: 38px;
-  background: transparent;
-  color: var(--muted);
-}
-.channel-notifications-dialog .notify-close {
-  margin-inline-start: auto;
 }
 .channel-notifications-dialog form.modal-form {
   padding: 0;
@@ -267,6 +237,20 @@
     );
     width: calc(100% - 24px);
     max-width: 100%;
+  }
+  .channel-notifications-dialog[data-from-info] {
+    inset: 0;
+    width: 100%;
+    max-width: none;
+    height: 100dvh;
+    max-height: none;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+  }
+  .channel-notifications-dialog[data-from-info]
+    :is(form.modal-form, .notify-body) {
+    flex: 1;
   }
   .notify-body {
     padding-inline: 15px;

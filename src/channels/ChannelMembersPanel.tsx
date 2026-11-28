@@ -18,7 +18,9 @@ import {
   channelListError,
   channelListOffline,
 } from "./ChannelListState.tsx";
-import { ChannelSectionHeader } from "./ChannelSectionHeader.tsx";
+import { ContextPanelHeader } from "./ContextPanelHeader.tsx";
+import { channelPanelBack } from "./context-panel-copy.ts";
+import { PaneSizeToggle } from "./PaneWidthControls.tsx";
 import { initials } from "./profile-initials.ts";
 import { useNextPageButton } from "./use-next-page-button.ts";
 import type { WorkspaceConnection } from "./use-workspace-read.ts";
@@ -27,8 +29,6 @@ import { workspaceFailure } from "./workspace-data.ts";
 const copy = {
   en: {
     title: "Members",
-    back: "Back to channel info",
-    backToChannel: "Back to conversation",
     close: "Close members",
     search: "Find a member",
     guest: "Guest",
@@ -41,8 +41,6 @@ const copy = {
   },
   ru: {
     title: "Участники",
-    back: "Вернуться к сведениям о канале",
-    backToChannel: "Вернуться в беседу",
     close: "Закрыть участников",
     search: "Найти участника",
     guest: "Гость",
@@ -237,17 +235,22 @@ export function ChannelMembersPanel({
       className="channels-thread channel-information channel-context-pane channel-members-panel"
       aria-labelledby={title}
     >
-      <ChannelSectionHeader
+      <ContextPanelHeader
         id={title}
         heading={heading}
         icon={<MembersIcon />}
         title={t.title}
-        name={name}
-        desktopBack={Boolean(back) && !direct}
-        backLabel={direct || !back ? t.backToChannel : t.back}
-        closeLabel={t.close}
-        back={back ?? close}
-        close={close}
+        subtitle={name}
+        back={{
+          label:
+            channelPanelBack[language][
+              direct || !back ? "conversation" : "info"
+            ],
+          run: back ?? close,
+          compactOnly: direct || !back,
+        }}
+        close={{ label: t.close, run: close }}
+        actions={<PaneSizeToggle />}
       />
       <div className="channel-member-body" aria-busy={loading || undefined}>
         {(!empty || term) && (

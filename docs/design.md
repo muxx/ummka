@@ -23,6 +23,16 @@ Give headings, tab and navigation labels, body text, and supporting text semanti
 
 Use a common state block for first loading, confirmed empty results and failed reads with Retry when available. Keep the existing rows usable while refreshing, and show the refreshing status after one second. Keep pagination and permission states tied to the reading surface that owns them.
 
+### Context panel headers and action groups
+
+Give context panels a shared header. Put Back on the left when the panel has a visible parent screen. Back, Escape, and the system Back action follow the same route and restore focus to the control that opened it. A direct entry from the channel uses the channel as its parent. Close dismisses the side pane and restores focus to its opener. A dialog closes within its own route and restores focus to the control that summoned it.
+
+On desktop, place persistent actions as a group at the right edge. Use 32 × 32 px targets, 4 px between them and an 11 px right inset. Adding or removing Expand leaves Close in place. Give the heading and subtitle separate single lines with ellipsis, accessible full text, and a tooltip. Reserve room for controls as either line grows. On a compact side pane, keep a 44 × 44 px Back target and use the space at the right for the heading and subtitle.
+
+Give groups of action rows their own padding. Leave 8 px from the preceding divider to the first row’s hover surface and draw its keyboard focus ring inside the row. Use targets at least 44 px high in compact layouts. Apply these roles in both themes.
+
+[Context panel examples](https://github.com/muxx/ummka-docs/blob/main/prototypes/screens.md#channel-info-frame)
+
 [Interactive examples](https://github.com/muxx/ummka-docs/blob/main/prototypes/screens.md#workspace-panel-styles)
 
 ## Interaction and motion
