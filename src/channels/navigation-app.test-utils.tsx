@@ -214,6 +214,8 @@ export function fixture({
     readFollowedThreads: vi
       .fn<Account["readFollowedThreads"]>()
       .mockResolvedValue({ items: [], nextBefore: null }),
+    markFollowedThreadRead: vi.fn<Account["markFollowedThreadRead"]>(),
+    setThreadFollowing: vi.fn<Account["setThreadFollowing"]>(),
     selectJoinedTeam: vi.fn(async (next: string) => {
       selectedTeam = next;
       return true;

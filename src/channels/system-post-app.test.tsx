@@ -2907,12 +2907,15 @@ test("direct Saved return restores the original row after a same-account team ju
 });
 
 test.each([
-  { cross: false, unavailable: false },
-  { cross: true, unavailable: false },
-  { cross: true, unavailable: true },
+  { cross: false, status: 0 },
+  { cross: true, status: 0 },
+  { cross: true, status: 404 },
+  { cross: true, status: 0, unread: "neighbor" },
+  { cross: true, status: 0, unread: "empty" },
+  { cross: true, status: 0, unread: "denied" },
 ])(
-  "a published link from a followed discussion returns to its origin (cross-team $cross, unavailable $unavailable)",
-  async ({ cross, unavailable }) => {
+  "a published link from a followed discussion returns to its origin (cross-team $cross, status $status, Unread after return $unread)",
+  async ({ cross, status, unread }) => {
     const { account, targetInfo } = boot({ cross });
     const inboxRoot = { ...root, channelId: cross ? other : design };
     const initial = {
@@ -2940,13 +2943,57 @@ test.each([
       participantIds: [],
       replyCount: 1,
       lastReplyAt: reply.createAt,
-      lastViewedAt: reply.createAt,
-      unreadReplies: 0,
+      lastViewedAt: reply.createAt - Number(Boolean(unread)),
+      unreadReplies: Number(Boolean(unread)),
       unreadMentions: 0,
       isUrgent: false,
     };
     let initialList = true;
-    account.readFollowedThreads.mockImplementation(async ({ before }) => {
+    let read = false;
+    let following = true;
+    let returnAttempted = false;
+    let releasePage = () => {};
+    const waitForPage = new Promise<void>((resolve) => {
+      releasePage = resolve;
+    });
+    account.readFollowedThreadTotals.mockImplementation(async (teamId) => ({
+      total: teamId === winter ? 2 : 0,
+      totalUnreadThreads:
+        teamId === winter && unread && (!read || unread !== "empty") ? 1 : 0,
+      totalUnreadMentions: 0,
+      totalUnreadUrgentMentions: 0,
+    }));
+    account.markFollowedThreadRead.mockImplementation(
+      async (_team, id, lastViewedAt) => {
+        read = true;
+        return { id, lastViewedAt, unreadReplies: 0, unreadMentions: 0 };
+      },
+    );
+    account.setThreadFollowing.mockImplementation(
+      async (_team, _post, next) => {
+        following = next;
+      },
+    );
+    account.readFollowedThreads.mockImplementation(async (query, signal) => {
+      const { before } = query;
+      if (unread) {
+        if (query.teamId !== winter) return { items: [], nextBefore: null };
+        if (!query.unread)
+          return { items: following ? [followed] : [], nextBefore: null };
+        if (!read) return { items: [followed], nextBefore: null };
+        if (unread === "denied" && returnAttempted) {
+          await waitForPage;
+          signal?.throwIfAborted();
+          return { items: [{ ...followed, post: null }], nextBefore: null };
+        }
+        return {
+          items:
+            unread === "neighbor"
+              ? [{ ...followed, id: initial.id, post: initial }]
+              : [],
+          nextBefore: null,
+        };
+      }
       if (cross && !initialList && !before)
         return {
           items: [{ ...followed, id: initial.id, post: initial }],
@@ -2970,10 +3017,9 @@ test.each([
             : inboxRoot.channelId,
       },
     }));
-    let refused = false;
     account.readPostAnchor.mockImplementation(async (id) => {
-      if (refused && id === continued.id)
-        throw new ResponseError(new Response(null, { status: 404 }));
+      if (returnAttempted && status && id === continued.id)
+        throw new ResponseError(new Response(null, { status }));
       const post = posts.get(id);
       if (!post) throw new Error("Unexpected post");
       return {
@@ -2991,12 +3037,18 @@ test.each([
       older: { kind: "end" },
       firstInaccessiblePostTime: 0,
     }));
-    account.readThreadPage.mockResolvedValue({
+    account.readThreadPage.mockImplementation(async () => ({
       kind: "page",
-      root: { ...inboxRoot, messageSource: undefined, rootId: "", deleteAt: 0 },
+      root: {
+        ...inboxRoot,
+        messageSource: undefined,
+        rootId: "",
+        deleteAt: 0,
+        isFollowing: following,
+      },
       replies: [{ ...continued, messageSource: undefined, deleteAt: 0 }],
       next: null,
-    });
+    }));
     const channelField = { name: "Message #Home…" };
     const replyField = { name: "Reply in thread…" };
     const channelDraft = "Fresh channel draft before opening Threads";
@@ -3012,6 +3064,8 @@ test.each([
     );
     expect((await account.readTeamSidebar(winter))?.selectedChannel).toBe(home);
     fireEvent.click(await screen.findByRole("button", { name: /^Threads/ }));
+    if (unread)
+      fireEvent.click(await screen.findByRole("tab", { name: /^Unread/ }));
     const selectedRow = await screen.findByRole("button", {
       name: /Published root/,
     });
@@ -3024,6 +3078,12 @@ test.each([
         expect.objectContaining({ rootId: root.id, message: replyDraft }),
       ),
     );
+    if (unread)
+      await waitFor(() => {
+        expect(account.markFollowedThreadRead).toHaveBeenCalledOnce();
+        expect(selectedRow.hasAttribute("data-unread")).toBe(false);
+        expect(selectedRow.getAttribute("aria-current")).toBe("true");
+      });
     const exactLink = () =>
       screen.getByRole("link", { name: "Second occurrence" });
     await screen.findByRole("link", { name: "Second occurrence" });
@@ -3041,9 +3101,9 @@ test.each([
       );
     else expect((await account.readJoinedTeams())?.selectedTeam).toBe(summer);
 
-    refused = unavailable;
+    returnAttempted = true;
     fireEvent.click(await readingBack());
-    if (unavailable) {
+    if (status) {
       const note = await screen.findByText("Message unavailable", {
         exact: true,
       });
@@ -3060,15 +3120,14 @@ test.each([
       expect(link.getAttribute("href")).toBe(sourceHref);
       expect(document.activeElement).toBe(link);
       expect(link.closest(".thread-feed")).toBeTruthy();
-      expect(
-        screen
-          .getByRole("button", { name: /Published root/ })
-          .closest("[hidden]"),
-      ).toBeNull();
+      const list = screen.queryByRole("button", { name: /Published root/ });
+      if (unread) expect(list).toBeNull();
+      else expect(list?.closest("[hidden]")).toBeNull();
     });
     expect((await account.readTeamSidebar(winter))?.selectedChannel).toBe(home);
-    expect(account.readFollowedThreads).toHaveBeenCalledTimes(cross ? 3 : 1);
-    if (cross)
+    if (!unread)
+      expect(account.readFollowedThreads).toHaveBeenCalledTimes(cross ? 3 : 1);
+    if (cross && !unread)
       expect(account.readFollowedThreads).toHaveBeenLastCalledWith(
         expect.objectContaining({ before: initial.id, teamId: winter }),
         expect.any(AbortSignal),
@@ -3077,21 +3136,61 @@ test.each([
       (await screen.findByRole<HTMLTextAreaElement>("textbox", replyField))
         .value,
     ).toBe(replyDraft);
+    if (unread === "denied") {
+      await act(async () => releasePage());
+      expect(
+        await screen.findByText("This discussion is no longer available."),
+      ).toBeTruthy();
+      expect(
+        screen.queryByRole("link", { name: "Second occurrence" }),
+      ).toBeNull();
+      return;
+    }
+    if (unread === "neighbor") {
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Following", pressed: true }),
+      );
+      await screen.findByRole("button", { name: "Follow", pressed: false });
+      fireEvent.click(
+        screen.getByRole("button", { name: "Follow", pressed: false }),
+      );
+      await screen.findByRole("button", { name: "Following", pressed: true });
+      expect(
+        account.setThreadFollowing.mock.calls.map(([team, post, on]) => [
+          team,
+          post,
+          on,
+        ]),
+      ).toEqual([
+        [winter, { id: inboxRoot.id, rootId: null }, false],
+        [winter, { id: inboxRoot.id, rootId: null }, true],
+      ]);
+    }
     pressBack();
     await waitFor(() =>
       expect(document.activeElement).toBe(
-        screen.getByRole("button", { name: /Published root/ }),
+        unread === "empty"
+          ? screen.getByRole("tab", { name: /^Unread/, selected: true })
+          : screen.getByRole("button", {
+              name: unread ? /Home reading place/ : /Published root/,
+            }),
       ),
     );
     expect(
       screen.queryByRole("link", { name: "Second occurrence" }),
     ).toBeNull();
-    const reopenedRow = screen.getByRole("button", { name: /Published root/ });
-    fireEvent.click(reopenedRow);
-    expect(
-      await screen.findByRole("link", { name: "Second occurrence" }),
-    ).toBeTruthy();
-    pressBack();
+    if (unread) {
+      expect(
+        screen.queryByRole("button", { name: /Published root/ }),
+      ).toBeNull();
+      expect(account.markFollowedThreadRead).toHaveBeenCalledOnce();
+    } else {
+      fireEvent.click(screen.getByRole("button", { name: /Published root/ }));
+      expect(
+        await screen.findByRole("link", { name: "Second occurrence" }),
+      ).toBeTruthy();
+      pressBack();
+    }
     if (isMobile) pressBack();
     fireEvent.click(screen.getByRole("button", { name: /^(# )?Home$/ }));
     await screen.findByText(initial.message);

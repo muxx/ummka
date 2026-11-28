@@ -70,6 +70,7 @@ export function ThreadInboxPane({
   state,
   online = true,
   selected,
+  restoring,
   choose,
   place,
   capture,
@@ -81,6 +82,7 @@ export function ThreadInboxPane({
   state: State;
   online?: boolean;
   selected?: string;
+  restoring?: boolean;
   choose: (row: ThreadInboxRow) => void;
   place?: ThreadInboxPlace;
   capture?: (place: ThreadInboxPlace) => void;
@@ -138,11 +140,12 @@ export function ThreadInboxPane({
   }
   useLayoutEffect(() => {
     const place = origin.current;
-    if (selected || !place) return;
+    if (selected || restoring || !place) return;
     if (place.tab !== tab) {
       void model.show(place.tab);
       return;
     }
+    if (page.status === "idle" || page.status === "loading") return;
     origin.current = null;
     const list = scroller.current;
     queueMicrotask(() => {
@@ -156,7 +159,7 @@ export function ThreadInboxPane({
         : document.getElementById(`${prefix}-${tab}`)
       )?.focus({ preventScroll: true });
     });
-  }, [model, rows, selected, tab, prefix]);
+  }, [model, page.status, rows, selected, restoring, tab, prefix]);
   const error = !["idle", "loading", "ready"].includes(page.status);
   const countsError =
     totals.status === "network" || totals.status === "storage";

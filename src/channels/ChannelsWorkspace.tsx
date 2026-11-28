@@ -1234,8 +1234,9 @@ export function ChannelsWorkspace({
       : null;
   if (thread && !activeThread) setThread(null);
   const selection = inbox.selection;
+  const selectionRow = selection?.row;
   const panePost = selection ? selection.post : activeThread;
-  const paneId = selection?.row.id ?? activeThread?.id;
+  const paneId = selection?.id ?? activeThread?.id;
   function closeInboxThread() {
     publishedReading?.interrupt();
     position?.readingReturn?.thread?.close();
@@ -2217,13 +2218,13 @@ export function ChannelsWorkspace({
                     online={online}
                     sessionIssue={sessionIssue}
                     lastViewedAt={
-                      selection && selection.row.unreadReplies > 0
-                        ? selection.row.lastViewedAt
+                      selectionRow && selectionRow.unreadReplies > 0
+                        ? selectionRow.lastViewedAt
                         : undefined
                     }
                     confirmView={
-                      selection &&
-                      selection.row.unreadReplies > 0 &&
+                      selectionRow &&
+                      selectionRow.unreadReplies > 0 &&
                       !visibleLinkPlacement &&
                       !overlayOpen &&
                       !appearanceOpen &&
@@ -2243,7 +2244,7 @@ export function ChannelsWorkspace({
                       selection
                         ? (reason) => {
                             if (reason !== "failed")
-                              inbox.hideRoot(selection.row.id, reason);
+                              inbox.hideRoot(selection.id, reason);
                           }
                         : position?.system
                           ? (reason) =>
@@ -2274,15 +2275,16 @@ export function ChannelsWorkspace({
                           : selection?.issue
                             ? text.network
                             : inboxText.opening}
-                    {(selection?.issue === "network" ||
-                      selection?.issue === "storage") && (
-                      <button
-                        type="button"
-                        onClick={() => void inbox.choose(selection.row)}
-                      >
-                        {text.retry}
-                      </button>
-                    )}
+                    {selectionRow &&
+                      (selection?.issue === "network" ||
+                        selection?.issue === "storage") && (
+                        <button
+                          type="button"
+                          onClick={() => void inbox.choose(selectionRow)}
+                        >
+                          {text.retry}
+                        </button>
+                      )}
                   </div>
                 ),
               }
@@ -2304,6 +2306,7 @@ export function ChannelsWorkspace({
               model={inbox.model}
               state={inbox.state}
               selected={inbox.selectedId}
+              restoring={inbox.restoring}
               choose={inbox.choose}
               place={readingInbox?.list}
               capture={(place) => {

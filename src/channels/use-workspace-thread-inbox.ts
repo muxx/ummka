@@ -17,7 +17,8 @@ export type ThreadInboxRow = NonNullable<
   ReturnType<ThreadInboxModel["getSnapshot"]>["page"]["rows"]
 >[number];
 type Selection = {
-  row: ThreadInboxRow;
+  id: string;
+  row?: ThreadInboxRow;
   post: LocalPost | null;
   issue: ReturnType<typeof workspaceFailure> | "limited" | null;
 };
@@ -34,10 +35,7 @@ export function useWorkspaceThreadInbox(
   const [model, setModel] = useState<ThreadInboxModel | null>(null);
   const [visible, setVisible] = useState(false);
   const [paused, setPaused] = useState(false);
-  const [restoring, setRestoring] = useState<{
-    post: LocalPost;
-    place: ThreadInboxPlace;
-  }>();
+  const [restoring, setRestoring] = useState<ThreadInboxPlace>();
   const [selection, setSelection] = useState<Selection | null>(null);
   const opening = useRef<AbortController | null>(null);
   const visited = useRef(false);
@@ -82,12 +80,12 @@ export function useWorkspaceThreadInbox(
     inbox?.subscribe ?? noSubscription,
     inbox?.getSnapshot ?? empty,
   );
-  const denied = selection && inbox?.isRootUnavailable(selection.row.id);
+  const denied = selection && inbox?.isRootUnavailable(selection.id);
   const hideRoot = useCallback(
     (id: string, issue: "limited" | "forbidden") => {
       inbox?.revokeRoot(id);
       setSelection((prior) =>
-        prior?.row.id === id ? { ...prior, post: null, issue } : prior,
+        prior?.id === id ? { ...prior, post: null, issue } : prior,
       );
     },
     [inbox],
@@ -120,11 +118,11 @@ export function useWorkspaceThreadInbox(
   const closeThread = useCallback(() => {
     opening.current?.abort();
     setSelection(null);
-    setRestoring(undefined);
     inbox?.select(null);
   }, [inbox]);
   function close() {
     closeThread();
+    setRestoring(undefined);
     inbox?.hide();
     setVisible(false);
     setPaused(false);
@@ -135,33 +133,36 @@ export function useWorkspaceThreadInbox(
   }
   function resume(post: LocalPost, place: ThreadInboxPlace) {
     if (!inbox || inbox.isRootUnavailable(post.id)) return false;
-    if (visible && selection?.row.id === post.id) {
-      setSelection({ row: selection.row, post, issue: null });
-    } else {
-      setRestoring({ post, place });
+    if (!visible || selection?.id !== post.id) {
+      setRestoring(place);
       inbox.select(post.id);
       setVisible(true);
       visited.current = true;
       void inbox.show(place.tab);
     }
+    // The point read verified the thread. The list may exclude it after it was read.
+    setSelection({
+      id: post.id,
+      ...(visible && selection?.id === post.id && { row: selection.row }),
+      post,
+      issue: null,
+    });
     setPaused(false);
     return true;
   }
   useEffect(() => {
-    if (!restoring || !inbox || !state || state.tab !== restoring.place.tab)
-      return;
-    const { post } = restoring;
-    const { page } = state;
-    if (page.status !== "ready") return;
-    const row = page.rows?.find((item) => item.id === post.id);
-    if (
-      row?.post?.channelId === post.channelId &&
-      !inbox.isRootUnavailable(post.id)
-    ) {
-      setSelection({ row, post, issue: null });
-    } else if (!row && page.nextBefore) {
-      void inbox.loadMore();
-      return;
+    if (!restoring || !inbox || !state) return;
+    const { tab, page } = state;
+    if (tab === restoring.tab) {
+      if (page.status === "idle" || page.status === "loading") return;
+      if (
+        page.status === "ready" &&
+        page.nextBefore &&
+        !page.rows?.some((row) => row.id === restoring.id)
+      ) {
+        void inbox.loadMore();
+        return;
+      }
     }
     setRestoring(undefined);
   }, [inbox, restoring, state]);
@@ -169,6 +170,7 @@ export function useWorkspaceThreadInbox(
     if (!inbox || (visible && !paused)) return;
     if (paused) {
       closeThread();
+      setRestoring(undefined);
       inbox.hide();
       setPaused(false);
     }
@@ -185,7 +187,7 @@ export function useWorkspaceThreadInbox(
     opening.current = controller;
     const { signal } = controller;
     inbox.select(row.id);
-    setSelection({ row, post: null, issue: null });
+    setSelection({ id: row.id, row, post: null, issue: null });
     try {
       if (!connected.current) throw Error("Offline");
       const found = await inspectPostTarget(
@@ -205,13 +207,13 @@ export function useWorkspaceThreadInbox(
         hideRoot(row.id, found.kind === "archived" ? "limited" : "forbidden");
         return;
       }
-      setSelection({ row, post: found.post, issue: null });
+      setSelection({ id: row.id, row, post: found.post, issue: null });
     } catch (error) {
       if (signal.aborted) return;
       const issue = workspaceFailure(error, "network");
       if (issue === "session" || issue === "unauthorized") sessionIssue(issue);
       if (issue === "forbidden") hideRoot(row.id, issue);
-      else setSelection({ row, post: null, issue });
+      else setSelection({ id: row.id, row, post: null, issue });
     }
   }
   const confirmFollowing = useCallback(
@@ -225,14 +227,14 @@ export function useWorkspaceThreadInbox(
     if (
       !inbox ||
       !selection?.post ||
-      inbox.isRootUnavailable(selection.row.id) ||
+      inbox.isRootUnavailable(selection.id) ||
       !connected.current
     )
       throw Error("No active thread to mark");
     try {
       const mark = await connection.markFollowedThreadRead(
         teamId,
-        selection.row.id,
+        selection.id,
         Date.now(),
         signal,
       );
@@ -260,7 +262,8 @@ export function useWorkspaceThreadInbox(
     state,
     visible: Boolean(inbox && visible && !paused),
     paused: Boolean(inbox && visible && paused),
-    selectedId: (paused ? selection : active)?.row.id ?? restoring?.post.id,
+    selectedId: (paused ? selection : active)?.id,
+    restoring: Boolean(restoring),
     selection:
       active && denied
         ? {
