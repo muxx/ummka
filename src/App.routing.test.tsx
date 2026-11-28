@@ -5,6 +5,8 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
+  within,
 } from "@testing-library/react";
 import { useLayoutEffect } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -14,6 +16,7 @@ import { isMobile } from "./build-platform";
 import { ServerSignIn } from "./entry/ServerSignIn";
 import type { PendingPost } from "./mattermost/account-delivery.ts";
 import { signInWithBrowser } from "./mattermost/browser-sign-in";
+import { channelProfile } from "./mattermost/channel-profiles.ts";
 import { getDeviceLaunchContext } from "./mattermost/device-launch";
 import { inspectInstallation } from "./mattermost/inspect-installation";
 import {
@@ -21,7 +24,10 @@ import {
   readInstallationSelection,
   selectInstallation,
 } from "./mattermost/installation-registry";
-import { openAccountRestConnection } from "./mattermost/native-rest";
+import {
+  openAccountRestConnection,
+  type SavedProfiles,
+} from "./mattermost/native-rest";
 import { outgoingRowState } from "./mattermost/outgoing-row-state.ts";
 
 vi.mock("./mattermost/device-launch", () => ({
@@ -435,7 +441,7 @@ test("allows switching away from a slow saved server and ignores its delayed pro
   expect(screen.getByRole<HTMLInputElement>("textbox").value).toBe(origin);
   expect(screen.queryByRole("heading", { name: "Sign in again" })).toBeNull();
 });
-test("restores the selected team, channel, messages and account actions without a network request", async () => {
+function offlineWorkspace() {
   vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
   launch.mockResolvedValue({
     status: "ready",
@@ -574,9 +580,12 @@ test("restores the selected team, channel, messages and account actions without 
       firstInaccessiblePostTime: 0,
     })),
     refreshChannelHistory: vi.fn(),
-    readSavedProfiles: vi
-      .fn()
-      .mockResolvedValue({ profiles: {}, usernames: {} }),
+    readSavedProfiles: vi.fn(
+      async (_query: { ids: readonly string[] }): Promise<SavedProfiles> => ({
+        profiles: {},
+        usernames: {},
+      }),
+    ),
     refreshSavedProfiles: vi.fn(),
     readJoinedTeams: vi
       .fn()
@@ -590,6 +599,237 @@ test("restores the selected team, channel, messages and account actions without 
       ReturnType<typeof openAccountRestConnection>
     >,
   );
+  return {
+    team,
+    channelId,
+    otherId,
+    connection,
+    rooms,
+    channel,
+    get selected() {
+      return selected;
+    },
+    set selected(id: string) {
+      selected = id;
+    },
+  };
+}
+
+test("opens a hidden known conversation offline and returns to its draft selection through the quick switcher", async () => {
+  const { team, channelId, channel, rooms, connection } = offlineWorkspace();
+  const peer = "e".repeat(26),
+    hiddenId = "f".repeat(26);
+  rooms.push({
+    ...channel(hiddenId, `${user}__${peer}`),
+    kind: "D",
+    displayName: "",
+    lastViewedAt: 0,
+  });
+  const person = channelProfile({
+    id: peer,
+    username: "winter-owl",
+    nickname: "Полярная сова",
+  });
+  connection.readSavedProfiles.mockImplementation(async ({ ids }) =>
+    ids.includes(peer)
+      ? { profiles: { [peer]: person }, usernames: {} }
+      : { profiles: {}, usernames: {} },
+  );
+  render(<App language="en" />);
+  const generalDraft = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Message #General…",
+  });
+  generalDraft.focus();
+  generalDraft.setSelectionRange(2, 6, "backward");
+  fireEvent.keyDown(generalDraft, { code: "KeyK", key: "л", ctrlKey: true });
+  const firstField = await screen.findByRole("combobox");
+  fireEvent.keyDown(firstField, {
+    code: "KeyK",
+    key: "л",
+    ctrlKey: true,
+    repeat: true,
+  });
+  expect(document.activeElement).toBe(firstField);
+  fireEvent.keyDown(firstField, { code: "KeyK", key: "л", ctrlKey: true });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(generalDraft);
+  fireEvent.keyDown(generalDraft, { code: "KeyK", key: "л", ctrlKey: true });
+  const swift = within(
+    await screen.findByRole("dialog", { name: "Find a channel" }),
+  );
+  const query = swift.getByRole("combobox");
+  expect(document.activeElement).toBe(query);
+  const initial = swift.getAllByRole("option");
+  expect(initial[0].getAttribute("aria-selected")).toBe("true");
+  fireEvent.keyDown(query, { key: "ArrowUp" });
+  expect(initial.at(-1)?.getAttribute("aria-selected")).toBe("true");
+  fireEvent.keyDown(query, { key: "ArrowDown" });
+  expect(initial[0].getAttribute("aria-selected")).toBe("true");
+  fireEvent.change(query, { target: { value: "@полярная" } });
+  const hidden = await swift.findByRole("option", { name: /winter-owl/ });
+  expect(query.getAttribute("aria-activedescendant")).toBe(hidden.id);
+  const reads = connection.readSavedProfiles.mock.calls.length;
+  fireEvent.change(query, { target: { value: "@winter" } });
+  fireEvent.keyDown(query, { key: "Enter", isComposing: true });
+  expect(connection.selectSidebarChannel).not.toHaveBeenCalled();
+  expect(connection.readSavedProfiles).toHaveBeenCalledTimes(reads);
+  fireEvent.keyDown(query, { key: "Enter" });
+  await waitFor(() =>
+    expect(connection.selectSidebarChannel).toHaveBeenLastCalledWith(
+      team.id,
+      hiddenId,
+    ),
+  );
+  expect(screen.queryByRole("dialog")).toBeNull();
+  await screen.findByRole("heading", { name: "winter-owl" });
+  fireEvent.click(screen.getByRole("button", { name: "Find a channel" }));
+  const again = within(
+    await screen.findByRole("dialog", { name: "Find a channel" }),
+  );
+  fireEvent.change(again.getByRole("combobox"), {
+    target: { value: "#general" },
+  });
+  const general = again.getByRole("option", { name: "General" });
+  expect(general.querySelector("mark")?.textContent).toBe("General");
+  fireEvent.click(general);
+  const reopened = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Message #General…",
+  });
+  expect(reopened.value).toBe("Text saved on this device");
+  expect([
+    reopened.selectionStart,
+    reopened.selectionEnd,
+    reopened.selectionDirection,
+  ]).toEqual([2, 6, "backward"]);
+  expect(connection.selectSidebarChannel).toHaveBeenLastCalledWith(
+    team.id,
+    channelId,
+  );
+  const trigger = screen.getByRole("button", { name: "Find a channel" });
+  trigger.focus();
+  fireEvent.click(trigger);
+  const popup = await screen.findByRole("dialog");
+  const input = within(popup).getByRole("combobox");
+  fireEvent.change(input, { target: { value: "definitely-no-such-room" } });
+  expect(await within(popup).findByText("No conversations found")).toBeTruthy();
+  expect(input.getAttribute("aria-expanded")).toBe("false");
+  expect(input.hasAttribute("aria-activedescendant")).toBe(false);
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(document.activeElement).toBe(input);
+  fireEvent.keyDown(input, { key: "Escape" });
+  expect(document.activeElement).toBe(trigger);
+  expect(connection.refreshSavedProfiles).not.toHaveBeenCalled();
+  expect(connection.refreshTeamSidebar).not.toHaveBeenCalled();
+});
+
+test("keeps a typed quick-switch query when saved profile lookup fails", async () => {
+  const { rooms, channel, connection } = offlineWorkspace();
+  const peer = "e".repeat(26);
+  rooms.push({
+    ...channel("f".repeat(26), `${user}__${peer}`),
+    kind: "D",
+    displayName: "",
+  });
+  render(<App language="en" />);
+  await screen.findByRole("textbox", { name: "Message #General…" });
+  let fail!: (reason: string) => void;
+  connection.readSavedProfiles.mockImplementationOnce(
+    () =>
+      new Promise((_, reject) => {
+        fail = reject;
+      }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Find a channel" }));
+  const dialog = within(await screen.findByRole("dialog"));
+  const field = dialog.getByRole<HTMLInputElement>("combobox");
+  fireEvent.change(field, { target: { value: "winter-owl" } });
+  expect(dialog.getByRole("status").textContent).toBe(
+    "Loading saved conversations…",
+  );
+  await act(async () => fail("history_storage_unavailable"));
+  expect(dialog.getByRole("alert").textContent).toBe(
+    "Couldn’t read or save the data on this device.",
+  );
+  expect(dialog.queryByText("No conversations found")).toBeNull();
+  expect(field.value).toBe("winter-owl");
+  expect(document.activeElement).toBe(field);
+  fireEvent.change(field, { target: { value: "gen" } });
+  expect(dialog.getByRole("option", { name: "General" })).toBeTruthy();
+  expect(connection.refreshSavedProfiles).not.toHaveBeenCalled();
+});
+
+test("a late profile read from the previous team does not replace the current quick-switch group", async () => {
+  const { team, rooms, channel, connection } = offlineWorkspace();
+  const peer = "e".repeat(26),
+    hiddenId = "f".repeat(26);
+  rooms.push({
+    ...channel(hiddenId, `${user}__${peer}`),
+    kind: "D",
+    displayName: "",
+    lastViewedAt: 0,
+  });
+  const otherTeam = {
+    ...team,
+    id: "s".repeat(26),
+    name: "summer",
+    displayName: "Summer HQ",
+  };
+  const joined = {
+    teams: [team, otherTeam],
+    selectedTeam: team.id,
+  };
+  connection.readJoinedTeams.mockImplementation(async () => ({ ...joined }));
+  connection.selectJoinedTeam.mockImplementation(async (id: string) => {
+    joined.selectedTeam = id;
+    return true;
+  });
+  const pending: ((value: SavedProfiles) => void)[] = [];
+  connection.readSavedProfiles.mockImplementation(async ({ ids }) =>
+    ids.includes(peer)
+      ? new Promise((resolve) => pending.push(resolve))
+      : { profiles: {}, usernames: {} },
+  );
+  render(<App language="en" />);
+  await screen.findByText("Saved in General");
+  fireEvent.click(screen.getByRole("button", { name: "Find a channel" }));
+  const first = within(await screen.findByRole("dialog"));
+  await waitFor(() => expect(pending).toHaveLength(1));
+  fireEvent.click(first.getByRole("button", { name: "Close" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Switch team, Winter HQ" }),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: "Summer HQ",
+    }),
+  );
+  await screen.findByRole("button", { name: "Switch team, Summer HQ" });
+  await screen.findByText("Saved in General");
+  fireEvent.click(screen.getByRole("button", { name: "Find a channel" }));
+  const second = within(await screen.findByRole("dialog"));
+  const input = second.getByRole<HTMLInputElement>("combobox");
+  fireEvent.change(input, { target: { value: "owl" } });
+  await waitFor(() => expect(pending).toHaveLength(2));
+  expect(second.getByRole("status").textContent).toBe(
+    "Loading saved conversations…",
+  );
+  const result = (username: string) => ({
+    profiles: { [peer]: channelProfile({ id: peer, username }) },
+    usernames: {},
+  });
+  await act(async () => pending[1](result("summer-owl")));
+  await second.findByRole("option", { name: "summer-owl" });
+  await act(async () => pending[0](result("winter-owl")));
+  expect(
+    second.getAllByRole("option").map((row) => row.getAttribute("aria-label")),
+  ).toEqual(["summer-owl"]);
+  expect(input.value).toBe("owl");
+  expect(connection.selectSidebarChannel).not.toHaveBeenCalled();
+});
+
+test("restores the selected team, channel, messages and account actions without a network request", async () => {
+  const fixture = offlineWorkspace();
+  const { team, channelId, otherId, rooms, connection } = fixture;
   const view = render(<App language="en" />);
   await screen.findByText("Saved in General");
   const outgoing = (
@@ -654,7 +894,7 @@ test("restores the selected team, channel, messages and account actions without 
   );
   // A joined direct conversation is not this team's default destination.
   rooms[0].kind = "D";
-  selected = otherId;
+  fixture.selected = otherId;
   view.rerender(<App language="en" key="reopened" />);
   fireEvent.click(await screen.findByRole("button", { name: "Close channel" }));
   expect(
@@ -662,7 +902,7 @@ test("restores the selected team, channel, messages and account actions without 
       name: "Winter HQ",
     }),
   ).toBeTruthy();
-  expect(selected).toBe(otherId);
+  expect(fixture.selected).toBe(otherId);
   view.unmount();
   expect(connection.close).toHaveBeenCalledTimes(2);
   expect(connection.refreshJoinedTeams).not.toHaveBeenCalled();

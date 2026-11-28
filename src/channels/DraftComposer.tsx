@@ -23,7 +23,10 @@ import type { WorkspaceConnection } from "./use-workspace-read.ts";
 import { workspaceFailure } from "./workspace-data.ts";
 import "./draft.css";
 
+export type DraftSelection = [number, number, "forward" | "backward" | "none"];
+
 type FieldProps = {
+  selections?: Map<string, DraftSelection>;
   language: EntryLanguage;
   sendContext: DraftSendContext;
   conversation: { name: string; direct: boolean };
@@ -102,6 +105,7 @@ function DraftPlace({ connection, channelId, rootId, ...field }: Props) {
     return (
       <DraftField
         editor={result}
+        channelId={channelId}
         switchedAt={switchedAt}
         afterRetry={attempt > 0}
         {...field}
@@ -130,6 +134,8 @@ function DraftPlace({ connection, channelId, rootId, ...field }: Props) {
 
 function DraftField({
   editor,
+  channelId,
+  selections,
   afterRetry,
   fieldRef,
   label,
@@ -142,6 +148,7 @@ function DraftField({
   switchedAt,
 }: FieldProps & {
   editor: VisibleDraft;
+  channelId: string;
   afterRetry: boolean;
   switchedAt: number | undefined;
 }) {
@@ -237,8 +244,24 @@ function DraftField({
         (field.closest(".channels-frame")?.clientWidth ?? 0) > 740)
     )
       field.focus({ preventScroll: true });
-    field.setSelectionRange(field.value.length, field.value.length);
-  }, [fieldRef, focusRequest, editor]);
+    const remembered = selections?.get(channelId);
+    if (!focusRequest && remembered) field.setSelectionRange(...remembered);
+    else field.setSelectionRange(field.value.length, field.value.length);
+    return () => {
+      if (
+        field.selectionStart === field.value.length &&
+        field.selectionEnd === field.value.length
+      ) {
+        selections?.delete(channelId);
+      } else {
+        selections?.set(channelId, [
+          field.selectionStart,
+          field.selectionEnd,
+          field.selectionDirection,
+        ]);
+      }
+    };
+  }, [channelId, fieldRef, focusRequest, selections, editor]);
 
   useEffect(() => {
     let visible = true;

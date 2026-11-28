@@ -546,6 +546,44 @@ test("keeps the Saved reminder while the return bar moves to the thread", async 
   expect(screen.queryByText(copy)).toBeNull();
 });
 
+test("choosing the current channel from the quick switcher closes its thread and keeps both drafts", async () => {
+  mount(true);
+  const main = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Message #General…",
+  });
+  fireEvent.change(main, { target: { value: "Channel draft" } });
+  const thread = await screen.findByRole("button", {
+    name: /Open thread, 1 reply/,
+  });
+  fireEvent.click(thread);
+  const reply = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Reply in thread…",
+  });
+  fireEvent.change(reply, { target: { value: "Reply draft" } });
+  fireEvent.click(screen.getByRole("button", { name: "Find a channel" }));
+  const dialog = within(
+    await screen.findByRole("dialog", { name: "Find a channel" }),
+  );
+  fireEvent.change(dialog.getByRole("combobox"), {
+    target: { value: "General" },
+  });
+  fireEvent.click(await dialog.findByRole("option", { name: "General" }));
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("textbox", { name: "Reply in thread…" }),
+    ).toBeNull(),
+  );
+  expect(main.value).toBe("Channel draft");
+  fireEvent.click(thread);
+  expect(
+    (
+      await screen.findByRole<HTMLTextAreaElement>("textbox", {
+        name: "Reply in thread…",
+      })
+    ).value,
+  ).toBe("Reply draft");
+});
+
 test("opens a root by its reply count and returns focus to the same message with its channel draft intact", async () => {
   const connection = mount(true);
   const draft = await screen.findByRole<HTMLTextAreaElement>("textbox", {

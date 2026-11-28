@@ -134,6 +134,34 @@ export async function checkSavedTeamWindow(
       throw Error("Offline outgoing retry opened its confirmation");
     const field = await restoredDraft(originalDraft);
     ui.getByText("Черновик · без сети");
+    openChannelNavigation(element, "Каналы");
+    const findChannel = ui.getByRole("button", { name: "Найти канал" });
+    flushSync(() => fireEvent.click(findChannel));
+    const quick = within(
+      await ui.findByRole("dialog", { name: "Найти канал" }),
+    );
+    const query = quick.getByRole("combobox");
+    if (document.activeElement !== query)
+      throw Error("Quick switch did not focus its input");
+    flushSync(() => fireEvent.input(query, { target: { value: "#town" } }));
+    const hit = await quick.findByRole("option", { name: /Town Square/ });
+    if (query.getAttribute("aria-activedescendant") !== hit.id)
+      throw Error("Offline quick switch did not select the saved channel");
+    flushSync(() => fireEvent.keyDown(query, { key: "Enter" }));
+    await waitFor(() => {
+      const heading = ui.getByRole("heading", { name: "Town Square" });
+      const pane = heading.closest(".channels-frame");
+      if (!pane) throw Error("Quick-switch destination has no Channels window");
+      const expected = pane.clientWidth > 740 ? field : heading;
+      if (
+        ui.queryByRole("dialog") ||
+        document.activeElement !== expected ||
+        !expected.getClientRects().length
+      )
+        throw Error(
+          "Quick switch did not return focus to the visible conversation",
+        );
+    });
     const searchTrigger = ui.getByRole("button", { name: "Поиск" });
     searchTrigger.focus();
     flushSync(() => fireEvent.click(searchTrigger));

@@ -1,0 +1,212 @@
+.workspace-quick-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 18px);
+  min-height: 32px;
+  margin: 0 9px 8px;
+  padding: 0 8px 0 10px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--navigation-muted);
+  background: var(--navigation-hover);
+  font: inherit;
+  font-size: 0.8rem;
+  text-align: start;
+  cursor: pointer;
+}
+.workspace-quick-trigger:hover {
+  color: var(--on-navigation);
+  background: color-mix(in srgb, var(--on-navigation) 14%, var(--navigation));
+}
+.workspace-quick-trigger svg {
+  width: 15px;
+  height: 15px;
+}
+.workspace-quick-trigger kbd {
+  margin-inline-start: auto;
+  padding: 1px 4px;
+  border: 1px solid var(--navigation-muted);
+  border-radius: 4px;
+  font: inherit;
+  font-size: 0.7rem;
+}
+dialog.quick-switch-dialog {
+  width: min(560px, calc(100vw - 24px));
+  height: fit-content;
+  max-height: min(82dvh, 780px);
+  margin: auto;
+  padding: 0;
+  border: 1px solid
+    color-mix(in srgb, var(--strong-divider) 60%, var(--divider));
+  border-radius: 14px;
+}
+.quick-switch-dialog::backdrop {
+  background: #06183966;
+}
+.quick-switch-dialog header {
+  padding: 15px 18px 10px;
+  background: var(--surface);
+  box-shadow: inset 0 -1px var(--divider);
+}
+.quick-switch-dialog header h2 {
+  font-size: 1rem;
+}
+.quick-switch-close {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+.quick-switch-close:hover {
+  background: var(--canvas);
+}
+.quick-switch-field {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 14px 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--field-border);
+  border-radius: 8px;
+  color: var(--muted);
+}
+.quick-switch-field:focus-within {
+  border-color: var(--focus);
+}
+.quick-switch-field svg,
+.quick-switch-icon svg,
+.quick-switch-close svg {
+  display: block;
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+.quick-switch-field input[type="search"] {
+  width: 100%;
+  min-width: 0;
+  min-height: 20px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  color: var(--text);
+  background: transparent;
+  font-size: 0.94rem;
+}
+.quick-switch-results {
+  max-height: min(50dvh, 420px);
+  padding: 0 9px 10px;
+}
+.quick-switch-results > h3 {
+  margin: 14px 0 6px;
+  padding: 0 9px;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 650;
+}
+.quick-switch-list button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  text-align: start;
+  border: 0;
+  border-radius: 7px;
+  color: var(--text);
+  background: transparent;
+  cursor: pointer;
+}
+.quick-switch-list [aria-selected="true"] {
+  background: var(--row-selected);
+}
+.quick-switch-copy {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.quick-switch-copy :is(strong, small),
+.quick-switch-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.quick-switch-copy strong {
+  font-size: 0.87rem;
+  font-weight: 620;
+}
+.quick-switch-copy small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+.quick-switch-copy mark {
+  color: var(--text);
+  background: var(--message-target);
+}
+.quick-switch-icon,
+.quick-switch-meta,
+.quick-switch-empty p {
+  color: var(--muted);
+}
+.quick-switch-meta {
+  max-width: 38%;
+  font-size: 0.7rem;
+}
+.quick-switch-avatar {
+  display: grid;
+  flex: 0 0 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--accent);
+  background: var(--accent-tint);
+  font-weight: 600;
+}
+.quick-switch-empty {
+  padding: 24px 16px;
+  text-align: center;
+}
+.quick-switch-empty h3 {
+  font-size: 1rem;
+}
+.quick-switch-keys {
+  padding: 8px 16px;
+  border-top: 1px solid var(--divider);
+  color: var(--muted);
+  font-size: 0.69rem;
+}
+.quick-switch-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@media (max-width: 740px), (hover: none) and (pointer: coarse) {
+  .workspace-quick-trigger,
+  .quick-switch-list button {
+    min-height: 44px;
+  }
+  .quick-switch-list button:has(.quick-switch-avatar) {
+    padding-block: 7px;
+  }
+  .quick-switch-avatar {
+    flex-basis: 30px;
+    height: 30px;
+  }
+  .workspace-quick-trigger kbd,
+  .quick-switch-keys {
+    display: none;
+  }
+}

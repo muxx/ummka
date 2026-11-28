@@ -178,6 +178,7 @@ export function webviewServers(
     "appearance",
     "dialog",
     "results",
+    "quick-switch",
     "thread",
     "reopened",
     "channel-menu",
@@ -2753,7 +2754,7 @@ export function webviewServers(
       );
       assert.equal(stepIndex, backSteps.length);
       console.log(
-        `${platform} verified native return through the search dialog, results and thread with both composer drafts intact.`,
+        `${platform} verified native return through search, the quick switcher and the thread with both composer drafts intact.`,
       );
       assert.deepEqual(visits.sort(), expected.sort());
       console.log(
