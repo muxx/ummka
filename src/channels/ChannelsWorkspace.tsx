@@ -65,7 +65,9 @@ import { showPostArrival } from "./post-arrival.ts";
 import { newestCollectionItems } from "./post-collection.ts";
 import {
   capturePublishedReadingOrigin,
+  type PublishedLinkLanding,
   type PublishedReadingOrigin,
+  publishedOriginLink,
 } from "./published-reading-history.ts";
 import type { ReactionThread } from "./submit-channel-reaction.ts";
 import { TeamChannelDirectory } from "./TeamChannelDirectory.tsx";
@@ -1631,8 +1633,9 @@ export function ChannelsWorkspace({
   const readingReady = readingInbox
     ? inbox.visible && selection?.post?.id === linkPlacement?.origin.rootId
     : timeline.focus?.requestId === focusRequest?.requestId;
-  const reportReadingLanding = useEffectEvent((id: number, edited: boolean) =>
-    readingReturn?.landed(id, edited),
+  const reportReadingLanding = useEffectEvent(
+    (id: number, notice?: PublishedLinkLanding) =>
+      readingReturn?.landed(id, notice),
   );
   useLayoutEffect(() => {
     if (
@@ -1645,6 +1648,8 @@ export function ChannelsWorkspace({
     const id = focusRequest.requestId;
     const origin = linkPlacement.origin;
     let frame: number;
+    let revealed = false;
+    let checkedResize = false;
     let clear: (() => void) | undefined;
     const focus = () => {
       const pane = host.current?.querySelector<HTMLElement>(
@@ -1656,19 +1661,22 @@ export function ChannelsWorkspace({
         `[data-post-id="${CSS.escape(origin.postId)}"]`,
       );
       if (!pane || !row || row.closest("[inert], [hidden]")) return;
-      const link = Array.from(
-        row.querySelectorAll<HTMLAnchorElement>("a[data-published-link]"),
-      ).filter((node) => node.href === origin.link.href)[
-        origin.link.occurrence
-      ];
+      const destination = publishedOriginLink(row, origin.link);
+      const link = "link" in destination ? destination.link : undefined;
       const disclosure =
-        origin.link.expanded &&
+        !revealed &&
+        link &&
+        (origin.link.expanded ||
+          link.closest(
+            "[data-post-disclosure-clipped], [data-card-disclosure-clipped]",
+          )) &&
         link
-          ?.closest(".post-body-disclosure")
+          .closest("[data-published-disclosure]")
           ?.querySelector<HTMLButtonElement>(
-            ".post-body-disclosure-action[aria-expanded=false]",
+            "[data-published-disclosure-action][aria-expanded=false]",
           );
       if (disclosure) {
+        revealed = true;
         disclosure.click();
         frame = requestAnimationFrame(focus);
         return;
@@ -1681,11 +1689,63 @@ export function ChannelsWorkspace({
           offset;
       const visibleLink =
         link && !link.closest("[inert], [hidden]") ? link : null;
-      if (!visibleLink) row.tabIndex = -1;
+      if (visibleLink) {
+        const linkBounds = visibleLink.getBoundingClientRect();
+        const paneBounds = pane.getBoundingClientRect();
+        const shift =
+          origin.link.offsetInPost === undefined
+            ? 0
+            : linkBounds.top -
+              row.getBoundingClientRect().top -
+              origin.link.offsetInPost;
+        // The thread viewport is clipped by its frame while its ResizeObserver
+        // is still applying the new height after the return bar changes.
+        const frameBounds = pane
+          .closest(".timeline-frame")
+          ?.getBoundingClientRect();
+        const top = Math.max(
+          paneBounds.top,
+          frameBounds?.top ?? paneBounds.top,
+        );
+        const bottom = Math.min(
+          paneBounds.bottom,
+          frameBounds?.bottom ?? paneBounds.bottom,
+        );
+        const outside = linkBounds.bottom <= top || linkBounds.top >= bottom;
+        const partlyHidden = linkBounds.top < top || linkBounds.bottom > bottom;
+        if (outside || (partlyHidden && Math.abs(shift) > 1)) {
+          const targetTop =
+            pane.scrollTop +
+            (linkBounds.top < top
+              ? Math.floor(linkBounds.top - top)
+              : Math.ceil(linkBounds.bottom - bottom));
+          pane.scrollTop = targetTop;
+          if (
+            !checkedResize &&
+            paneBounds.bottom > bottom + 1 &&
+            pane.scrollTop < targetTop - 1
+          ) {
+            // At the end of a thread, the previous feed height can still limit
+            // the scroll range. Give its size observer one rendering step.
+            checkedResize = true;
+            frame = requestAnimationFrame(focus);
+            return;
+          }
+        }
+      } else {
+        row.tabIndex = -1;
+      }
       (visibleLink ?? row).focus({ preventScroll: true });
       landedReading.current = id;
       clear = showPostArrival(row);
-      reportReadingLanding(id, !link);
+      reportReadingLanding(
+        id,
+        "notice" in destination
+          ? destination.notice
+          : visibleLink
+            ? undefined
+            : "unmatchedLink",
+      );
     };
     frame = requestAnimationFrame(focus);
     return () => {

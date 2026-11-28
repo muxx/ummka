@@ -15,6 +15,7 @@ import {
 } from "../channels/prepare-focused-conversation.ts";
 import {
   createPublishedReadingHistory,
+  type PublishedLinkLanding,
   type PublishedReadingOrigin,
   type savedReadingSource,
 } from "../channels/published-reading-history.ts";
@@ -70,7 +71,12 @@ type Position = {
     threadRoot?: import("../mattermost/local-history.ts").LocalPost;
   };
 };
-type ReadingNotice = "busy" | "offline" | "failed" | "unavailable" | "edited";
+type ReadingNotice =
+  | "busy"
+  | "offline"
+  | "failed"
+  | "unavailable"
+  | PublishedLinkLanding;
 const noReading = () => undefined;
 const subscribeToNothing = () => () => {};
 type Queue = <T>(work: () => Promise<T>) => Promise<T>;
@@ -272,7 +278,7 @@ export type MessageNavigation = {
     saved?: ReturnType<typeof savedReadingSource>;
     notice?: ReadingNotice;
     back: (collapsedThreads: boolean) => void;
-    landed: (requestId: number, edited: boolean) => void;
+    landed: (requestId: number, notice?: PublishedLinkLanding) => void;
   };
   open: (
     source: Source,
@@ -932,9 +938,9 @@ export function useMessageNavigation(
           saved: joinedSavedReading,
           notice: readingNotice,
           back: returnToReading,
-          landed(requestId: number, edited: boolean) {
-            if (position?.request.requestId === requestId && edited)
-              setReadingNotice("edited");
+          landed(requestId: number, notice?: PublishedLinkLanding) {
+            if (position?.request.requestId === requestId && notice)
+              setReadingNotice(notice);
           },
         },
       }),

@@ -1,4 +1,5 @@
 import type { SavedCollectionOrigin } from "../entry/use-message-navigation.tsx";
+import type { IntegrationCard } from "../mattermost/integration-cards.ts";
 import type { LocalPost } from "../mattermost/local-history.ts";
 import { PostObservationSuperseded } from "../mattermost/message-anchors.ts";
 import { inspectPostTarget } from "./inspect-post-target.ts";
@@ -12,7 +13,13 @@ export type PublishedReadingOrigin = {
   channelId: string;
   rootId: string | null;
   postId: string;
-  link: { href: string; occurrence: number; expanded?: true };
+  link: {
+    href: string;
+    occurrence: number;
+    offsetInPost?: number;
+    expanded?: true;
+    card?: CardLinkOrigin;
+  };
   reading: TimelinePlace;
   label?: string;
   inbox?: {
@@ -46,6 +53,138 @@ type ReadingScope = Pick<
   threadLabel?: string;
 };
 
+type CardLinkOrigin = {
+  identity: string;
+  detail?: string;
+  part: string;
+  label: string;
+  count: number;
+  ambiguous: boolean;
+  ordered?: { version: string; position: number; signatures: string[] };
+};
+
+const renderedCards = new WeakMap<HTMLElement, IntegrationCard>();
+
+export function registerPublishedCard(
+  node: HTMLElement,
+  card: IntegrationCard,
+) {
+  renderedCards.set(node, card);
+}
+
+function cardIdentity(card: IntegrationCard) {
+  return [card.title?.trim(), card.authorName?.trim(), card.pretext?.trim()];
+}
+
+function cardDetail(card: IntegrationCard) {
+  return JSON.stringify([
+    card.titleLink,
+    card.authorLink,
+    card.color,
+    card.text,
+    card.fields.map((field) => [field.title, field.value, field.short]),
+    card.footer,
+  ]);
+}
+
+function cardNodes(row: HTMLElement) {
+  return Array.from(row.querySelectorAll<HTMLElement>("[data-published-card]"));
+}
+
+function cardSignatures(nodes: readonly HTMLElement[]) {
+  return nodes.map((node) => {
+    const card = renderedCards.get(node);
+    return card ? JSON.stringify([cardIdentity(card), cardDetail(card)]) : "";
+  });
+}
+
+function unchangedCard(
+  row: HTMLElement,
+  origin: NonNullable<CardLinkOrigin["ordered"]>,
+) {
+  if (row.dataset.postVersion !== origin.version) return;
+  const nodes = cardNodes(row);
+  const signatures = cardSignatures(nodes);
+  if (
+    signatures.length === origin.signatures.length &&
+    signatures.every(
+      (signature, index) => signature && signature === origin.signatures[index],
+    )
+  )
+    return nodes[origin.position];
+}
+
+function cardMatches(
+  row: HTMLElement,
+  { identity, detail }: Pick<CardLinkOrigin, "identity" | "detail">,
+) {
+  return cardNodes(row).filter((node) => {
+    const card = renderedCards.get(node);
+    return (
+      card &&
+      JSON.stringify(cardIdentity(card)) === identity &&
+      (detail === undefined || cardDetail(card) === detail)
+    );
+  });
+}
+
+function cardLinkMatches(
+  card: HTMLElement,
+  address: Pick<CardLinkOrigin, "part" | "label">,
+  href: string,
+) {
+  const section = card.querySelector(
+    `[data-published-card-part="${CSS.escape(address.part)}"]`,
+  );
+  return section
+    ? Array.from(
+        section.querySelectorAll<HTMLAnchorElement>("a[data-published-link]"),
+      ).filter(
+        (link) =>
+          link.href === href && link.textContent?.trim() === address.label,
+      )
+    : [];
+}
+
+function postLinkMatches(row: HTMLElement, href: string) {
+  return Array.from(
+    row.querySelectorAll<HTMLAnchorElement>("a[data-published-link]"),
+  ).filter(
+    (link) => link.href === href && !link.closest("[data-published-card]"),
+  );
+}
+
+export type PublishedLinkLanding = "edited" | "unmatchedLink";
+
+export function publishedOriginLink(
+  row: HTMLElement,
+  address: PublishedReadingOrigin["link"],
+): { link: HTMLAnchorElement } | { notice: PublishedLinkLanding } {
+  const { card, href, occurrence } = address;
+  if (!card) {
+    const link = postLinkMatches(row, href)[occurrence];
+    return link ? { link } : { notice: "edited" };
+  }
+  function unconfirmed(): { notice: PublishedLinkLanding } {
+    const sameLink = Array.from(
+      row.querySelectorAll<HTMLAnchorElement>("a[data-published-link]"),
+    ).some(
+      (link) => link.href === href && link.textContent?.trim() === card?.label,
+    );
+    return { notice: sameLink ? "unmatchedLink" : "edited" };
+  }
+  const matches = cardMatches(row, card);
+  const matchedCard = card.ambiguous
+    ? card.ordered && unchangedCard(row, card.ordered)
+    : matches.length === 1
+      ? matches[0]
+      : undefined;
+  if (!matchedCard) return unconfirmed();
+  const links = cardLinkMatches(matchedCard, card, href);
+  if (links.length !== card.count) return unconfirmed();
+  return { link: links[occurrence] };
+}
+
 export function capturePublishedReadingOrigin(
   anchor: HTMLAnchorElement,
   scope: ReadingScope,
@@ -71,10 +210,46 @@ export function capturePublishedReadingOrigin(
   if (reading.anchors.length !== 1 || !reading.anchors[0].published)
     return null;
   const href = anchor.href;
-  const links = Array.from(
-    row.querySelectorAll<HTMLAnchorElement>("a[data-published-link]"),
-  );
-  const occurrence = links.filter((link) => link.href === href).indexOf(anchor);
+  const cardNode = anchor.closest<HTMLElement>("[data-published-card]");
+  const data = cardNode && renderedCards.get(cardNode);
+  const part = anchor.closest<HTMLElement>("[data-published-card-part]")
+    ?.dataset.publishedCardPart;
+  let card: CardLinkOrigin | undefined;
+  let occurrence: number;
+  if (cardNode && data && part) {
+    const heading = cardIdentity(data);
+    const identity = JSON.stringify(heading);
+    // Mattermost sends no stable card identifier. Prefer its authored heading
+    // when it identifies one report, and fingerprint the text when necessary.
+    const detail =
+      !heading.some(Boolean) || cardMatches(row, { identity }).length > 1
+        ? cardDetail(data)
+        : undefined;
+    const label = anchor.textContent?.trim() ?? "";
+    const links = cardLinkMatches(cardNode, { part, label }, href);
+    const ambiguous = cardMatches(row, { identity, detail }).length !== 1;
+    const version = row.dataset.postVersion;
+    const nodes = ambiguous && version ? cardNodes(row) : undefined;
+    card = {
+      identity,
+      detail,
+      part,
+      label,
+      count: links.length,
+      ambiguous,
+      ...(nodes &&
+        version && {
+          ordered: {
+            version,
+            position: nodes.indexOf(cardNode),
+            signatures: cardSignatures(nodes),
+          },
+        }),
+    };
+    occurrence = links.indexOf(anchor);
+  } else {
+    occurrence = postLinkMatches(row, href).indexOf(anchor);
+  }
   if (occurrence < 0) return null;
   const label = inThread ? scope.threadLabel : scope.label;
   const description =
@@ -98,9 +273,13 @@ export function capturePublishedReadingOrigin(
     link: {
       href,
       occurrence,
+      offsetInPost: link.top - row.getBoundingClientRect().top,
+      ...(card && { card }),
       ...(anchor
-        .closest(".post-body-disclosure")
-        ?.querySelector(".post-body-disclosure-action[aria-expanded=true]") && {
+        .closest("[data-published-disclosure]")
+        ?.querySelector(
+          "[data-published-disclosure-action][aria-expanded=true]",
+        ) && {
         expanded: true,
       }),
     },
