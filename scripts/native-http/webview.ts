@@ -72,6 +72,8 @@ export function webviewServers(
     "ping-body",
     "batch-headers",
     "batch-body",
+    "observe-thread-headers",
+    "observe-thread-body",
     "account-error-body",
     "account-retire",
     ...pendingProfileImages.values(),
@@ -1086,6 +1088,64 @@ export function webviewServers(
     const readThread = await respondToThreadRead(req, res, url, teamId);
     if (readThread) {
       visits.push(readThread);
+      return;
+    }
+    const observation = `/team/chat/api/v4/users/me/teams/${teamId}/threads`;
+    if (
+      url.pathname === `${observation}/${"p".repeat(26)}` ||
+      url.pathname === `${observation}/${"z".repeat(26)}`
+    ) {
+      assert.equal(req.method, "GET");
+      assert.equal(
+        req.headers.authorization,
+        "Bearer fixture-prefixed-session",
+      );
+      assert.equal(req.headers.cookie, undefined);
+      assert.equal(await text(req), "");
+      const missing = url.pathname.endsWith("z".repeat(26));
+      const variant = req.headers["x-test-case"];
+      const extended = url.search === "?extended=true";
+      if (missing || variant) assert.equal(url.search, "");
+      else
+        assert.equal(
+          url.search,
+          extended ? "?extended=true" : "?extended=false",
+        );
+      const name = variant
+        ? `observe-thread-${variant}`
+        : missing
+          ? "observe-thread-missing"
+          : extended
+            ? "observe-thread-extended"
+            : "observe-thread-compact";
+      visits.push(name);
+      if (held.has(name)) {
+        hold(name, req, res);
+        return;
+      }
+      const id = "p".repeat(26);
+      res.writeHead(missing ? 404 : 200, {
+        "Content-Type": "application/json",
+      });
+      res.end(
+        JSON.stringify(
+          missing
+            ? {
+                id: "app.user.get_threads_for_user.not_found",
+                status_code: 404,
+              }
+            : {
+                id,
+                post: { id, channel_id: channelId, message: "Observed root" },
+                last_viewed_at: 1700000000121,
+                unread_replies: 3,
+                unread_mentions: 2,
+                participants: [
+                  { id: userId, ...(extended && { username: "fixture" }) },
+                ],
+              },
+        ),
+      );
       return;
     }
     if (
@@ -2255,6 +2315,11 @@ export function webviewServers(
         "unread-thread-root",
         "read-thread",
         "read-team-threads",
+        "observe-thread-compact",
+        "observe-thread-extended",
+        "observe-thread-missing",
+        "observe-thread-headers",
+        "observe-thread-body",
         "account-direct-conversation",
         "account-group-conversation",
         "open-self-conversation",

@@ -1089,6 +1089,58 @@ export async function checkGeneratedRequests(ports: string[]) {
         "signed thread unread from a selected post",
       );
     }
+    await fixtureStep("observe-followed-thread", async () => {
+      for (const extended of [false, true]) {
+        const response = await threads.getUserThreadRaw({
+          ...follow,
+          extended,
+        });
+        const state = await response.value();
+        check(
+          response.raw.status === 200 &&
+            state.id === postId &&
+            state.post?.id === postId &&
+            state.post.channelId === channelId &&
+            state.post.message === "Observed root" &&
+            state.lastViewedAt === timestamp - 2 &&
+            state.unreadReplies === 3 &&
+            state.unreadMentions === 2 &&
+            state.participants?.length === 1 &&
+            state.participants[0].id === userId &&
+            state.participants[0].username ===
+              (extended ? "fixture" : undefined),
+          "signed thread observation",
+        );
+      }
+      const missing = await rejected(
+        threads.getUserThread({ ...follow, threadId: "z".repeat(26) }),
+      );
+      check(
+        missing instanceof ResponseError &&
+          missing.response.status === 404 &&
+          (await missing.response.json()).id ===
+            "app.user.get_threads_for_user.not_found",
+        "thread observation preserves 404",
+      );
+      for (const request of [
+        () => guestThreads.getUserThread(follow),
+        () => threads.getUserThread({ ...follow, userId }),
+        () => threads.getUserThread({ ...follow, teamId: "short" }),
+        () => threads.getUserThread({ ...follow, threadId: "short" }),
+        () => threads.getUserThread(follow, { method: "PUT" }),
+      ]) {
+        const denied = await rejected(request());
+        check(
+          denied instanceof FetchError &&
+            denied.cause instanceof TypeError &&
+            denied.cause.cause === "operation_denied",
+          "thread observation denied before dispatch",
+        );
+      }
+      await checkAbort("observe-thread", (overrides) =>
+        threads.getUserThreadRaw(follow, overrides),
+      );
+    });
     for (const request of [
       () => guestThreads.setThreadUnreadByPostId(unreadScope),
       () => threads.setThreadUnreadByPostId({ ...unreadScope, userId }),

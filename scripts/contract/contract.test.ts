@@ -109,6 +109,7 @@ import {
   threadListPath,
 } from "./thread-list-corrections.ts";
 import { correctThreadMutation } from "./thread-mutation-correction.ts";
+import { correctThreadRead } from "./thread-read-correction.ts";
 
 const sources = process.env.UMMKA_CONTRACT_SOURCES;
 const work = process.env.UMMKA_CONTRACT_WORK;
@@ -947,6 +948,49 @@ test("both thread follow verbs return StatusOK and stop on upstream response cha
   }
 });
 
+test("the point thread read describes its optional profiles, response and access denial", () => {
+  const path = `${threadListPath}/{thread_id}`;
+  const key = [path, "get"];
+  const source = object(at(read("users.yaml"), key), path);
+  const newer = object(at(read("users-12.1.0.yaml"), key), path);
+  const operation = object(at(contract, ["paths", ...key]), path);
+  assert.ok(Array.isArray(source.parameters));
+  assert.deepEqual(operation.parameters, [
+    ...source.parameters,
+    {
+      name: "extended",
+      in: "query",
+      description: "Include participant profiles.",
+      schema: { type: "boolean", default: false },
+    },
+  ]);
+  const responses = object(source.responses, path);
+  assert.deepEqual(operation.responses, {
+    ...responses,
+    "200": {
+      description: "Get was successful",
+      content: {
+        "application/json": {
+          schema: { $ref: "#/components/schemas/UserThread" },
+        },
+      },
+    },
+    "403": { $ref: "#/components/responses/Forbidden" },
+  });
+  for (const changed of [
+    { ...source, parameters: operation.parameters },
+    { ...source, responses: operation.responses },
+    {
+      ...source,
+      responses: { ...responses, "403": { description: "Forbidden" } },
+    },
+  ]) {
+    assert.throws(() => correctThreadRead(changed, newer), /Review both/);
+    assert.throws(() => correctThreadRead(source, changed), /Review both/);
+    assert.throws(() => correctThreadRead(changed, changed), /Review both/);
+  }
+});
+
 test("thread read-state operations expose their actual responses and guard the timestamp on both pins", () => {
   for (const [method, suffix, model] of [
     ["put", "/read", "StatusOK"],
@@ -1213,6 +1257,11 @@ test("retains the catalog operations, security and transitive models", () => {
       );
     if (source.operationId === "GetUserThreads")
       expected = correctThreadListQuery(
+        source,
+        object(at(read("users-12.1.0.yaml"), key), path),
+      );
+    if (source.operationId === "GetUserThread")
+      expected = correctThreadRead(
         source,
         object(at(read("users-12.1.0.yaml"), key), path),
       );

@@ -3,6 +3,48 @@ import { StatusOKFromJSON, } from '../models/StatusOK.js';
 import { UserThreadFromJSON, } from '../models/UserThread.js';
 import { UserThreadsFromJSON, } from '../models/UserThreads.js';
 export class ThreadsApi extends runtime.BaseAPI {
+    async getUserThreadRequestOpts(requestParameters) {
+        if (requestParameters['userId'] == null) {
+            throw new runtime.RequiredError('userId', 'Required parameter "userId" was null or undefined when calling getUserThread().');
+        }
+        if (requestParameters['teamId'] == null) {
+            throw new runtime.RequiredError('teamId', 'Required parameter "teamId" was null or undefined when calling getUserThread().');
+        }
+        if (requestParameters['threadId'] == null) {
+            throw new runtime.RequiredError('threadId', 'Required parameter "threadId" was null or undefined when calling getUserThread().');
+        }
+        const queryParameters = {};
+        if (requestParameters['extended'] != null) {
+            queryParameters['extended'] = requestParameters['extended'];
+        }
+        const headerParameters = {};
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        let urlPath = `/api/v4/users/{user_id}/teams/{team_id}/threads/{thread_id}`;
+        urlPath = urlPath.replace('{user_id}', encodeURIComponent(String(requestParameters['userId'])));
+        urlPath = urlPath.replace('{team_id}', encodeURIComponent(String(requestParameters['teamId'])));
+        urlPath = urlPath.replace('{thread_id}', encodeURIComponent(String(requestParameters['threadId'])));
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+    async getUserThreadRaw(requestParameters, initOverrides) {
+        const requestOptions = await this.getUserThreadRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+        return new runtime.JSONApiResponse(response, (jsonValue) => UserThreadFromJSON(jsonValue));
+    }
+    async getUserThread(requestParameters, initOverrides) {
+        const response = await this.getUserThreadRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
     async getUserThreadsRequestOpts(requestParameters) {
         if (requestParameters['userId'] == null) {
             throw new runtime.RequiredError('userId', 'Required parameter "userId" was null or undefined when calling getUserThreads().');

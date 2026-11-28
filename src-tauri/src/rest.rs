@@ -631,6 +631,40 @@ mod tests {
     }
 
     #[test]
+    fn followed_thread_observation_requires_a_signed_self_get_with_full_ids() {
+        let base = "https://fixture.test/sub";
+        let connection = RestConnection::new(base).unwrap();
+        let team = "t".repeat(26);
+        let root = "r".repeat(26);
+        let route = format!("/api/v4/users/me/teams/{team}/threads/{root}");
+        let get = reqwest::Method::GET;
+        let operation = OPERATIONS
+            .iter()
+            .find(|op| op.allows(&get, &route))
+            .unwrap();
+        assert!(operation.self_only);
+        assert!(!operation.allows(&reqwest::Method::PUT, &route));
+        assert!(!operation.allows(&reqwest::Method::POST, &route));
+        for invalid in [
+            route.replace("/me/", &format!("/{root}/")),
+            route.replace(&team, "short"),
+            route.replace(&root, "short"),
+            format!("{route}/extra"),
+        ] {
+            assert!(OPERATIONS.iter().all(|op| !op.allows(&get, &invalid)));
+        }
+        let url = Url::parse(&format!("{base}{route}?extended=true")).unwrap();
+        let mut request = Request::new(get, url);
+        assert!(operation.accepts_body(&request));
+        assert_eq!(
+            connection.check_request(&request),
+            Err(TransportError::OperationDenied)
+        );
+        *request.body_mut() = Some("{}".into());
+        assert!(!operation.accepts_body(&request));
+    }
+
+    #[test]
     fn thread_follow_requires_a_signed_self_route_and_an_empty_body() {
         let base = "https://fixture.test/sub";
         let connection = RestConnection::new(base).unwrap();

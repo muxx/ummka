@@ -110,6 +110,7 @@ import { checkSidebarCounters } from "./sidebar-counters.ts";
 import { checkTeamChannelSearch } from "./team-channel-search.ts";
 import { checkThreadFollow } from "./thread-follow.ts";
 import { checkThreadList } from "./thread-list.ts";
+import { checkThreadObservation } from "./thread-observation.ts";
 import { checkThreadPageTies } from "./thread-page-ties.ts";
 import { checkThreadReadState } from "./thread-read-state.ts";
 import { checkThreadSummary } from "./thread-summary.ts";
@@ -2011,6 +2012,20 @@ await checkAccountPostFiles(
   readerToken,
   otherSaverToken,
   otherSaver.id,
+  version,
+);
+await checkThreadObservation(
+  { session: threadReader, username: otherSaverName },
+  {
+    session: new Configuration({ basePath: base, accessToken: readerToken }),
+    id: reader.id,
+    username: readerLogin.login_id,
+  },
+  new Configuration({ basePath: base, accessToken: observerToken }),
+  [
+    { teamId: team.id, channelId: hiddenSaved.id, direct: false },
+    { teamId: emptyTeam.id, channelId: threadDirect.id, direct: true },
+  ],
   version,
 );
 await allowFixtureBrowserSignIn(base, token);
