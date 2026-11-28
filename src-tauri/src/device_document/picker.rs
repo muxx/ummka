@@ -22,6 +22,8 @@ pub(crate) mod android_check;
 pub(crate) mod mac_check;
 
 #[cfg(feature = "webview-check")]
+pub(crate) mod bridge_check;
+#[cfg(feature = "webview-check")]
 mod selection_check;
 
 pub struct PickedDocument(platform::Locator);
@@ -72,6 +74,26 @@ pub async fn pick<R: Runtime>(
     mode: SelectionMode,
     owner: &CancellationToken,
 ) -> Result<Vec<PickedDocument>, PresentationError> {
+    pick_with(window, mode, owner, platform::show).await
+}
+
+pub(crate) async fn pick_for_draft_files<R: Runtime>(
+    window: &WebviewWindow<R>,
+    owner: &CancellationToken,
+) -> Result<Vec<PickedDocument>, PresentationError> {
+    #[cfg(feature = "webview-check")]
+    let show = bridge_check::show;
+    #[cfg(not(feature = "webview-check"))]
+    let show = platform::show;
+    pick_with(window, SelectionMode::Multiple, owner, show).await
+}
+
+async fn pick_with<R: Runtime>(
+    window: &WebviewWindow<R>,
+    mode: SelectionMode,
+    owner: &CancellationToken,
+    show: impl FnOnce(&WebviewWindow<R>, Uuid, SelectionMode) -> Result<(), PresentationError>,
+) -> Result<Vec<PickedDocument>, PresentationError> {
     if window.label() != "main" {
         return Err(PresentationError::Unavailable);
     }
@@ -83,7 +105,7 @@ pub async fn pick<R: Runtime>(
         app: window.app_handle().clone(),
         id,
     };
-    platform::show(window, id, mode)?;
+    show(window, id, mode)?;
     tokio::select! {
         biased;
         _ = owner.cancelled() => Err(PresentationError::Cancelled),

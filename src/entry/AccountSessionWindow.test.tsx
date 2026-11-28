@@ -63,6 +63,7 @@ async function fixture() {
     readWorkspaceSettings: async () => ({ server: null, preferences: null }),
     refreshJoinedTeams,
     refreshWorkspaceServerPolicy: async () => true,
+    observeChannelEvents: async () => {},
     close: async () => {},
   } as unknown as TeamWorkspace["connection"];
   vi.mocked(openAccountRestConnection).mockResolvedValue(connection);

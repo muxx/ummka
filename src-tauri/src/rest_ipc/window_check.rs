@@ -3,7 +3,7 @@ use super::{exchange::ExchangeError, open_rest_connection, open_transport, sessi
 use crate::{device_document::SelectedDocument, draft_files};
 use objc2_foundation::NSURL;
 use reqwest::{Method, Request, StatusCode};
-use std::{future::ready, num::NonZeroU64, sync::Arc, time::Duration};
+use std::{future::ready, sync::Arc, time::Duration};
 use tauri::{Manager, Runtime, Webview, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tokio::sync::Notify;
 
@@ -72,7 +72,7 @@ async fn check<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<(), String> {
         signed,
         workspace,
         &draft,
-        NonZeroU64::MAX,
+        u64::MAX,
         [ready(Ok(selection))],
     )
     .await

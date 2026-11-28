@@ -22,11 +22,13 @@ import {
 import { respondToChannelMembers } from "./channel-members.ts";
 import { respondToChannelView } from "./channel-view.ts";
 import { collectionWindowFixture } from "./collection-window.ts";
+import { draftWorkspaceFixture } from "./draft-workspace.ts";
 import { respondToGroupAssociations } from "./group-associations.ts";
 import { respondToGroupAudience } from "./group-audience.ts";
 import { respondToHistory } from "./history.ts";
 import { historyRefreshFixture } from "./history-refresh.ts";
 import { integrationCardRaceFixture } from "./integration-card-race.ts";
+import { openChannelEventFixture } from "./open-channel-event-fixture.ts";
 import { collectionFixture } from "./post-collections.ts";
 import { respondToPostContext } from "./post-context.ts";
 import { respondToPostMutation } from "./post-mutations.ts";
@@ -88,6 +90,9 @@ export function webviewServers(
     "submit-post",
     "submit-file-retry",
     "submit-file-retire",
+    "bridge-slow-1",
+    "bridge-hold-1",
+    "bridge-hold-2",
     "recipient-hold",
     "remote-recipient",
     "remote-recipient-cancel",
@@ -265,6 +270,9 @@ export function webviewServers(
     ],
   ]);
   const submissions = submissionFixture(userId, (name, step) =>
+    events.emit(`${name}-${step}`),
+  );
+  const draftWorkspace = draftWorkspaceFixture(userId, (name, step) =>
     events.emit(`${name}-${step}`),
   );
   const refresh = historyRefreshFixture(userId, () =>
@@ -658,8 +666,10 @@ export function webviewServers(
     if (name === "body" || name.endsWith("-body"))
       res.writeHead(200, { "Content-Length": "100" }).write("A");
   }
+  const eventWindow = openChannelEventFixture();
   const data = https.createServer(trusted, async (req, res) => {
     const url = new URL(req.url ?? "/", "https://localhost");
+    if (await eventWindow.handle(req, res, url)) return;
     if (await inboxWindow(req, res, url)) return;
     const rosterChannel = "r".repeat(26);
     const rosterUser = "n".repeat(26);
@@ -1489,6 +1499,11 @@ export function webviewServers(
         .end(JSON.stringify({ status: "OK" }));
       return;
     }
+    const draftUpload = await draftWorkspace.respond(req, res, url);
+    if (draftUpload) {
+      visits.push(draftUpload);
+      return;
+    }
     const mutation = await respondToPostMutation(
       req,
       res,
@@ -2084,7 +2099,17 @@ export function webviewServers(
     }
   });
   const windowEvents = windowEventsFixture();
-  data.on("upgrade", (req, socket) => windowEvents.upgrade(req, socket));
+  data.on("upgrade", (request, socket) => {
+    if (eventWindow.upgrade(request, socket)) return;
+    const url = new URL(request.url ?? "/", "https://localhost");
+    if (url.pathname === "/team/chat/api/v4/websocket") {
+      windowEvents.upgrade(request, socket);
+    } else {
+      socket.end(
+        "HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+      );
+    }
+  });
   data.on("connection", () => {
     connections++;
   });
@@ -2094,6 +2119,10 @@ export function webviewServers(
     const url = new URL(req.url ?? "/", "https://localhost");
     assert.equal(url.pathname, "/api/v4/system/ping");
     const step = url.searchParams.get("step");
+    if (await eventWindow.control(step)) {
+      res.writeHead(204).end();
+      return;
+    }
     const controlId = ++controlRequests;
     const knownStep =
       step &&
@@ -2117,6 +2146,7 @@ export function webviewServers(
           "release-remote-recipient",
           "release-history",
           "release-submission",
+          "release-draft-upload",
           "disconnect",
           "external-handoff",
           "search-ime-back",
@@ -2371,6 +2401,8 @@ export function webviewServers(
       else refresh.release();
     } else if (step === "release-submission") {
       submissions.release(name);
+    } else if (step === "release-draft-upload") {
+      draftWorkspace.release();
     } else if (step === "disconnect") {
       const socket =
         name === "profile-image-network" ? profileImageSocket : disconnect;
@@ -2486,6 +2518,7 @@ export function webviewServers(
           "Missing native system-link request " + read,
         );
       windowEvents.verify();
+      eventWindow.verify();
       assert.equal(
         offlineHistoryRequests,
         1,
@@ -2623,6 +2656,13 @@ export function webviewServers(
         "submit-file-only-reply",
         "submit-file-refused",
         "submit-file-retire",
+        "bridge-slow-1",
+        "bridge-fast-1",
+        "bridge-retry-1",
+        "bridge-retry-2",
+        "bridge-denied-1",
+        "bridge-hold-1",
+        "bridge-hold-2",
         "create-post-reply",
         "save-post-reaction",
         "delete-post-reaction",

@@ -50,6 +50,63 @@ vi.mock("@tauri-apps/api/app", () => ({
     };
   }),
 }));
+test("an edit to the exact reply opened from search keeps the current draft and the result to return to", async () => {
+  const { account } = fixture({ collapsed: true });
+  const results = await search();
+  const trigger = await results.findByRole("button", {
+    name: "Search reply snippet",
+  });
+  fireEvent.click(trigger);
+  const pane = within(
+    await screen.findByRole("complementary", { name: "Thread" }),
+  );
+  await pane.findByText(reply.message);
+  const input = await pane.findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Reply in thread…",
+  });
+  input.focus();
+  fireEvent.change(input, { target: { value: "From the search result 🐻" } });
+  const changed = {
+    ...reply,
+    updateAt: reply.updateAt + 1,
+    message: "Independently edited reply",
+  };
+  account.applyChannelPostEvents.mockResolvedValue({
+    result: { kind: "applied" },
+    changes: [{ kind: "save", ...changed }],
+  });
+  const [apply, owner] = account.observeChannelEvents.mock.calls[0];
+  await act(async () =>
+    apply(
+      {
+        kind: "posts",
+        changes: [
+          {
+            kind: "edited",
+            channelId: reply.channelId,
+            postId: reply.id,
+            rootId: root.id,
+          },
+        ],
+      },
+      owner,
+    ),
+  );
+  await pane.findByText(changed.message);
+  expect(input.isConnected).toBe(true);
+  expect(document.activeElement).toBe(input);
+  expect(input.value).toBe("From the search result 🐻");
+  fireEvent.click(screen.getByRole("button", { name: "Back to results" }));
+  const restored = within(
+    await screen.findByRole("complementary", { name: "Search results" }),
+  );
+  const selected = await restored.findByRole("button", {
+    name: "Search reply snippet",
+  });
+  await waitFor(() => expect(document.activeElement).toBe(selected));
+  expect(account.applyChannelPostEvents).toHaveBeenCalledOnce();
+});
+
 test.each([
   [true, root],
   [false, reply],

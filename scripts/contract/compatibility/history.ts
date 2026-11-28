@@ -1704,7 +1704,7 @@ await checkEventStream(
   user.id,
 );
 console.log(
-  `Mattermost ${version} verified two-way root, reply, edit and zero-delete_at deletion addresses, a private command reply and replay after reconnect.`,
+  `Mattermost ${version} verified two-way root, reply, edit and zero-delete_at deletion in open CRT and flat readers, a private command reply and replay after reconnect.`,
 );
 
 // Two ordinary users share a previously empty team and a new DM. Existing

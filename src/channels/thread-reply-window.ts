@@ -1,4 +1,5 @@
 import type { Post } from "../../vendor/mattermost/index.js";
+import type { ChannelPostChange } from "../mattermost/account-channel-events.ts";
 import {
   channelPostChange,
   mergePostObservation,
@@ -7,7 +8,11 @@ import type {
   CardRevision,
   IntegrationCard,
 } from "../mattermost/integration-cards.ts";
-import type { LocalPost } from "../mattermost/local-history.ts";
+import type {
+  LiveHistoryAccess,
+  LocalPost,
+} from "../mattermost/local-history.ts";
+import { retryPostObservation } from "../mattermost/message-anchors.ts";
 import {
   isMattermostId,
   isMattermostTime,
@@ -66,14 +71,26 @@ type ThreadPost = Post & {
   cardRevision?: CardRevision;
 };
 
-function visibleRow(channelId: string, post: ThreadPost) {
+function visibleRow(
+  channelId: string,
+  post: ThreadPost,
+  collapsedThreads = false,
+) {
   const change = channelPostChange(channelId, post.id, post, {
     cardObservation: post,
+    collapsedThreads,
   });
   if (change.kind !== "save")
     throw new TypeError("Expected a visible thread post.");
   const { kind: _kind, ...row } = change;
   return { ...row, cardRevision: post.cardRevision };
+}
+
+function compareReplies(
+  a: Pick<LocalPost, "id" | "createAt">,
+  b: Pick<LocalPost, "id" | "createAt">,
+) {
+  return a.createAt - b.createAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }
 
 export function openThreadReplyWindow(
@@ -146,6 +163,10 @@ export function openThreadReplyWindow(
   let observation = 0;
   const priorityByPost = new Map<string, number>();
   const cardsByPost = new Map(retained?.cardRevisions);
+  const deleted = new Set<string>();
+  let cutoff = 0;
+  const canShow = (post: Pick<LocalPost, "id" | "createAt">) =>
+    post.createAt > cutoff && !deleted.has(post.id);
   function publish(next: ReplyWindow) {
     state = next;
     for (const listener of listeners) listener();
@@ -163,6 +184,7 @@ export function openThreadReplyWindow(
     seen.clear();
     priorityByPost.clear();
     cardsByPost.clear();
+    deleted.clear();
     publish({
       unavailable,
       ...(firstInaccessiblePostTime && { firstInaccessiblePostTime }),
@@ -172,6 +194,32 @@ export function openThreadReplyWindow(
       down: { status: "end" },
     });
     listeners.clear();
+  }
+  function merge(
+    prior: LocalPost | null | undefined,
+    { cardRevision, ...row }: ReturnType<typeof visibleRow>,
+    equal: "keep" | "refresh",
+    stamp: number,
+  ) {
+    const allowEqualPriority = (priorityByPost.get(row.id) ?? 0) < stamp;
+    if (
+      row.displayPriority !== undefined &&
+      (!prior ||
+        row.updateAt > prior.updateAt ||
+        (row.updateAt === prior.updateAt && allowEqualPriority))
+    )
+      priorityByPost.set(row.id, stamp);
+    const merged = mergePostObservation(prior, row, equal, allowEqualPriority);
+    const previousRevision = cardsByPost.get(row.id);
+    const accepted =
+      cardRevision &&
+      (!previousRevision ||
+        cardRevision.updateAt > previousRevision.updateAt ||
+        (cardRevision.updateAt === previousRevision.updateAt &&
+          cardRevision.dispatch > previousRevision.dispatch));
+    if (accepted) cardsByPost.set(row.id, cardRevision);
+    const cards = accepted ? row.cards : prior?.cards;
+    return merged.cards === cards ? merged : { ...merged, cards };
   }
   async function read(direction: Direction, quietly: boolean) {
     try {
@@ -197,56 +245,29 @@ export function openThreadReplyWindow(
         stop("limited", page.firstInaccessiblePostTime);
         return;
       }
-      const root = visibleRow(channelId, page.root);
-      const received = page.replies.map((post) => visibleRow(channelId, post));
+      const root = visibleRow(channelId, page.root, collapsedThreads);
+      if (!canShow(root)) {
+        stop("limited", cutoff);
+        return;
+      }
+      const received = page.replies
+        .filter(canShow)
+        .map((post) => visibleRow(channelId, post));
       if (direction === "up") received.reverse();
       const newReply =
         quietly && retained?.down.status === "end"
           ? received.find(({ id }) => !seen.has(id))
           : undefined;
-      function merge(
-        prior: LocalPost | null | undefined,
-        { cardRevision, ...row }: ReturnType<typeof visibleRow>,
-        equal: "keep" | "refresh",
-      ) {
-        const allowEqualPriority = (priorityByPost.get(row.id) ?? 0) < stamp;
-        if (
-          row.displayPriority !== undefined &&
-          (!prior ||
-            row.updateAt > prior.updateAt ||
-            (row.updateAt === prior.updateAt && allowEqualPriority))
-        )
-          priorityByPost.set(row.id, stamp);
-        const merged = mergePostObservation(
-          prior,
-          row,
-          equal,
-          allowEqualPriority,
-        );
-        const previousRevision = cardsByPost.get(row.id);
-        const accepted =
-          cardRevision &&
-          (!previousRevision ||
-            cardRevision.updateAt > previousRevision.updateAt ||
-            (cardRevision.updateAt === previousRevision.updateAt &&
-              cardRevision.dispatch > previousRevision.dispatch));
-        if (accepted) cardsByPost.set(row.id, cardRevision);
-        const cards = accepted ? row.cards : prior?.cards;
-        return merged.cards === cards ? merged : { ...merged, cards };
-      }
       let replies: LocalPost[];
       if (received.some((row) => seen.has(row.id))) {
         // An imported post's timestamp can change between two page reads.
         const latest = new Map(state.replies.map((row) => [row.id, row]));
         for (const row of received) {
-          latest.set(row.id, merge(latest.get(row.id), row, "keep"));
+          latest.set(row.id, merge(latest.get(row.id), row, "keep", stamp));
         }
-        replies = [...latest.values()].sort(
-          (a, b) =>
-            a.createAt - b.createAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
-        );
+        replies = [...latest.values()].sort(compareReplies);
       } else {
-        const appended = received.map((row) => merge(null, row, "keep"));
+        const appended = received.map((row) => merge(null, row, "keep", stamp));
         replies =
           direction === "up"
             ? [...appended, ...state.replies]
@@ -259,7 +280,7 @@ export function openThreadReplyWindow(
         ...state,
         ...(newReply && { newReplyId: newReply.id }),
         isFollowing: page.root.isFollowing,
-        root: merge(state.root, root, "refresh"),
+        root: merge(state.root, root, "refresh", stamp),
         replies,
         [direction]: { status: page.next ? "ready" : "end" },
       });
@@ -298,7 +319,182 @@ export function openThreadReplyWindow(
     if (!quietly) publish({ ...state, [direction]: { status: "loading" } });
     return pending;
   }
+  async function refreshEvents(
+    reconcile: boolean,
+    addresses: readonly ChannelPostChange[],
+    changes: readonly ReturnType<typeof channelPostChange>[],
+    attempt: AbortSignal,
+    firstVisible?: string,
+  ) {
+    attempt.throwIfAborted();
+    if (lifetime.signal.aborted) return;
+    const relevant = addresses.filter(
+      (row) =>
+        row.channelId === channelId &&
+        (row.postId === rootId || row.rootId === rootId),
+    );
+    if (
+      relevant.some((row) => row.postId === rootId && row.kind === "deleted")
+    ) {
+      stop("forbidden");
+      return;
+    }
+    const changed = new Map(changes.map((row) => [row.id, row]));
+    for (const row of relevant)
+      if (row.kind === "deleted") deleted.add(row.postId);
+    const updated = (row: LocalPost) => {
+      const change = changed.get(row.id);
+      return change?.kind === "save" &&
+        change.channelId === channelId &&
+        change.rootId === row.rootId &&
+        change.updateAt > row.updateAt
+        ? { ...row, ...change }
+        : row;
+    };
+    const replies = state.replies
+      .filter((row) => !deleted.has(row.id))
+      .map(updated);
+    if (changed.size)
+      publish({ ...state, root: state.root && updated(state.root), replies });
+    if (!reconcile && !relevant.some((row) => row.kind === "created")) return;
+    // Preserve the open reply boundary. A reader before a gap reaches new replies
+    // through the existing forward page control.
+    if (requests.down) await requests.down;
+    attempt.throwIfAborted();
+    if (lifetime.signal.aborted || (!reconcile && state.down.status !== "end"))
+      return;
+    const signal = AbortSignal.any([attempt, lifetime.signal]);
+    const prior = state.replies;
+    const first = prior.findIndex((row) => row.id === firstVisible);
+    const cursor = reconcile
+      ? first > 0
+        ? prior[first - 1]
+        : state.up.status === "end"
+          ? undefined
+          : prior[0]
+      : undefined;
+    const stamp = ++observation;
+    let page: Awaited<ReturnType<Account["readThreadPage"]>>;
+    try {
+      page = await retryPostObservation(
+        () =>
+          account.readThreadPage(
+            {
+              ...scope,
+              direction: reconcile ? "down" : "up",
+              cursor: cursor && { id: cursor.id, createAt: cursor.createAt },
+            },
+            signal,
+          ),
+        signal,
+      );
+    } catch (error) {
+      attempt.throwIfAborted();
+      if (lifetime.signal.aborted) return;
+      const failure = workspaceFailure(error, "network");
+      if (
+        failure === "forbidden" ||
+        failure === "session" ||
+        failure === "unauthorized"
+      )
+        stop(failure);
+      if (failure === "forbidden") return;
+      throw error;
+    }
+    attempt.throwIfAborted();
+    if (lifetime.signal.aborted) return;
+    if (page.kind === "inaccessible") {
+      stop("limited", page.firstInaccessiblePostTime);
+      return;
+    }
+    const root = visibleRow(channelId, page.root, collapsedThreads);
+    if (!canShow(root)) {
+      stop("limited", cutoff);
+      return;
+    }
+    const received = page.replies
+      .filter(canShow)
+      .map((row) => visibleRow(channelId, row));
+    const last = prior.at(-1);
+    const newestRoot = merge(state.root, root, "refresh", stamp);
+    if (
+      !reconcile &&
+      page.next &&
+      last &&
+      !received.some((row) => seen.has(row.id))
+    ) {
+      // No overlap between the fresh end and the previous end. Leave the gap
+      // on the existing forward control; the unread tail is not contiguous.
+      cursors.down = { id: last.id, createAt: last.createAt };
+      publish({ ...state, root: newestRoot, down: { status: "ready" } });
+      return;
+    }
+    const merged = new Map(state.replies.map((row) => [row.id, row]));
+    if (reconcile) {
+      const returned = new Set(received.map((row) => row.id));
+      for (const row of prior) {
+        if (
+          (!cursor || compareReplies(row, cursor) > 0) &&
+          (!page.next || compareReplies(row, page.next) <= 0) &&
+          !returned.has(row.id)
+        ) {
+          merged.delete(row.id);
+          seen.delete(row.id);
+        }
+      }
+    }
+    const newReply = !reconcile && received.find(({ id }) => !seen.has(id));
+    for (const row of received) {
+      merged.set(row.id, merge(merged.get(row.id), row, "keep", stamp));
+      seen.add(row.id);
+    }
+    const rows = [...merged.values()].sort(compareReplies);
+    // An interior reconciliation page cannot replace the cursor of a separately
+    // loaded later page.
+    const extendsEnd =
+      !reconcile || !last || !page.next || compareReplies(page.next, last) >= 0;
+    if (extendsEnd)
+      cursors.down = reconcile ? (page.next ?? undefined) : undefined;
+    if (!reconcile && !prior.length) cursors.up = page.next ?? undefined;
+    publish({
+      ...state,
+      root: newestRoot,
+      replies: rows,
+      ...(newReply && { newReplyId: newReply.id }),
+      up:
+        !reconcile && !prior.length
+          ? { status: page.next ? "ready" : "end" }
+          : state.up,
+      down: extendsEnd
+        ? { status: reconcile && page.next ? "ready" : "end" }
+        : state.down,
+    });
+  }
   return {
+    channelId,
+    rootId,
+    refreshEvents,
+    restrictHistory(access: LiveHistoryAccess, rootCreatedAt?: number) {
+      if (lifetime.signal.aborted) return;
+      if (access.kind === "cutoff") {
+        if (access.time <= cutoff) return;
+        cutoff = access.time;
+        const stamp = state.root?.createAt ?? rootCreatedAt;
+        if (stamp !== undefined && stamp <= cutoff) {
+          stop("limited", cutoff);
+          return;
+        }
+      } else {
+        if (access.postId === rootId) {
+          stop("forbidden");
+          return;
+        }
+        deleted.add(access.postId);
+      }
+      const replies = state.replies.filter(canShow);
+      if (access.kind === "cutoff" || replies.length !== state.replies.length)
+        publish({ ...state, replies, firstInaccessiblePostTime: cutoff });
+    },
     getSnapshot: () => state,
     hasReadPage: () => readReplies,
     confirmRoot(root: LocalPost) {

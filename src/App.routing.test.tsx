@@ -488,6 +488,7 @@ function offlineWorkspace() {
   const directIds: string[] = [];
   let selected = channelId;
   const connection = {
+    observeChannelEvents: vi.fn(async () => {}),
     readWorkspaceSettings: vi.fn().mockResolvedValue({
       preferences: {
         nameFormat: null,

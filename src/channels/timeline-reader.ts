@@ -1,4 +1,5 @@
 import type {
+  LiveHistoryAccess,
   LocalChannelWindow,
   LocalPost,
 } from "../mattermost/local-history.ts";
@@ -49,7 +50,11 @@ export type RetainedChannelWindow = {
   place: TimelinePlace;
   composerHeight?: number;
 };
-export type ChannelHistoryAccess = { revoked: boolean; cutoff: number };
+export type ChannelHistoryAccess = {
+  revoked: boolean;
+  cutoff: number;
+  unavailablePosts?: ReadonlySet<string>;
+};
 
 export type TimelineAccount = Pick<
   WorkspaceConnection,
@@ -110,10 +115,13 @@ function sameReading(before: ReadingPosition, after: ReadingPosition) {
 function restrictedPage(
   page: LocalChannelWindow,
   cutoff: number,
+  excludes?: (post: LocalPost) => boolean,
 ): LocalChannelWindow {
-  if (!cutoff && !page.firstInaccessiblePostTime) return page;
+  if (!cutoff && !page.firstInaccessiblePostTime && !excludes) return page;
   const boundary = Math.max(cutoff, page.firstInaccessiblePostTime);
-  const posts = page.posts.filter((post) => post.createAt > boundary);
+  const posts = page.posts.filter(
+    (post) => post.createAt > boundary && !excludes?.(post),
+  );
   if (
     posts.length === page.posts.length &&
     boundary === page.firstInaccessiblePostTime
@@ -123,7 +131,9 @@ function restrictedPage(
     ...page,
     posts,
     firstInaccessiblePostTime: boundary,
-    older: posts.length < page.posts.length ? { kind: "end" } : page.older,
+    older: page.posts.some((post) => post.createAt <= boundary)
+      ? { kind: "end" }
+      : page.older,
   };
 }
 
@@ -159,6 +169,18 @@ export function createTimelineReader(
     retained?.page.firstInaccessiblePostTime ?? 0,
     !target ? (rememberedAccess?.cutoff ?? 0) : 0,
   );
+  const unavailable = new Set(rememberedAccess?.unavailablePosts);
+  // Keep just the affected visible snapshot rows shielded from local reads
+  // already in flight. The next committed projection replaces this snapshot.
+  const removedWhileHidden = new Set<string>();
+  function hides({ id, rootId }: LocalPost) {
+    return (
+      unavailable.has(id) ||
+      removedWhileHidden.has(id) ||
+      (rootId !== null &&
+        (unavailable.has(rootId) || removedWhileHidden.has(rootId)))
+    );
+  }
   let state = empty(
     eligible ? "loading" : "unavailable",
     !target && !!channelId,
@@ -166,7 +188,11 @@ export function createTimelineReader(
   );
   if (needsProof) state = { ...state, notice: "forbidden" };
   if (retained) {
-    const page = restrictedPage(retained.page, confirmedCutoff);
+    const page = restrictedPage(
+      retained.page,
+      confirmedCutoff,
+      unavailable.size ? hides : undefined,
+    );
     state = {
       ...state,
       page,
@@ -197,6 +223,12 @@ export function createTimelineReader(
   let retryChange = false;
 
   function position(visible: HTMLElement): ReadingPosition {
+    if (
+      !target &&
+      !state.page?.posts.length &&
+      (confirmedCutoff || unavailable.size)
+    )
+      return "latest";
     return readingPosition(
       visible,
       !state.page || state.page.newer.kind === "end",
@@ -212,7 +244,7 @@ export function createTimelineReader(
       online === undefined ||
       !channelId ||
       collapsedThreads === null ||
-      !state.canRetry ||
+      (!state.canRetry && !(state.status === "inaccessible" && !target)) ||
       !pane
     )
       return;
@@ -250,6 +282,7 @@ export function createTimelineReader(
         changed = true;
         return;
       }
+      removedWhileHidden.clear();
       if (result.positionLost) {
         clearPage("positionLost");
       } else {
@@ -283,16 +316,29 @@ export function createTimelineReader(
   }
 
   function publish(next: Snapshot) {
-    if (next.page && confirmedCutoff) {
-      const page = restrictedPage(next.page, confirmedCutoff);
-      if (!page.posts.length) {
+    const exclusions = unavailable.size || removedWhileHidden.size;
+    if (next.page && (confirmedCutoff || exclusions)) {
+      const page = restrictedPage(
+        next.page,
+        confirmedCutoff,
+        exclusions ? hides : undefined,
+      );
+      if (!page.posts.length && confirmedCutoff) {
         clearPage("inaccessible", confirmedCutoff);
         return;
       }
+      const focus = next.focus;
+      const reply = focus?.focusedReply;
       next = {
         ...next,
         page,
         firstInaccessiblePostTime: page.firstInaccessiblePostTime,
+        focus:
+          focus &&
+          page.posts.some((row) => row.id === focus.anchorId) &&
+          (!reply || (reply.createAt > confirmedCutoff && !hides(reply)))
+            ? focus
+            : null,
       };
     }
     // A publication can replace a boundary even when this reader did not request it.
@@ -563,8 +609,26 @@ export function createTimelineReader(
     viewport,
     watchChanges() {
       if (!channelId || !eligible || collapsedThreads === null) return;
-      return account.subscribeToChannelHistory(channelId, (source) => {
+      return account.subscribeToChannelHistory(channelId, (source, posts) => {
         if (source && pending?.signal === source) return;
+        // The phone keeps the timeline mounted underneath the thread. A fresh
+        // reading position needs visible geometry, but SQLite has already
+        // removed these rows and they must not appear when Back reveals it.
+        if (!pane?.clientHeight && state.page && posts) {
+          const before = removedWhileHidden.size;
+          const reply = state.focus?.focusedReply;
+          for (const change of posts)
+            if (
+              change.kind === "remove" &&
+              (state.page.posts.some(
+                (post) => post.id === change.id || post.rootId === change.id,
+              ) ||
+                reply?.id === change.id ||
+                reply?.rootId === change.id)
+            )
+              removedWhileHidden.add(change.id);
+          if (removedWhileHidden.size !== before) publish(state);
+        }
         changed = true;
         void readChanges();
       });
@@ -624,6 +688,26 @@ export function createTimelineReader(
       pending?.abort();
       pending = undefined;
       activeEdge = undefined;
+    },
+    denyAccess() {
+      changed = false;
+      retryChange = false;
+      projection?.abort();
+      pending?.abort();
+      pending = undefined;
+      clearPage("forbidden");
+    },
+    restrictHistory(access: LiveHistoryAccess) {
+      if (access.kind === "cutoff") {
+        if (access.time <= confirmedCutoff) return;
+        confirmedCutoff = access.time;
+      } else {
+        if (unavailable.has(access.postId)) return;
+        unavailable.add(access.postId);
+      }
+      publish({ ...state, firstInaccessiblePostTime: confirmedCutoff });
+      changed = true;
+      void readChanges();
     },
     retry() {
       if (activeEdge) return;

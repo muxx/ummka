@@ -13,6 +13,10 @@ import {
   createChannelBookmarkWrites,
 } from "../channels/channel-bookmark-writes.ts";
 import { inspectConversationTarget } from "../channels/inspect-conversation-target.ts";
+import {
+  ChannelEventTargetContext,
+  useAccountPostObserver,
+} from "../channels/use-account-post-observer.ts";
 import { useWorkspaceBack } from "../channels/use-workspace-back.ts";
 import {
   useAccountPolicy,
@@ -213,6 +217,10 @@ function AccountWindow({
     );
     return result;
   }, []);
+  const events = useAccountPostObserver(
+    directory?.selectedTeam && !picker ? connection.current : null,
+    sessionIssue,
+  );
   const selection = useRef(false);
   const readVersion = useRef(0);
   const retryRemoval = useRef<(() => void) | null>(null);
@@ -744,7 +752,7 @@ function AccountWindow({
   }
   if (selected && connection.current && readScope.current && !picker) {
     return (
-      <>
+      <ChannelEventTargetContext.Provider value={events}>
         {children({
           serverUrl,
           userId,
@@ -770,7 +778,7 @@ function AccountWindow({
           systemPost,
         })}
         {messageDialog}
-      </>
+      </ChannelEventTargetContext.Provider>
     );
   }
   if (!systemPost && !picker) {

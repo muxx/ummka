@@ -3,6 +3,7 @@ import {
   type CSSProperties,
   createRef,
   type ReactNode,
+  type RefObject,
   useCallback,
   useEffect,
   useEffectEvent,
@@ -35,6 +36,7 @@ import type { ParkedThreadWindow, ThreadReadingPlace } from "./thread-inbox.ts";
 import { threadInboxCopy } from "./thread-inbox-copy.ts";
 import { openThreadReplyWindow } from "./thread-reply-window.ts";
 import { createTimelinePostTouch } from "./timeline-post-touch.ts";
+import type { ChannelHistoryAccess } from "./timeline-reader.ts";
 import {
   restoreTimelineAnchor,
   type TimelineScrollCorrection,
@@ -119,6 +121,8 @@ type Props = {
   author: TimelineAuthor;
   nameFormat: NameFormat;
   sessionIssue: (issue: "session" | "unauthorized") => void;
+  eventReader: RefObject<Reader | null>;
+  historyAccess?: ChannelHistoryAccess;
   onOpened?: () => void;
   onUnavailable?: (reason: "forbidden" | "limited" | "failed") => void;
   renderComposer: (
@@ -145,6 +149,8 @@ export function ThreadPane(props: Props) {
     teamId,
     prepared,
     confirmFollowing,
+    eventReader,
+    historyAccess,
   } = props;
   const retained = props.inboxWindow?.retained;
   const registerWindow = props.inboxWindow?.register;
@@ -187,6 +193,7 @@ export function ThreadPane(props: Props) {
         )
       : undefined;
     setSession({ reader, following });
+    eventReader.current = reader;
     const unregister = registerWindow?.(rootId, () => {
       if (!park || prepared) return;
       const place = feed.current?.getReadingPlace();
@@ -202,6 +209,7 @@ export function ThreadPane(props: Props) {
         });
     });
     return () => {
+      if (eventReader.current === reader) eventReader.current = null;
       unregister?.();
       following?.close();
       if (!prepared) reader.close();
@@ -215,11 +223,26 @@ export function ThreadPane(props: Props) {
     prepared,
     teamId,
     confirmFollowing,
+    eventReader,
     preview,
     retained,
     registerWindow,
     park,
   ]);
+  useLayoutEffect(() => {
+    if (!session || !historyAccess) return;
+    const { reader } = session;
+    if (historyAccess.revoked) {
+      reader.unavailable("forbidden");
+      return;
+    }
+    reader.restrictHistory(
+      { kind: "cutoff", time: historyAccess.cutoff },
+      post.rootId ? undefined : post.createAt,
+    );
+    for (const postId of historyAccess.unavailablePosts ?? [])
+      reader.restrictHistory({ kind: "unavailable", postId });
+  }, [session, historyAccess, post]);
   return session ? (
     <ThreadContent
       {...props}
@@ -254,6 +277,7 @@ function ThreadContent({
   checkView,
   onUnavailable,
   inboxWindow,
+  historyAccess,
   feedRef,
   focusRef,
   composerRef,
@@ -420,8 +444,16 @@ function ThreadContent({
       active = false;
     };
   }, [online, reader, confirmedRoot, mayOpen]);
+  const candidate = state.root ?? (post.rootId ? savedRoot : post);
+  const historyCutoff = Math.max(
+    historyAccess?.cutoff ?? 0,
+    state.firstInaccessiblePostTime ?? 0,
+  );
   const inaccessible =
     state.unavailable ??
+    (candidate && candidate.createAt <= historyCutoff
+      ? "limited"
+      : undefined) ??
     (localFailure === "session" ||
     localFailure === "unauthorized" ||
     localFailure === "forbidden"
@@ -448,7 +480,6 @@ function ThreadContent({
       active = false;
     };
   }, [connection, post, inaccessible, state.root]);
-  const candidate = state.root ?? (post.rootId ? savedRoot : post);
   const root =
     !inaccessible &&
     candidate?.channelId === post.channelId &&
@@ -539,7 +570,8 @@ function ThreadContent({
     );
   const summary =
     collapsedThreads &&
-    (post.rootId ? (savedRoot ?? preparedRoot) : post)?.threadSummary;
+    (root?.threadSummary ??
+      (post.rootId ? (savedRoot ?? preparedRoot) : post)?.threadSummary);
   const waitingForReplies =
     inboxWindow &&
     !inboxWindow.retained &&

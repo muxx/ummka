@@ -66,6 +66,8 @@ export function useChannelTimeline(
   return {
     ...state,
     viewport: reader.viewport,
+    denyAccess: reader.denyAccess,
+    restrictHistory: reader.restrictHistory,
     retry: reader.retry,
     loadEdge: reader.loadEdge,
     showLatest: reader.showLatest,

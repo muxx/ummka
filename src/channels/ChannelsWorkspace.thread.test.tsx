@@ -32,6 +32,10 @@ import {
 } from "../mattermost/workspace-preferences.ts";
 import { ChannelsWorkspace } from "./ChannelsWorkspace.tsx";
 import { createChannelBookmarkWrites } from "./channel-bookmark-writes.ts";
+import {
+  ChannelEventTargetContext,
+  type OpenEventTarget,
+} from "./use-account-post-observer.ts";
 import * as workspaceSearch from "./use-workspace-search.tsx";
 import "./workspace-dom.test-utils.ts";
 
@@ -133,6 +137,7 @@ function mount(
     viewer?: string;
     coordination?: ReturnType<typeof createThreadReadCoordination>;
     directoryPermissions?: string[];
+    eventSlot?: { current: OpenEventTarget | null };
   } = {},
 ) {
   const data = projectTeamSidebar({
@@ -319,6 +324,7 @@ function mount(
     ),
     refreshChannelHistory: vi.fn(),
     readPostFiles: vi.fn<Connection["readPostFiles"]>().mockResolvedValue([]),
+    applyChannelPostEvents: vi.fn<Connection["applyChannelPostEvents"]>(),
     readThreadPage,
     setThreadFollowing: vi
       .fn<Connection["setThreadFollowing"]>()
@@ -406,8 +412,17 @@ function mount(
       retry: vi.fn(),
     },
   };
+  const content = <ChannelsWorkspace workspace={workspace} language="en" />;
   const view = render(
-    <ChannelsWorkspace workspace={workspace} language="en" />,
+    options.eventSlot ? (
+      <ChannelEventTargetContext.Provider
+        value={{ active: options.eventSlot, retry: vi.fn() }}
+      >
+        {content}
+      </ChannelEventTargetContext.Provider>
+    ) : (
+      content
+    ),
   );
   return {
     ...connection,
@@ -3602,3 +3617,204 @@ test.each([{ rid: 2 }, { teamId: "n".repeat(26) }])(
     expect(account.changeOwnMembership).not.toHaveBeenCalled();
   },
 );
+test("a denied live channel read removes the open messages and the thread composer from the current workspace", async () => {
+  const slot: { current: OpenEventTarget | null } = { current: null };
+  const account = mount(true, true, { eventSlot: slot });
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Open thread, 1 reply/ }),
+  );
+  await screen.findByRole("textbox", { name: "Reply in thread…" });
+  account.refreshChannelHistory.mockRejectedValueOnce(
+    new ResponseError(new Response(null, { status: 403 })),
+  );
+  const target = slot.current;
+  if (!target) throw Error("No current channel event consumer");
+  await act(async () =>
+    target.apply(
+      {
+        kind: "posts",
+        changes: [
+          {
+            kind: "created",
+            channelId: general,
+            postId: "j".repeat(26),
+            rootId: null,
+          },
+        ],
+      },
+      new AbortController().signal,
+    ),
+  );
+  expect(
+    await screen.findByRole("heading", {
+      name: "This content is no longer available to your account.",
+    }),
+  ).toBeTruthy();
+  expect(screen.queryByText(root.message)).toBeNull();
+  expect(
+    screen.queryByRole("textbox", { name: "Reply in thread…" }),
+  ).toBeNull();
+  expect(target.signal.aborted).toBe(true);
+});
+
+function liveWorkspace(collapsed = true, second = false) {
+  const slot: { current: OpenEventTarget | null } = { current: null };
+  const account = mount(collapsed, true, { eventSlot: slot, second });
+  const target = () => {
+    if (!slot.current) throw Error("No current channel event consumer");
+    return slot.current;
+  };
+  return {
+    account,
+    target,
+    async deliver(
+      ...changes: Extract<
+        Parameters<OpenEventTarget["apply"]>[0],
+        { kind: "posts" }
+      >["changes"]
+    ) {
+      const current = target();
+      await act(async () =>
+        current.apply({ kind: "posts", changes }, current.signal),
+      );
+    },
+    async openThread() {
+      const row = (await screen.findByText(root.message)).closest("article");
+      if (!row) throw Error("Missing original channel row");
+      fireEvent.click(within(row).getByRole("button", { name: /Open thread/ }));
+      const pane = await screen.findByRole("complementary", { name: "Thread" });
+      await within(pane).findByRole("textbox", { name: "Reply in thread…" });
+      return pane;
+    },
+  };
+}
+const liveReply = {
+  kind: "created" as const,
+  channelId: general,
+  postId: "j".repeat(26),
+  rootId: root.id,
+};
+const liveRoot = { ...liveReply, rootId: null };
+
+test("a refused focused CRT refresh clears the channel after a signed channel refusal", async () => {
+  const { account, openThread, deliver } = liveWorkspace();
+  await openThread();
+  account.refreshChannelHistory.mockClear();
+  account.refreshChannelHistory.mockRejectedValue(
+    new ResponseError(new Response(null, { status: 403 })),
+  );
+  await deliver(liveReply);
+  expect(account.refreshChannelHistory.mock.calls.map(([q]) => q.kind)).toEqual(
+    ["focused", "latest"],
+  );
+  expect(screen.queryByText(root.message)).toBeNull();
+  expect(
+    screen.queryByRole("textbox", { name: "Reply in thread…" }),
+  ).toBeNull();
+  expect(
+    screen.queryByRole("textbox", { name: "Message #General…" }),
+  ).toBeNull();
+});
+
+test("the sole focused CRT root can disappear while the channel stays accessible", async () => {
+  const { account, openThread, deliver } = liveWorkspace();
+  const pane = await openThread();
+  const missing = new ResponseError(new Response(null, { status: 404 }));
+  account.refreshChannelHistory.mockClear();
+  account.refreshChannelHistory
+    .mockRejectedValueOnce(missing)
+    .mockResolvedValueOnce({ kind: "applied" });
+  account.readThreadPage.mockRejectedValue(missing);
+  await deliver(liveReply);
+  expect(
+    await within(pane).findByText("This thread is no longer available."),
+  ).toBeTruthy();
+  expect(screen.queryByText(root.message)).toBeNull();
+  expect(
+    screen.getByRole("textbox", { name: "Message #General…" }),
+  ).toBeTruthy();
+  expect(account.applyChannelPostEvents).not.toHaveBeenCalled();
+});
+
+test.each(["inaccessible", "applied"] as const)(
+  "a live %s cutoff hides cached rows while an accessible message still arrives",
+  async (kind) => {
+    const { account, openThread, deliver } = liveWorkspace();
+    const threadPane = await openThread();
+    const pane = document.querySelector<HTMLElement>(
+      ".channels-conversation .timeline-scroll",
+    );
+    if (!pane) throw Error("Missing timeline viewport");
+    Object.defineProperty(pane, "clientHeight", { value: 120 });
+    account.refreshChannelHistory.mockClear();
+    account.refreshChannelHistory.mockResolvedValueOnce({
+      kind,
+      firstInaccessiblePostTime: root.createAt,
+    });
+    await deliver(liveReply);
+    expect(screen.queryByText(root.message)).toBeNull();
+    expect(within(threadPane).queryByRole("textbox")).toBeNull();
+    expect(within(threadPane).getByRole("alert").textContent).toMatch(
+      /available history/i,
+    );
+
+    const allowed = {
+      ...root,
+      id: liveRoot.postId,
+      rootId: null,
+      createAt: 300,
+      updateAt: 300,
+      message: "New accessible message",
+      messageSource: null,
+    };
+    account.refreshChannelHistory.mockImplementationOnce(async (_, active) => {
+      account.readChannelWindow.mockResolvedValue({
+        posts: [allowed, { ...root, messageSource: null, rootId: null }],
+        older: { kind: "end" },
+        newer: { kind: "end" },
+        firstInaccessiblePostTime: 0,
+      });
+      account.notifyChannelHistoryChanged(general, active);
+      return { kind: "applied" };
+    });
+    await deliver(liveRoot);
+    expect(await screen.findByText(allowed.message)).toBeTruthy();
+    expect(screen.queryByText(root.message)).toBeNull();
+    expect(
+      screen.getByRole("textbox", { name: "Message #General…" }),
+    ).toBeTruthy();
+  },
+);
+
+test("changing the open root inside one channel cancels the previous focused event read", async () => {
+  const live = liveWorkspace(true, true);
+  await live.openThread();
+  const first = live.target();
+  const response = deferred<{ kind: "applied" }>();
+  live.account.refreshChannelHistory.mockReturnValueOnce(response.promise);
+  const receiving = first.apply(
+    { kind: "posts", changes: [liveReply] },
+    first.signal,
+  );
+  const done = expect(receiving).rejects.toMatchObject({ name: "AbortError" });
+  await waitFor(() =>
+    expect(live.account.refreshChannelHistory).toHaveBeenLastCalledWith(
+      expect.objectContaining({ kind: "focused", postId: root.id }),
+      first.signal,
+    ),
+  );
+  const other = (await screen.findByText(secondRoot.message)).closest(
+    "article",
+  );
+  if (!other) throw Error("Missing second root");
+  fireEvent.click(within(other).getByRole("button", { name: "Open thread" }));
+  await waitFor(() => expect(first.signal.aborted).toBe(true));
+  expect(live.target()).not.toBe(first);
+  await act(async () => response.resolve({ kind: "applied" }));
+  await done;
+  expect(
+    within(screen.getByRole("complementary", { name: "Thread" })).queryByText(
+      root.message,
+    ),
+  ).toBeNull();
+});

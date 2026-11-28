@@ -10,11 +10,15 @@ import {
 } from "../../vendor/mattermost/index.js";
 import { isAndroid } from "../build-platform.ts";
 import { accountBookmarkChanges } from "./account-bookmark-changes.ts";
-import { accountChannelEvents } from "./account-channel-events.ts";
+import {
+  accountChannelEvents,
+  type ChannelPostChange,
+} from "./account-channel-events.ts";
 import { accountChannelReadState } from "./account-channel-read-state.ts";
 import { readCustomEmoji } from "./account-custom-emoji.ts";
 import { accountDelivery } from "./account-delivery.ts";
 import { atDirectoryStep } from "./account-directory-error.ts";
+import { openDraftFileWorkspace } from "./account-draft-files.ts";
 import { accountFollowedThreads } from "./account-followed-threads.ts";
 import { accountPostCollections } from "./account-post-collections.ts";
 import { accountPostReactions } from "./account-post-reactions.ts";
@@ -49,6 +53,7 @@ import {
   fetchTeamRoleSnapshot,
   type TeamRoleSnapshot,
 } from "./channel-permissions.ts";
+import { applyPostEventHistory } from "./channel-post-event-history.ts";
 import { channelPostChange } from "./channel-post-records.ts";
 import type { ChannelProfile } from "./channel-profiles.ts";
 import type { ChannelsTarget } from "./channels-link.ts";
@@ -366,7 +371,7 @@ export async function openAccountRestConnection(
           order: [],
           changes,
         });
-        if (stored.kind !== "thread") throw "cancelled";
+        if (stored.kind === "superseded") throw new PostObservationSuperseded();
         if (stored.cards.length !== changes.length)
           throw new TypeError("Incomplete cached thread observations.");
         const attachCards = (
@@ -723,6 +728,9 @@ export async function openAccountRestConnection(
       }
     },
     ...delivery,
+    openDraftFileWorkspace() {
+      return openDraftFileWorkspace(rid, readWhileOpen);
+    },
     submitDraftCommand(
       location: DraftLocation & { teamId: string },
       revision: string,
@@ -899,6 +907,34 @@ export async function openAccountRestConnection(
       return readWhileOpen(() =>
         loadTeamDirectory(config, userId, teamId, signal),
       );
+    },
+    async applyChannelPostEvents(
+      channelId: string,
+      addresses: readonly ChannelPostChange[],
+      signal: AbortSignal,
+    ) {
+      return withAccountLifetime(async (active) => {
+        const applied = await applyPostEventHistory(
+          posts,
+          {
+            begin: historyWriter.begin,
+            cancel: historyWriter.cancel,
+            store: (load, changes) =>
+              invoke<ChannelRefreshResult>("store_channel_history_changes", {
+                rid,
+                load,
+                changes,
+              }),
+          },
+          channelId,
+          addresses,
+          active,
+        );
+        active.throwIfAborted();
+        if (applied.result.kind === "applied" && applied.changes.length)
+          historyChanges.notify(channelId, active, applied.changes);
+        return applied;
+      }, signal);
     },
     subscribeToChannelHistory: historyChanges.subscribe,
     notifyChannelHistoryChanged(channelId: string) {

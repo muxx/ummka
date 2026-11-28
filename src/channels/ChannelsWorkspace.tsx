@@ -66,6 +66,7 @@ import {
 import { DraftComposer, type DraftSelection } from "./DraftComposer.tsx";
 import { draftCopy } from "./draft-copy.ts";
 import { MentionMark, MentionsPane, mentionCopy } from "./MentionsPane.tsx";
+import { applyOpenChannelEvents } from "./open-channel-events.ts";
 import { CollectionMark, PostCollectionPane } from "./PostCollectionPane.tsx";
 import {
   AttachmentWindow,
@@ -100,12 +101,17 @@ import { ThreadInboxPane } from "./ThreadInboxPane.tsx";
 import { ThreadPane } from "./ThreadPane.tsx";
 import type { ThreadInboxPlace } from "./thread-inbox.ts";
 import { threadInboxCopy } from "./thread-inbox-copy.ts";
+import type { openThreadReplyWindow } from "./thread-reply-window.ts";
 import type {
   ChannelHistoryAccess,
   RetainedChannelWindow,
   TimelineRequest,
 } from "./timeline-reader.ts";
 import { measureTimeline, type TimelinePlace } from "./timeline-viewport.ts";
+import {
+  ChannelEventTargetContext,
+  type OpenEventTarget,
+} from "./use-account-post-observer.ts";
 import { useChannelTimeline } from "./use-channel-timeline.ts";
 import { useInfoRead } from "./use-info-read.ts";
 import { useReopenConversation } from "./use-reopen-conversation.ts";
@@ -258,6 +264,12 @@ export function ChannelsWorkspace({
   const { publishedReading } = workspace.messages;
   const readingReturn = workspace.messages.readingReturn;
   const text = workspaceCopy[language];
+  const events = useContext(ChannelEventTargetContext);
+  const eventSlot = events?.active;
+  const retryEvents = events?.retry;
+  const eventThread = useRef<ReturnType<typeof openThreadReplyWindow> | null>(
+    null,
+  );
   const host = useRef<HTMLDivElement>(null);
   const accountButton = useRef<HTMLButtonElement>(null);
   const draftField = useRef<HTMLTextAreaElement>(null);
@@ -1573,8 +1585,12 @@ export function ChannelsWorkspace({
       const revoked =
         historyDenied ||
         (previous?.revoked === true && timeline.status !== "ready");
-      if (revoked || cutoff)
-        channelHistoryAccess.set(chosen, { revoked, cutoff });
+      if (revoked || cutoff || previous?.unavailablePosts?.size)
+        channelHistoryAccess.set(chosen, {
+          ...previous,
+          revoked,
+          cutoff,
+        });
       else if (previous) channelHistoryAccess.delete(chosen);
     }
   }, [
@@ -1814,6 +1830,113 @@ export function ChannelsWorkspace({
   }
   const manualThread =
     activeThread && closedRequest === position?.request.requestId;
+  const currentMode = settings?.collapsedThreads;
+  const eventChannel = inbox.visible
+    ? panePost?.channelId
+    : !directoryOpen && !historyDenied && (!isMobile || page === "conversation")
+      ? chosen
+      : null;
+  const eventRoot = panePost?.rootId ?? panePost?.id;
+  const eventLocation =
+    eventChannel && currentMode !== undefined
+      ? JSON.stringify([
+          connection.rid,
+          eventChannel,
+          currentMode,
+          paneId,
+          inbox.visible,
+        ])
+      : null;
+  const receive = useEffectEvent<OpenEventTarget["apply"]>(
+    async (notice, signal) => {
+      if (!eventChannel || !settings) return;
+      const thread = eventThread.current;
+      const activeReader =
+        thread?.channelId === eventChannel && thread.rootId === eventRoot
+          ? thread
+          : null;
+      if (inbox.visible && !activeReader) return;
+      const pane = inbox.visible ? null : timeline.viewport.current;
+      const visibleIds = pane
+        ? measureTimeline(pane)
+            .anchors.filter((row) => row.published)
+            .map((row) => row.id)
+        : [];
+      const replies = host.current?.querySelector<HTMLElement>(".thread-feed");
+      const firstVisibleReply = replies
+        ? measureTimeline(replies).anchors.find(
+            (row) => row.published && row.id !== activeReader?.rootId,
+          )?.id
+        : undefined;
+      const outcome = await applyOpenChannelEvents(
+        connection,
+        {
+          channelId: eventChannel,
+          collapsedThreads: settings.collapsedThreads,
+          page: inbox.visible ? null : timeline.page,
+          visibleIds,
+          firstVisibleReply,
+          thread: activeReader,
+          threadOnly: inbox.visible,
+          onHistoryAccess(access) {
+            signal.throwIfAborted();
+            const previous = channelHistoryAccess.get(eventChannel);
+            channelHistoryAccess.set(eventChannel, {
+              revoked: previous?.revoked ?? false,
+              cutoff:
+                access.kind === "cutoff"
+                  ? Math.max(access.time, previous?.cutoff ?? 0)
+                  : (previous?.cutoff ?? 0),
+              unavailablePosts:
+                access.kind === "unavailable"
+                  ? new Set([
+                      ...(previous?.unavailablePosts ?? []),
+                      access.postId,
+                    ])
+                  : previous?.unavailablePosts,
+            });
+            if (eventChannel === chosen) timeline.restrictHistory(access);
+            activeReader?.restrictHistory(
+              access,
+              panePost?.rootId ? undefined : panePost?.createAt,
+            );
+          },
+        },
+        notice,
+        signal,
+      );
+      signal.throwIfAborted();
+      if (outcome === "forbidden") {
+        if (inbox.visible) {
+          const previous = channelHistoryAccess.get(eventChannel);
+          channelHistoryAccess.set(eventChannel, {
+            ...previous,
+            cutoff: previous?.cutoff ?? 0,
+            revoked: true,
+          });
+          activeReader?.unavailable("forbidden");
+          invalidateChannel(eventChannel);
+          setChannelDenied(eventChannel, true);
+        }
+        if (eventChannel === chosen) timeline.denyAccess();
+      }
+    },
+  );
+  useLayoutEffect(() => {
+    if (!eventSlot || !eventLocation) return;
+    const owner = new AbortController();
+    const target = {
+      signal: owner.signal,
+      apply: (...args: Parameters<OpenEventTarget["apply"]>) =>
+        receive(...args),
+    };
+    eventSlot.current = target;
+    retryEvents?.();
+    return () => {
+      if (eventSlot.current === target) eventSlot.current = null;
+      owner.abort();
+    };
+  }, [eventSlot, eventLocation, retryEvents]);
   const readingBackVisible =
     page === "conversation" &&
     !directoryOpen &&
@@ -3119,6 +3242,8 @@ export function ChannelsWorkspace({
                               )
                           : undefined
                     }
+                    eventReader={eventThread}
+                    historyAccess={channelHistoryAccess.get(panePost.channelId)}
                     renderComposer={composer}
                   />
                 ) : (
@@ -3234,7 +3359,12 @@ export function ChannelsWorkspace({
           {historyIssue &&
             notice(
               historyIssue,
-              timeline.canRetry ? timeline.retry : undefined,
+              timeline.canRetry
+                ? () => {
+                    timeline.retry();
+                    retryEvents?.();
+                  }
+                : undefined,
               true,
             )}
           {chosen &&

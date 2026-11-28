@@ -150,6 +150,8 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
         .unwrap();
     let main = window.as_ref();
     let sibling = sibling(main);
+    #[cfg(any(target_os = "android", target_os = "macos"))]
+    let file_draft = json!({"channelId":"a".repeat(26),"rootId":null});
     assert_eq!(main.window().label(), sibling.window().label());
     for (view, origin) in [(&sibling, LOCAL), (main, "https://remote.example.test/")] {
         for (command, body) in [
@@ -207,6 +209,40 @@ fn only_the_local_main_webview_can_manage_its_own_connections() {
                 "save_composer_draft",
                 json!({"rid":0,"channelId":"a".repeat(26),"rootId":null,"expectedRevision":null,"message":"local"}),
             ),
+            #[cfg(any(target_os = "android", target_os = "macos"))]
+            ("open_draft_file_workspace", json!({"rid":0})),
+            #[cfg(any(target_os = "android", target_os = "macos"))]
+            (
+                "choose_draft_files",
+                json!({"rid":0,"workspace":0,"draft":file_draft,"policy":{"kind":"allowed","maxFileBytes":"10"}}),
+            ),
+            #[cfg(any(target_os = "android", target_os = "macos"))]
+            (
+                "read_draft_files",
+                json!({"rid":0,"workspace":0,"draft":file_draft}),
+            ),
+            #[cfg(any(target_os = "android", target_os = "macos"))]
+            (
+                "start_draft_file_upload",
+                json!({"rid":0,"workspace":0,"draft":file_draft,"file":"00000000-0000-0000-0000-000000000000","policy":{"kind":"unknown"}}),
+            ),
+            #[cfg(any(target_os = "android", target_os = "macos"))]
+            (
+                "remove_draft_file",
+                json!({"rid":0,"workspace":0,"draft":file_draft,"file":"00000000-0000-0000-0000-000000000000"}),
+            ),
+            #[cfg(any(target_os = "android", target_os = "macos"))]
+            (
+                "confirm_draft_file_upload_policy",
+                json!({"rid":0,"workspace":0,"draft":file_draft,"observedDenial":"00000000-0000-0000-0000-000000000000","policy":{"kind":"unknown"}}),
+            ),
+            #[cfg(any(target_os = "android", target_os = "macos"))]
+            (
+                "stage_draft_post_with_files",
+                json!({"rid":0,"workspace":0,"draft":file_draft,"expectedRevision":null,"selected":[]}),
+            ),
+            #[cfg(any(target_os = "android", target_os = "macos"))]
+            ("close_draft_file_workspace", json!({"rid":0,"workspace":0})),
             (
                 "stage_composer_post",
                 json!({"rid":0,"channelId":"a".repeat(26),"rootId":null,"revision":"a".repeat(32)}),
