@@ -1,0 +1,203 @@
+.channel-bookmark-body {
+  overflow: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+  padding: 13px 14px;
+}
+.channel-bookmark-body ul {
+  display: grid;
+  gap: 12px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.channel-bookmark-body li,
+.channel-bookmark-row span {
+  min-width: 0;
+}
+.channel-bookmark-row,
+.bookmark-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  text-align: start;
+  font: inherit;
+  cursor: pointer;
+}
+.channel-bookmark-row svg,
+.bookmark-action svg {
+  flex: none;
+  color: var(--muted);
+}
+.channel-bookmark-row :is(strong, small) {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.channel-bookmark-row strong {
+  font-size: 0.87rem;
+  font-weight: 620;
+}
+.channel-bookmark-row small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+.channel-bookmark-row:disabled {
+  cursor: default;
+}
+.channel-bookmark-row:not(:disabled):hover,
+.bookmark-action:hover {
+  background: var(--row-hover);
+}
+.bookmark-actions {
+  box-sizing: border-box;
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: min(284px, calc(100vw - 16px));
+  max-height: min(72dvh, 620px);
+  padding: 0;
+  border: 1px solid var(--divider);
+  border-radius: 12px;
+  background: var(--canvas);
+  color: var(--text);
+  box-shadow: 0 12px 32px #06183926;
+}
+.bookmark-actions::backdrop {
+  background: transparent;
+}
+.bookmark-actions header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 7px 5px 15px;
+  box-shadow: inset 0 -1px var(--divider);
+  background: var(--surface);
+}
+.bookmark-actions h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  letter-spacing: -0.026em;
+  overflow-wrap: anywhere;
+}
+.bookmark-actions .modal-scroll {
+  padding: 4px 5px 5px;
+}
+.bookmark-action {
+  min-height: 35px;
+  padding: 7px 10px;
+  font-size: 0.85rem;
+  font-weight: 510;
+}
+.bookmark-action svg {
+  width: 16px;
+  height: 16px;
+}
+@media (max-width: 740px) {
+  .bookmark-actions {
+    inset: auto 0 0;
+    margin: auto auto 0;
+    width: 100%;
+    max-width: 100%;
+    max-height: 89dvh;
+    padding-bottom: env(safe-area-inset-bottom);
+    border-radius: 16px 16px 0 0;
+  }
+  .bookmark-actions::backdrop {
+    background: #06183966;
+  }
+  .bookmark-actions h2 {
+    font-size: 1rem;
+  }
+  .bookmark-actions header {
+    padding: 15px 18px 10px;
+  }
+  .bookmark-action {
+    min-height: 44px;
+  }
+}
+
+.bookmark-dismiss {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.bookmark-dismiss:hover {
+  background: var(--canvas);
+}
+.bookmark-dismiss svg {
+  width: 16px;
+  height: 16px;
+}
+.bookmark-action {
+  border-radius: 6px;
+}
+.bookmark-action strong {
+  font-size: 0.85rem;
+  font-weight: 510;
+}
+.bookmark-action:focus-visible {
+  outline-offset: -3px;
+}
+.bookmark-action:is(:hover, :focus-visible) svg {
+  color: var(--accent);
+}
+
+.channel-bookmarks-panel .channels-pane-titles h2 {
+  gap: 7px;
+  font-size: 1.09rem;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.026em;
+}
+.channel-bookmarks-panel .channels-icon-action svg {
+  width: 18px;
+  height: 18px;
+}
+.channel-bookmarks-panel .channels-pane-titles h2 svg {
+  width: 21px;
+  height: 21px;
+  color: var(--muted);
+}
+.channel-information.channel-bookmarks-panel .channels-pane-titles p {
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+.channel-information.channel-bookmarks-panel .channels-pane-head {
+  padding-inline: 17px;
+}
+.channel-bookmarks-panel .channels-icon-action {
+  width: 34px;
+  height: 34px;
+  color: var(--muted);
+}
+
+@container (width > 740px) {
+  .channel-bookmarks-panel .channel-section-back {
+    display: none;
+  }
+}
+@container (width <= 740px) {
+  .channel-information.channel-bookmarks-panel .channels-pane-titles p {
+    font-size: 0.7rem;
+  }
+}

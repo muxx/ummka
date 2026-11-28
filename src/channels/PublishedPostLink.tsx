@@ -2,8 +2,16 @@ import { createContext, type ReactNode, useContext } from "react";
 import type { publishedLinkTarget } from "./published-link-target.ts";
 import type { PublishedReadingProposal } from "./published-reading-history.ts";
 
+export type BookmarkLinkTarget =
+  | { kind: "link"; href: string }
+  | { kind: "board"; href: string };
+
 export const PublishedLinkNavigation = createContext<{
   serverUrl: string;
+  openBookmark?: (
+    target: BookmarkLinkTarget,
+    origin: HTMLButtonElement,
+  ) => void;
   open: (
     href: string,
     origin: HTMLAnchorElement,

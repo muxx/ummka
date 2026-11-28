@@ -2,6 +2,7 @@ import { useId, useLayoutEffect, useRef } from "react";
 import type { ChannelNotifyProps } from "../../vendor/mattermost/index.js";
 import type { EntryLanguage } from "../entry/language.ts";
 import type { TeamSidebar } from "../mattermost/team-sidebar.ts";
+import { BookmarkIcon, bookmarkCopy } from "./ChannelBookmarksPanel.tsx";
 import { FileIcon, filePanelCopy } from "./ChannelFilesPanel.tsx";
 import { collectionCopy } from "./collection-copy.ts";
 import { PaneSizeToggle } from "./PaneWidthControls.tsx";
@@ -61,7 +62,8 @@ type Props = {
   online: boolean;
   openPins: () => void;
   openFiles?: () => void;
-  focusRow: "pins" | "members" | "files" | undefined;
+  openBookmarks: () => void;
+  focusRow: "pins" | "members" | "files" | "bookmarks" | undefined;
   openMembers: () => void;
   notifications: ((opener: HTMLButtonElement) => void) | undefined;
   notificationRevision: number;
@@ -187,6 +189,7 @@ export function ChannelInformationPanel({
   online,
   openPins,
   openFiles,
+  openBookmarks,
   focusRow,
   openMembers,
   notifications,
@@ -199,6 +202,7 @@ export function ChannelInformationPanel({
     id = useId(),
     heading = useRef<HTMLHeadingElement>(null),
     pins = useRef<HTMLButtonElement>(null),
+    bookmarks = useRef<HTMLButtonElement>(null),
     files = useRef<HTMLButtonElement>(null),
     members = useRef<HTMLButtonElement>(null);
   const rule = useInfoRead(
@@ -210,11 +214,13 @@ export function ChannelInformationPanel({
     notificationRevision,
   );
   useLayoutEffect(() => {
-    const control = focusRow ? { members, pins, files }[focusRow] : heading;
+    const control = focusRow
+      ? { members, pins, files, bookmarks }[focusRow]
+      : heading;
     (control.current ?? heading.current)?.focus({ preventScroll: true });
   }, [focusRow]);
   function status(v: SectionValue<unknown>) {
-    return v.status === "failed"
+    return v.status === "failed" || v.status === "denied"
       ? t.failed
       : v.status === "offline"
         ? t.offline
@@ -319,6 +325,15 @@ export function ChannelInformationPanel({
             <strong>{filePanelCopy[language].title}</strong>
           </button>
         )}
+        <button
+          ref={bookmarks}
+          type="button"
+          className="channel-info-notify"
+          onClick={openBookmarks}
+        >
+          <BookmarkIcon />
+          <strong>{bookmarkCopy[language].title}</strong>
+        </button>
         {notifications && (
           <>
             <button

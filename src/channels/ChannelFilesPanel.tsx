@@ -7,8 +7,8 @@ import {
   useState,
 } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
+import { ChannelSectionHeader } from "./ChannelSectionHeader.tsx";
 import { readChannelFilesPage } from "./channel-files-page.ts";
-import { PaneSizeToggle } from "./PaneWidthControls.tsx";
 import { ChannelFileCard } from "./PublishedAttachments.tsx";
 import { searchCopy } from "./search-copy.ts";
 import { useNextPageButton } from "./use-next-page-button.ts";
@@ -253,52 +253,17 @@ export function ChannelFilesPanel(props: Props) {
       className="channels-thread channel-information channel-context-pane channel-files-panel"
       aria-labelledby={id}
     >
-      <header className="channels-pane-head">
-        <button
-          type="button"
-          className="channels-icon-action"
-          aria-label={props.direct ? t.backToChannel : t.back}
-          onClick={props.back}
-        >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            aria-hidden="true"
-          >
-            <path d="m11 5-7 7 7 7M4 12h16" />
-          </svg>
-        </button>
-        <div className="channels-pane-titles">
-          <h2 id={id} tabIndex={-1} ref={heading}>
-            <FileIcon />
-            {t.title}
-          </h2>
-          <p>{props.name}</p>
-        </div>
-        <PaneSizeToggle />
-        <button
-          type="button"
-          className="channels-icon-action channel-files-close"
-          aria-label={t.close}
-          onClick={props.close}
-        >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            aria-hidden="true"
-          >
-            <path d="m6 6 12 12m0-12L6 18" />
-          </svg>
-        </button>
-      </header>
+      <ChannelSectionHeader
+        id={id}
+        heading={heading}
+        icon={<FileIcon />}
+        title={t.title}
+        name={props.name}
+        backLabel={props.direct ? t.backToChannel : t.back}
+        closeLabel={t.close}
+        back={props.back}
+        close={props.close}
+      />
       {props.online ? (
         <FileList key={props.channelId} {...props} />
       ) : (

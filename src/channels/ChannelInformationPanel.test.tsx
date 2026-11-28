@@ -67,6 +67,7 @@ function setup(props: Partial<Props> = {}) {
     language: "en",
     online: true,
     openPins: vi.fn(),
+    openBookmarks: vi.fn(),
     focusRow: undefined,
     openMembers: vi.fn(),
     close: vi.fn(),

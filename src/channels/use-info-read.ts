@@ -3,13 +3,13 @@ import { workspaceFailure } from "./workspace-data.ts";
 
 export type SectionValue<T> =
   | { status: "ready"; value: T }
-  | { status: "loading" | "failed" | "offline" };
+  | { status: "loading" | "failed" | "offline" | "denied" };
 export function useInfoRead<T>(
   scope: string | null,
   online: boolean,
   read: (signal: AbortSignal, scope: string) => Promise<T>,
   sessionIssue: (reason: "session" | "unauthorized") => void,
-  denied: () => void,
+  denied?: () => void,
   revision = 0,
 ) {
   const [attempt, setAttempt] = useState(0);
@@ -19,7 +19,7 @@ export function useInfoRead<T>(
   >(null);
   const start = useEffectEvent(read),
     session = useEffectEvent(sessionIssue),
-    deny = useEffectEvent(denied);
+    deny = useEffectEvent(() => denied?.());
   useEffect(() => {
     if (scope === null || !online) {
       setResult(null);
@@ -40,7 +40,7 @@ export function useInfoRead<T>(
           return;
         }
         if (issue === "forbidden") {
-          setResult({ scope, attempt, revision, status: "failed" });
+          setResult({ scope, attempt, revision, status: "denied" });
           deny();
           return;
         }

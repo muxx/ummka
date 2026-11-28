@@ -74,8 +74,15 @@ function EntryRoute({
       ? launch.serverUrl
       : null;
   const links = useMemo(
-    () => (address ? { serverUrl: address, open: inbox.openPost } : null),
-    [address, inbox.openPost],
+    () =>
+      address
+        ? {
+            serverUrl: address,
+            open: inbox.openPost,
+            openBookmark: inbox.openBookmark,
+          }
+        : null,
+    [address, inbox.openPost, inbox.openBookmark],
   );
   const request =
     inbox.request?.target.serverUrl === address ? inbox.request : undefined;

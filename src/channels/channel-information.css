@@ -221,7 +221,7 @@
   color: var(--text);
 }
 @container (width <= 740px) {
-  .channel-files-panel .channel-files-close {
+  .channel-context-pane .channel-section-close {
     display: none;
   }
 }

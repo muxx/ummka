@@ -156,6 +156,9 @@ export function webviewServers(
     "collection-back-header-members",
     "collection-back-resized-header-members",
     "collection-back-info-members",
+    "collection-back-bookmark-menu",
+    "collection-back-bookmark-file",
+    "collection-back-bookmarks",
     "collection-back-file-details",
     "collection-back-file-message",
     "collection-back-files",
@@ -666,6 +669,34 @@ export function webviewServers(
       return;
     }
     if (url.pathname.startsWith("/system-post-check/api/v4/")) {
+      const town = "c".repeat(26);
+      const bookmarkChannel = `/system-post-check/api/v4/channels/${town}`;
+      if (
+        url.pathname === bookmarkChannel + "/bookmarks" ||
+        url.pathname === bookmarkChannel + "/members/me"
+      ) {
+        assert.equal(req.method, "GET");
+        assert.equal(req.headers.authorization, "Bearer fixture-system-post");
+        assert.equal(url.search, "");
+        const listing = url.pathname.endsWith("/bookmarks");
+        const data = listing
+          ? [
+              {
+                id: "b".repeat(26),
+                channel_id: town,
+                delete_at: 0,
+                display_name: "Opening discussion",
+                type: "link",
+                link_url: `https://${req.headers.host}/system-post-check/browser/channels/town-square/${"w".repeat(26)}`,
+              },
+            ]
+          : { channel_id: town, user_id: "f".repeat(26), notify_props: {} };
+        if (listing) systemPostReads.add("channel-bookmarks");
+        res
+          .writeHead(200, { "Content-Type": "application/json" })
+          .end(JSON.stringify(data));
+        return;
+      }
       if (
         url.pathname === `/system-post-check/api/v4/posts/${deniedPost}/info`
       ) {
@@ -2199,6 +2230,7 @@ export function webviewServers(
       refresh.verify();
       cardRace.verify();
       for (const read of [
+        "channel-bookmarks",
         "live-search-destination",
         "live-search-post-anchor",
         "system-reply-destination",

@@ -259,6 +259,52 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
       )
         throw Error("Member directory did not return to the opening row");
     });
+    click(about.getByRole("button", { name: "Channel bookmarks" }));
+    const bookmarks = await findPane("Channel bookmarks");
+    const bookmark = await bookmarks.findByRole("button", {
+      name: /Release checklist/,
+    });
+    if (!bookmark.textContent?.includes("text/markdown"))
+      throw Error("Missing bookmark media type");
+    click(bookmark);
+    const bookmarkMenu = await within(document.body).findByRole("dialog", {
+      name: "Release checklist",
+    });
+    await back("bookmark-menu");
+    await waitFor(() => {
+      if (bookmarkMenu.isConnected || document.activeElement !== bookmark)
+        throw Error("Back did not return to the bookmark");
+    });
+    click(bookmark);
+    click(
+      within(
+        await within(document.body).findByRole("dialog", {
+          name: "Release checklist",
+        }),
+      ).getByRole("button", { name: "Open file" }),
+    );
+    const bookmarkFile = within(
+      await within(document.body).findByRole("dialog", {
+        name: "checklist.md",
+      }),
+    );
+    await bookmarkFile.findByText("MD");
+    if (bookmarkFile.queryByRole("button", { name: "Show message" }))
+      throw Error("Bookmark-only file offered a parent message");
+    await back("bookmark-file");
+    await waitFor(() => {
+      if (document.activeElement !== bookmark)
+        throw Error("File preview lost the bookmark row");
+    });
+    await back("bookmarks");
+    about = await findPane("About this channel");
+    await waitFor(() => {
+      if (
+        document.activeElement !==
+        about.getByRole("button", { name: "Channel bookmarks" })
+      )
+        throw Error("Bookmark list lost its entry in channel info");
+    });
     click(about.getByRole("button", { name: "Channel files" }));
     const files = await findPane("Channel files");
     const file = await files.findByRole("button", {

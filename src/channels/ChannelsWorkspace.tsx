@@ -30,6 +30,7 @@ import type { LocalPost } from "../mattermost/local-history.ts";
 import { isMattermostId } from "../mattermost/model-fields.ts";
 import { visibleSidebar } from "../mattermost/sidebar-rows.ts";
 import { effectiveWorkspacePreferences } from "../mattermost/workspace-preferences.ts";
+import { ChannelBookmarksPanel } from "./ChannelBookmarksPanel.tsx";
 import { ChannelFilesPanel } from "./ChannelFilesPanel.tsx";
 import {
   ChannelInformationButton,
@@ -338,9 +339,9 @@ export function ChannelsWorkspace({
     opener: HTMLButtonElement;
     direct?: "menu" | "memberCount";
     requestId?: number;
-    stage: "overview" | "pins" | "members" | "files";
+    stage: "overview" | "pins" | "members" | "files" | "bookmarks";
     fileOrigin?: { postId: string; button: HTMLButtonElement };
-    focusRow?: "members" | "pins" | "files";
+    focusRow?: "members" | "pins" | "files" | "bookmarks";
   } | null>(null);
   const fileNavigation = useRef<AbortController | null>(null);
   const fileReading = useRef<TimelinePlace | null>(null);
@@ -1385,7 +1386,7 @@ export function ChannelsWorkspace({
     restoreConversation(id, fileReading.current);
     choose(id, true);
   }
-  function backToInfo(focusRow: "members" | "files") {
+  function backToInfo(focusRow: "members" | "files" | "bookmarks") {
     if (infoChannel?.direct) return closeInfo();
     if (infoChannel)
       setInfoChannel({
@@ -1520,7 +1521,7 @@ export function ChannelsWorkspace({
       };
     if (infoOpen) {
       const stage = infoChannel.stage;
-      return stage === "members" || stage === "files"
+      return stage === "members" || stage === "files" || stage === "bookmarks"
         ? () => backToInfo(stage)
         : closeInfo;
     }
@@ -1743,6 +1744,7 @@ export function ChannelsWorkspace({
     if (!publishedLinks || !publishedReading) return publishedLinks;
     return {
       serverUrl: publishedLinks.serverUrl,
+      openBookmark: publishedLinks.openBookmark,
       open(href: string, anchor: HTMLAnchorElement) {
         const scene = host.current;
         const request = position?.system;
@@ -2336,6 +2338,18 @@ export function ChannelsWorkspace({
               close={closeInfo}
               sessionIssue={sessionIssue}
             />
+          ) : infoOpen && channel && infoChannel.stage === "bookmarks" ? (
+            <ChannelBookmarksPanel
+              key={channel.id}
+              account={connection}
+              channelId={channel.id}
+              name={roomTitle}
+              serverUrl={workspace.serverUrl}
+              online={online}
+              language={language}
+              sessionIssue={sessionIssue}
+              back={() => backToInfo("bookmarks")}
+            />
           ) : infoOpen && channel ? (
             <ChannelInformationPanel
               count={memberCount}
@@ -2352,6 +2366,9 @@ export function ChannelsWorkspace({
               }}
               close={closeInfo}
               focusRow={infoChannel.focusRow}
+              openBookmarks={() =>
+                setInfoChannel({ ...infoChannel, stage: "bookmarks" })
+              }
               openFiles={
                 allowChannelFiles
                   ? () => setInfoChannel({ ...infoChannel, stage: "files" })

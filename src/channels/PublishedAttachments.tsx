@@ -500,10 +500,7 @@ export function ChannelFileCard({
 }) {
   const window = useContext(AttachmentWindow);
   const row = useId();
-  const close = window?.close;
-  useLayoutEffect(() => () => close?.(row), [close, row]);
   if (!window) return null;
-  const selected = window.selected;
   return (
     <>
       <AttachmentButton
@@ -512,18 +509,48 @@ export function ChannelFileCard({
         language={language}
         open={(button) => window.open(row, file.id, button)}
       />
-      {selected?.row === row && selected.fileId === file.id && (
-        <FileDetails
-          key={file.id}
-          file={file}
-          read={read}
-          showMessage={showMessage}
-          language={language}
-          selection={selected}
-          window={window}
-          fallback={attachmentCopy[language].details}
-        />
-      )}
+      <ChannelFileDetails
+        row={row}
+        file={file}
+        read={read}
+        showMessage={showMessage}
+        language={language}
+      />
     </>
+  );
+}
+
+export function ChannelFileDetails({
+  row,
+  file,
+  read,
+  showMessage,
+  language,
+}: {
+  row: string;
+  file: PublishedFile;
+  read: (
+    signal: AbortSignal,
+  ) => Promise<{ file: PublishedFile; postId: string | null }>;
+  showMessage?: (postId: string, button: HTMLButtonElement) => void;
+  language: EntryLanguage;
+}) {
+  const window = useContext(AttachmentWindow);
+  const close = window?.close;
+  useLayoutEffect(() => () => close?.(row), [close, row]);
+  const selected = window?.selected;
+  if (!window || selected?.row !== row || selected.fileId !== file.id)
+    return null;
+  return (
+    <FileDetails
+      key={file.id}
+      file={file}
+      read={read}
+      showMessage={showMessage}
+      language={language}
+      selection={selected}
+      window={window}
+      fallback={attachmentCopy[language].details}
+    />
   );
 }

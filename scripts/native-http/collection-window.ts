@@ -122,7 +122,32 @@ export function collectionWindowFixture() {
       size: 0,
       extension: "txt",
     };
-    if (path === `teams/${team}/files/search`) {
+    const bookmarkFile = {
+      ...channelFile,
+      id: "q".repeat(26),
+      name: "checklist.md",
+      mime_type: "text/markdown",
+      extension: "md",
+      post_id: "",
+      size: 13,
+    };
+    if (path === `channels/${channel}/bookmarks`) {
+      assert.equal(url.search, "");
+      send([
+        {
+          id: "b".repeat(26),
+          channel_id: channel,
+          type: "file",
+          display_name: "Release checklist",
+          image_url: "https://[fe80::1%25en0]/icon.png",
+          file_id: bookmarkFile.id,
+          file: bookmarkFile,
+          delete_at: 0,
+        },
+      ]);
+    } else if (path === `files/${bookmarkFile.id}/info`) {
+      send(bookmarkFile);
+    } else if (path === `teams/${team}/files/search`) {
       const query = await requestJson(req);
       assert(query && typeof query === "object" && "page" in query);
       assert(query.page === 0 || query.page === 1);

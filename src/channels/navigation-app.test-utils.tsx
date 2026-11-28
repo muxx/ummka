@@ -281,6 +281,9 @@ export function fixture({
     readRecentTeamSearches: vi.fn().mockResolvedValue([]),
     rememberTeamSearch: vi.fn().mockResolvedValue(true),
     readSearchTimezone: vi.fn().mockResolvedValue("UTC"),
+    readChannelBookmarks: vi
+      .fn<Account["readChannelBookmarks"]>()
+      .mockResolvedValue({ kind: "available", bookmarks: [] }),
     readChannelIdentity: vi
       .fn<Account["readChannelIdentity"]>()
       .mockRejectedValue(new TypeError("Unknown channel")),

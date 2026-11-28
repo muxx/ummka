@@ -2665,3 +2665,26 @@ test.each(["P", "G", "D"] as const)(
     expect(account.readChannelMemberDirectory.mock.calls[0][0]).toBe(home);
   },
 );
+
+test("channel bookmarks read only on opening and return to the selected overview row", async () => {
+  const { account } = fixture();
+  const info = await screen.findByRole("button", { name: "Channel info" });
+  fireEvent.click(info);
+  const open = await screen.findByRole("button", { name: "Channel bookmarks" });
+  expect(account.readChannelBookmarks).not.toHaveBeenCalled();
+  fireEvent.click(open);
+  const panel = await screen.findByRole("complementary", {
+    name: "Channel bookmarks",
+  });
+  await within(panel).findByText("No bookmarks yet");
+  expect(account.readChannelBookmarks).toHaveBeenCalledExactlyOnceWith(
+    home,
+    expect.any(AbortSignal),
+  );
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Channel bookmarks" }),
+  );
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(document.activeElement).toBe(info);
+});
