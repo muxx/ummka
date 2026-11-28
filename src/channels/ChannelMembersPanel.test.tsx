@@ -124,6 +124,7 @@ test("a new search cancels in-flight reads; an old response cannot replace the c
   const { props, read } = setup();
   let resolvePage: ((p: Page) => void) | undefined;
   read
+    .mockResolvedValueOnce({ members: [ada], nextPage: null })
     .mockImplementationOnce(
       () =>
         new Promise<Page>((resolve) => {
@@ -133,21 +134,23 @@ test("a new search cancels in-flight reads; an old response cannot replace the c
     .mockResolvedValueOnce({ members: [lin], nextPage: null })
     .mockResolvedValueOnce({ members: [], nextPage: null });
   render(<ChannelMembersPanel {...props} />);
+  await act(async () => {});
   const input = screen.getByRole("searchbox");
   fireEvent.change(input, { target: { value: "li" } });
+  await act(() => vi.advanceTimersByTimeAsync(100));
   fireEvent.change(input, { target: { value: " lin " } });
-  expect(read.mock.calls[0][2]?.aborted).toBe(true);
+  expect(read.mock.calls[1][2]?.aborted).toBe(true);
   await act(() => vi.advanceTimersByTimeAsync(99));
-  expect(read).toHaveBeenCalledTimes(1);
+  expect(read).toHaveBeenCalledTimes(2);
   await act(() => vi.advanceTimersByTimeAsync(1));
-  expect(read.mock.calls[1][1]).toEqual({ kind: "search", term: "lin" });
+  expect(read.mock.calls[2][1]).toEqual({ kind: "search", term: "lin" });
   await act(async () => {
     resolvePage?.({ members: [ada], nextPage: null });
   });
   expect(screen.queryByText("@ada")).toBeNull();
   expect(screen.getByText("@lin")).toBeTruthy();
   await act(async () => fireEvent.change(input, { target: { value: "" } }));
-  expect(screen.getByText("No members to show")).toBeTruthy();
+  expect(screen.getByText("No members")).toBeTruthy();
 });
 test("an access denial drops previously visible rows; offline and session expiry do not expose the list", async () => {
   vi.stubGlobal(
@@ -170,12 +173,16 @@ test("an access denial drops previously visible rows; offline and session expiry
   fireEvent.click(
     await screen.findByRole("button", { name: "Show more members" }),
   );
-  expect(await screen.findByRole("alert")).toBeTruthy();
+  expect(
+    await screen.findByRole("heading", {
+      name: "No access to channel members",
+    }),
+  ).toBeTruthy();
   expect(screen.queryByText("@ada")).toBeNull();
   view.rerender(<ChannelMembersPanel {...props} online={false} />);
-  expect(screen.getByRole("status").textContent).toContain("Connect");
+  expect(screen.getByRole("heading", { name: "No connection" })).toBeTruthy();
   expect(read).toHaveBeenCalledTimes(2);
   view.rerender(<ChannelMembersPanel {...props} />);
-  await screen.findByRole("alert");
+  await screen.findByRole("heading", { name: "No access to channel members" });
   expect(props.sessionIssue).toHaveBeenCalledWith("unauthorized");
 });

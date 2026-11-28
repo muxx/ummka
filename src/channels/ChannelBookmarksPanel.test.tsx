@@ -185,19 +185,19 @@ test("network retry, license refusal, missing permission and session expiry rema
       new ResponseError(new Response(null, { status: 401 })),
     );
   const view = render(<Panel ctx={ctx} online={false} />);
-  await screen.findByText("Connect to see channel bookmarks.");
+  await screen.findByText("The list will load when the connection returns");
   expect(account.readChannelBookmarks).not.toHaveBeenCalled();
   view.rerender(<Panel ctx={ctx} />);
-  await screen.findByText("Couldn’t load channel bookmarks.");
+  await screen.findByText("Couldn’t load the list");
   const retry = screen.getByRole("button", { name: "Try again" });
   retry.focus();
   fireEvent.click(retry);
-  await screen.findByText("Channel bookmarks aren’t available on this server.");
+  await screen.findByText("This server doesn’t offer channel bookmarks");
   expect(document.activeElement).toBe(
-    screen.getByRole("heading", { name: "Channel bookmarks" }),
+    screen.getByRole("heading", { name: "Bookmarks unavailable" }),
   );
   view.rerender(<Panel ctx={ctx} id={other} />);
-  await screen.findByText("You don’t have access to these bookmarks.");
+  await screen.findByText("No access to channel bookmarks");
   expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   view.rerender(<Panel ctx={ctx} />);
   await waitFor(() =>
@@ -549,7 +549,7 @@ test("keeps the draft during an outage and only reads on reconnect after an unce
   );
   fireEvent.click(dialog.getByRole("button", { name: "Close" }));
   expect(ctx.account.readChannelBookmarks).toHaveBeenCalledTimes(1);
-  await screen.findByText("Connect to see channel bookmarks.");
+  await screen.findByText("The list will load when the connection returns");
 
   panel.rerender(<Panel ctx={ctx} />);
   await screen.findByRole("button", { name: original.name });
@@ -917,8 +917,12 @@ test("a revoked edit with a lost response holds writes until a fresh list return
       .disabled,
   ).toBe(true);
   await act(async () => request.reject(new TypeError("Response lost")));
-  await screen.findByText("Loading bookmarks…");
-  expect(screen.queryByRole("button", { name: "Add link" })).toBeNull();
+  expect(ctx.account.readChannelBookmarks).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole("button", { name: editableLink.name })).toBeTruthy();
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Add link" })
+      .disabled,
+  ).toBe(true);
   expect(ctx.account.updateChannelBookmark).toHaveBeenCalledTimes(1);
   await act(async () =>
     refresh.resolve({ kind: "available", bookmarks: [updated] }),

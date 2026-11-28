@@ -1,4 +1,5 @@
 import {
+  type RefObject,
   useEffect,
   useEffectEvent,
   useId,
@@ -7,6 +8,12 @@ import {
   useState,
 } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
+import {
+  ChannelListStatus,
+  channelListCopy,
+  channelListError,
+  channelListOffline,
+} from "./ChannelListState.tsx";
 import { ChannelSectionHeader } from "./ChannelSectionHeader.tsx";
 import { readChannelFilesPage } from "./channel-files-page.ts";
 import { ChannelFileCard } from "./PublishedAttachments.tsx";
@@ -24,10 +31,7 @@ export const filePanelCopy = {
     empty: "No files yet",
     hint: "Attachments from the channel and its threads will appear here.",
     loading: "Loading files…",
-    denied: "Channel files are unavailable.",
-    failed: "Couldn’t load channel files.",
-    offline: "Connect to see channel files.",
-    retry: "Try again",
+    denied: "No access to channel files",
     more: "Show more files",
   },
   ru: {
@@ -37,11 +41,8 @@ export const filePanelCopy = {
     backToChannel: "Вернуться в беседу",
     empty: "Файлов пока нет",
     hint: "Вложения из канала и его тредов появятся здесь.",
-    loading: "Загрузка файлов…",
-    denied: "Файлы канала недоступны.",
-    failed: "Не удалось загрузить файлы канала.",
-    offline: "Подключитесь к сети, чтобы увидеть файлы канала.",
-    retry: "Повторить",
+    loading: "Загружаем файлы…",
+    denied: "Нет доступа к файлам",
     more: "Показать ещё файлы",
   },
 };
@@ -98,10 +99,13 @@ function FileList({
   language,
   sessionIssue,
   hidden,
+  panelHeading,
   showMessage,
-}: Props) {
+}: Props & { panelHeading: RefObject<HTMLHeadingElement | null> }) {
   const t = filePanelCopy[language];
+  const listText = channelListCopy[language];
   const [request, setRequest] = useState({ page: 0 });
+  const [retrying, setRetrying] = useState(false);
   const [result, setResult] = useState(initial);
   const report = useEffectEvent(sessionIssue);
   useEffect(() => {
@@ -116,6 +120,7 @@ function FileList({
     ).then(
       (page) => {
         if (signal.aborted) return;
+        setRetrying(false);
         setResult((old) => {
           const rows = new Map(old.items.map((file) => [file.id, file]));
           for (const file of page.items) rows.set(file.id, file);
@@ -132,6 +137,7 @@ function FileList({
       },
       (error: unknown) => {
         if (signal.aborted) return;
+        setRetrying(false);
         const failure = workspaceFailure(error, "network");
         if (failure === "session" || failure === "unauthorized")
           report(failure);
@@ -148,9 +154,12 @@ function FileList({
   }, [account, teamId, channelId, request]);
   const visible = result.items.filter((f) => f.name?.trim());
   const body = useRef<HTMLDivElement>(null);
+  const noticeHeading = useRef<HTMLHeadingElement>(null);
+  const retryButton = useRef<HTMLButtonElement>(null);
   const focusIndex = useRef<number | null>(null);
-  function read(page: number, button: HTMLButtonElement) {
+  function read(page: number, button: HTMLButtonElement, retry = false) {
     if (button === document.activeElement) focusIndex.current = visible.length;
+    setRetrying(retry);
     setResult((old) => ({ ...old, status: "loading" }));
     setRequest({ page });
   }
@@ -161,23 +170,60 @@ function FileList({
   const boundary = useNextPageButton(next, read);
   useLayoutEffect(() => {
     const index = focusIndex.current;
-    if (index === null || result.status === "loading" || !body.current) return;
+    if (result.status === "loading" || !body.current || hidden) return;
     focusIndex.current = null;
-    if (document.activeElement !== document.body || hidden) return;
+    const active = document.activeElement;
+    if (result.status === "denied") {
+      if (active === document.body || active === panelHeading.current)
+        noticeHeading.current?.focus({ preventScroll: true });
+      return;
+    }
+    if (
+      index === null ||
+      (active !== document.body &&
+        active !== retryButton.current &&
+        active !== boundary.current)
+    )
+      return;
     const cards =
       body.current.querySelectorAll<HTMLButtonElement>(".post-file");
     const target =
-      cards.item(index) ??
-      body.current.querySelector<HTMLElement>(
-        ".channel-files-control, [role=alert], .channel-files-empty",
-      ) ??
+      (result.status === "failed" ? retryButton.current : cards.item(index)) ??
+      noticeHeading.current ??
+      boundary.current ??
       cards.item(cards.length - 1);
-    target?.focus();
-  }, [result, hidden]);
+    target?.focus({ preventScroll: true });
+  }, [result, hidden, boundary, panelHeading]);
+  const edge =
+    request.page > 0 &&
+    (result.status === "loading" || result.status === "failed");
+  const loading = result.status === "loading";
+  const waitingOnBoundary =
+    edge && loading && !retrying && focusIndex.current !== null;
+  const notice =
+    result.status === "denied"
+      ? { variant: "error" as const, title: t.denied }
+      : result.status === "failed" || retrying
+        ? channelListError(language, edge)
+        : loading
+          ? {
+              variant: "pending" as const,
+              message: edge ? listText.loadingMore : t.loading,
+            }
+          : !visible.length && result.isEnd
+            ? { variant: "empty" as const, title: t.empty, message: t.hint }
+            : null;
   return (
-    <div className="channel-files-body" ref={body} data-channel-files="">
+    <div
+      className="channel-files-body"
+      ref={body}
+      data-channel-files=""
+      aria-busy={loading || undefined}
+    >
       {result.firstInaccessibleFileTime > 0 && (
-        <p>{searchCopy[language].retention}</p>
+        <p className="channel-file-retention">
+          {searchCopy[language].retention}
+        </p>
       )}
       {visible.length > 0 && (
         <ul className="post-files channel-files-list">
@@ -196,37 +242,36 @@ function FileList({
           ))}
         </ul>
       )}
-      {result.status === "ready" && !visible.length && result.isEnd && (
-        <div className="channel-files-empty" role="status" tabIndex={-1}>
-          <FileIcon />
-          <h3>{t.empty}</h3>
-          <p>{t.hint}</p>
-        </div>
-      )}
-      {result.status === "loading" && <p role="status">{t.loading}</p>}
-      {result.status === "denied" && (
-        <p role="alert" tabIndex={-1}>
-          {t.denied}
-        </p>
-      )}
-      {result.status === "failed" && <p role="alert">{t.failed}</p>}
-      {result.status === "failed" && (
-        <button
-          type="button"
-          className="channel-files-control"
-          onClick={(e) => read(request.page, e.currentTarget)}
-        >
-          {t.retry}
-        </button>
-      )}
-      {next !== null && (
+      <ChannelListStatus
+        language={language}
+        notice={waitingOnBoundary ? null : notice}
+        heading={noticeHeading}
+        edge={edge}
+        retry={
+          result.status === "failed" || retrying
+            ? {
+                running: retrying,
+                button: retryButton,
+                read: () => {
+                  if (retryButton.current)
+                    read(request.page, retryButton.current, true);
+                },
+              }
+            : undefined
+        }
+      />
+      {(next !== null || waitingOnBoundary) && (
         <button
           ref={boundary}
-          className="channel-files-control"
+          className="channel-list-more"
           type="button"
-          onClick={(e) => read(next, e.currentTarget)}
+          aria-busy={waitingOnBoundary || undefined}
+          aria-disabled={waitingOnBoundary || undefined}
+          onClick={(e) => {
+            if (next !== null) read(next, e.currentTarget);
+          }}
         >
-          {t.more}
+          {waitingOnBoundary ? listText.loadingMore : t.more}
         </button>
       )}
     </div>
@@ -236,6 +281,7 @@ function FileList({
 export function ChannelFilesPanel(props: Props) {
   const t = filePanelCopy[props.language];
   const heading = useRef<HTMLHeadingElement>(null);
+  const offlineHeading = useRef<HTMLHeadingElement>(null);
   const id = useId();
   const returnFocus = useEffectEvent(() => {
     const button = props.restoreButton;
@@ -265,11 +311,13 @@ export function ChannelFilesPanel(props: Props) {
         close={props.close}
       />
       {props.online ? (
-        <FileList key={props.channelId} {...props} />
+        <FileList key={props.channelId} {...props} panelHeading={heading} />
       ) : (
-        <p className="channel-files-body" role="status">
-          {t.offline}
-        </p>
+        <ChannelListStatus
+          language={props.language}
+          notice={channelListOffline(props.language)}
+          heading={offlineHeading}
+        />
       )}
     </aside>
   );

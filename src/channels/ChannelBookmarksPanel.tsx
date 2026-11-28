@@ -10,7 +10,14 @@ import {
 } from "./BookmarkEditor.tsx";
 import { BookmarkIcon } from "./BookmarkIcon.tsx";
 import { FileIcon, filePanelCopy } from "./ChannelFilesPanel.tsx";
+import {
+  ChannelListStatus,
+  channelListCopy,
+  channelListError,
+  channelListOffline,
+} from "./ChannelListState.tsx";
 import { ChannelSectionHeader } from "./ChannelSectionHeader.tsx";
+import { useCollectionRefreshVisibility } from "./CollectionReadNotice.tsx";
 import {
   AttachmentWindow,
   ChannelFileDetails,
@@ -27,11 +34,15 @@ export const bookmarkCopy = {
     dismiss: "Close",
     empty: "No bookmarks yet",
     hint: "Members with permission to manage bookmarks can add them.",
-    denied: "You don’t have access to these bookmarks.",
-    unlicensed: "Channel bookmarks aren’t available on this server.",
+    denied: "No access to channel bookmarks",
+    unlicensed: "Bookmarks unavailable",
+    noFeature: "This server doesn’t offer channel bookmarks",
     loading: "Loading bookmarks…",
-    failed: "Couldn’t load channel bookmarks.",
-    offline: "Connect to see channel bookmarks.",
+    updating: "Updating bookmarks…",
+    updateFailed: "Update failed: no response",
+    updateAnnouncement:
+      "Bookmarks couldn’t update. The server didn’t return the list",
+    updated: "Bookmarks updated",
     openLink: "Open link",
     openFile: "Open file",
     openBoard: "Open board in browser",
@@ -44,11 +55,14 @@ export const bookmarkCopy = {
     dismiss: "Закрыть",
     empty: "Закладок пока нет",
     hint: "Закладки добавляют участники с правом управлять ими.",
-    denied: "У вас нет доступа к закладкам этого канала.",
-    unlicensed: "На этом сервере закладки каналов недоступны.",
-    loading: "Загрузка закладок…",
-    failed: "Не удалось загрузить закладки канала.",
-    offline: "Подключитесь к сети, чтобы увидеть закладки канала.",
+    denied: "Нет доступа к закладкам",
+    unlicensed: "Закладки недоступны",
+    noFeature: "На этом сервере их нет",
+    loading: "Загружаем закладки…",
+    updating: "Обновляем закладки…",
+    updateFailed: "Не обновились: нет ответа",
+    updateAnnouncement: "Закладки не обновились. Сервер не вернул список",
+    updated: "Закладки обновлены",
     openLink: "Открыть ссылку",
     openFile: "Открыть файл",
     openBoard: "Открыть доску в браузере",
@@ -356,26 +370,28 @@ function BookmarkRow({
 type BookmarkFocus = { id?: string; index?: number };
 
 function EditableBookmarks({
-  initial,
+  items,
+  setItems,
+  reading,
   reload,
   focusHeading,
   takeRefreshFocus,
   setEditorOpen,
   ...props
 }: Props & {
-  initial: Bookmark[];
+  items: Bookmark[];
+  setItems: (items: Bookmark[]) => void;
+  reading: boolean;
   reload: (focus?: BookmarkFocus) => void;
   focusHeading: () => void;
   takeRefreshFocus: () => BookmarkFocus | undefined;
   setEditorOpen: (open: boolean) => void;
 }) {
-  const [items, setItems] = useState(initial),
-    [edit, setEdit] = useState<BookmarkEdit | null>(null),
+  const [edit, setEdit] = useState<BookmarkEdit | null>(null),
     [sendingInBackground, setSendingInBackground] = useState(false);
   const panel = useRef<HTMLDivElement>(null),
     add = useRef<HTMLButtonElement>(null);
   const target = useRef<BookmarkFocus | null>(null),
-    t = bookmarkCopy[props.language],
     w = editorCopy[props.language];
   function begin(next: BookmarkEdit) {
     setEdit(next);
@@ -459,7 +475,7 @@ function EditableBookmarks({
           <button
             type="button"
             className="bookmark-add"
-            disabled={!props.online || sendingInBackground}
+            disabled={!props.online || reading || sendingInBackground}
             ref={add}
             onClick={() => begin({ action: "add" })}
           >
@@ -467,15 +483,22 @@ function EditableBookmarks({
           </button>
         </div>
       )}
-      {sendingInBackground && <p role="status">{w.saving}</p>}
-      {items.length ? (
+      {sendingInBackground && (
+        <p className="bookmark-saving" role="status">
+          {w.saving}
+        </p>
+      )}
+      {items.length > 0 && (
         <ul>
           {items.map((item) => (
             <BookmarkRow
               key={item.id}
               {...props}
               can={(action, kind) =>
-                props.online && !sendingInBackground && props.can(action, kind)
+                props.online &&
+                !reading &&
+                !sendingInBackground &&
+                props.can(action, kind)
               }
               item={item}
               begin={begin}
@@ -483,12 +506,6 @@ function EditableBookmarks({
             />
           ))}
         </ul>
-      ) : (
-        <div className="channel-files-empty" role="status">
-          <BookmarkIcon />
-          <h3>{t.empty}</h3>
-          <p>{props.can("add") ? w.empty : t.hint}</p>
-        </div>
       )}
       {edit && (
         <BookmarkEditor
@@ -527,36 +544,149 @@ function EditableBookmarks({
 
 export function ChannelBookmarksPanel(props: Props) {
   const [editorOpen, setEditorOpen] = useState(false);
-  const heading = useRef<HTMLHeadingElement>(null),
-    refreshFocus = useRef<BookmarkFocus | undefined>(undefined),
-    id = useId();
-  const { account, channelId, online, language } = props,
-    t = bookmarkCopy[language];
+  const [retrying, setRetrying] = useState(false);
+  const [items, setItems] = useState<{
+    channelId: string;
+    response: object;
+    current: Bookmark[];
+  } | null>(null);
+  const [announcement, setAnnouncement] = useState("");
+  const heading = useRef<HTMLHeadingElement>(null);
+  const noticeHeading = useRef<HTMLHeadingElement>(null);
+  const retryButton = useRef<HTMLButtonElement>(null);
+  const refreshButton = useRef<HTMLButtonElement>(null);
+  const body = useRef<HTMLDivElement>(null);
+  const refreshFocus = useRef<BookmarkFocus | undefined>(undefined);
+  const retryFocus = useRef(false);
+  const hadRefresh = useRef(false);
+  const id = useId();
+  const { account, channelId, online, language } = props;
+  const t = bookmarkCopy[language];
+  const listText = channelListCopy[language];
   const { value, retry } = useInfoRead(
     channelId,
     online || editorOpen,
     (s, id) => account.readChannelBookmarks(id, s),
     props.sessionIssue,
   );
+  const unlicensed =
+    value.status === "ready" && value.value.kind === "unlicensed";
+  const confirmed =
+    value.status === "ready" && value.value.kind === "available"
+      ? value.value.bookmarks
+      : null;
+  if (confirmed && (items?.response !== value || items.channelId !== channelId))
+    setItems({ channelId, response: value, current: confirmed });
+  else if (
+    items &&
+    (items.channelId !== channelId ||
+      value.status === "denied" ||
+      value.status === "offline" ||
+      unlicensed)
+  )
+    setItems(null);
+
+  const visible = items?.channelId === channelId && !unlicensed ? items : null;
+  const loading = value.status === "loading";
+  const failed = value.status === "failed";
+  const refreshing = Boolean(visible) && loading;
+  const refreshFailed = Boolean(visible) && failed;
+  const showRefresh = useCollectionRefreshVisibility(refreshing);
+  const updateRetry = refreshFailed || (refreshing && retrying);
+  const closed = value.status === "denied" || unlicensed;
   const focusHeading = () => heading.current?.focus({ preventScroll: true });
   function reload(focus?: BookmarkFocus) {
     refreshFocus.current = focus;
     if (focus) {
-      document.activeElement
-        ?.closest<HTMLDialogElement>("dialog[data-bookmark-menu]")
-        ?.close();
-      focusHeading();
+      const dialog = document.activeElement?.closest<HTMLDialogElement>(
+        "dialog[data-bookmark-menu]",
+      );
+      if (dialog) {
+        dialog.close();
+        focusHeading();
+      }
     }
+    setAnnouncement("");
     retry();
   }
   function takeRefreshFocus() {
+    if (value.status !== "ready") return;
     const focus = refreshFocus.current;
     refreshFocus.current = undefined;
-    if (document.activeElement === heading.current) return focus;
+    const active = document.activeElement;
+    if (active === heading.current || active === document.body) return focus;
+  }
+  function repeat(button: HTMLButtonElement | null) {
+    if (retrying) return;
+    if (button) {
+      button.focus({ preventScroll: true });
+      retryFocus.current = true;
+    }
+    setRetrying(true);
+    setAnnouncement("");
+    retry();
   }
   useLayoutEffect(() => {
     heading.current?.focus({ preventScroll: true });
   }, []);
+  useLayoutEffect(() => {
+    if (loading) {
+      if (refreshing) hadRefresh.current = true;
+      return;
+    }
+    if (retrying) setRetrying(false);
+    if (refreshFailed) {
+      setAnnouncement(t.updateAnnouncement);
+      return;
+    }
+    if (hadRefresh.current) {
+      hadRefresh.current = false;
+      setAnnouncement(confirmed ? t.updated : "");
+    } else if (!confirmed) setAnnouncement("");
+    if (refreshFocus.current && failed) refreshFocus.current = undefined;
+    const returnFocus = retryFocus.current;
+    retryFocus.current = false;
+    const active = document.activeElement;
+    if (closed && (active === document.body || active === heading.current)) {
+      noticeHeading.current?.focus({ preventScroll: true });
+      return;
+    }
+    if (!returnFocus || active !== document.body) return;
+    const row = body.current?.querySelector<HTMLButtonElement>(
+      ".channel-bookmark-row:not(:disabled)",
+    );
+    (row ?? noticeHeading.current ?? heading.current)?.focus({
+      preventScroll: true,
+    });
+  }, [
+    loading,
+    refreshing,
+    refreshFailed,
+    retrying,
+    closed,
+    confirmed,
+    failed,
+    t,
+  ]);
+  const notice = closed
+    ? {
+        variant: "error" as const,
+        title: unlicensed ? t.unlicensed : t.denied,
+        message: unlicensed ? t.noFeature : undefined,
+      }
+    : value.status === "offline"
+      ? channelListOffline(language)
+      : !visible && (failed || retrying)
+        ? channelListError(language, false)
+        : !visible && loading
+          ? { variant: "pending" as const, message: t.loading }
+          : visible?.current.length === 0
+            ? {
+                variant: "empty" as const,
+                title: t.empty,
+                message: props.can("add") ? editorCopy[language].empty : t.hint,
+              }
+            : null;
   return (
     <aside
       className="channels-thread channel-information channel-context-pane channel-bookmarks-panel"
@@ -568,6 +698,23 @@ export function ChannelBookmarksPanel(props: Props) {
         icon={<BookmarkIcon />}
         title={t.title}
         name={props.name}
+        detailStatus={
+          updateRetry ? t.updateFailed : showRefresh ? t.updating : undefined
+        }
+        detailAction={
+          updateRetry && (
+            <button
+              className="channel-section-retry"
+              type="button"
+              ref={refreshButton}
+              aria-disabled={retrying || undefined}
+              aria-busy={retrying || undefined}
+              onClick={() => repeat(refreshButton.current)}
+            >
+              {retrying ? listText.retrying : listText.retry}
+            </button>
+          )
+        }
         backLabel={
           props.direct
             ? filePanelCopy[language].backToChannel
@@ -577,43 +724,40 @@ export function ChannelBookmarksPanel(props: Props) {
         back={props.back}
         close={props.back}
       />
-      <div className="channel-bookmark-body" data-channel-files="">
-        {value.status === "ready" ? (
-          value.value.kind === "unlicensed" ? (
-            <p role="status">{t.unlicensed}</p>
-          ) : (
-            <EditableBookmarks
-              {...props}
-              initial={value.value.bookmarks}
-              reload={reload}
-              setEditorOpen={setEditorOpen}
-              focusHeading={focusHeading}
-              takeRefreshFocus={takeRefreshFocus}
-            />
-          )
-        ) : (
-          <p
-            role={
-              value.status === "failed" || value.status === "denied"
-                ? "alert"
-                : "status"
-            }
-          >
-            {t[value.status]}
-          </p>
+      <div
+        className="channel-bookmark-body"
+        ref={body}
+        data-channel-files=""
+        aria-busy={loading || undefined}
+      >
+        {visible && (
+          <EditableBookmarks
+            key={channelId}
+            {...props}
+            items={visible.current}
+            setItems={(current) => setItems({ ...visible, current })}
+            reading={refreshing || refreshFailed}
+            reload={reload}
+            setEditorOpen={setEditorOpen}
+            focusHeading={focusHeading}
+            takeRefreshFocus={takeRefreshFocus}
+          />
         )}
-        {value.status === "failed" && (
-          <button
-            className="bookmark-add"
-            type="button"
-            onClick={() => {
-              focusHeading();
-              retry();
-            }}
-          >
-            {filePanelCopy[language].retry}
-          </button>
-        )}
+        <ChannelListStatus
+          language={language}
+          notice={notice}
+          heading={noticeHeading}
+          announcement={announcement}
+          retry={
+            !visible && (failed || retrying)
+              ? {
+                  running: retrying,
+                  button: retryButton,
+                  read: () => repeat(retryButton.current),
+                }
+              : undefined
+          }
+        />
       </div>
     </aside>
   );

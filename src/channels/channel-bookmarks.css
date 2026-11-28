@@ -2,13 +2,13 @@
   overflow: auto;
   overscroll-behavior: contain;
   min-height: 0;
-  padding: 13px 14px;
+  padding-block-end: 16px;
 }
 .channel-bookmark-body ul {
   display: grid;
   gap: 12px;
   list-style: none;
-  margin: 0;
+  margin: 12px 16px 0;
   padding: 0;
 }
 .channel-bookmark-body li,
@@ -209,7 +209,44 @@
 
 .bookmark-add-strip {
   display: flex;
-  margin-bottom: 12px;
+  margin: 12px 16px 0;
+}
+.bookmark-saving {
+  margin-inline: 16px;
+}
+.channel-section-detail {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  height: 1.5em;
+  margin-block-start: 2px;
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+.channel-section-detail span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.channel-section-detail .channel-section-retry {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: var(--panel-secondary-size);
+  line-height: 1;
+  font-weight: var(--panel-emphasis);
+  cursor: pointer;
+}
+.channel-section-retry:hover {
+  text-decoration: underline;
+}
+@container (width <= 740px) {
+  .channel-section-detail {
+    font-size: 0.7rem;
+  }
 }
 .channel-bookmark-body .bookmark-add {
   border: 1px solid var(--strong-divider);

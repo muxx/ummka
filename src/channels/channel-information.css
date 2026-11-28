@@ -71,9 +71,6 @@
   align-items: center;
   gap: 6px;
 }
-.channel-member-results > p {
-  color: var(--muted);
-}
 .channel-information .channels-pane-titles p {
   margin: 2px 0 0;
   font-size: 0.8rem;
@@ -109,8 +106,7 @@
   flex: 1;
   min-height: 0;
   flex-direction: column;
-  gap: 8px;
-  padding: 14px 16px;
+  padding-block-end: 16px;
 }
 .channel-members-panel .channels-pane-titles {
   flex: 1;
@@ -120,6 +116,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  margin: 12px 16px 0;
   padding: 0 12px;
   border: 1px solid var(--field-border);
   border-radius: 8px;
@@ -136,9 +133,17 @@
   box-sizing: border-box;
   padding: 0;
   border: 0;
-  font: inherit;
+  font-family: inherit;
   color: var(--text);
   background: transparent;
+}
+.channel-member-search input[aria-disabled="true"] {
+  color: var(--muted);
+}
+@container (width <= 740px) {
+  .channel-member-search input {
+    min-height: 42px;
+  }
 }
 .channel-member-search input:focus-visible {
   outline-offset: 0;
@@ -149,20 +154,10 @@
   overscroll-behavior: contain;
 }
 
-.channel-member-results > button {
-  min-height: 38px;
-  padding: 4px 12px;
-  color: var(--link);
-  background: var(--surface);
-  border: 1px solid var(--divider);
-  border-radius: 6px;
-  font: inherit;
-  cursor: pointer;
-}
 .channel-member-list {
   list-style: none;
   padding: 0;
-  margin: 0;
+  margin: 12px 16px 0;
 }
 .channel-member-list li {
   display: flex;
@@ -197,13 +192,13 @@
 .channel-files-body {
   min-height: 0;
   overflow: auto;
-  padding: 13px 14px;
+  padding-block-end: 16px;
 }
 .channel-files-body .channel-files-list {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 0;
-  margin: 0;
+  margin: 12px 16px 0;
 }
 .channel-files-body .post-file {
   width: 100%;
@@ -211,14 +206,8 @@
 .channel-files-list .post-file small {
   margin-inline-start: auto;
 }
-.channel-files-empty {
-  text-align: center;
-  margin: 8px auto;
-  padding-block: 24px;
-  color: var(--muted);
-}
-.channel-files-empty h3 {
-  color: var(--text);
+.channel-file-retention {
+  margin-inline: 16px;
 }
 @container (width <= 740px) {
   .channel-context-pane .channel-section-close {

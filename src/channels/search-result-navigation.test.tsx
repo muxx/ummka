@@ -2651,7 +2651,7 @@ test("members open from details, restore the opening row and cancel a pending re
   const panel = within(
     await screen.findByRole("complementary", { name: "Members" }),
   );
-  await panel.findByText("No members to show");
+  await panel.findByText("No members");
   expect(account.readChannelMemberDirectory).toHaveBeenCalledWith(
     home,
     { kind: "page", page: 0 },
@@ -2683,7 +2683,7 @@ test("members in the channel menu are loaded only by selecting the item and Back
   expect(account.readChannelMemberDirectory).not.toHaveBeenCalled();
   fireEvent.click(action);
   const panel = await screen.findByRole("complementary", { name: "Members" });
-  await within(panel).findByText("No members to show");
+  await within(panel).findByText("No members");
   expect(account.readChannelMemberDirectory).toHaveBeenCalledWith(
     home,
     { kind: "page", page: 0 },
@@ -2804,7 +2804,9 @@ test("channel files discard loaded rows after removal and retry the same page on
   });
   account.readFileSearchPage.mockRejectedValueOnce(new Error("disconnected"));
   fireEvent.click(panel.getByRole("button", { name: "Show more files" }));
-  await panel.findByText("Couldn’t load channel files.");
+  await panel.findByText(
+    "Couldn’t load the rest: the server didn’t return the list",
+  );
   expect(card.isConnected).toBe(true);
   account.readFileSearchPage.mockResolvedValueOnce({
     items: [],
@@ -2815,7 +2817,7 @@ test("channel files discard loaded rows after removal and retry the same page on
     new ResponseError(new Response(null, { status: 403 })),
   );
   fireEvent.click(panel.getByRole("button", { name: "Try again" }));
-  await panel.findByText("Channel files are unavailable.");
+  await panel.findByText("No access to channel files");
   expect(card.isConnected).toBe(false);
   expect(account.readFileSearchPage.mock.calls.map(([q]) => q.page)).toEqual([
     0, 1, 1,
@@ -3023,9 +3025,7 @@ test("direct bookmarks report the confirmed license state only after selection a
   const panel = await screen.findByRole("complementary", {
     name: "Channel bookmarks",
   });
-  await within(panel).findByText(
-    "Channel bookmarks aren’t available on this server.",
-  );
+  await within(panel).findByText("This server doesn’t offer channel bookmarks");
   expect(within(panel).queryByRole("button", { name: "Try again" })).toBeNull();
   expect(account.readChannelBookmarks).toHaveBeenCalledExactlyOnceWith(
     home,

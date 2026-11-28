@@ -6,6 +6,8 @@ export function ChannelSectionHeader({
   icon,
   title,
   name,
+  detailAction,
+  detailStatus,
   backLabel,
   closeLabel,
   back,
@@ -16,6 +18,8 @@ export function ChannelSectionHeader({
   icon: ReactNode;
   title: string;
   name: string;
+  detailAction?: ReactNode;
+  detailStatus?: string;
   backLabel: string;
   closeLabel: string;
   back: () => void;
@@ -46,7 +50,14 @@ export function ChannelSectionHeader({
           {icon}
           {title}
         </h2>
-        <p>{name}</p>
+        {detailStatus ? (
+          <div className="channel-section-detail">
+            <span className="panel-text--secondary">{detailStatus}</span>
+            {detailAction}
+          </div>
+        ) : (
+          <p>{name}</p>
+        )}
       </div>
       <PaneSizeToggle />
       <button

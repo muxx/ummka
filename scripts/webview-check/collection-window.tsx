@@ -253,7 +253,7 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
     fireEvent.change(roster.getByRole("searchbox"), {
       target: { value: "absent" },
     });
-    await roster.findByText("No matching members");
+    await roster.findByRole("heading", { name: /^No members match / });
     await back("info-members");
     about = await findPane("About this channel");
     await waitFor(() => {

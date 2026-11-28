@@ -1,0 +1,33 @@
+.channel-list-announcement {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.channel-list-state[data-edge] .panel-state {
+  box-sizing: border-box;
+  min-height: 51px;
+  padding-block: 0;
+}
+.channel-list-state[data-edge] .panel-state--pending {
+  border-block-start: 1px solid var(--divider);
+}
+.channel-list-more {
+  min-height: 51px;
+  margin-inline: 16px;
+  padding-inline: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+}
+.channel-list-more[aria-disabled="true"] {
+  color: var(--muted);
+  cursor: default;
+}
+.channel-list-more:not([aria-disabled]):hover {
+  text-decoration: underline;
+}
