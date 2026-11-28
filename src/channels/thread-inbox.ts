@@ -12,6 +12,7 @@ export type ThreadInboxPlace = {
   tab: ThreadInboxTab;
   id: string;
   index: number;
+  restoreRowLimit: number;
   position: { top: number; id?: string; offset: number };
 };
 type Key = ThreadInboxTab | "totals";

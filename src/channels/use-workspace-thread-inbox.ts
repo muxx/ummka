@@ -36,6 +36,7 @@ export function useWorkspaceThreadInbox(
   const [visible, setVisible] = useState(false);
   const [paused, setPaused] = useState(false);
   const [restoring, setRestoring] = useState<ThreadInboxPlace>();
+  const previousRestoreRowCount = useRef(0);
   const [selection, setSelection] = useState<Selection | null>(null);
   const opening = useRef<AbortController | null>(null);
   const visited = useRef(false);
@@ -134,6 +135,7 @@ export function useWorkspaceThreadInbox(
   function resume(post: LocalPost, place: ThreadInboxPlace) {
     if (!inbox || inbox.isRootUnavailable(post.id)) return false;
     if (!visible || selection?.id !== post.id) {
+      previousRestoreRowCount.current = 0;
       setRestoring(place);
       inbox.select(post.id);
       setVisible(true);
@@ -155,11 +157,15 @@ export function useWorkspaceThreadInbox(
     const { tab, page } = state;
     if (tab === restoring.tab) {
       if (page.status === "idle" || page.status === "loading") return;
+      const rowCount = page.rows?.length ?? 0;
       if (
         page.status === "ready" &&
         page.nextBefore &&
+        rowCount < restoring.restoreRowLimit &&
+        rowCount > previousRestoreRowCount.current &&
         !page.rows?.some((row) => row.id === restoring.id)
       ) {
+        previousRestoreRowCount.current = rowCount;
         void inbox.loadMore();
         return;
       }

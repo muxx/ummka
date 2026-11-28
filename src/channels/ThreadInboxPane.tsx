@@ -129,12 +129,17 @@ export function ThreadInboxPane({
     }
   }, [place, selected, tab, page.status]);
   function openRow(row: ThreadInboxRow, index: number) {
-    origin.current ??= {
-      tab,
-      id: row.id,
-      index,
-      position: listPlace(scroller.current),
-    };
+    if (!origin.current) {
+      const rawIndex = page.rows?.findIndex((item) => item.id === row.id);
+      origin.current = {
+        tab,
+        id: row.id,
+        index,
+        // Include the next row so the old position still has a neighbor if the opener disappears.
+        restoreRowLimit: Math.max(index, rawIndex ?? index) + 2,
+        position: listPlace(scroller.current),
+      };
+    }
     capture?.(origin.current);
     choose(row);
   }

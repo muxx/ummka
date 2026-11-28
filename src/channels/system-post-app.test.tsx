@@ -2913,6 +2913,8 @@ test.each([
   { cross: true, status: 0, unread: "neighbor" },
   { cross: true, status: 0, unread: "empty" },
   { cross: true, status: 0, unread: "denied" },
+  { cross: true, status: 0, unread: "large first page" },
+  { cross: true, status: 0, unread: "large second page" },
 ])(
   "a published link from a followed discussion returns to its origin (cross-team $cross, status $status, Unread after return $unread)",
   async ({ cross, status, unread }) => {
@@ -2948,6 +2950,13 @@ test.each([
       unreadMentions: 0,
       isUrgent: false,
     };
+    const large = unread?.startsWith("large");
+    const openerIndex = unread === "large second page" ? 30 : 0;
+    const pageSize = 25;
+    const remaining = 300;
+    const earlier = { name: "Show earlier discussions" };
+    const rowId = (index: number) => String(index + 1).padStart(26, "0");
+    const rowName = (index: number) => `Discussion ${index}`;
     let initialList = true;
     let read = false;
     let following = true;
@@ -2957,9 +2966,13 @@ test.each([
       releasePage = resolve;
     });
     account.readFollowedThreadTotals.mockImplementation(async (teamId) => ({
-      total: teamId === winter ? 2 : 0,
+      total: teamId === winter ? (large ? remaining + 1 : 2) : 0,
       totalUnreadThreads:
-        teamId === winter && unread && (!read || unread !== "empty") ? 1 : 0,
+        teamId === winter
+          ? large
+            ? remaining + Number(!read)
+            : Number(Boolean(unread && (!read || unread !== "empty")))
+          : 0,
       totalUnreadMentions: 0,
       totalUnreadUrgentMentions: 0,
     }));
@@ -2980,6 +2993,30 @@ test.each([
         if (query.teamId !== winter) return { items: [], nextBefore: null };
         if (!query.unread)
           return { items: following ? [followed] : [], nextBefore: null };
+        if (large) {
+          const cursor = before ? Number(before) : 0;
+          const start = cursor + Number(!read && cursor > openerIndex);
+          const total = remaining + Number(!read);
+          const items = Array.from(
+            { length: Math.min(pageSize, total - start) },
+            (_, offset) => {
+              const index = start + offset;
+              if (!read && index === openerIndex) return followed;
+              const number = !read && index > openerIndex ? index - 1 : index;
+              const id = rowId(number);
+              return {
+                ...followed,
+                id,
+                post: { ...initial, id, message: `Discussion ${number}` },
+              };
+            },
+          );
+          return {
+            items,
+            nextBefore:
+              items.length === pageSize ? (items.at(-1)?.id ?? null) : null,
+          };
+        }
         if (!read) return { items: [followed], nextBefore: null };
         if (unread === "denied" && returnAttempted) {
           await waitForPage;
@@ -3066,6 +3103,8 @@ test.each([
     fireEvent.click(await screen.findByRole("button", { name: /^Threads/ }));
     if (unread)
       fireEvent.click(await screen.findByRole("tab", { name: /^Unread/ }));
+    if (large && openerIndex >= pageSize)
+      fireEvent.click(await screen.findByRole("button", earlier));
     const selectedRow = await screen.findByRole("button", {
       name: /Published root/,
     });
@@ -3101,6 +3140,11 @@ test.each([
       );
     else expect((await account.readJoinedTeams())?.selectedTeam).toBe(summer);
 
+    const beforeReturn = account.readFollowedThreads.mock.calls.length;
+    const restoreCursors = () =>
+      account.readFollowedThreads.mock.calls
+        .slice(beforeReturn)
+        .map(([query]) => query.before);
     returnAttempted = true;
     fireEvent.click(await readingBack());
     if (status) {
@@ -3171,9 +3215,11 @@ test.each([
       expect(document.activeElement).toBe(
         unread === "empty"
           ? screen.getByRole("tab", { name: /^Unread/, selected: true })
-          : screen.getByRole("button", {
-              name: unread ? /Home reading place/ : /Published root/,
-            }),
+          : large
+            ? screen.getByText(rowName(openerIndex)).closest("button")
+            : screen.getByRole("button", {
+                name: unread ? /Home reading place/ : /Published root/,
+              }),
       ),
     );
     expect(
@@ -3190,6 +3236,16 @@ test.each([
         await screen.findByRole("link", { name: "Second occurrence" }),
       ).toBeTruthy();
       pressBack();
+    }
+    if (large) {
+      const next = openerIndex < pageSize ? pageSize : pageSize * 2;
+      const automatic =
+        next === pageSize ? [undefined] : [undefined, rowId(pageSize - 1)];
+      expect(restoreCursors()).toEqual(automatic);
+      expect(screen.queryByText(rowName(next))).toBeNull();
+      fireEvent.click(screen.getByRole("button", earlier));
+      await screen.findByText(rowName(next));
+      expect(restoreCursors()).toEqual([...automatic, rowId(next - 1)]);
     }
     if (isMobile) pressBack();
     fireEvent.click(screen.getByRole("button", { name: /^(# )?Home$/ }));
