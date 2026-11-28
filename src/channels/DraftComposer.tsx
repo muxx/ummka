@@ -230,7 +230,10 @@ function DraftField({
         (document.activeElement === document.body ||
           document.activeElement === field)) ||
       (pane?.querySelector("h1, h2") === document.activeElement &&
-        !(editor.location.rootId && isMobile) &&
+        !(
+          editor.location.rootId &&
+          (isMobile || pane?.closest("[data-inbox-single]"))
+        ) &&
         (field.closest(".channels-frame")?.clientWidth ?? 0) > 740)
     )
       field.focus({ preventScroll: true });

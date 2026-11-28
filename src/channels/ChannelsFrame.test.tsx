@@ -209,11 +209,11 @@ test("reserves the inbox size button for a selected discussion", () => {
     fireEvent.click(
       selected().getByRole("button", { name: "Restore narrow panel" }),
     );
-    expect(separator()?.getAttribute("aria-valuenow")).toBe("400");
+    expect(separator()?.getAttribute("aria-valuenow")).toBe("756");
 
     rerender(<ChannelsFrame {...props} />);
     expect(placeholder().queryAllByRole("button")).toHaveLength(0);
-    expect(separator()?.getAttribute("aria-valuenow")).toBe("400");
+    expect(separator()?.getAttribute("aria-valuenow")).toBe("756");
 
     rerender(<ChannelsFrame {...props} thread={thread} />);
     fireEvent.click(selected().getByRole("button", { name: "Expand panel" }));
@@ -221,6 +221,53 @@ test("reserves the inbox size button for a selected discussion", () => {
     expect(
       selected().getByRole("button", { name: "Restore narrow panel" }),
     ).toBe(document.activeElement);
+  } finally {
+    width.mockRestore();
+  }
+});
+
+test("moves focus into the single inbox thread and keeps the navigation resizer", () => {
+  const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get");
+  width.mockReturnValue(820);
+  try {
+    const props = {
+      ...frame(),
+      inboxPlaceholder: {
+        title: "Discussion",
+        heading: "Choose a discussion",
+        hint: "Replies open next to the list.",
+      },
+    };
+    const { rerender } = render(<ChannelsFrame {...props} />);
+    const row = screen.getByRole("button", { name: "Open replies" });
+    row.focus();
+    rerender(
+      <ChannelsFrame
+        {...props}
+        thread={{
+          id: "selected",
+          title: "Replies",
+          content: <p>Reply content</p>,
+          retainOpener: true,
+          close: vi.fn(),
+        }}
+      />,
+    );
+    expect(document.activeElement).toBe(
+      screen.getByRole("heading", { name: "Replies" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Back to threads" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Restore narrow panel" }),
+    ).toBeNull();
+    expect(
+      screen.getByRole("separator", { name: "Navigation pane width" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("separator", { name: "Side pane width" }),
+    ).toBeNull();
   } finally {
     width.mockRestore();
   }

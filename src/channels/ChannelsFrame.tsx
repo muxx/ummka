@@ -157,13 +157,23 @@ export function ChannelsFrame({
     inboxSplit ? "thread" : split ? "right" : "closed",
   );
   const geometry = panes.geometry;
+  const inboxSingle = inboxSplit && geometry?.single;
+  const adjustable =
+    split &&
+    geometry &&
+    (!inboxSplit || geometry.right.min !== geometry.right.max);
+  const threadCloseLabel = inboxSingle
+    ? language === "ru"
+      ? "К тредам"
+      : "Back to threads"
+    : labels.closeThread;
   const widthStyles =
     geometry &&
     ({
       "--navigation-choice": `${geometry.navigation.width}px`,
       "--right-choice": `${panes.expanded ? geometry.right.expanded : geometry.right.width}px`,
     } as CSSProperties);
-  const previous = useRef({ page, channelId, openThread });
+  const previous = useRef({ page, channelId, openThread, inboxSingle });
 
   useLayoutEffect(() => {
     const control = lastFocus.current;
@@ -187,7 +197,7 @@ export function ChannelsFrame({
 
   useLayoutEffect(() => {
     const old = previous.current;
-    previous.current = { page, channelId, openThread };
+    previous.current = { page, channelId, openThread, inboxSingle };
     if (showingPanel) return;
     function focusNavigation() {
       const current = sidebar.current?.querySelector<HTMLElement>(
@@ -198,6 +208,10 @@ export function ChannelsFrame({
     function focusVisiblePane() {
       if (!openThread && page === "navigation") {
         focusNavigation();
+        return;
+      }
+      if (openThread && inboxSingle) {
+        threadHeading.current?.focus({ preventScroll: true });
         return;
       }
       if (
@@ -248,6 +262,17 @@ export function ChannelsFrame({
     }
     const scene = root.current;
     if (!scene) return;
+    const focused = lastFocus.current;
+    if (
+      inboxSingle &&
+      !old.inboxSingle &&
+      openThread &&
+      focused &&
+      focused.getClientRects().length === 0 &&
+      (document.activeElement === document.body ||
+        document.activeElement === focused)
+    )
+      focusVisiblePane();
     const observer = new ResizeObserver(() => {
       const el = lastFocus.current;
       if (!el?.isConnected || el.getClientRects().length > 0) return;
@@ -265,6 +290,7 @@ export function ChannelsFrame({
     replyRef,
     showingPanel,
     retainOpener,
+    inboxSingle,
   ]);
 
   return (
@@ -320,6 +346,7 @@ export function ChannelsFrame({
       <div
         className="channels-panes"
         data-page={sidePanel ? "details" : openThread ? "thread" : page}
+        data-inbox-single={inboxSingle || undefined}
       >
         <nav
           ref={sidebar}
@@ -388,8 +415,7 @@ export function ChannelsFrame({
           <div className="channels-conversation-body">{children}</div>
           {composer}
         </main>
-        {split &&
-          geometry &&
+        {adjustable &&
           !panes.expanded &&
           geometry.right.min !== geometry.right.max && (
             <PaneResizer
@@ -403,7 +429,7 @@ export function ChannelsFrame({
           )}
         <PaneExpansion.Provider
           value={
-            split && geometry
+            adjustable
               ? {
                   language,
                   expanded: panes.expanded,
@@ -460,11 +486,27 @@ export function ChannelsFrame({
                 <button
                   className="channels-icon-action thread-close"
                   type="button"
-                  aria-label={labels.closeThread}
+                  aria-label={threadCloseLabel}
                   onClick={thread.close}
                 >
                   <span className="thread-back-icon">
-                    <Chevron direction="back" />
+                    {inboxSingle ? (
+                      <svg
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.65"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M5 12h14M5 12l6 6m-6-6 6-6" />
+                      </svg>
+                    ) : (
+                      <Chevron direction="back" />
+                    )}
                   </span>
                   <svg
                     className="thread-close-icon"
