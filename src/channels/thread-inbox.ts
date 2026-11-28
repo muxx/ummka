@@ -243,7 +243,7 @@ export function openThreadInbox(account: Reader, teamId: string) {
     }
     counts = { ...counts, status: "idle" };
     publish();
-    return show(tab);
+    return showing ? show(tab) : refreshTotals();
   }
   return {
     getSnapshot: () => current,
@@ -335,6 +335,17 @@ export function openThreadInbox(account: Reader, teamId: string) {
     confirmUnfollow(id: string) {
       if (retainedReadId === id) retainedReadId = null;
       return afterConfirmation((row) => (row.id === id ? null : row));
+    },
+    confirmFollow() {
+      if (closed) return Promise.resolve();
+      cancelReads();
+      for (const filter of tabs) {
+        pages[filter] = { ...pages[filter], status: "idle" };
+        cursors[filter].clear();
+      }
+      counts = { ...counts, status: "idle" };
+      publish();
+      return showing ? show(tab) : refreshTotals();
     },
     reload() {
       if (closed) return Promise.resolve();

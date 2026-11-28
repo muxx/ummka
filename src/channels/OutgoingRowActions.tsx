@@ -21,6 +21,7 @@ type Props = {
   dismiss: WorkspaceConnection["dismissPendingPost"];
   resend: WorkspaceConnection["resendPost"];
   refresh: () => void;
+  accepted?: () => void;
   notify: (message: string) => void;
   sessionIssue: (issue: "session" | "unauthorized") => void;
 };
@@ -32,6 +33,7 @@ export function OutgoingRowActions({
   dismiss,
   resend,
   refresh,
+  accepted,
   notify,
   sessionIssue,
 }: Props) {
@@ -76,6 +78,7 @@ export function OutgoingRowActions({
         result.kind === "sending" ? await result.completion : null;
       if (!pane?.isConnected) return;
       refresh();
+      if (outcome?.kind === "accepted") accepted?.();
       if (outcome?.kind === "unauthorized") sessionIssue("unauthorized");
       else if (result.kind === "unavailable") notify(copy.changed);
       else if (result.kind === "offline") notify(copy.offline);

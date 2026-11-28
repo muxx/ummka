@@ -218,6 +218,9 @@ export function ChannelsWorkspace({
   const accountButton = useRef<HTMLButtonElement>(null);
   const draftField = useRef<HTMLTextAreaElement>(null);
   const replyField = useRef<HTMLTextAreaElement>(null);
+  const [threadControls, setThreadControls] = useState<HTMLSpanElement | null>(
+    null,
+  );
   const [accountOverlay, setAccountOverlay] = useState<AccountOverlay | null>(
     null,
   );
@@ -1428,7 +1431,11 @@ export function ChannelsWorkspace({
     timeline.status,
     confirmedThread,
   ]);
-  function composer(rootId?: string, reader?: ReactionThread) {
+  function composer(
+    rootId?: string,
+    reader?: ReactionThread,
+    acceptedReply?: () => void,
+  ) {
     const target = rootId && selection ? inboxRoom : channel;
     if ((!selection || !rootId) && historyDenied) return null;
     const access = postingAccess(target);
@@ -1464,6 +1471,7 @@ export function ChannelsWorkspace({
           settings?.collapsedThreads ?? null,
           search.fromCommand,
           reader,
+          acceptedReply,
         )}
         label={rootId ? draftText.reply : draftLabel()}
         language={language}
@@ -1807,6 +1815,10 @@ export function ChannelsWorkspace({
                   selection || panePost?.rootId || isMobile
                     ? undefined
                     : replyField,
+                controlsRef:
+                  settings.collapsedThreads && panePost
+                    ? setThreadControls
+                    : undefined,
                 content: panePost ? (
                   <ThreadPane
                     key={JSON.stringify([
@@ -1819,6 +1831,9 @@ export function ChannelsWorkspace({
                     connection={connection}
                     userId={userId}
                     post={panePost}
+                    teamId={team.id}
+                    controlsHost={threadControls}
+                    confirmFollowing={inbox.confirmFollowing}
                     arrivalRequest={
                       timeline.focus?.focusedReply === panePost &&
                       closedRequest !== timeline.focus.requestId

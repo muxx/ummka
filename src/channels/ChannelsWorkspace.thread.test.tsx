@@ -292,6 +292,9 @@ function mount(
     refreshChannelHistory: vi.fn(),
     readPostFiles: vi.fn<Connection["readPostFiles"]>().mockResolvedValue([]),
     readThreadPage,
+    setThreadFollowing: vi
+      .fn<Connection["setThreadFollowing"]>()
+      .mockResolvedValue(),
     readSavedPost: vi
       .fn<Connection["readSavedPost"]>()
       .mockResolvedValue(rows[0]),
@@ -2535,4 +2538,132 @@ test("a rejected view keeps its unread row and retries the same discussion when 
   await waitFor(() => expect(row.hasAttribute("data-unread")).toBe(false));
   expect(account.markFollowedThreadRead).toHaveBeenCalledTimes(2);
   expect(account.readFollowedThreadTotals).toHaveBeenCalledTimes(2);
+});
+
+test.each([
+  ["accepted", true],
+  ["accepted", false],
+  ["refused", false],
+] as const)(
+  "a sent reply rereads follow only on confirmation (%s, server follow %s)",
+  async (outcome, followsAfterReply) => {
+    const connection = mount(true);
+    const delivery = deferred<
+      | { kind: "accepted"; post: typeof reply; matched: boolean }
+      | {
+          kind: "refused";
+          refusal: { status: number; code: string; message: null };
+        }
+    >();
+    connection.submitDraft.mockResolvedValue({
+      kind: "sending",
+      draft: { message: "", revision: "sent", clearedBySubmission: true },
+      completion: delivery.promise,
+    });
+    connection.readThreadPage
+      .mockResolvedValueOnce({
+        ...page,
+        root: { ...root, isFollowing: false },
+      })
+      .mockResolvedValueOnce({
+        ...page,
+        root: { ...root, isFollowing: followsAfterReply },
+      });
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Open thread, 1 reply/ }),
+    );
+    const pane = within(
+      await screen.findByRole("complementary", { name: "Thread" }),
+    );
+    await pane.findByRole("button", { name: "Follow", pressed: false });
+    const draft = await pane.findByRole("textbox", {
+      name: "Reply in thread…",
+    });
+    fireEvent.change(draft, { target: { value: "My own answer" } });
+    fireEvent.click(pane.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(connection.submitDraft).toHaveBeenCalledOnce());
+    expect(connection.readThreadPage).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      delivery.resolve(
+        outcome === "accepted"
+          ? { kind: "accepted", post: reply, matched: true }
+          : {
+              kind: "refused",
+              refusal: { status: 403, code: "send.denied", message: null },
+            },
+      );
+    });
+    expect(connection.setThreadFollowing).not.toHaveBeenCalled();
+    expect(connection.readThreadPage).toHaveBeenCalledTimes(
+      outcome === "accepted" ? 2 : 1,
+    );
+    if (outcome === "accepted")
+      expect(connection.readThreadPage).toHaveBeenLastCalledWith(
+        {
+          channelId: general,
+          rootId: root.id,
+          collapsedThreads: true,
+          direction: "down",
+          perPage: 1,
+        },
+        expect.any(AbortSignal),
+      );
+    expect(
+      pane.getByRole("button", {
+        name: followsAfterReply ? "Following" : "Follow",
+        pressed: followsAfterReply,
+      }),
+    ).toBeTruthy();
+  },
+);
+
+test("a readable direct conversation can follow a root with no replies", async () => {
+  const connection = mount(true, true, {
+    direct: "D",
+    writable: false,
+    second: true,
+  });
+  connection.readThreadPage
+    .mockResolvedValueOnce({
+      ...page,
+      root: { ...secondRoot, isFollowing: false },
+      replies: [],
+    })
+    .mockResolvedValueOnce({
+      ...page,
+      root: { ...secondRoot, isFollowing: true },
+      replies: [],
+    });
+  const opener = await rowActions(secondRoot.message);
+  async function open() {
+    fireEvent.click(opener);
+    const menu = await savingMenu();
+    fireEvent.click(menu.getByRole("button", { name: "Open thread" }));
+    return within(await screen.findByRole("complementary", { name: "Thread" }));
+  }
+  let pane = await open();
+  expect(await pane.findByText("No replies yet.")).toBeTruthy();
+  expect(pane.queryByRole("textbox")).toBeNull();
+  const button = await pane.findByRole("button", {
+    name: "Follow",
+    pressed: false,
+  });
+  button.focus();
+  await userEvent.keyboard("{Enter}");
+  expect(
+    await pane.findByRole("button", { name: "Following", pressed: true }),
+  ).toBe(button);
+  expect(document.activeElement).toBe(button);
+  expect(connection.setThreadFollowing).toHaveBeenCalledExactlyOnceWith(
+    team.id,
+    { id: secondRoot.id, rootId: null },
+    true,
+    expect.any(AbortSignal),
+  );
+  fireEvent.click(pane.getByRole("button", { name: "Close thread" }));
+  pane = await open();
+  expect(
+    await pane.findByRole("button", { name: "Following", pressed: true }),
+  ).toBeTruthy();
+  expect(connection.setThreadFollowing).toHaveBeenCalledOnce();
 });

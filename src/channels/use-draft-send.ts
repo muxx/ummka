@@ -22,6 +22,7 @@ type PreparedDraft = NonNullable<
 type Route = Awaited<ReturnType<typeof resolveComposerSubmission>>;
 type OtherRoute = Exclude<Route, { kind: "post" }>;
 export type DraftSendContext = {
+  acceptedReply?: () => void;
   post: VisiblePostContext;
   resolveAttempt: (
     place: VisibleDraft["location"],
@@ -98,6 +99,8 @@ export function useDraftSend(
       const stillVisible = () => input?.isConnected && field.current === input;
       void result.completion.then(
         (outcome) => {
+          if (outcome.kind === "accepted" && stillVisible())
+            context.acceptedReply?.();
           if (outcome.kind === "unauthorized" && stillVisible())
             sessionIssue("unauthorized");
         },

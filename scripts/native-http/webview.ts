@@ -1218,7 +1218,10 @@ export function webviewServers(
       url,
       userId,
       visits.includes("allow-design-posts"),
-      { joinedPublicRoom: visits.includes("directory-join") },
+      {
+        joinedPublicRoom: visits.includes("directory-join"),
+        acceptedThreadReply: visits.includes("live-window-send-reply"),
+      },
     );
     if (workspace) {
       if (workspace !== "background-thread-totals") visits.push(workspace);
@@ -2425,6 +2428,7 @@ export function webviewServers(
           "live-window-thread",
           "live-window-thread",
           "live-window-send-reply",
+          "live-window-follow-source",
           "live-window-command-repeat",
           "browser-action-confirmed",
           "live-search-posts",

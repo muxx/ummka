@@ -57,6 +57,7 @@ type FrameProps = {
     id: string;
     title: string;
     subtitle?: string;
+    controlsRef?: (node: HTMLSpanElement | null) => void;
     retainOpener?: boolean;
     content: ReactNode;
     replyRef?: RefObject<HTMLElement | null>;
@@ -446,6 +447,12 @@ export function ChannelsFrame({
                     </p>
                   )}
                 </div>
+                {thread.controlsRef && (
+                  <span
+                    className="thread-follow-slot"
+                    ref={thread.controlsRef}
+                  />
+                )}
                 <PaneSizeToggle />
                 <button
                   className="channels-icon-action thread-close"

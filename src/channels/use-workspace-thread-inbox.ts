@@ -162,6 +162,13 @@ export function useWorkspaceThreadInbox(
       else setSelection({ row, post: null, issue });
     }
   }
+  const confirmFollowing = useCallback(
+    (id: string, following: boolean) => {
+      if (following) void inbox?.confirmFollow();
+      else void inbox?.confirmUnfollow(id);
+    },
+    [inbox],
+  );
   async function confirmView(signal: AbortSignal) {
     if (
       !inbox ||
@@ -212,6 +219,7 @@ export function useWorkspaceThreadInbox(
     show,
     choose,
     confirmView,
+    confirmFollowing,
     hideRoot,
   };
 }

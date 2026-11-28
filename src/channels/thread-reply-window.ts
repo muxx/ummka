@@ -30,6 +30,7 @@ type Edge =
   | { status: "error"; error: unknown };
 
 interface ReplyWindow {
+  isFollowing?: boolean;
   unavailable?: "forbidden" | "unauthorized" | "session" | "limited";
   firstInaccessiblePostTime?: number;
   root: LocalPost | null;
@@ -214,6 +215,7 @@ export function openThreadReplyWindow(
       cursors[direction] = page.next ?? undefined;
       finish(direction, {
         ...state,
+        isFollowing: page.root.isFollowing,
         root: merge(state.root, root, "refresh"),
         replies,
         [direction]: { status: page.next ? "ready" : "end" },
@@ -263,6 +265,10 @@ export function openThreadReplyWindow(
         listeners.delete(listener);
       };
     },
+    unavailable: (
+      reason: NonNullable<ReplyWindow["unavailable"]>,
+      time?: number,
+    ) => stop(reason, time),
     open() {
       opened ??= Promise.all([load("up", "ready"), load("down", "ready")]).then(
         () => {},

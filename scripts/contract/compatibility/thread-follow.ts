@@ -8,6 +8,10 @@ import {
   ThreadsApi,
 } from "../../../vendor/mattermost/index.js";
 
+import {
+  checkOpenThreadFollowing,
+  checkThreadAutoFollowDisabled,
+} from "./thread-follow-control.ts";
 import { checkThreadFollowState } from "./thread-follow-state.ts";
 
 export async function checkThreadFollow(
@@ -18,6 +22,7 @@ export async function checkThreadFollow(
   channelIds: string[],
   privatePostId: string,
   version: string,
+  configure: Parameters<typeof checkThreadAutoFollowDisabled>[3],
 ) {
   const threads = new ThreadsApi(reader);
   const guest = new ThreadsApi(anonymous);
@@ -110,6 +115,17 @@ export async function checkThreadFollow(
     await assert.rejects(guest.startFollowingThread(query), failedWith(401));
     await assert.rejects(guest.stopFollowingThread(query), failedWith(401));
   }
+  for (const channelId of channelIds)
+    await checkOpenThreadFollowing(reader, author.posts, teamId, channelId);
+  await checkThreadAutoFollowDisabled(
+    reader,
+    author.posts,
+    channelIds,
+    configure,
+  );
+  console.log(
+    `Mattermost ${version} verified follow after accepted replies in a channel and DM, rejected disabled auto-follow with CRT, and left both threads unfollowed after accepted replies with auto-follow off in flat mode.`,
+  );
   console.log(
     `Mattermost ${version} verified personal thread subscriptions in a team channel and DM, repeated writes and access denials.`,
   );
