@@ -85,7 +85,13 @@ export async function openRecentMentions(
     profileSearchTimezone(user),
   );
   return {
-    async readPage(page: number, signal?: AbortSignal) {
+    filterKey: JSON.stringify([
+      queryKeys,
+      firstName,
+      includeDeletedChannels,
+      timeZoneOffsetSeconds,
+    ]),
+    async readPage(page: number, signal?: AbortSignal, through = Infinity) {
       let firstInaccessiblePostTime = 0;
       for (let index = page; ; index++) {
         signal?.throwIfAborted();
@@ -107,8 +113,9 @@ export async function openRecentMentions(
           firstInaccessiblePostTime,
           result.firstInaccessiblePostTime,
         );
-        if (items.length || result.isEnd) {
+        if (items.length || result.isEnd || index + 1 >= through) {
           return {
+            page: index,
             items,
             nextPage: result.isEnd ? null : index + 1,
             firstInaccessiblePostTime,

@@ -1428,7 +1428,7 @@ test("a hidden saved page remains traversable, preserves the previous rows on re
   const reopened = within(
     await screen.findByRole("complementary", { name: "Saved messages" }),
   );
-  await reopened.findByText("This collection is no longer available.");
+  await reopened.findByRole("heading", { name: "No access to saved messages" });
   expect(reopened.queryByText("Saved root preview")).toBeNull();
   expect(reopened.queryByText("Oldest visible")).toBeNull();
 });
@@ -2071,17 +2071,15 @@ test.each([false, true])(
     );
     if (retried) {
       expect(pane.getByText("Saved root preview")).toBeTruthy();
-      expect(
-        pane.queryByText("This collection is no longer available."),
-      ).toBeNull();
+      expect(pane.queryByText("No access to saved messages")).toBeNull();
     } else {
       expect(pane.getByRole("alert").textContent).toBe(
-        "This collection is no longer available.",
+        "No access to saved messages",
       );
       expect(pane.queryByText("Saved root preview")).toBeNull();
       expect(pane.queryByText(/showing the previous response/i)).toBeNull();
       expect(document.activeElement).toBe(
-        pane.getByRole("heading", { name: "Saved messages" }),
+        pane.getByRole("heading", { name: "No access to saved messages" }),
       );
     }
     expect(account.readSavedPosts).toHaveBeenCalledTimes(retried ? 3 : 2);
@@ -2143,7 +2141,10 @@ test("opens a mentioned reply and returns to its row, scroll position and toolba
     nextPage: null,
     firstInaccessiblePostTime: 0,
   });
-  account.openRecentMentions.mockResolvedValue({ readPage });
+  account.openRecentMentions.mockResolvedValue({
+    readPage,
+    filterKey: "mentions",
+  });
   const trigger = await screen.findByRole("button", { name: "Mentions" });
   await waitFor(() => expect(trigger.hasAttribute("disabled")).toBe(false));
   fireEvent.click(trigger);
@@ -2177,10 +2178,14 @@ test("a temporary mention read failure is distinct from empty and retries the sa
     .mockRejectedValueOnce(new TypeError("offline"))
     .mockResolvedValue({
       items: [],
+      page: 0,
       nextPage: null,
       firstInaccessiblePostTime: 0,
     });
-  account.openRecentMentions.mockResolvedValue({ readPage });
+  account.openRecentMentions.mockResolvedValue({
+    readPage,
+    filterKey: "mentions",
+  });
   const trigger = await screen.findByRole("button", { name: "Mentions" });
   await waitFor(() => expect(trigger.hasAttribute("disabled")).toBe(false));
   fireEvent.click(trigger);
@@ -2208,16 +2213,21 @@ test("keyboard pagination returns to retry after a refusal and focuses the first
     .fn()
     .mockResolvedValueOnce({
       items: [first],
+      page: 0,
       nextPage: 1,
       firstInaccessiblePostTime: 0,
     })
     .mockRejectedValueOnce(new TypeError("connection lost"))
     .mockResolvedValueOnce({
       items: [first, second],
+      page: 1,
       nextPage: null,
       firstInaccessiblePostTime: 0,
     });
-  account.openRecentMentions.mockResolvedValue({ readPage });
+  account.openRecentMentions.mockResolvedValue({
+    readPage,
+    filterKey: "mentions",
+  });
   const trigger = await screen.findByRole("button", { name: "Mentions" });
   await waitFor(() => expect(trigger.hasAttribute("disabled")).toBe(false));
   fireEvent.click(trigger);
@@ -2256,11 +2266,13 @@ test("mentions paint immediately, resolve a repeated outside channel once and fo
       }),
   );
   account.openRecentMentions.mockResolvedValue({
+    filterKey: "mentions",
     readPage: vi.fn().mockResolvedValue({
       items: [
         { ...root, channelId: outside },
         { ...reply, channelId: outside },
       ],
+      page: 0,
       nextPage: null,
       firstInaccessiblePostTime: 0,
     }),
@@ -2473,11 +2485,15 @@ test.each(["saved", "mentions"] as const)(
         .fn()
         .mockResolvedValueOnce({
           items: [{ ...reply, message: "Mentioned reply" }],
+          page: 0,
           nextPage: null,
           firstInaccessiblePostTime: 0,
         })
         .mockImplementationOnce(denied);
-      account.openRecentMentions.mockResolvedValue({ readPage });
+      account.openRecentMentions.mockResolvedValue({
+        readPage,
+        filterKey: "mentions",
+      });
     }
     account.signOutOnDevice.mockImplementationOnce(() => new Promise(() => {}));
     const trigger = await screen.findByRole("button", { name });
@@ -3331,3 +3347,289 @@ test.each([
     expect(document.activeElement).toBe(info);
   },
 );
+
+test.each(["Saved messages", "Mentions"] as const)(
+  "an ordinary %s reopen never paints the previous team's window or late response",
+  async (name) => {
+    const { account } = fixture();
+    const saved = name === "Saved messages";
+    const row = saved ? /Saved root preview/ : /Old mention/;
+    const readPage = vi.fn().mockResolvedValue({
+      items: [{ ...root, message: "Old mention" }],
+      page: 0,
+      nextPage: null,
+      firstInaccessiblePostTime: 0,
+    });
+    account.openRecentMentions.mockResolvedValue({
+      readPage,
+      filterKey: "mentions",
+    });
+    const opener = await screen.findByRole("button", { name });
+    await waitFor(() => expect(opener.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(opener);
+    await screen.findByRole("button", { name: row });
+    fireEvent.click(opener);
+    let signal: AbortSignal | undefined;
+    let finish!: () => void;
+    if (saved) {
+      account.readSavedPosts
+        .mockImplementationOnce((_scope, _page, request) => {
+          signal = request;
+          return new Promise((resolve) => {
+            finish = () =>
+              resolve({
+                items: [
+                  {
+                    id: root.id,
+                    channelId: root.channelId,
+                    cards: [],
+                    message: "Late saved",
+                  },
+                ],
+                firstInaccessiblePostTime: 0,
+              });
+          });
+        })
+        .mockReturnValueOnce(new Promise(() => {}));
+    } else {
+      readPage
+        .mockImplementationOnce((_page, request) => {
+          signal = request;
+          return new Promise((resolve) => {
+            finish = () =>
+              resolve({
+                items: [{ ...root, message: "Late mention" }],
+                page: 0,
+                nextPage: null,
+                firstInaccessiblePostTime: 0,
+              });
+          });
+        })
+        .mockReturnValueOnce(new Promise(() => {}));
+    }
+    fireEvent.click(opener);
+    await waitFor(() => expect(signal).toBeDefined());
+    await screen.findByRole("button", { name: row });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Switch team, Winter" }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Summer" }));
+    await screen.findByRole("heading", { level: 1, name: "Other" });
+    expect(signal?.aborted).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name }));
+    const pane = within(await screen.findByRole("complementary", { name }));
+    expect(
+      pane.getByText(saved ? "Loading saved messages…" : "Loading mentions…"),
+    ).toBeTruthy();
+    await act(async () => finish());
+    expect(pane.queryByRole("button", { name: row })).toBeNull();
+    expect(pane.queryByText(/Late (saved|mention)/)).toBeNull();
+  },
+);
+
+test.each(["Saved messages", "Mentions"] as const)(
+  "reconnect revalidates the currently visible row in an open %s pane",
+  async (name) => {
+    const { account } = fixture();
+    const saved = name === "Saved messages";
+    const rows = Array.from({ length: 8 }, (_, n) => ({
+      id: String(n).padStart(26, "0"),
+      channelId: home,
+      cards: [],
+      message: `Window row ${n}`,
+      createAt: 100 - n,
+    }));
+    const readPage = vi.fn(async (page: number) => ({
+      page,
+      items: [rows[page]],
+      nextPage: page < 7 ? page + 1 : null,
+      firstInaccessiblePostTime: 0,
+    }));
+    account.openRecentMentions.mockResolvedValue({
+      readPage,
+      filterKey: "mentions",
+    });
+    account.readPreferences.mockResolvedValue({
+      ids: new Set(rows.map((row) => row.id)),
+      upperBound: 480,
+    });
+    account.readSavedPosts.mockResolvedValue({
+      items: [rows[0]],
+      firstInaccessiblePostTime: 0,
+    });
+    account.readSavedPostsAtOffset.mockImplementation(
+      async (_scope, offset) => ({
+        items: [rows[offset / 60]],
+        firstInaccessiblePostTime: 0,
+      }),
+    );
+    let bottom: (() => void) | undefined;
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(private readonly notify: IntersectionObserverCallback) {}
+        observe(element: Element) {
+          if (element.classList.contains("collection-edge"))
+            bottom = () =>
+              this.notify(
+                [
+                  {
+                    isIntersecting: true,
+                    intersectionRatio: 1,
+                    target: element,
+                  } as IntersectionObserverEntry,
+                ],
+                this as unknown as IntersectionObserver,
+              );
+        }
+        disconnect() {}
+      },
+    );
+    const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
+    const geometry = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect");
+    try {
+      const open = await screen.findByRole("button", { name });
+      await waitFor(() => expect(open.hasAttribute("disabled")).toBe(false));
+      fireEvent.click(open);
+      const pane = within(await screen.findByRole("complementary", { name }));
+      await pane.findByText("Window row 0");
+      for (let index = 1; index <= 6; index++) {
+        if (saved) {
+          await waitFor(() => expect(bottom).toBeTypeOf("function"));
+          await act(async () => bottom?.());
+        } else
+          fireEvent.click(
+            pane.getByRole("button", { name: "Load earlier mentions" }),
+          );
+        await pane.findByText(`Window row ${index}`);
+      }
+      const scroller = pane.getByRole("region", {
+        name: "Side panel contents",
+      });
+      Object.defineProperty(scroller, "clientHeight", { value: 120 });
+      geometry.mockImplementation(function (this: HTMLElement) {
+        if (this === scroller) return new DOMRect(0, 20, 300, 120);
+        if (!this.hasAttribute("data-collection-post")) return new DOMRect();
+        const index = [
+          ...scroller.querySelectorAll("[data-collection-post]"),
+        ].indexOf(this);
+        return new DOMRect(0, 20 + index * 40 - scroller.scrollTop, 300, 40);
+      });
+      scroller.scrollTop = 211;
+      readPage.mockClear();
+      account.readSavedPostsAtOffset.mockClear();
+      online.mockReturnValue(false);
+      act(() => window.dispatchEvent(new Event("offline")));
+      online.mockReturnValue(true);
+      await act(async () => window.dispatchEvent(new Event("online")));
+      await waitFor(() =>
+        expect(
+          saved
+            ? account.readSavedPostsAtOffset.mock.calls.map(
+                ([, offset]) => offset,
+              )
+            : readPage.mock.calls.map(([raw]) => raw),
+        ).toEqual(saved ? [240, 300, 360] : [4, 5, 6]),
+      );
+      const leading = pane.getByRole("button", { name: /Window row 5/ });
+      expect(
+        leading.getBoundingClientRect().top -
+          scroller.getBoundingClientRect().top,
+      ).toBe(-11);
+      expect(pane.queryByText("Window row 0")).toBeNull();
+    } finally {
+      geometry.mockRestore();
+      online.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  },
+);
+
+test("removing a saved row keeps the next whole row in place through the replacement continuation", async () => {
+  const { account } = fixture();
+  const rows = Array.from({ length: 9 }, (_, n) => ({
+    id: String(n).padStart(26, "0"),
+    channelId: home,
+    cards: [],
+    message: `Saved test row ${n}`,
+    createAt: 100 - n,
+  }));
+  account.readPreferences.mockResolvedValue({
+    ids: new Set(rows.map(({ id }) => id)),
+    upperBound: 121,
+  });
+  account.readSavedPosts.mockResolvedValue({
+    items: rows.slice(0, 8),
+    firstInaccessiblePostTime: 0,
+  });
+  let firstSignal: AbortSignal | undefined;
+  let settle!: () => void;
+  account.readSavedPostsAtOffset
+    .mockImplementationOnce((_scope, _offset, signal) => {
+      firstSignal = signal;
+      return new Promise((resolve) => {
+        settle = () => resolve({ items: [], firstInaccessiblePostTime: 0 });
+      });
+    })
+    .mockResolvedValueOnce({ items: [rows[8]], firstInaccessiblePostTime: 0 });
+  let showBoundary: (() => void) | undefined;
+  vi.stubGlobal(
+    "IntersectionObserver",
+    class {
+      constructor(
+        private readonly notify: (
+          entries: { isIntersecting: boolean; intersectionRatio: number }[],
+        ) => void,
+      ) {}
+      observe(node: Element) {
+        if (node.classList.contains("collection-edge"))
+          showBoundary = () =>
+            this.notify([{ isIntersecting: true, intersectionRatio: 1 }]);
+      }
+      disconnect() {}
+    },
+  );
+  const geometry = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect");
+  try {
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Saved messages" }),
+    );
+    const pane = within(
+      await screen.findByRole("complementary", { name: "Saved messages" }),
+    );
+    const keep = await pane.findByRole("button", { name: /Saved test row 5/ });
+    const remove = pane.getByRole("button", { name: /Saved test row 3/ });
+    const scroller = pane.getByRole("region", { name: "Side panel contents" });
+    Object.defineProperty(scroller, "clientHeight", { value: 180 });
+    geometry.mockImplementation(function (this: HTMLElement) {
+      if (this === scroller) return new DOMRect(0, 20, 300, 180);
+      const index = [
+        ...scroller.querySelectorAll("[data-collection-post]"),
+      ].indexOf(this);
+      return new DOMRect(0, 20 + index * 40 - scroller.scrollTop, 300, 40);
+    });
+    scroller.scrollTop = 91;
+    const before = keep.getBoundingClientRect().top;
+    await waitFor(() => expect(showBoundary).toBeTypeOf("function"));
+    await act(async () => showBoundary?.());
+    expect(firstSignal?.aborted).toBe(false);
+    if (!remove.parentElement) throw new Error("Missing Saved row");
+    const unsave = within(remove.parentElement).getByRole("button", {
+      name: "Remove from saved",
+    });
+    unsave.focus();
+    fireEvent.click(unsave);
+    await waitFor(() => expect(remove.isConnected).toBe(false));
+    expect(firstSignal?.aborted).toBe(true);
+    await act(async () => settle());
+    await act(async () => showBoundary?.());
+    await pane.findByText("Saved test row 8");
+    expect(keep.getBoundingClientRect().top).toBe(before);
+    expect(
+      account.readSavedPostsAtOffset.mock.calls.map(([, offset]) => offset),
+    ).toEqual([60, 59]);
+  } finally {
+    geometry.mockRestore();
+    vi.unstubAllGlobals();
+  }
+});

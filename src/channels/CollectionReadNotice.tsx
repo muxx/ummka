@@ -73,6 +73,8 @@ export function CollectionReadNotice({
       : text.firstReadFailed(name, reason);
   const notice = useRef<HTMLDivElement>(null);
   const retry = useRef<HTMLButtonElement>(null);
+  const deniedTitle = useRef<HTMLHeadingElement>(null);
+  const denied = kind !== "pins" && status === "forbidden";
   const waitingFocus = useRef(false);
   const previous = useRef(status);
   const [announcement, setAnnouncement] = useState("");
@@ -86,6 +88,12 @@ export function CollectionReadNotice({
     else if (loading || refreshing || !hasResponse) setAnnouncement("");
   }, [name, status, text, hasResponse, failed, loading, reason, refreshing]);
   useLayoutEffect(() => {
+    if (
+      denied &&
+      (document.activeElement === document.body ||
+        document.activeElement === heading.current)
+    )
+      deniedTitle.current?.focus({ preventScroll: true });
     if (!waitingFocus.current || loading || refreshing) return;
     waitingFocus.current = false;
     const active = document.activeElement;
@@ -95,14 +103,33 @@ export function CollectionReadNotice({
       const row = list.current?.querySelector<HTMLButtonElement>(
         "[data-collection-post]",
       );
-      (row ?? heading.current)?.focus();
+      if (kind === "pins") {
+        (row ?? heading.current)?.focus();
+        return;
+      }
+      (
+        deniedTitle.current ??
+        row ??
+        list.current?.querySelector<HTMLElement>(
+          ".panel-state--empty h3[tabindex]",
+        ) ??
+        heading.current
+      )?.focus({ preventScroll: true });
     }
-  }, [failed, heading, list, loading, refreshing]);
+  }, [denied, failed, heading, kind, list, loading, refreshing]);
   return (
     <>
       <span className="collection-announcement" role="status">
         {announcement}
       </span>
+      {denied && (
+        <PanelState
+          variant="error"
+          role="alert"
+          titleRef={deniedTitle}
+          title={kind === "all" ? text.savedDenied : text.mentionsDenied}
+        />
+      )}
       {(loading || refreshing || failed) && (
         <PanelState
           variant={

@@ -6,6 +6,12 @@ import {
 import { isMattermostId } from "../mattermost/model-fields.ts";
 import type { accountCollectionActions } from "../mattermost/post-collection-actions.ts";
 import {
+  type CollectionWindow,
+  collectionWindow,
+  collectionWindowPages,
+  forgetPostChannel,
+} from "./collection-window.ts";
+import {
   collectionReadFailure,
   mayKeepCache,
   workspaceFailure,
@@ -25,6 +31,7 @@ type ReadState = {
     | "closed"
     | ReturnType<typeof collectionReadFailure>;
   value: Collection | null;
+  manualPage?: true;
   returnedPost?: { id: string; saved: boolean | undefined };
 };
 type Removal =
@@ -65,14 +72,19 @@ export function openPostCollection(account: Account, source: Source) {
   const listeners = new Set<() => void>();
   const removals = new Map<string, Promise<Removal>>();
   const savesAwaitingRead = new Set<string>();
-  let cursor: { offset: number; limit: number } | undefined;
+  let cursor: { start: number; offset: number; limit: number } | undefined;
+  let rowOffsets = new Map<string, number>();
+  const deniedChannels = new Set<string>();
   let nextPage:
-    | { controller: AbortController; result: Promise<void> }
+    | { controller: AbortController; result: Promise<void>; earlier: boolean }
     | undefined;
-  let pageIssue: "network" | "storage" | undefined;
+  let pageIssue:
+    | { reason: "network" | "storage"; earlier: boolean }
+    | undefined;
   let state: ReadState & {
     removing: readonly string[];
     continuation: Continuation;
+    newer?: Continuation;
   } = {
     continuation: "none",
     status: "idle",
@@ -83,15 +95,22 @@ export function openPostCollection(account: Account, source: Source) {
   let readRequest: AbortController | undefined;
   let pending: Refresh | undefined;
   let displayed = false;
+  let activeAnchor: (() => string | undefined) | undefined;
   let suspended = true;
 
   function publish(next: ReadState) {
-    const continuation = nextPage
-      ? "loading"
-      : cursor && cursor.offset < cursor.limit
-        ? (pageIssue ?? "available")
-        : "none";
+    const boundary = (earlier: boolean): Continuation =>
+      nextPage?.earlier === earlier
+        ? "loading"
+        : pageIssue?.earlier === earlier
+          ? pageIssue.reason
+          : "available";
+    const continuation =
+      cursor && cursor.offset < cursor.limit ? boundary(false) : "none";
+    const newer = cursor && cursor.start > 0 ? boundary(true) : undefined;
     state = { ...next, removing: [...removals.keys()], continuation };
+    if (newer) state.newer = newer;
+    else delete state.newer;
     for (const listener of listeners) listener();
   }
 
@@ -114,6 +133,7 @@ export function openPostCollection(account: Account, source: Source) {
 
   function denyRead(status: ReturnType<typeof collectionReadFailure>) {
     cursor = undefined;
+    rowOffsets.clear();
     cancelRequests();
     publish({ status, value: null });
   }
@@ -131,6 +151,7 @@ export function openPostCollection(account: Account, source: Source) {
 
   function applyRemoval(postId: string): ReadState | undefined {
     savesAwaitingRead.delete(postId);
+    rowOffsets.delete(postId);
     pending?.writes?.set(postId, false);
     const { value, returnedPost } = state;
     const visible = value?.items.some((row) => row.id === postId);
@@ -140,12 +161,13 @@ export function openPostCollection(account: Account, source: Source) {
     if (cursor && shifted) {
       // Even a hidden row may have shifted the raw server offset.
       cancelNextPage();
-      cursor.offset = Math.max(0, cursor.offset - 1);
+      cursor.offset = Math.max(cursor.start, cursor.offset - 1);
       if (visible) cursor.limit = Math.max(0, cursor.limit - 1);
     }
     if (visible || returned || shifted)
       return {
         status: state.status,
+        ...(state.manualPage && { manualPage: true }),
         returnedPost: returned ? { id: postId, saved: false } : returnedPost,
         value:
           visible && value
@@ -157,14 +179,24 @@ export function openPostCollection(account: Account, source: Source) {
       };
   }
 
-  function refreshVisible(snapshot: ReadState = state) {
+  function refreshVisible(
+    snapshot: ReadState = state,
+    window?: CollectionWindow,
+  ) {
     if (displayed && snapshot.status === "ready" && savesAwaitingRead.size) {
       const depth = cursor ? Math.min(cursor.offset, cursor.limit) : 0;
-      return startRead(
-        snapshot.returnedPost?.id,
-        snapshot,
-        depth + savesAwaitingRead.size,
-      );
+      return window || (cursor && cursor.start > 0)
+        ? startRead(
+            undefined,
+            snapshot,
+            0,
+            savedWindow(activeAnchor?.()) ?? window,
+          )
+        : startRead(
+            snapshot.returnedPost?.id,
+            snapshot,
+            depth + savesAwaitingRead.size,
+          );
     }
   }
 
@@ -195,10 +227,25 @@ export function openPostCollection(account: Account, source: Source) {
           if (!refreshVisible(next) && next) publish(next);
         });
 
+  function savedWindow(anchor?: string) {
+    if (!cursor) return;
+    const through = Math.max(
+      cursor.start + 1,
+      Math.min(cursor.offset, cursor.limit),
+    );
+    return collectionWindow(
+      cursor.start,
+      through,
+      anchor ? rowOffsets.get(anchor) : undefined,
+      savedPageSize,
+    );
+  }
+
   async function read(
     signal: AbortSignal,
     returnedPostId: string | undefined,
     depth: number,
+    window: CollectionWindow | undefined,
   ): Promise<void> {
     if (signal.aborted || !pending) return;
     const writes = new Map<string, boolean>();
@@ -206,6 +253,8 @@ export function openPostCollection(account: Account, source: Source) {
     savesAwaitingRead.clear();
     let next: ReadState;
     let readCursor = cursor;
+    let positions = rowOffsets;
+    let start = window?.start ?? 0;
     try {
       if (
         scope.kind !== "pins" &&
@@ -221,7 +270,9 @@ export function openPostCollection(account: Account, source: Source) {
             ] as const)
           : await Promise.all([
               observeSavedAccess(
-                account.readSavedPosts(scope, 0, signal),
+                start
+                  ? account.readSavedPostsAtOffset(scope, start, signal)
+                  : account.readSavedPosts(scope, 0, signal),
                 signal,
               ),
               observeSavedAccess(
@@ -231,8 +282,9 @@ export function openPostCollection(account: Account, source: Source) {
             ]);
       if (signal.aborted) return;
       let value = initial;
-      let offset = savedPageSize;
+      let offset = start + savedPageSize;
       let overlapped = 0;
+      positions = new Map(value.items.map(({ id }) => [id, start]));
       function removalsDuringRead() {
         const ids = new Set<string>();
         for (const [postId, saved] of writes)
@@ -244,20 +296,28 @@ export function openPostCollection(account: Account, source: Source) {
             ids.add(postId);
         return ids;
       }
-      if (scope.kind !== "pins" && membership && depth > savedPageSize) {
+      if (
+        scope.kind !== "pins" &&
+        membership &&
+        (window || depth > savedPageSize)
+      ) {
         const limit = account.getSavedPostUpperBound();
         if (limit === undefined) throw "cancelled";
-        const through = Math.min(limit, depth);
+        const through = Math.min(limit, window?.through ?? depth);
         const rows = new Map(value.items.map((row) => [row.id, row]));
         let cutoff = value.firstInaccessiblePostTime;
-        while (offset < through) {
+        for (
+          let pageIndex = 1;
+          offset < through && (!window || pageIndex < collectionWindowPages);
+          pageIndex++
+        ) {
           const removals = removalsDuringRead().size;
           // Overlap the last page so a single insertion doesn't expand the window by 60.
           const from = Math.max(
-            0,
+            start,
             Math.min(
               offset - Math.max(0, removals - overlapped),
-              through - savedPageSize,
+              window ? offset : through - savedPageSize,
             ),
           );
           const page = await account.readSavedPostsAtOffset(
@@ -266,15 +326,31 @@ export function openPostCollection(account: Account, source: Source) {
             signal,
           );
           if (signal.aborted) return;
-          for (const row of page.items) rows.set(row.id, row);
+          for (const row of page.items) {
+            rows.set(row.id, row);
+            positions.set(row.id, from);
+          }
           cutoff = Math.max(cutoff, page.firstInaccessiblePostTime);
           offset = from + savedPageSize;
           overlapped = removals;
         }
         value = {
-          items: [...rows.values()],
+          items: forgetPostChannel([...rows.values()], deniedChannels),
           firstInaccessiblePostTime: cutoff,
         };
+        // A short or hidden raw page does not prove the end. Only the flags
+        // bound can invalidate this interval and require a read from the head.
+        if (start > 0 && start >= limit) {
+          cursor = undefined;
+          rowOffsets.clear();
+          publish({ status: "loading", value: null });
+          value = await account.readSavedPosts(scope, 0, signal);
+          signal.throwIfAborted();
+          start = 0;
+          offset = savedPageSize;
+          overlapped = 0;
+          positions = new Map(value.items.map(({ id }) => [id, 0]));
+        }
       }
       const removed = removalsDuringRead();
       for (const [postId, saved] of writes) {
@@ -291,12 +367,17 @@ export function openPostCollection(account: Account, source: Source) {
         const limit = account.getSavedPostUpperBound();
         if (limit === undefined) throw "cancelled";
         readCursor = {
-          offset: Math.max(0, offset - Math.max(0, removed.size - overlapped)),
+          start,
+          offset: Math.max(
+            start,
+            offset - Math.max(0, removed.size - overlapped),
+          ),
           limit,
         };
       }
       next = {
         status: "ready",
+        ...(window && { manualPage: true }),
         ...(returnedPostId &&
           membership && {
             returnedPost: {
@@ -304,41 +385,56 @@ export function openPostCollection(account: Account, source: Source) {
               saved: account.getSavedPostState(returnedPostId),
             },
           }),
-        value: removed.size
-          ? {
-              ...value,
-              items: value.items.filter((row) => !removed.has(row.id)),
-            }
-          : value,
+        value:
+          removed.size || deniedChannels.size
+            ? {
+                ...value,
+                items: forgetPostChannel(
+                  value.items.filter((row) => !removed.has(row.id)),
+                  deniedChannels,
+                ),
+              }
+            : value,
       };
     } catch (error) {
       if (signal.aborted) return;
       const status = collectionReadFailure(error);
       if (!canRetainRows(status)) return denyRead(status);
-      next = { status, value: state.value };
+      next = {
+        status,
+        value: state.value,
+        ...(state.manualPage && { manualPage: true }),
+      };
       readCursor = cursor;
     }
     pending = undefined;
-    const refresh = refreshVisible(next);
+    const refresh = refreshVisible(next, window);
     if (refresh) return refresh;
     cursor = readCursor;
+    if (next.status === "ready") rowOffsets = positions;
     publish(next);
   }
 
-  function startRead(returnedPostId?: string, interim?: ReadState, depth = 0) {
+  function startRead(
+    returnedPostId?: string,
+    interim?: ReadState,
+    depth = 0,
+    window?: CollectionWindow,
+  ) {
     if (pending) return pending.result;
     cancelNextPage();
     readRequest?.abort();
     readRequest = new AbortController();
     const { signal } = readRequest;
     const result = Promise.resolve().then(() =>
-      read(signal, returnedPostId, depth),
+      read(signal, returnedPostId, depth, window),
     );
     pending = { result };
     const value = state.value ?? interim?.value ?? null;
     publish({
       status: value ? "refreshing" : "loading",
       value,
+      ...(state.manualPage && { manualPage: true }),
       ...(interim?.returnedPost && { returnedPost: interim.returnedPost }),
     });
     return result;
@@ -348,21 +444,27 @@ export function openPostCollection(account: Account, source: Source) {
     scope: SavedScope,
     offset: number,
     signal: AbortSignal,
+    earlier: boolean,
   ) {
     if (signal.aborted) return;
     try {
       const page = await account.readSavedPostsAtOffset(scope, offset, signal);
       if (signal.aborted || !cursor || !state.value) return;
-      const seen = new Set(state.value.items.map((row) => row.id));
-      const items = [
-        ...state.value.items,
-        ...page.items.filter((row) => !seen.has(row.id)),
-      ];
-      cursor.offset = offset + savedPageSize;
+      const rows = forgetPostChannel(page.items, deniedChannels);
+      const updated = new Map(rows.map((row) => [row.id, row]));
+      const existing = state.value.items.map(
+        (row) => updated.get(row.id) ?? row,
+      );
+      for (const { id } of existing) updated.delete(id);
+      const fresh = [...updated.values()];
+      for (const { id } of rows) rowOffsets.set(id, offset);
+      const items = earlier ? [...fresh, ...existing] : [...existing, ...fresh];
+      if (earlier) cursor.start = offset;
+      else cursor.offset = offset + savedPageSize;
       nextPage = undefined;
       pageIssue = undefined;
       publish({
-        status: state.status,
+        ...state,
         returnedPost: state.returnedPost && {
           id: state.returnedPost.id,
           saved: account.getSavedPostState(state.returnedPost.id),
@@ -380,12 +482,10 @@ export function openPostCollection(account: Account, source: Source) {
       const status = workspaceFailure(error, "network");
       nextPage = undefined;
       if (status === "network" || status === "storage") {
-        pageIssue = status;
+        pageIssue = { reason: status, earlier };
         publish(state);
       } else {
-        cursor = undefined;
-        cancelRequests();
-        publish({ status, value: null });
+        denyRead(status);
       }
     }
   }
@@ -419,10 +519,33 @@ export function openPostCollection(account: Account, source: Source) {
     return "removed";
   }
 
+  function loadPage(earlier: boolean) {
+    if (nextPage) return nextPage.result;
+    if (
+      scope.kind === "pins" ||
+      pending ||
+      !cursor ||
+      !state.value ||
+      (earlier ? cursor.start === 0 : cursor.offset >= cursor.limit)
+    )
+      return Promise.resolve();
+    const controller = new AbortController();
+    const offset = earlier
+      ? Math.max(0, cursor.start - savedPageSize)
+      : cursor.offset;
+    const result = Promise.resolve().then(() =>
+      append(scope, offset, controller.signal, earlier),
+    );
+    nextPage = { controller, result, earlier };
+    publish(state);
+    return result;
+  }
+
   return {
     getSnapshot: () => state,
-    setVisible(visible: boolean) {
+    setVisible(visible: boolean, anchor?: () => string | undefined) {
       displayed = visible;
+      activeAnchor = visible ? anchor : undefined;
       void refreshVisible();
     },
     subscribe(listener: () => void) {
@@ -436,24 +559,42 @@ export function openPostCollection(account: Account, source: Source) {
       suspended = false;
       return startRead(returnedPostId);
     },
-    loadMore() {
-      if (nextPage) return nextPage.result;
-      if (
-        scope.kind === "pins" ||
-        pending ||
-        !cursor ||
-        !state.value ||
-        cursor.offset >= cursor.limit
-      )
-        return Promise.resolve();
-      const controller = new AbortController();
-      const offset = cursor.offset;
-      const result = Promise.resolve().then(() =>
-        append(scope, offset, controller.signal),
+    revalidate(anchor?: string) {
+      if (state.status === "closed") return Promise.resolve();
+      suspended = false;
+      return startRead(undefined, undefined, 0, savedWindow(anchor));
+    },
+    retainReading(anchor?: string) {
+      const window = savedWindow(anchor);
+      if (!window || !cursor || !state.value || !anchor) return;
+      const { start, through } = window;
+      const { value } = state;
+      const items = value.items.filter(({ id }) => {
+        const offset = rowOffsets.get(id);
+        return offset !== undefined && offset >= start && offset < through;
+      });
+      cursor.start = start;
+      cursor.offset = Math.min(cursor.offset, through);
+      rowOffsets = new Map(
+        items.map(({ id }) => [id, rowOffsets.get(id) ?? start]),
       );
-      nextPage = { controller, result };
-      publish(state);
-      return result;
+      if (items.length === value.items.length) publish(state);
+      else publish({ ...state, value: { ...value, items } });
+    },
+    loadMore: () => loadPage(false),
+    loadNewer: () => loadPage(true),
+    setChannelDenied(channelId: string, denied: boolean) {
+      if (!denied) {
+        deniedChannels.delete(channelId);
+        return;
+      }
+      deniedChannels.add(channelId);
+      if (!state.value) return;
+      const items = forgetPostChannel(state.value.items, deniedChannels);
+      if (items.length === state.value.items.length) return;
+      for (const row of state.value.items)
+        if (row.channelId === channelId) rowOffsets.delete(row.id);
+      publish({ ...state, value: { ...state.value, items } });
     },
     remove(postId: string): Promise<Removal> {
       const existing = removals.get(postId);
@@ -469,14 +610,22 @@ export function openPostCollection(account: Account, source: Source) {
     suspend() {
       if (state.status === "closed") return;
       displayed = false;
+      activeAnchor = undefined;
       suspended = true;
       cancelRequests();
-      publish({ status: state.value ? "ready" : "idle", value: state.value });
+      publish({
+        status: state.value ? "ready" : "idle",
+        value: state.value,
+        ...(state.manualPage && { manualPage: true }),
+      });
     },
     close() {
       if (state.status === "closed") return;
       stopWrites?.();
+      activeAnchor = undefined;
       cursor = undefined;
+      rowOffsets.clear();
+      deniedChannels.clear();
       cancelRequests();
       publish({ status: "closed", value: null });
       listeners.clear();

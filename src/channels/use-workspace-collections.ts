@@ -7,7 +7,11 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import type { CollectionReadingPlace } from "./CollectionScroll.tsx";
+import {
+  type CollectionReading,
+  type CollectionReadingPlace,
+  collectionReadingPlace,
+} from "./CollectionScroll.tsx";
 import { openMentionList } from "./mention-list.ts";
 import { openPostCollection, returnedPostRemoved } from "./post-collection.ts";
 import type { measureTimeline } from "./timeline-viewport.ts";
@@ -15,6 +19,7 @@ import type { measureTimeline } from "./timeline-viewport.ts";
 type CollectionsAccount = Parameters<typeof openPostCollection>[0] &
   Parameters<typeof openMentionList>[0];
 type Collection = ReturnType<typeof openPostCollection>;
+type Remembered<Model> = { model: Model; place?: CollectionReadingPlace };
 type RestoredRow = {
   id: string;
   scroll: number;
@@ -52,14 +57,14 @@ export function useWorkspaceCollections(
   const generation = useRef(0);
   const [view, setView] = useState<View | null>(null);
   const owned = useRef(view);
-  const saved = useRef<Collection | null>(null);
-  const pins = useRef(
-    new Map<string, { model: Collection; place?: CollectionReadingPlace }>(),
-  );
-  const previousMentions = useRef<{
-    archivedChannels: boolean;
-    model: ReturnType<typeof openMentionList>;
-  } | null>(null);
+  const saved = useRef<Remembered<Collection> | null>(null);
+  const pins = useRef(new Map<string, Remembered<Collection>>());
+  const previousMentions = useRef<
+    | (Remembered<ReturnType<typeof openMentionList>> & {
+        archivedChannels: boolean;
+      })
+    | null
+  >(null);
   const returnFocus = useRef<HTMLButtonElement | null>(null);
   useLayoutEffect(() => {
     if (view || !returnFocus.current) return;
@@ -73,19 +78,42 @@ export function useWorkspaceCollections(
   const origin = useRef<RowOrigin | null>(null);
   const [restore, setRestore] = useState<RestoredRow | null>(null);
   const collection = view?.kind === "mentions" ? null : view;
-  const pinnedReading = useMemo(() => {
-    if (view?.kind !== "pins") return;
-    const { channelId, model } = view;
-    const remembered = pins.current.get(channelId);
-    if (!remembered) return;
+  const deniedChannels = useRef(new Set<string>());
+  const remembered = !view
+    ? null
+    : view.kind === "all"
+      ? saved.current
+      : view.kind === "mentions"
+        ? previousMentions.current
+        : pins.current.get(view.channelId);
+  const reading = useMemo<CollectionReading | undefined>(() => {
+    if (!remembered || !view) return;
+    let viewport: HTMLElement | null = null;
     return {
       place: remembered.place,
-      remember(place: CollectionReadingPlace) {
-        if (pins.current.get(channelId) === remembered)
-          remembered.place = model.getSnapshot().value ? place : undefined;
+      anchor() {
+        return viewport
+          ? collectionReadingPlace(viewport).anchor?.id
+          : remembered.place?.anchor?.id;
+      },
+      attach(pane) {
+        viewport = pane;
+        return () => {
+          viewport = null;
+          const snapshot = remembered.model.getSnapshot();
+          remembered.place = (
+            "value" in snapshot
+              ? snapshot.value
+              : snapshot.hasResponse
+          )
+            ? collectionReadingPlace(pane)
+            : undefined;
+          if (view.kind !== "pins" && owned.current !== view)
+            remembered.model.retainReading(remembered.place?.anchor?.id);
+        };
       },
     };
-  }, [view]);
+  }, [view, remembered]);
   const mentions = view?.kind === "mentions" ? view : null;
   const state = useSyncExternalStore(
     collection?.model.subscribe ?? subscribeToNothing,
@@ -98,15 +126,13 @@ export function useWorkspaceCollections(
   const failure = state?.status ?? mentionState?.status;
   useLayoutEffect(() => {
     if (
-      view?.kind !== "pins" ||
-      (failure !== "forbidden" &&
-        failure !== "unauthorized" &&
-        failure !== "session")
+      remembered &&
+      (failure === "forbidden" ||
+        failure === "unauthorized" ||
+        failure === "session")
     )
-      return;
-    const remembered = pins.current.get(view.channelId);
-    if (remembered) remembered.place = undefined;
-  }, [view, failure]);
+      remembered.place = undefined;
+  }, [remembered, failure]);
   const reported = useRef<View | null>(null);
   useEffect(() => {
     if (
@@ -128,8 +154,12 @@ export function useWorkspaceCollections(
   }, [online]);
   useEffect(() => {
     if (!view || !online) return;
-    if (view.kind !== "all" || !view.returnRow) {
+    if (view.kind === "pins") {
       void view.model.refresh();
+      return;
+    }
+    if (view.kind === "mentions" || !view.returnRow) {
+      void view.model.revalidate(reading?.anchor());
       return;
     }
     const { model, returnRow } = view;
@@ -149,17 +179,18 @@ export function useWorkspaceCollections(
     });
     void model.refresh(returnRow.id);
     return stop;
-  }, [view, online]);
+  }, [view, online, reading]);
   useLayoutEffect(
     () => () => {
       activation.current?.controller.abort();
       owned.current = null;
       for (const { model } of pins.current.values()) model.close();
       pins.current.clear();
-      saved.current?.close();
+      saved.current?.model.close();
       previousMentions.current?.model.close();
       saved.current = null;
       previousMentions.current = null;
+      deniedChannels.current.clear();
     },
     [],
   );
@@ -219,8 +250,8 @@ export function useWorkspaceCollections(
       };
       next = { ...owner, ...source, model: previousMentions.current.model };
     } else if (source.kind === "all") {
-      saved.current ??= openPostCollection(account, { kind: "all" });
-      next = { ...owner, ...source, model: saved.current };
+      saved.current ??= { model: openPostCollection(account, { kind: "all" }) };
+      next = { ...owner, ...source, model: saved.current.model };
     } else {
       let remembered = pins.current.get(source.channelId);
       if (!remembered) {
@@ -229,10 +260,20 @@ export function useWorkspaceCollections(
       }
       next = { ...owner, ...source, model: remembered.model };
     }
+    if (next.kind !== "pins") {
+      for (const id of deniedChannels.current)
+        next.model.setChannelDenied(id, true);
+    }
     owned.current = next;
     if (source.kind === "all" && source.returnRow) setRestore(source.returnRow);
     setView(next);
   }
+  const setChannelDenied = useCallback((id: string, denied: boolean) => {
+    if (denied) deniedChannels.current.add(id);
+    else if (!deniedChannels.current.delete(id)) return;
+    saved.current?.model.setChannelDenied(id, denied);
+    previousMentions.current?.model.setChannelDenied(id, denied);
+  }, []);
   async function activate(
     id: string,
     open: (signal: AbortSignal) => Promise<void>,
@@ -258,8 +299,9 @@ export function useWorkspaceCollections(
     view,
     state,
     mentionState,
-    pinnedReading,
+    reading,
     retainPins,
+    setChannelDenied,
     open: show,
     close,
     abort,

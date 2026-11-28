@@ -612,3 +612,172 @@ test("suspending saved messages retains the answer, cancels a read and opens fro
     [0, 0, 0, 0],
   );
 });
+
+test("ordinary Saved refresh reads a bounded raw window and can continue across a hidden page in either direction", async () => {
+  const account = mockAccount();
+  const rows = Array.from({ length: 9 }, (_, n) => ({
+    ...first,
+    id: String(n).padStart(26, "0"),
+    message: `Saved page ${n}`,
+  }));
+  const at = (offset: number) => ({ ...empty, items: [rows[offset / 60]] });
+  account.readPreferences.mockResolvedValue({
+    ids: new Set(rows.map(({ id }) => id)),
+    upperBound: 481,
+  });
+  account.readSavedPosts.mockImplementation(async () => at(0));
+  account.readSavedPostsAtOffset.mockImplementation(async (_scope, offset) =>
+    at(offset),
+  );
+  const view = openPostCollection(account, { kind: "all" });
+  await view.revalidate();
+  for (let i = 1; i <= 6; i++) await view.loadMore();
+  view.suspend();
+  view.retainReading(rows[5].id);
+  const before = view.getSnapshot().value;
+  expect(before?.items).toEqual(rows.slice(4, 7));
+  const gate = deferredPage();
+  account.readSavedPostsAtOffset.mockClear().mockReturnValueOnce(gate.promise);
+  const read = view.revalidate(rows[5].id);
+  expect(view.getSnapshot()).toMatchObject({
+    status: "refreshing",
+    value: before,
+  });
+  gate.resolve({ ...empty, items: [{ ...rows[4], message: "Edited" }] });
+  await read;
+  expect(
+    account.readSavedPostsAtOffset.mock.calls.map(([, offset]) => offset),
+  ).toEqual([240, 300, 360]);
+  expect(view.getSnapshot()).toMatchObject({
+    status: "ready",
+    newer: "available",
+    continuation: "available",
+    value: { items: [{ ...rows[4], message: "Edited" }, rows[5], rows[6]] },
+  });
+  account.readSavedPostsAtOffset
+    .mockRejectedValueOnce(
+      new TypeError("Native REST request failed", { cause: "network" }),
+    )
+    .mockResolvedValueOnce({ ...empty, items: [rows[3], rows[4]] })
+    .mockResolvedValueOnce(empty);
+  await view.loadNewer();
+  expect(view.getSnapshot().newer).toBe("network");
+  await view.loadNewer();
+  await view.loadMore();
+  expect(view.getSnapshot().continuation).toBe("available");
+  await view.loadMore();
+  expect(view.getSnapshot().value?.items.map(({ id }) => id)).toEqual(
+    [3, 4, 5, 6, 8].map((n) => rows[n].id),
+  );
+  expect(
+    account.readSavedPostsAtOffset.mock.calls.map(([, offset]) => offset),
+  ).toEqual([240, 300, 360, 180, 180, 420, 480]);
+  expect(view.getSnapshot().continuation).toBe("none");
+  view.suspend();
+  view.retainReading(rows[5].id);
+  account.readSavedPostsAtOffset.mockClear().mockResolvedValue(empty);
+  await view.revalidate(rows[5].id);
+  expect(view.getSnapshot()).toMatchObject({
+    value: empty,
+    newer: "available",
+    continuation: "available",
+    manualPage: true,
+  });
+  await view.loadMore();
+  expect(
+    account.readSavedPostsAtOffset.mock.calls.map(([, offset]) => offset),
+  ).toEqual([240, 300, 360, 420]);
+  expect(view.getSnapshot()).toMatchObject({
+    value: empty,
+    newer: "available",
+    continuation: "available",
+    manualPage: true,
+  });
+});
+
+test("a vanished deep Saved window reads the new head and a confirmed channel denial filters late rows", async () => {
+  const account = mockAccount();
+  const rows = Array.from({ length: 7 }, (_, n) => ({
+    ...first,
+    id: String(n).padStart(26, "0"),
+  }));
+  const prefs = (i: number) => ({
+    ids: new Set(rows.map(({ id }) => id)),
+    upperBound: i,
+  });
+  account.readPreferences.mockResolvedValue(prefs(420));
+  account.readSavedPosts.mockResolvedValue({ ...empty, items: [rows[0]] });
+  account.readSavedPostsAtOffset.mockImplementation(async (_scope, offset) => ({
+    ...empty,
+    items: [rows[offset / 60]],
+  }));
+  const view = openPostCollection(account, { kind: "all" });
+  await view.revalidate();
+  for (let i = 1; i <= 6; i++) await view.loadMore();
+  view.suspend();
+  account.readPreferences.mockResolvedValue(prefs(2));
+  const gate = deferredPage();
+  account.readSavedPosts.mockReturnValueOnce(gate.promise);
+  account.readSavedPostsAtOffset.mockClear().mockResolvedValue(empty);
+  const update = view.revalidate(rows[5].id);
+  await vi.waitFor(() => expect(view.getSnapshot().value).toBeNull());
+  view.setChannelDenied(channelId, true);
+  gate.resolve({
+    ...empty,
+    items: [rows[0], { ...last, channelId: "d".repeat(26) }],
+  });
+  await update;
+  expect(
+    account.readSavedPostsAtOffset.mock.calls.map(([, offset]) => offset),
+  ).toEqual([240]);
+  expect(view.getSnapshot()).toMatchObject({
+    status: "ready",
+    continuation: "none",
+    value: { items: [{ ...last, channelId: "d".repeat(26) }] },
+  });
+});
+
+test("a visible write after deeper pagination reads around the current anchor", async () => {
+  const account = mockAccount();
+  const rows = Array.from({ length: 12 }, (_, index) => ({
+    ...first,
+    id: String(index).padStart(26, "0"),
+  }));
+  const readAt = async (offset: number) => ({
+    ...empty,
+    items: [rows[offset / 60]],
+  });
+  account.readPreferences.mockResolvedValue({
+    ids: new Set(rows.map(({ id }) => id)),
+    upperBound: 720,
+  });
+  account.readSavedPosts.mockImplementation(async () => readAt(0));
+  account.readSavedPostsAtOffset.mockImplementation((_scope, offset) =>
+    readAt(offset),
+  );
+  account.writeSavedPost.mockResolvedValue(undefined);
+  const saved = openPostCollection(account, { kind: "all" });
+  await saved.revalidate();
+  for (let index = 1; index <= 6; index++) await saved.loadMore();
+  saved.suspend();
+  saved.retainReading(rows[5].id);
+  await saved.revalidate(rows[5].id);
+  for (let index = 7; index <= 9; index++) await saved.loadMore();
+  const anchor = vi.fn(() => rows[8].id);
+  saved.setVisible(true, anchor);
+  expect(anchor).not.toHaveBeenCalled();
+  account.readSavedPostsAtOffset.mockClear();
+  await account.setPostSaved("n".repeat(26), true);
+  await vi.waitFor(() =>
+    expect(saved.getSnapshot()).toMatchObject({
+      status: "ready",
+      value: { items: rows.slice(7, 10) },
+    }),
+  );
+  expect(anchor).toHaveBeenCalledOnce();
+  expect(
+    account.readSavedPostsAtOffset.mock.calls.map(([, offset]) => offset),
+  ).toEqual([420, 480, 540]);
+  expect(saved.getSnapshot().newer).toBe("available");
+  saved.close();
+});

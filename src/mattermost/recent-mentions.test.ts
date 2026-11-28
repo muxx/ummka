@@ -92,8 +92,9 @@ test("skips false-positive pages and preserves the server cursor and retention b
     "Hi Alex",
   ]);
   expect(result.nextPage).toBe(2);
+  expect(result.page).toBe(1);
   expect(result.firstInaccessiblePostTime).toBe(58);
-  expect((await mentions.readPage(2)).nextPage).toBeNull();
+  expect(await mentions.readPage(2)).toMatchObject({ nextPage: null, page: 2 });
   expect(search.readPostSearchPage.mock.calls.map(([q]) => q.page)).toEqual([
     0, 1, 2,
   ]);

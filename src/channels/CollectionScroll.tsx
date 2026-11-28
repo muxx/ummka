@@ -1,21 +1,39 @@
-import { Component, type ReactNode, type RefObject } from "react";
+import {
+  Component,
+  type ReactNode,
+  type RefObject,
+  useLayoutEffect,
+  useRef,
+} from "react";
 
 type Props = {
   pane: RefObject<HTMLElement | null>;
   label: string;
   children: ReactNode;
   pins?: boolean;
+  preserveLeading?: boolean;
+  ownRemoval?: () => boolean;
+  keepTop?: boolean;
 };
+type Anchor = { id: string; offset: number };
 type RowPlace = { id: string; y: number };
 type Snapshot = {
   rows: RowPlace[];
+  leading?: { order: NodeListOf<HTMLButtonElement>; index: number; y: number };
   focused: HTMLButtonElement | null;
   index: number;
 };
 export type CollectionReadingPlace = {
   scroll: number;
-  anchor?: { id: string; offset: number };
+  anchor?: Anchor;
+  nearby?: Anchor[];
   focusedId?: string;
+};
+
+export type CollectionReading = {
+  place?: CollectionReadingPlace;
+  attach(pane: HTMLElement): () => void;
+  anchor(): string | undefined;
 };
 
 const rowSelector = "[data-collection-post]";
@@ -40,14 +58,22 @@ export function collectionReadingPlace(
 ): CollectionReadingPlace {
   const rows = pane.querySelectorAll<HTMLButtonElement>(rowSelector);
   const top = pane.getBoundingClientRect().top;
-  const first = rows[firstVisibleRow(rows, top)];
-  const id = first?.dataset.collectionPost;
+  const first = firstVisibleRow(rows, top);
   const active = document.activeElement;
+  const anchors: Anchor[] = [];
+  for (const index of [first, first - 1, first + 1, first - 2, first + 2]) {
+    const row = rows[index];
+    if (row?.dataset.collectionPost)
+      anchors.push({
+        id: row.dataset.collectionPost,
+        offset: row.getBoundingClientRect().top - top,
+      });
+  }
+  const [anchor, ...nearby] = anchors;
   return {
     scroll: pane.scrollTop,
-    anchor: id
-      ? { id, offset: first.getBoundingClientRect().top - top }
-      : undefined,
+    anchor,
+    nearby,
     focusedId:
       active instanceof HTMLButtonElement && pane.contains(active)
         ? (active.dataset.collectionPost ?? active.dataset.collectionRemove)
@@ -61,12 +87,17 @@ export function restoreCollectionReadingPlace(
 ) {
   if (!pane || !place) return false;
   pane.scrollTop = place.scroll;
-  const anchor = place.anchor && postRow(pane, place.anchor.id);
-  if (anchor && place.anchor)
+  let anchor: HTMLButtonElement | null = null;
+  for (const point of [place.anchor, ...(place.nearby ?? [])]) {
+    if (!point) continue;
+    anchor = postRow(pane, point.id);
+    if (!anchor) continue;
     pane.scrollTop +=
       anchor.getBoundingClientRect().top -
       pane.getBoundingClientRect().top -
-      place.anchor.offset;
+      point.offset;
+    break;
+  }
   const row = (place.focusedId && postRow(pane, place.focusedId)) || anchor;
   row?.focus({ preventScroll: true });
   return Boolean(row);
@@ -99,9 +130,30 @@ export function restoreCollectionRow(
   return true;
 }
 
+export function useCollectionReading(
+  pane: RefObject<HTMLElement | null>,
+  heading: RefObject<HTMLHeadingElement | null>,
+  restore: RefObject<Parameters<typeof restoreCollectionRow>[1]>,
+  reading: CollectionReading | undefined,
+) {
+  const openingPlace = useRef(reading?.place);
+  useLayoutEffect(() => {
+    if (restoreCollectionRow(pane.current, restore.current))
+      restore.current = null;
+    else if (
+      restore.current ||
+      !restoreCollectionReadingPlace(pane.current, openingPlace.current)
+    )
+      heading.current?.focus();
+  }, [pane, heading, restore]);
+  useLayoutEffect(() => {
+    if (pane.current && reading) return reading.attach(pane.current);
+  }, [pane, reading]);
+}
+
 export class CollectionScroll extends Component<Props> {
   // Capture the reading position before React changes row or status heights.
-  getSnapshotBeforeUpdate(): Snapshot {
+  getSnapshotBeforeUpdate(old: Props): Snapshot {
     const pane = this.props.pane.current;
     const active = document.activeElement;
     const focused =
@@ -118,11 +170,22 @@ export class CollectionScroll extends Component<Props> {
       this.props.pins && id && rows
         ? Array.from(rows).findIndex((row) => row.dataset.collectionPost === id)
         : -1;
-    if (!pane?.clientHeight || pane.scrollTop <= 1)
+    if (!pane?.clientHeight || (pane.scrollTop <= 1 && !old.keepTop))
       return { rows: [], focused, index };
     const bounds = pane.getBoundingClientRect();
     if (!rows) return { rows: [], focused, index };
     const first = firstVisibleRow(rows, bounds.top);
+    if (old.preserveLeading && !this.props.ownRemoval?.()) {
+      const row = rows[first];
+      return {
+        rows: [],
+        focused,
+        index,
+        leading: row
+          ? { order: rows, index: first, y: row.getBoundingClientRect().top }
+          : undefined,
+      };
+    }
     const whole: RowPlace[] = [];
     const clipped: RowPlace[] = [];
     for (let n = first; n < rows.length; n++) {
@@ -151,6 +214,26 @@ export class CollectionScroll extends Component<Props> {
         break;
       }
     }
+    const leading = previous.leading;
+    if (leading) {
+      // These are keyed rows from the old DOM. Scan the old order without
+      // measuring each row, preferring the previous row on equal distance.
+      const { order, index, y } = leading;
+      for (
+        let distance = 0;
+        index - distance >= 0 || index + distance < order.length;
+        distance++
+      ) {
+        const before = order[index - distance];
+        const after = order[index + distance];
+        if (before && pane.contains(before)) surviving = before;
+        else if (after && pane.contains(after)) surviving = after;
+        if (surviving) break;
+      }
+      if (surviving)
+        pane.scrollTop += surviving.getBoundingClientRect().top - y;
+      else if (pane.querySelector(rowSelector)) pane.scrollTop = 0;
+    }
     if (
       previous.focused &&
       !previous.focused.isConnected &&
@@ -173,9 +256,8 @@ export class CollectionScroll extends Component<Props> {
         (same || nextAction || neighbor) ??
         surviving ??
         rows[0] ??
-        (this.props.pins
-          ? pane.querySelector<HTMLElement>(".panel-state--empty h3")
-          : null) ??
+        pane.querySelector<HTMLElement>("[data-collection-page]:enabled") ??
+        pane.querySelector<HTMLElement>(".panel-state--empty h3[tabindex]") ??
         pane.closest("aside")?.querySelector("h2")
       )?.focus({ preventScroll: true });
     }
