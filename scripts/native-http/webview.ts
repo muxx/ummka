@@ -31,6 +31,7 @@ import { collectionFixture } from "./post-collections.ts";
 import { respondToPostContext } from "./post-context.ts";
 import { respondToPostMutation } from "./post-mutations.ts";
 import { submissionFixture } from "./submit-post.ts";
+import { threadInboxWindowFixture } from "./thread-inbox-window.ts";
 import { respondToThreadList } from "./thread-list.ts";
 import { respondToThreadRead } from "./thread-read-state.ts";
 import { respondToWorkspace } from "./workspace.ts";
@@ -98,6 +99,13 @@ export function webviewServers(
   const visits: string[] = [];
   const systemPostReads = new Set<string>();
   const collectionWindow = collectionWindowFixture();
+  const inboxWindow = threadInboxWindowFixture(
+    () => swipeAndroid !== undefined,
+    async () => {
+      assert(pressWorkspaceBack, "The workspace needs the native Back driver");
+      await pressWorkspaceBack();
+    },
+  );
   let emptyBrowserTeams = false;
   let offlineHistoryRequests = 0;
   let connections = 0;
@@ -601,6 +609,7 @@ export function webviewServers(
   }
   const data = https.createServer(trusted, async (req, res) => {
     const url = new URL(req.url ?? "/", "https://localhost");
+    if (await inboxWindow(req, res, url)) return;
     const rosterChannel = "r".repeat(26);
     const rosterUser = "n".repeat(26);
     const rosterProfiles =
@@ -1212,7 +1221,7 @@ export function webviewServers(
       { joinedPublicRoom: visits.includes("directory-join") },
     );
     if (workspace) {
-      visits.push(workspace);
+      if (workspace !== "background-thread-totals") visits.push(workspace);
       return;
     }
     const account = respondToAccount(

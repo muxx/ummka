@@ -29,7 +29,7 @@ check-macos: .check-tools/installed
 	cd src-tauri && cargo clippy --all-targets --all-features --locked -- -D warnings
 	cd src-tauri && cargo test --locked
 	node --test scripts/webview-check/macos.test.ts
-	npm run test:native-http -- macos
+	$(if $(filter github-hosted,$(RUNNER_ENVIRONMENT)),UMMKA_CHECK_MACOS_INBOX_FOCUS=1) npm run test:native-http -- macos
 	sh scripts/check-security.sh
 	$(MAKE) package-macos
 

@@ -181,9 +181,11 @@ export async function checkMacWebview(
   fixture: InteractiveFixture,
   {
     workspaceBackOnly,
+    inboxOnly,
     externalHandoff,
   }: {
     workspaceBackOnly: boolean;
+    inboxOnly: boolean;
     externalHandoff: boolean;
   },
 ) {
@@ -235,6 +237,13 @@ export async function checkMacWebview(
     });
     // A width has its own scrolling tree and dies before the next window opens.
     if (!workspaceBackOnly) {
+      await launch(
+        "thread-inbox",
+        { ...env, UMMKA_CHECK_SCENARIO: "thread-inbox" },
+        fixture,
+        30_000,
+      );
+      if (inboxOnly) return;
       for (const width of [320, 820])
         await launch(
           `formatting-${width}`,

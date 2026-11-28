@@ -28,7 +28,7 @@ import { isMattermostId } from "../mattermost/model-fields.ts";
 import { visibleSidebar } from "../mattermost/sidebar-rows.ts";
 import { effectiveWorkspacePreferences } from "../mattermost/workspace-preferences.ts";
 import { ChannelNotificationsDialog } from "./ChannelNotificationsDialog.tsx";
-import { ChannelsFrame } from "./ChannelsFrame.tsx";
+import { ChannelsFrame, ThreadMark } from "./ChannelsFrame.tsx";
 import { CollectionChannelMenu } from "./CollectionChannelMenu.tsx";
 import { CollectionResultSteps } from "./CollectionResultSteps.tsx";
 import { ComposerAccessNotice } from "./ComposerAccessNotice.tsx";
@@ -56,7 +56,9 @@ import { PostActionScope, usePostActionScope } from "./post-action-scope.ts";
 import { newestCollectionItems } from "./post-collection.ts";
 import type { ReactionThread } from "./submit-channel-reaction.ts";
 import { TeamChannelDirectory } from "./TeamChannelDirectory.tsx";
+import { ThreadInboxPane } from "./ThreadInboxPane.tsx";
 import { ThreadPane } from "./ThreadPane.tsx";
+import { threadInboxCopy } from "./thread-inbox-copy.ts";
 import type { TimelineRequest } from "./timeline-reader.ts";
 import { measureTimeline, type TimelinePlace } from "./timeline-viewport.ts";
 import { useChannelTimeline } from "./use-channel-timeline.ts";
@@ -66,6 +68,7 @@ import { useWorkspaceCollections } from "./use-workspace-collections.ts";
 import { useWorkspaceProfiles } from "./use-workspace-profiles.ts";
 import { useTeamRoles, useWorkspaceRead } from "./use-workspace-read.ts";
 import { useWorkspaceSearch } from "./use-workspace-search.tsx";
+import { useWorkspaceThreadInbox } from "./use-workspace-thread-inbox.ts";
 import { workspaceCopy } from "./workspace-copy.ts";
 import { openingChannel, workspaceProfileQuery } from "./workspace-data.ts";
 import "./workspace.css";
@@ -413,6 +416,41 @@ export function ChannelsWorkspace({
         : null,
     [policy.user, policy.server.value],
   );
+  const inbox = useWorkspaceThreadInbox(
+    connection,
+    team.id,
+    settings?.collapsedThreads === true &&
+      !["forbidden", "session", "unauthorized"].includes(
+        directory.state.status,
+      ),
+    online,
+    sessionIssue,
+  );
+  const inboxRoute = useRef(position?.request.requestId);
+  useLayoutEffect(() => {
+    const next = position?.request.requestId;
+    if (next !== undefined && next !== inboxRoute.current && inbox.visible)
+      inbox.close();
+    inboxRoute.current = next;
+  }, [inbox, position]);
+  const inboxText = threadInboxCopy[language];
+  const counts = inbox.state?.totals.value;
+  const inboxName = [
+    inboxText.title,
+    counts?.totalUnreadThreads &&
+      `${inboxText.unreadDiscussions}: ${counts.totalUnreadThreads}`,
+    counts?.totalUnreadMentions &&
+      `${inboxText.mentions}: ${counts.totalUnreadMentions}`,
+    counts?.totalUnreadUrgentMentions &&
+      `${inboxText.urgent}: ${counts.totalUnreadUrgentMentions}`,
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const inboxWasVisible = useRef(false);
+  useLayoutEffect(() => {
+    if (inboxWasVisible.current && !inbox.model) setPage("navigation");
+    inboxWasVisible.current = inbox.visible;
+  }, [inbox.visible, inbox.model]);
   const collectionReading = useRef<TimelinePlace | null>(null);
   const restoreVersion = useRef(0);
   const [restoredChannel, setRestoredChannel] = useState<{
@@ -466,9 +504,12 @@ export function ChannelsWorkspace({
   const current = useMemo(
     () =>
       snapshot
-        ? { ...snapshot, selectedChannel: directoryOpen ? null : chosen }
+        ? {
+            ...snapshot,
+            selectedChannel: directoryOpen || inbox.visible ? null : chosen,
+          }
         : null,
-    [snapshot, chosen, directoryOpen],
+    [snapshot, chosen, directoryOpen, inbox.visible],
   );
   const search = useWorkspaceSearch(
     workspace,
@@ -534,6 +575,13 @@ export function ChannelsWorkspace({
       resultChannelIds,
     );
     const ids = new Set(query.ids);
+    if (inbox.visible) {
+      for (const row of inbox.state?.page.rows ?? []) {
+        if (!row.post) continue;
+        ids.add(row.post.userId);
+        for (const person of row.participantIds.slice(0, 3)) ids.add(person);
+      }
+    }
     for (const post of collections.state?.value?.items ?? [])
       if (isMattermostId(post.userId)) ids.add(post.userId);
     const usernames = new Set(query.usernames);
@@ -555,6 +603,8 @@ export function ChannelsWorkspace({
     current,
     settings,
     timeline.page,
+    inbox.visible,
+    inbox.state?.page.rows,
     collections.state?.value,
     resultChannelIds,
     resultItems,
@@ -570,6 +620,13 @@ export function ChannelsWorkspace({
   const profiles = useMemo(
     () => indexChannelProfiles(Object.values(saved.profiles), saved.usernames),
     [saved],
+  );
+  const inboxRooms = useMemo(
+    () =>
+      inbox.visible && snapshot
+        ? new Map(snapshot.data.channels.map((room) => [room.id, room]))
+        : null,
+    [inbox.visible, snapshot],
   );
   const sections = useMemo(
     () =>
@@ -625,6 +682,21 @@ export function ChannelsWorkspace({
     .flatMap((section) => section.rows)
     .find((row) => row.id === chosen);
   const selectedLabel = selectedRow?.title;
+  function inboxRoomName(id: string) {
+    const room = inboxRooms?.get(id);
+    if (!room || !settings) return undefined;
+    const display = conversationName(
+      room,
+      userId,
+      profiles,
+      settings.nameFormat,
+      language,
+    );
+    return (
+      display &&
+      (room.kind === "D" || room.kind === "G" ? display : `# ${display}`)
+    );
+  }
   const draftText = draftCopy[language];
   function draftLabel() {
     if (!channel) return draftText.generic;
@@ -664,6 +736,7 @@ export function ChannelsWorkspace({
   ]);
 
   function choose(id: string, returning = false) {
+    inbox.close();
     setDirectoryOpen(false);
     search.abortPending();
     if (!returning) {
@@ -700,13 +773,15 @@ export function ChannelsWorkspace({
       return accepted;
     });
   }
-  const access = channelComposerAccess({
-    channel: channel ?? undefined,
-    permission: permission(channel ?? undefined, "create_post"),
-    userId,
-    profiles: profiles.byId,
-    sharedChannelDMs: policy.server.value?.sharedChannelDMs,
-  });
+  function postingAccess(room: typeof channel | undefined) {
+    return channelComposerAccess({
+      channel: room ?? undefined,
+      permission: permission(room ?? undefined, "create_post"),
+      userId,
+      profiles: profiles.byId,
+      sharedChannelDMs: policy.server.value?.sharedChannelDMs,
+    });
+  }
   function closeChannel(opener: HTMLButtonElement) {
     if (!snapshot) return;
     const available = snapshot.data.channels.filter((room) => {
@@ -780,6 +855,7 @@ export function ChannelsWorkspace({
     source: Parameters<typeof collections.open>[0],
     opener: HTMLButtonElement,
   ) {
+    inbox.close();
     setChannelMenuOpen(false);
     if (
       source.kind !== "pins" &&
@@ -929,6 +1005,39 @@ export function ChannelsWorkspace({
   );
   const nav = (
     <>
+      {inbox.model && (
+        <button
+          type="button"
+          className="workspace-row inbox-trigger"
+          aria-label={inboxName}
+          data-unread={Boolean(counts?.totalUnreadThreads) || undefined}
+          aria-current={inbox.visible ? "page" : undefined}
+          onClick={() => {
+            if (inbox.visible) {
+              setPage("conversation");
+              return;
+            }
+            search.dismiss();
+            workspace.messages.clear();
+            collections.close(false);
+            setDirectoryOpen(false);
+            closeThread();
+            setPage("conversation");
+            inbox.show();
+          }}
+        >
+          <ThreadMark />
+          <span className="workspace-row-name">{inboxText.title}</span>
+          {counts && counts.totalUnreadMentions > 0 ? (
+            <span className="workspace-count" aria-hidden="true">
+              {counts.totalUnreadUrgentMentions > 0 ? "!" : ""}
+              {counts.totalUnreadMentions}
+            </span>
+          ) : counts && counts.totalUnreadThreads > 0 ? (
+            <span className="workspace-unread" aria-hidden="true" />
+          ) : null}
+        </button>
+      )}
       <button
         type="button"
         className="workspace-row directory-trigger"
@@ -940,6 +1049,7 @@ export function ChannelsWorkspace({
           collections.close(false);
           setChannelMenuOpen(false);
           closeThread();
+          inbox.close();
           setDirectoryOpen(true);
           setPage("conversation");
         }}
@@ -1016,6 +1126,9 @@ export function ChannelsWorkspace({
           : null
       : null;
   if (thread && !activeThread) setThread(null);
+  const selection = inbox.selection;
+  const panePost = selection ? selection.post : activeThread;
+  const paneId = selection?.row.id ?? activeThread?.id;
   const pinsSource =
     collections.view?.kind === "pins" ? collections.view.channelId : null;
   const pinsRoom = pinsSource
@@ -1084,7 +1197,10 @@ export function ChannelsWorkspace({
         setChannelMenuOpen(false);
         channelMenuButton.current?.focus();
       };
-    if (search.dialog || (directoryOpen && visibleSearchPanel))
+    if (
+      search.dialog ||
+      ((directoryOpen || inbox.visible) && visibleSearchPanel)
+    )
       return search.back;
     if (directoryOpen)
       return () => {
@@ -1092,6 +1208,9 @@ export function ChannelsWorkspace({
         setDirectoryOpen(false);
         if (compact || !chosen) setPage("navigation");
       };
+    if (selection) return inbox.closeThread;
+    if (inbox.visible && compact && page !== "navigation")
+      return () => setPage("navigation");
     if (manualThread) return closeThread;
     if (savedSource) return returnToSaved;
     if (collectionDestination) return returnToCollection;
@@ -1148,11 +1267,20 @@ export function ChannelsWorkspace({
         ? roomTitle
         : roomHeading(pinsName, pinsRoom.kind)
       : undefined;
+  const inboxRoom = selection?.post
+    ? inboxRooms?.get(selection.post.channelId)
+    : undefined;
+  const displayedRoom = inbox.visible ? inboxRoom : channel;
+  const displayedTitle = inbox.visible
+    ? (inboxRoom && inboxRoomName(inboxRoom.id)) || ""
+    : roomTitle;
   const presentationScope = JSON.stringify([
     connection.rid,
     team.id,
     chosen,
-    activeThread?.id,
+    paneId,
+    selection?.post?.id,
+    inbox.visible,
     position?.request.requestId,
     page,
     directoryOpen,
@@ -1163,11 +1291,11 @@ export function ChannelsWorkspace({
   const attachments = useAttachmentWindow(
     workspace,
     presentationScope,
-    roomTitle,
+    displayedTitle,
   );
   const reader = usePublishedReaderWindow(
     presentationScope,
-    channel ? roomTitle : (selectedLabel ?? ""),
+    inbox.visible || channel ? displayedTitle : (selectedLabel ?? ""),
   );
   const actions = usePostActionScope(
     presentationScope,
@@ -1175,20 +1303,19 @@ export function ChannelsWorkspace({
     team.name,
     userId,
     language,
-    access === "writable",
+    postingAccess(displayedRoom) === "writable",
     connection,
     online,
     sessionIssue,
   );
-  useWorkspaceBack(
+  const modalOpen =
     accountOverlay !== null ||
-      notificationRoom !== null ||
-      workspace.messages.dialogOpen ||
-      Boolean(attachments.selected) ||
-      Boolean(reader.opening) ||
-      Boolean(actions.anchor),
-    workspaceBack(),
-  );
+    notificationRoom !== null ||
+    workspace.messages.dialogOpen ||
+    Boolean(attachments.selected) ||
+    Boolean(reader.opening) ||
+    Boolean(actions.anchor);
+  useWorkspaceBack(modalOpen, workspaceBack());
   useEffect(() => {
     const request = position?.system;
     if (!request || request !== workspace.systemPost || request.signal.aborted)
@@ -1302,8 +1429,10 @@ export function ChannelsWorkspace({
     confirmedThread,
   ]);
   function composer(rootId?: string, reader?: ReactionThread) {
-    if (historyDenied) return null;
-    if (access !== "writable" || !channel) {
+    const target = rootId && selection ? inboxRoom : channel;
+    if ((!selection || !rootId) && historyDenied) return null;
+    const access = postingAccess(target);
+    if (access !== "writable" || !target) {
       return (
         <ComposerAccessNotice
           access={access}
@@ -1318,16 +1447,19 @@ export function ChannelsWorkspace({
     return (
       <DraftComposer
         connection={connection}
-        channelId={channel.id}
+        channelId={target.id}
         rootId={rootId}
         conversation={{
-          name: selectedLabel || channel.displayName || channel.name,
-          direct: channel.kind === "D" || channel.kind === "G",
+          name:
+            (target.id === chosen ? selectedLabel : knownRoomName(target)) ||
+            target.displayName ||
+            target.name,
+          direct: target.kind === "D" || target.kind === "G",
         }}
         keys={policy.user?.composerKeys}
         sendContext={channelDraftActions(
           workspace,
-          channel,
+          target,
           permission,
           settings?.collapsedThreads ?? null,
           search.fromCommand,
@@ -1412,37 +1544,49 @@ export function ChannelsWorkspace({
           </>
         }
         channelHeading={
-          !directoryOpen && channel && !historyDenied
+          inbox.visible
             ? (id, ref) => (
-                <CollectionChannelMenu
-                  headingId={id}
-                  headingRef={ref}
-                  title={channelTitle}
-                  description={channelDescription}
-                  kind={channel.kind}
-                  archived={channel.deleteAt > 0}
-                  language={language}
-                  compact={compact}
-                  trigger={channelMenuButton}
-                  open={channelMenuOpen}
-                  setOpen={setChannelMenuOpen}
-                  onNotifications={
-                    notificationKind
-                      ? () => {
-                          setChannelMenuOpen(false);
-                          setNotificationRoom(channel.id);
-                        }
-                      : undefined
-                  }
-                  onPins={(opener) =>
-                    showCollection(
-                      { kind: "pins", channelId: channel.id },
-                      opener,
-                    )
-                  }
-                />
+                <div className="inbox-heading">
+                  <div>
+                    <ThreadMark />
+                    <h1 id={id} ref={ref} tabIndex={-1}>
+                      {inboxText.title}
+                    </h1>
+                  </div>
+                  <span>{inboxText.description}</span>
+                </div>
               )
-            : undefined
+            : !directoryOpen && channel && !historyDenied
+              ? (id, ref) => (
+                  <CollectionChannelMenu
+                    headingId={id}
+                    headingRef={ref}
+                    title={channelTitle}
+                    description={channelDescription}
+                    kind={channel.kind}
+                    archived={channel.deleteAt > 0}
+                    language={language}
+                    compact={compact}
+                    trigger={channelMenuButton}
+                    open={channelMenuOpen}
+                    setOpen={setChannelMenuOpen}
+                    onNotifications={
+                      notificationKind
+                        ? () => {
+                            setChannelMenuOpen(false);
+                            setNotificationRoom(channel.id);
+                          }
+                        : undefined
+                    }
+                    onPins={(opener) =>
+                      showCollection(
+                        { kind: "pins", channelId: channel.id },
+                        opener,
+                      )
+                    }
+                  />
+                )
+              : undefined
         }
         sidePanel={
           position ? null : collections.view &&
@@ -1592,21 +1736,23 @@ export function ChannelsWorkspace({
         }
         returnInThread={compact && Boolean(activeThread)}
         accountRef={accountButton}
-        draftRef={directoryOpen ? undefined : draftField}
+        draftRef={inbox.visible || directoryOpen ? undefined : draftField}
         accountName={accountName}
         accountDescription={
           accountName ? undefined : teamChoiceText[language].profilePending
         }
         teamName={team.displayName || team.name}
         channel={
-          directoryOpen
-            ? { id: "team-directory", title: directoryTitle }
-            : channel
-              ? {
-                  id: channel.id,
-                  title: historyDenied ? text.forbidden : channelTitle,
-                }
-              : null
+          inbox.visible
+            ? { id: "team-threads", title: inboxText.title }
+            : directoryOpen
+              ? { id: "team-directory", title: directoryTitle }
+              : channel
+                ? {
+                    id: channel.id,
+                    title: historyDenied ? text.forbidden : channelTitle,
+                  }
+                : null
         }
         emptyTitle={
           canReturnToResults
@@ -1616,7 +1762,7 @@ export function ChannelsWorkspace({
         page={
           collectionDestination
             ? "conversation"
-            : chosen || directoryOpen || canReturnToResults
+            : inbox.visible || chosen || directoryOpen || canReturnToResults
               ? page
               : "navigation"
         }
@@ -1636,32 +1782,45 @@ export function ChannelsWorkspace({
         }}
         onTeam={(opener) => setAccountOverlay({ kind: "team", opener })}
         navigation={nav}
-        thread={
-          activeThread && settings
+        inboxPlaceholder={
+          inbox.visible
             ? {
-                id: activeThread.id,
+                title: inboxText.discussion,
+                heading: inboxText.pick,
+                hint: inboxText.pickHint,
+              }
+            : undefined
+        }
+        thread={
+          paneId && settings
+            ? {
+                id: paneId,
                 title: text.thread,
-                subtitle:
-                  channel?.id === activeThread.channelId
+                subtitle: selection?.post
+                  ? inboxRoomName(selection.post.channelId)
+                  : channel?.id === panePost?.channelId
                     ? roomTitle
                     : undefined,
-                close: closeThread,
+                retainOpener: Boolean(selection),
+                close: selection ? inbox.closeThread : closeThread,
                 replyRef:
-                  activeThread.rootId || isMobile ? undefined : replyField,
-                content: (
+                  selection || panePost?.rootId || isMobile
+                    ? undefined
+                    : replyField,
+                content: panePost ? (
                   <ThreadPane
                     key={JSON.stringify([
                       connection.rid,
-                      activeThread.channelId,
-                      activeThread.id,
+                      panePost.channelId,
+                      panePost.id,
                       position?.system ? position.request.requestId : null,
                       settings.collapsedThreads,
                     ])}
                     connection={connection}
                     userId={userId}
-                    post={activeThread}
+                    post={panePost}
                     arrivalRequest={
-                      timeline.focus?.focusedReply === activeThread &&
+                      timeline.focus?.focusedReply === panePost &&
                       closedRequest !== timeline.focus.requestId
                         ? timeline.focus.requestId
                         : undefined
@@ -1672,35 +1831,98 @@ export function ChannelsWorkspace({
                     author={author}
                     online={online}
                     sessionIssue={sessionIssue}
+                    lastViewedAt={
+                      selection && selection.row.unreadReplies > 0
+                        ? selection.row.lastViewedAt
+                        : undefined
+                    }
+                    confirmView={
+                      selection &&
+                      selection.row.unreadReplies > 0 &&
+                      !modalOpen &&
+                      !appearanceOpen &&
+                      !channelMenuOpen &&
+                      !search.dialog &&
+                      !visibleSearchPanel &&
+                      !collections.view
+                        ? inbox.confirmView
+                        : undefined
+                    }
                     onOpened={
                       position?.system
                         ? () => setConfirmedThread(position.system)
                         : undefined
                     }
                     onUnavailable={
-                      position?.system
-                        ? (reason) =>
-                            position.system?.stop(
-                              reason === "limited"
-                                ? "archived"
-                                : reason === "failed"
-                                  ? "failed"
-                                  : "unavailable",
-                            )
-                        : undefined
+                      selection
+                        ? (reason) => {
+                            if (reason !== "failed")
+                              inbox.hideRoot(selection.row.id, reason);
+                          }
+                        : position?.system
+                          ? (reason) =>
+                              position.system?.stop(
+                                reason === "limited"
+                                  ? "archived"
+                                  : reason === "failed"
+                                    ? "failed"
+                                    : "unavailable",
+                              )
+                          : undefined
                     }
                     renderComposer={composer}
                   />
+                ) : (
+                  <div
+                    className="inbox-status"
+                    role={selection?.issue ? "alert" : "status"}
+                  >
+                    {selection?.issue === "limited"
+                      ? inboxText.limited
+                      : selection?.issue &&
+                          selection.issue !== "network" &&
+                          selection.issue !== "storage"
+                        ? inboxText.unavailable
+                        : selection?.issue === "storage"
+                          ? text.storage
+                          : selection?.issue
+                            ? text.network
+                            : inboxText.opening}
+                    {(selection?.issue === "network" ||
+                      selection?.issue === "storage") && (
+                      <button
+                        type="button"
+                        onClick={() => void inbox.choose(selection.row)}
+                      >
+                        {text.retry}
+                      </button>
+                    )}
+                  </div>
                 ),
               }
             : undefined
         }
         composer={
-          <div className="workspace-conversation-route" hidden={directoryOpen}>
+          <div
+            className="workspace-conversation-route"
+            hidden={directoryOpen || inbox.visible}
+          >
             {composer()}
           </div>
         }
       >
+        {inbox.visible && inbox.model && inbox.state && (
+          <ThreadInboxPane
+            online={online}
+            model={inbox.model}
+            state={inbox.state}
+            selected={selection?.row.id}
+            choose={inbox.choose}
+            locale={language}
+            author={author}
+            channel={inboxRoomName}
+          />
+        )}
         {directoryOpen && (
           <TeamChannelDirectory
             key={team.id}
@@ -1718,7 +1940,10 @@ export function ChannelsWorkspace({
             sessionIssue={sessionIssue}
           />
         )}
-        <div className="workspace-conversation-route" hidden={directoryOpen}>
+        <div
+          className="workspace-conversation-route"
+          hidden={directoryOpen || inbox.visible}
+        >
           {timeline.status === "positionLost" && (
             <Notice
               message={text.positionLost}

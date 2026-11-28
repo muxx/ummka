@@ -1,0 +1,11 @@
+{
+  "identifier": "fixture-inbox-window-presentation",
+  "description": "Present only the main window of the opted-in macOS thread inbox fixture.",
+  "windows": ["main"],
+  "permissions": [
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "core:webview:allow-set-webview-focus"
+  ]
+}

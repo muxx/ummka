@@ -24,6 +24,7 @@ import {
   TimelinePost,
   useTimelinePostFormat,
 } from "./TimelinePost.tsx";
+import { threadInboxCopy } from "./thread-inbox-copy.ts";
 import { openThreadReplyWindow } from "./thread-reply-window.ts";
 import { createTimelinePostTouch } from "./timeline-post-touch.ts";
 import { useConversationOutgoing } from "./use-conversation-outgoing.tsx";
@@ -84,10 +85,12 @@ type Props = {
   onOpened?: () => void;
   onUnavailable?: (reason: "forbidden" | "limited" | "failed") => void;
   renderComposer: (rootId: string, reader: Reader) => ReactNode;
+  lastViewedAt?: number;
+  confirmView?: (signal: AbortSignal) => Promise<void>;
 };
 
 export function ThreadPane(props: Props) {
-  const { connection, post, collapsedThreads } = props;
+  const { connection, post, collapsedThreads, lastViewedAt, userId } = props;
   const [reader, setReader] = useState<Reader | null>(null);
   useEffect(() => {
     const window = openThreadReplyWindow(
@@ -97,11 +100,15 @@ export function ThreadPane(props: Props) {
         rootId: post.rootId ?? post.id,
         collapsedThreads,
       },
-      post.rootId ? post : undefined,
+      post.rootId
+        ? post
+        : lastViewedAt !== undefined
+          ? { lastViewedAt, userId }
+          : undefined,
     );
     setReader(window);
     return () => window.close();
-  }, [connection, post, collapsedThreads]);
+  }, [connection, post, collapsedThreads, lastViewedAt, userId]);
   return reader ? <ThreadContent {...props} reader={reader} /> : null;
 }
 
@@ -119,9 +126,58 @@ function ThreadContent({
   sessionIssue,
   renderComposer,
   onOpened,
+  confirmView,
   onUnavailable,
 }: Props & { reader: Reader }) {
   const state = useSyncExternalStore(reader.subscribe, reader.getSnapshot);
+  const mark = useEffectEvent((signal: AbortSignal) => confirmView?.(signal));
+  const canMark = Boolean(
+    confirmView &&
+      state.root &&
+      !state.unavailable &&
+      (state.up.status === "ready" || state.up.status === "end") &&
+      (state.down.status === "ready" || state.down.status === "end"),
+  );
+  const [readFailed, setReadFailed] = useState(false);
+  const retryRead = useRef<(() => void) | null>(null);
+  const marked = useRef(false);
+  useEffect(() => {
+    if (!online || !canMark || marked.current) return;
+    const lifetime = new AbortController();
+    let running = false;
+    async function read() {
+      if (
+        running ||
+        lifetime.signal.aborted ||
+        marked.current ||
+        document.visibilityState !== "visible" ||
+        !document.hasFocus()
+      )
+        return;
+      running = true;
+      try {
+        await mark(lifetime.signal);
+        if (!lifetime.signal.aborted) {
+          marked.current = true;
+          setReadFailed(false);
+        }
+      } catch {
+        if (!lifetime.signal.aborted) setReadFailed(true);
+      } finally {
+        running = false;
+      }
+    }
+    retryRead.current = read;
+    void read();
+    window.addEventListener("focus", read);
+    document.addEventListener("visibilitychange", read);
+    return () => {
+      lifetime.abort();
+      retryRead.current = null;
+      window.removeEventListener("focus", read);
+      document.removeEventListener("visibilitychange", read);
+    };
+  }, [online, canMark]);
   const [savedRoot, setSavedRoot] = useState<LocalPost | null>(null);
   const [localFailure, setLocalFailure] = useState<ReturnType<
     typeof workspaceFailure
@@ -186,6 +242,8 @@ function ThreadContent({
     root.type !== "burn_on_read" &&
     root.type !== "system_fake_parent_deleted";
   const history = useMemo(() => [...state.replies].reverse(), [state.replies]);
+  const position = reader.getUnreadPosition();
+  const firstUnread = position?.kind === "found" ? position.postId : undefined;
   const outgoing = useConversationOutgoing({
     connection,
     userId,
@@ -236,6 +294,15 @@ function ThreadContent({
   function renderReply(row: TimelineMessage, continuation: boolean) {
     return (
       <div key={row.localId ?? row.id} className="thread-reply">
+        {row.id === firstUnread && (
+          <div className="thread-unread-marker">
+            <hr
+              className="inbox-sr"
+              aria-label={threadInboxCopy[locale].marker}
+            />
+            <span aria-hidden="true">{threadInboxCopy[locale].marker}</span>
+          </div>
+        )}
         <TimelinePost
           post={row}
           continuation={continuation}
@@ -258,6 +325,7 @@ function ThreadContent({
       <ThreadFeed
         focusedId={post.rootId ? post.id : undefined}
         arrivalRequest={arrivalRequest}
+        firstUnread={firstUnread}
         state={state}
         label={text.replies}
       >
@@ -325,6 +393,14 @@ function ThreadContent({
             <p className="timeline-empty">{text.empty}</p>
           )}
       </ThreadFeed>
+      {readFailed && (
+        <div className="inbox-status" role="alert">
+          {threadInboxCopy[locale].readError}
+          <button type="button" onClick={() => retryRead.current?.()}>
+            {workspace.retry}
+          </button>
+        </div>
+      )}
       {canReply && renderComposer(root.id, reader)}
     </div>
   );
@@ -408,6 +484,7 @@ type FeedProps = {
   state: WindowState;
   focusedId?: string;
   arrivalRequest?: number;
+  firstUnread?: string;
   label: string;
   children: ReactNode;
 };
@@ -422,6 +499,7 @@ class ThreadFeed extends Component<FeedProps> {
   private lastArrival?: number;
 
   private positionOpeningReply = true;
+  private placedUnread = false;
   private markUserScroll = () => {
     this.positionOpeningReply = false;
   };
@@ -448,6 +526,26 @@ class ThreadFeed extends Component<FeedProps> {
       this.resize.observe(frame);
     }
     this.centerOpeningReply(true);
+    this.placeUnread();
+  }
+
+  private placeUnread() {
+    const pane = this.pane.current;
+    if (
+      !pane ||
+      !this.positionOpeningReply ||
+      this.placedUnread ||
+      !this.props.firstUnread ||
+      this.props.focusedId
+    )
+      return;
+    const marker = pane.querySelector<HTMLElement>(".thread-unread-marker");
+    if (!marker) return;
+    pane.scrollTop +=
+      marker.getBoundingClientRect().top -
+      pane.getBoundingClientRect().top -
+      Math.min(64, pane.clientHeight / 5);
+    this.placedUnread = true;
   }
 
   componentWillUnmount() {
@@ -536,6 +634,7 @@ class ThreadFeed extends Component<FeedProps> {
       this.positionOpeningReply = true;
       this.centerOpeningReply(true);
     }
+    this.placeUnread();
     const { state } = this.props;
     if (
       this.positionOpeningReply &&
@@ -543,7 +642,11 @@ class ThreadFeed extends Component<FeedProps> {
         previous.state.down.status === "loading")
     ) {
       this.centerOpeningReply(false);
-      if (state.up.status !== "loading" && state.down.status !== "loading")
+      if (
+        this.props.focusedId &&
+        state.up.status !== "loading" &&
+        state.down.status !== "loading"
+      )
         this.positionOpeningReply = false;
     }
     const { edge } = place;

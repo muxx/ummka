@@ -52,15 +52,35 @@ type FrameProps = {
   returnInThread?: boolean;
   composer?: ReactNode;
   draftRef?: RefObject<HTMLElement | null>;
+  inboxPlaceholder?: { title: string; heading: string; hint: string };
   thread?: {
     id: string;
     title: string;
     subtitle?: string;
+    retainOpener?: boolean;
     content: ReactNode;
     replyRef?: RefObject<HTMLElement | null>;
     close: () => void;
   };
 };
+
+export function ThreadMark() {
+  return (
+    <svg
+      width="21"
+      height="21"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M21 14l-3 -3h-7a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1h9a1 1 0 0 1 1 1v10 M14 15v2a1 1 0 0 1 -1 1h-7l-3 3v-10a1 1 0 0 1 1 -1h2" />
+    </svg>
+  );
+}
 
 export function Chevron({ direction }: { direction: "back" | "down" }) {
   return (
@@ -105,6 +125,7 @@ export function ChannelsFrame({
   composer,
   draftRef,
   thread,
+  inboxPlaceholder,
 }: FrameProps) {
   const root = useRef<HTMLDivElement>(null);
   const sidebar = useRef<HTMLElement>(null);
@@ -121,9 +142,15 @@ export function ChannelsFrame({
   const channelId = channel?.id;
   const openThread = thread?.id;
   const replyRef = thread?.replyRef;
+  const retainOpener = thread?.retainOpener;
   const showingPanel = Boolean(sidePanel);
-  const split = showingPanel ? !standalonePanel : Boolean(openThread);
-  const panes = usePaneWidths(root, split ? "right" : "closed");
+  const inboxSplit = !showingPanel && Boolean(inboxPlaceholder);
+  const split =
+    inboxSplit || (showingPanel ? !standalonePanel : Boolean(openThread));
+  const panes = usePaneWidths(
+    root,
+    inboxSplit ? "thread" : split ? "right" : "closed",
+  );
   const geometry = panes.geometry;
   const widthStyles =
     geometry &&
@@ -168,6 +195,15 @@ export function ChannelsFrame({
         focusNavigation();
         return;
       }
+      if (
+        openThread &&
+        retainOpener &&
+        (root.current?.clientWidth ?? 0) > 740 &&
+        lastConversationControl.current?.isConnected
+      ) {
+        lastConversationControl.current.focus({ preventScroll: true });
+        return;
+      }
       const field = openThread ? replyRef?.current : draftRef?.current;
       // Compact layouts focus the title so navigating never raises the on-screen keyboard.
       if (field && (root.current?.clientWidth ?? 0) > 740) {
@@ -180,7 +216,11 @@ export function ChannelsFrame({
       lastConversationControl.current = null;
       threadOpener.current = null;
     }
-    if (openThread && openThread !== old.openThread)
+    if (
+      openThread &&
+      openThread !== old.openThread &&
+      (!retainOpener || !old.openThread)
+    )
       threadOpener.current = lastConversationControl.current;
     if (
       openThread !== old.openThread ||
@@ -212,7 +252,15 @@ export function ChannelsFrame({
     });
     observer.observe(scene);
     return () => observer.disconnect();
-  }, [page, channelId, openThread, draftRef, replyRef, showingPanel]);
+  }, [
+    page,
+    channelId,
+    openThread,
+    draftRef,
+    replyRef,
+    showingPanel,
+    retainOpener,
+  ]);
 
   return (
     <div
@@ -360,24 +408,29 @@ export function ChannelsFrame({
           }
         >
           {sidePanel}
+          {inboxPlaceholder && !sidePanel && !thread && (
+            <aside
+              className="channels-thread inbox-placeholder"
+              aria-labelledby={threadId}
+            >
+              <header className="channels-pane-head">
+                <ThreadMark />
+                <h2 id={threadId}>{inboxPlaceholder.title}</h2>
+                <PaneSizeToggle />
+              </header>
+              <div className="inbox-prompt">
+                <ThreadMark />
+                <h3>{inboxPlaceholder.heading}</h3>
+                <p>{inboxPlaceholder.hint}</p>
+              </div>
+            </aside>
+          )}
           {!sidePanel && thread && (
             <aside className="channels-thread" aria-labelledby={threadId}>
               <header className="channels-pane-head channels-thread-head">
                 <div className="thread-heading">
                   <div className="thread-heading-title">
-                    <svg
-                      width="21"
-                      height="21"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.75"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M21 14l-3 -3h-7a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1h9a1 1 0 0 1 1 1v10 M14 15v2a1 1 0 0 1 -1 1h-7l-3 3v-10a1 1 0 0 1 1 -1h2" />
-                    </svg>
+                    <ThreadMark />
                     <h2
                       id={threadId}
                       ref={threadHeading}

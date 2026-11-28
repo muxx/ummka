@@ -1,0 +1,325 @@
+.thread-inbox {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  container-type: inline-size;
+  min-height: 0;
+  background: var(--canvas);
+}
+.workspace-conversation-route:not([hidden]) {
+  display: contents;
+}
+.inbox-tabs {
+  display: flex;
+  flex: none;
+  border-bottom: 1px solid var(--divider);
+}
+.inbox-tabs button,
+.inbox-entry {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.inbox-tabs button {
+  flex: 1;
+  min-width: 0;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 10px 8px 8px;
+  line-height: 1.25;
+  font-weight: 600;
+  font-size: 0.84rem;
+  text-wrap: balance;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+}
+.inbox-tabs button[aria-selected="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  font-weight: 650;
+}
+.inbox-total {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.inbox-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.inbox-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.inbox-rows li {
+  border-bottom: 1px solid var(--divider);
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 90px;
+}
+.inbox-entry {
+  position: relative;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  width: 100%;
+  min-width: 0;
+  gap: 5px;
+  padding: 12px 20px 12px 24px;
+  text-align: start;
+}
+.inbox-entry:hover {
+  background: var(--row-hover);
+}
+.inbox-entry[aria-current="true"] {
+  background: var(--row-selected);
+}
+.inbox-row-heading,
+.inbox-replies {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.inbox-row-heading strong,
+.inbox-channel {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.inbox-excerpt {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 0.86rem;
+  line-height: 1.42;
+}
+.inbox-row-heading time {
+  margin-inline-start: auto;
+  white-space: nowrap;
+}
+.inbox-channel,
+.inbox-row-heading time,
+.inbox-replies {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+.inbox-replies {
+  align-items: center;
+  gap: 5px;
+  font-size: 0.74rem;
+  white-space: nowrap;
+}
+.inbox-replies strong,
+.inbox-replies [aria-label] {
+  color: var(--accent);
+}
+.inbox-status {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 14px 12px;
+  color: var(--muted);
+  text-align: center;
+}
+.inbox-status button {
+  min-height: 44px;
+  padding-inline: 12px;
+  border: 1px solid var(--divider);
+  border-radius: 8px;
+  background: var(--canvas);
+  color: var(--text);
+  cursor: pointer;
+}
+.inbox-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.inbox-trigger {
+  width: calc(100% - 16px);
+  margin: 4px 8px;
+  text-align: start;
+}
+.inbox-trigger svg {
+  flex: none;
+}
+.thread-unread-marker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent);
+  font-size: 0.8125rem;
+  font-weight: 650;
+}
+.thread-unread-marker::before,
+.thread-unread-marker::after {
+  content: "";
+  flex: 1;
+  border-bottom: 1px solid currentColor;
+}
+
+.inbox-author {
+  grid-column: 1;
+  grid-row: 1 / span 3;
+  align-self: start;
+  background: color-mix(in srgb, var(--row-selected), var(--canvas) 45%);
+}
+.inbox-row-heading,
+.inbox-excerpt,
+.inbox-replies {
+  grid-column: 2;
+}
+.inbox-row-heading strong {
+  font-size: 0.875rem;
+}
+.inbox-entry[data-unread]::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 9px;
+  top: 22px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.inbox-replies .timeline-participants:empty {
+  display: none;
+}
+@container (width <= 400px) {
+  .inbox-entry {
+    padding-inline-end: 40px;
+  }
+}
+
+.inbox-prompt {
+  width: min(42ch, 100%);
+  margin: clamp(5rem, 18vh, 14rem) auto 0;
+  padding: 0 1.25rem;
+}
+.inbox-prompt p {
+  margin-top: 6px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.inbox-trigger[data-unread] {
+  font-weight: 650;
+}
+
+.inbox-count-status:not([hidden]) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  flex: none;
+  padding: 4px 16px;
+  border-bottom: 1px solid var(--divider);
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+.inbox-count-status button {
+  min-height: 44px;
+  flex: none;
+  border: none;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.channels-pane-head:has(.inbox-heading),
+.inbox-placeholder .channels-pane-head {
+  min-height: 70px;
+}
+.inbox-heading {
+  min-width: 0;
+}
+.inbox-heading > div {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.inbox-heading > span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inbox-heading svg,
+.inbox-placeholder svg {
+  flex: none;
+  color: var(--muted);
+}
+.inbox-prompt svg {
+  width: 24px;
+  height: 24px;
+  color: var(--accent);
+}
+.inbox-prompt h3 {
+  margin: 0.65rem 0 0;
+  font-size: 1rem;
+}
+.inbox-prompt p {
+  font-size: 0.86rem;
+}
+.inbox-trigger.workspace-row {
+  width: calc(100% - 16px);
+}
+.inbox-entry:focus-visible {
+  outline-offset: -2px;
+}
+@container (width > 320px) {
+  .inbox-entry {
+    row-gap: 3px;
+  }
+  .inbox-replies {
+    margin-top: 2px;
+  }
+}
+@container (width <= 320px) {
+  .inbox-tabs button {
+    font-size: 0.76rem;
+    padding-inline: 6px;
+  }
+  .inbox-entry {
+    grid-template-columns: 18px minmax(0, 1fr);
+    padding: 12px 39px 12px 24px;
+    gap: 4px 6px;
+  }
+  .inbox-author {
+    grid-row: 1;
+    align-self: center;
+    width: 18px;
+    height: 18px;
+    font-size: 0.5rem;
+    border-radius: 5px;
+  }
+  .inbox-excerpt,
+  .inbox-replies {
+    grid-column: 1 / -1;
+  }
+  .inbox-row-heading time {
+    font-size: 0.72rem;
+  }
+  .inbox-replies .timeline-participants span:nth-child(n + 3) {
+    display: none;
+  }
+}
+@media (max-width: 740px) {
+  .channels-pane-head:has(.inbox-heading) {
+    min-height: 53px;
+  }
+}

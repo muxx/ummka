@@ -1,3 +1,4 @@
+import { ResponseError } from "../../vendor/mattermost/index.js";
 import type { accountFollowedThreads } from "../mattermost/account-followed-threads.ts";
 import { mayKeepCache, workspaceFailure } from "./workspace-data.ts";
 
@@ -14,7 +15,7 @@ type Status =
   | "ready"
   | ReturnType<typeof workspaceFailure>;
 type Page = { status: Status; rows: Row[] | null; nextBefore: string | null };
-type Counts = { status: Status; value: Totals | null };
+type Counts = { status: Status; value: Totals | null; serverError?: boolean };
 
 const tabs = ["followed", "unread"] as const;
 const blank = (status: Status = "idle"): Page => ({
@@ -26,12 +27,14 @@ const blank = (status: Status = "idle"): Page => ({
 export function openThreadInbox(account: Reader, teamId: string) {
   let tab: ThreadInboxTab = "followed";
   let closed = false;
+  let showing = false;
   let selectedId: string | null = null;
   let retainedReadId: string | null = null;
   let counts: Counts = { status: "idle", value: null };
   const pages = { followed: blank(), unread: blank() };
   const cursors = { followed: new Set<string>(), unread: new Set<string>() };
   let pageReadOrder = 0;
+  const deniedRoots = new Set<string>();
   const roots = new Map<string, { order: number; post: Row["post"] }>();
   const pending = new Map<
     Key,
@@ -67,11 +70,17 @@ export function openThreadInbox(account: Reader, teamId: string) {
     counts = { status, value: null };
     retainedReadId = null;
     roots.clear();
+    deniedRoots.clear();
   }
   function withRootVisibility(rows: Row[]) {
     let current = rows;
     for (let index = 0; index < rows.length; index++) {
       const row = rows[index];
+      if (deniedRoots.has(row.id) && row.post) {
+        if (current === rows) current = rows.slice();
+        current[index] = { ...row, post: null };
+        continue;
+      }
       const root = roots.get(row.id);
       if (!root || (root.post === null) === (row.post === null)) continue;
       if (current === rows) current = rows.slice();
@@ -106,7 +115,12 @@ export function openThreadInbox(account: Reader, teamId: string) {
           publish();
           return;
         }
-        if (key === "totals") counts = { ...counts, status };
+        if (key === "totals")
+          counts = {
+            value: counts.value,
+            status,
+            ...(error instanceof ResponseError && { serverError: true }),
+          };
         else pages[key] = { ...pages[key], status };
       }
       if (!signal.aborted) {
@@ -114,6 +128,7 @@ export function openThreadInbox(account: Reader, teamId: string) {
         publish();
         if (
           key === "totals" &&
+          showing &&
           tab === "unread" &&
           pages.unread.status === "idle" &&
           counts.status === "ready" &&
@@ -199,6 +214,7 @@ export function openThreadInbox(account: Reader, teamId: string) {
   }
   function show(filter: ThreadInboxTab) {
     if (closed) return Promise.resolve();
+    showing = true;
     if (tab !== filter) {
       tab = filter;
       publish();
@@ -231,6 +247,34 @@ export function openThreadInbox(account: Reader, teamId: string) {
   }
   return {
     getSnapshot: () => current,
+    isRootUnavailable: (id: string) =>
+      deniedRoots.has(id) || roots.get(id)?.post === null,
+    revokeRoot(id: string) {
+      if (closed || deniedRoots.has(id)) return;
+      deniedRoots.add(id);
+      roots.set(id, { order: ++pageReadOrder, post: null });
+      for (const filter of tabs) {
+        const page = pages[filter];
+        if (page.rows)
+          pages[filter] = { ...page, rows: withRootVisibility(page.rows) };
+      }
+      publish();
+    },
+    hide() {
+      if (closed || !showing) return;
+      showing = false;
+      for (const filter of tabs) {
+        pending.get(filter)?.controller.abort();
+        pending.delete(filter);
+        pages[filter] = blank();
+        cursors[filter].clear();
+      }
+      roots.clear();
+      deniedRoots.clear();
+      retainedReadId = null;
+      selectedId = null;
+      publish();
+    },
     subscribe(listener: () => void) {
       if (!closed) listeners.add(listener);
       return () => {

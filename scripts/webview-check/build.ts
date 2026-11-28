@@ -21,6 +21,9 @@ export async function buildWebviewFixture(
       "import.meta.env.VITE_UMMKA_CHECK_EXTERNAL_HREF": JSON.stringify(
         externalHref ?? "",
       ),
+      "import.meta.env.UMMKA_INBOX_FOCUS":
+        platform === "macos" &&
+        process.env.UMMKA_CHECK_MACOS_INBOX_FOCUS === "1",
       "import.meta.env.VITE_UMMKA_CHECK_PORTS": JSON.stringify(ports.join(",")),
       "import.meta.env.VITE_UMMKA_CHECK_WORKSPACE_BACK":
         JSON.stringify(workspaceBackOnly),

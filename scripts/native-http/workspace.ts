@@ -114,6 +114,26 @@ export async function respondToWorkspace(
   const base = "/browser-action-check/api/v4/";
   if (!url.pathname.startsWith(base)) return;
   const path = url.pathname.slice(base.length);
+  if (
+    path === `users/me/teams/${team}/threads` &&
+    url.searchParams.get("totalsOnly") === "true"
+  ) {
+    assert.equal(req.method, "GET");
+    assert.deepEqual(Object.fromEntries(url.searchParams), {
+      totalsOnly: "true",
+    });
+    assert.ok(req.headers.authorization?.startsWith("Bearer "));
+    return json(
+      {
+        total: 0,
+        total_unread_threads: 0,
+        total_unread_mentions: 0,
+        total_unread_urgent_mentions: 0,
+        threads: null,
+      },
+      "background-thread-totals",
+    );
+  }
   const joinedIds = joinedPublicRoom
     ? [town, design, publicRoom.id]
     : [town, design];
