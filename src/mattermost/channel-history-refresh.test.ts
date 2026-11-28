@@ -63,11 +63,19 @@ test("waits for the native revision before HTTP and snapshots the requested chan
   writer.begin.mockImplementation(() => token.pending);
   writer.store.mockResolvedValueOnce({ kind: "superseded" });
   const query = { ...request, channelId };
-  const operation = refreshChannelHistory(api, writer, query);
+  const observe = vi.fn();
+  const operation = refreshChannelHistory(
+    api,
+    writer,
+    query,
+    undefined,
+    observe,
+  );
   query.channelId = "z".repeat(26);
   expect(sent).not.toHaveBeenCalled();
   token.resolve(53);
   await expect(operation).resolves.toEqual({ kind: "superseded" });
+  expect(observe).not.toHaveBeenCalled();
   expect(writer.begin).toHaveBeenCalledWith(channelId);
   expect(writer.store).toHaveBeenCalledWith(
     53,
@@ -286,21 +294,34 @@ test("invalid input stops before reserving and malformed responses release the t
 test("the submitted transaction returns its own result after HTTP cancellation", async () => {
   const entered = gate<void>(),
     committed = gate<ChannelRefreshResult>();
-  const { api, writer } = setup(async () => response());
+  const removed = "r".repeat(26);
+  const { api, writer } = setup(async () =>
+    Response.json({
+      order: [id],
+      posts: { [id]: wire(id), [removed]: { ...wire(removed), delete_at: 20 } },
+    }),
+  );
   writer.store.mockImplementationOnce(() => {
     entered.resolve();
     return committed.pending;
   });
   const controller = new AbortController();
+  const observe = vi.fn();
   const operation = refreshChannelHistory(
     api,
     writer,
     request,
     controller.signal,
+    observe,
   );
   await entered.pending;
+  expect(observe).not.toHaveBeenCalled();
   controller.abort("after submission");
   committed.resolve({ kind: "applied" });
   await expect(operation).resolves.toEqual({ kind: "applied" });
   expect(writer.cancel).not.toHaveBeenCalled();
+  expect(observe).toHaveBeenCalledExactlyOnceWith([
+    expect.objectContaining({ kind: "save", id, channelId }),
+    { kind: "remove", id: removed, channelId },
+  ]);
 });

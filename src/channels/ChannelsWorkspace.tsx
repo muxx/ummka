@@ -1229,6 +1229,12 @@ export function ChannelsWorkspace({
   const historyDenied =
     timeline.notice === "forbidden" ||
     ["forbidden", "session", "unauthorized"].includes(timeline.status);
+  const channelHistoryForbidden =
+    timeline.status === "forbidden" || timeline.notice === "forbidden";
+  const { invalidateChannel } = inbox;
+  useLayoutEffect(() => {
+    if (chosen && channelHistoryForbidden) invalidateChannel(chosen);
+  }, [chosen, channelHistoryForbidden, invalidateChannel]);
   const notificationKind =
     !historyDenied &&
     channel?.deleteAt === 0 &&
@@ -2282,11 +2288,16 @@ export function ChannelsWorkspace({
             ? {
                 id: paneId,
                 title: text.thread,
-                subtitle: selection?.post
-                  ? inboxRoomName(selection.post.channelId)
-                  : channel?.id === panePost?.channelId
-                    ? roomTitle
-                    : undefined,
+                subtitle: inbox.slow
+                  ? inboxText.refreshingWindow
+                  : selection?.post
+                    ? inboxRoomName(selection.post.channelId)
+                    : channel?.id === panePost?.channelId
+                      ? roomTitle
+                      : undefined,
+                unavailable:
+                  selection?.issue === "forbidden" ||
+                  selection?.issue === "limited",
                 retainOpener: Boolean(selection),
                 close: selection ? closeInboxThread : closeThread,
                 replyRef:
@@ -2327,6 +2338,18 @@ export function ChannelsWorkspace({
                     author={author}
                     online={online}
                     sessionIssue={sessionIssue}
+                    inboxWindow={
+                      selection
+                        ? {
+                            confirmedRoot: selection.confirmedRoot,
+                            opening: selection.opening,
+                            retained: selection.parked,
+                            restoreFocus: selection.restoreFocus,
+                            park: inbox.model?.parkWindow,
+                            register: inbox.registerWindow,
+                          }
+                        : undefined
+                    }
                     lastViewedAt={
                       selectionRow && selectionRow.unreadReplies > 0
                         ? selectionRow.lastViewedAt
@@ -2335,6 +2358,7 @@ export function ChannelsWorkspace({
                     confirmView={
                       selectionRow &&
                       selectionRow.unreadReplies > 0 &&
+                      selection?.confirmedRoot &&
                       !visibleLinkPlacement &&
                       !overlayOpen &&
                       !appearanceOpen &&
@@ -2345,16 +2369,25 @@ export function ChannelsWorkspace({
                         ? inbox.confirmView
                         : undefined
                     }
-                    readVisit={selection?.visit}
-                    checkView={selection?.visit ? inbox.checkView : undefined}
-                    onOpened={
-                      position?.system
-                        ? () => setConfirmedThread(position.system)
+                    readVisit={
+                      selection?.confirmedRoot ? selection.visit : undefined
+                    }
+                    checkView={
+                      selection?.confirmedRoot && selection.visit
+                        ? inbox.checkView
                         : undefined
+                    }
+                    onOpened={
+                      selection
+                        ? () => inbox.finishOpening(selection.id)
+                        : position?.system
+                          ? () => setConfirmedThread(position.system)
+                          : undefined
                     }
                     onUnavailable={
                       selection
                         ? (reason) => {
+                            inbox.finishOpening(selection.id);
                             if (reason !== "failed")
                               inbox.hideRoot(selection.id, reason);
                           }
@@ -2378,15 +2411,18 @@ export function ChannelsWorkspace({
                   >
                     {selection?.issue === "limited"
                       ? inboxText.limited
-                      : selection?.issue &&
-                          selection.issue !== "network" &&
-                          selection.issue !== "storage"
-                        ? inboxText.unavailable
-                        : selection?.issue === "storage"
-                          ? text.storage
-                          : selection?.issue
-                            ? text.network
-                            : inboxText.opening}
+                      : selection?.retainedAccessRevoked &&
+                          selection.issue === "forbidden"
+                        ? inboxText.accessRevoked
+                        : selection?.issue &&
+                            selection.issue !== "network" &&
+                            selection.issue !== "storage"
+                          ? inboxText.unavailable
+                          : selection?.issue === "storage"
+                            ? text.storage
+                            : selection?.issue
+                              ? text.network
+                              : inboxText.opening}
                     {selectionRow &&
                       (selection?.issue === "network" ||
                         selection?.issue === "storage") && (

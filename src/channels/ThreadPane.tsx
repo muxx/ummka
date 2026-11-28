@@ -1,7 +1,9 @@
 import {
   Component,
+  type CSSProperties,
   createRef,
   type ReactNode,
+  useCallback,
   useEffect,
   useEffectEvent,
   useLayoutEffect,
@@ -28,6 +30,7 @@ import {
   useTimelinePostFormat,
 } from "./TimelinePost.tsx";
 import { openThreadFollowControl } from "./thread-follow-control.ts";
+import type { ParkedThreadWindow, ThreadReadingPlace } from "./thread-inbox.ts";
 import { threadInboxCopy } from "./thread-inbox-copy.ts";
 import { openThreadReplyWindow } from "./thread-reply-window.ts";
 import { createTimelinePostTouch } from "./timeline-post-touch.ts";
@@ -86,6 +89,14 @@ type Reader = ReturnType<typeof openThreadReplyWindow>;
 type Following = ReturnType<typeof openThreadFollowControl>;
 type WindowState = ReturnType<Reader["getSnapshot"]>;
 type Direction = "up" | "down";
+type InboxWindow = {
+  confirmedRoot?: LocalPost;
+  opening?: boolean;
+  retained?: ParkedThreadWindow;
+  restoreFocus?: boolean;
+  park?: (window: ParkedThreadWindow) => void;
+  register?: (id: string, capture: () => void) => () => void;
+};
 type Props = {
   connection: WorkspaceConnection;
   userId: string;
@@ -114,6 +125,7 @@ type Props = {
   confirmView?: (signal: AbortSignal) => Promise<void>;
   readVisit?: ThreadReadVisit;
   checkView?: (signal: AbortSignal, onRevoked: () => void) => Promise<void>;
+  inboxWindow?: InboxWindow;
 };
 const noReview = () => undefined;
 const noSubscription = () => () => {};
@@ -129,6 +141,13 @@ export function ThreadPane(props: Props) {
     prepared,
     confirmFollowing,
   } = props;
+  const retained = props.inboxWindow?.retained;
+  const registerWindow = props.inboxWindow?.register;
+  const park = props.inboxWindow?.park;
+  const preview = props.inboxWindow ? post : undefined;
+  const feed = useRef<ThreadFeed>(null);
+  const composer = useRef<HTMLDivElement>(null);
+  const focus = useRef<ThreadReadingPlace["focus"]>(undefined);
   const [session, setSession] = useState<{
     reader: Reader;
     following?: Following;
@@ -149,6 +168,8 @@ export function ThreadPane(props: Props) {
           : lastViewedAt !== undefined
             ? { lastViewedAt, userId }
             : undefined,
+        preview,
+        retained?.replies,
       );
     const following = collapsedThreads
       ? openThreadFollowControl(
@@ -161,7 +182,22 @@ export function ThreadPane(props: Props) {
         )
       : undefined;
     setSession({ reader, following });
+    const unregister = registerWindow?.(rootId, () => {
+      if (!park || prepared) return;
+      const place = feed.current?.getReadingPlace();
+      const replies = place && reader.retain(place);
+      if (place && replies)
+        park({
+          replies,
+          place: {
+            ...place,
+            focus: focus.current,
+            composerHeight: composer.current?.getBoundingClientRect().height,
+          },
+        });
+    });
     return () => {
+      unregister?.();
       following?.close();
       if (!prepared) reader.close();
     };
@@ -174,8 +210,20 @@ export function ThreadPane(props: Props) {
     prepared,
     teamId,
     confirmFollowing,
+    preview,
+    retained,
+    registerWindow,
+    park,
   ]);
-  return session ? <ThreadContent {...props} {...session} /> : null;
+  return session ? (
+    <ThreadContent
+      {...props}
+      {...session}
+      feedRef={feed}
+      focusRef={focus}
+      composerRef={composer}
+    />
+  ) : null;
 }
 
 function ThreadContent({
@@ -200,16 +248,46 @@ function ThreadContent({
   readVisit,
   checkView,
   onUnavailable,
-}: Props & { reader: Reader; following?: Following }) {
-  const state = useSyncExternalStore(reader.subscribe, reader.getSnapshot);
+  inboxWindow,
+  feedRef,
+  focusRef,
+  composerRef,
+}: Props & {
+  reader: Reader;
+  following?: Following;
+  feedRef: { current: ThreadFeed | null };
+  focusRef: { current: ThreadReadingPlace["focus"] };
+  composerRef: { current: HTMLDivElement | null };
+}) {
+  const [unseenReply, setUnseenReply] = useState<{
+    reader: Reader;
+    id: string;
+  }>();
+  const announcedBy = useRef<Reader>(undefined);
+  const subscribe = useCallback(
+    (changed: () => void) =>
+      reader.subscribe(() => {
+        const id = reader.getSnapshot().newReplyId;
+        if (id && announcedBy.current !== reader) {
+          announcedBy.current = reader;
+          if (feedRef.current?.getReadingPlace()?.atEnd === false)
+            setUnseenReply({ reader, id });
+        }
+        changed();
+      }),
+    [reader, feedRef],
+  );
+  const state = useSyncExternalStore(subscribe, reader.getSnapshot);
   const review = useSyncExternalStore(
     readVisit?.subscribeAutoReview ?? noSubscription,
     readVisit?.getAutoReview ?? noReview,
   );
   const mark = useEffectEvent((signal: AbortSignal) => confirmView?.(signal));
+  const [opened, setOpened] = useState<Reader>();
   const canMark = Boolean(
     confirmView &&
       !review &&
+      (!inboxWindow || opened === reader) &&
       state.root &&
       !state.unavailable &&
       (state.up.status === "ready" || state.up.status === "end") &&
@@ -318,18 +396,25 @@ function ThreadContent({
     if (opened.unavailable) return;
     if (opened.up.status === "error" || opened.down.status === "error")
       onUnavailable?.("failed");
-    else onOpened?.();
+    else {
+      if (reader.hasReadPage()) setOpened(reader);
+      onOpened?.();
+    }
   });
+  const confirmedRoot = inboxWindow?.confirmedRoot;
+  const mayOpen = !inboxWindow || Boolean(confirmedRoot);
   useEffect(() => {
     let active = true;
-    if (online)
+    if (online && mayOpen) {
+      if (confirmedRoot) reader.confirmRoot(confirmedRoot);
       void reader.open().then(() => {
         if (active) reportOpen();
       });
+    }
     return () => {
       active = false;
     };
-  }, [online, reader]);
+  }, [online, reader, confirmedRoot, mayOpen]);
   const inaccessible =
     state.unavailable ??
     (localFailure === "session" ||
@@ -371,6 +456,23 @@ function ThreadContent({
     root.type !== "burn_on_read" &&
     root.type !== "system_fake_parent_deleted";
   const history = useMemo(() => [...state.replies].reverse(), [state.replies]);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const wantedFocus = inboxWindow?.restoreFocus
+    ? inboxWindow.retained?.place.focus
+    : undefined;
+  useLayoutEffect(() => {
+    const field = contentRef.current;
+    if (!field || !wantedFocus) return;
+    const target =
+      wantedFocus.kind === "reply"
+        ? field.querySelector<HTMLElement>(
+            `[data-post-id="${CSS.escape(wantedFocus.id)}"]`,
+          )
+        : field.querySelector<HTMLElement>(
+            wantedFocus.kind === "editor" ? "textarea" : ".thread-feed",
+          );
+    target?.focus({ preventScroll: true });
+  }, [wantedFocus]);
   const observed = review?.mark;
   const position =
     observed?.unreadReplies === 0
@@ -378,7 +480,12 @@ function ThreadContent({
       : reader.getUnreadPosition(
           observed && { lastViewedAt: observed.lastViewedAt, userId },
         );
-  const firstUnread = position?.kind === "found" ? position.postId : undefined;
+  const firstUnread =
+    position?.kind === "found"
+      ? position.postId
+      : !observed && unseenReply?.reader === reader
+        ? unseenReply.id
+        : undefined;
   const outgoing = useConversationOutgoing({
     connection,
     userId,
@@ -428,6 +535,13 @@ function ThreadContent({
   const summary =
     collapsedThreads &&
     (post.rootId ? (savedRoot ?? preparedRoot) : post)?.threadSummary;
+  const waitingForReplies =
+    inboxWindow &&
+    !inboxWindow.retained &&
+    state.replies.length === 0 &&
+    (inboxWindow.opening ||
+      state.up.status === "loading" ||
+      state.down.status === "loading");
   function renderReply(row: TimelineMessage, continuation: boolean) {
     return (
       <div key={row.localId ?? row.id} className="thread-reply">
@@ -458,11 +572,31 @@ function ThreadContent({
     );
   }
   return (
-    <div className="thread-window">
+    <div
+      className="thread-window"
+      ref={contentRef}
+      onFocusCapture={
+        inboxWindow
+          ? ({ target }) => {
+              if (!(target instanceof HTMLElement)) return;
+              const id = target.closest<HTMLElement>(
+                ".thread-reply [data-post-id]",
+              )?.dataset.postId;
+              if (id) focusRef.current = { kind: "reply", id };
+              else if (target instanceof HTMLTextAreaElement)
+                focusRef.current = { kind: "editor" };
+              else if (target.matches(".thread-feed"))
+                focusRef.current = { kind: "feed" };
+            }
+          : undefined
+      }
+    >
       <ThreadFeed
+        ref={feedRef}
         focusedId={post.rootId && !returningToLink ? post.id : undefined}
         arrivalRequest={arrivalRequest}
         firstUnread={firstUnread}
+        retainedPlace={inboxWindow?.retained?.place}
         state={state}
         label={text.replies}
       >
@@ -493,33 +627,44 @@ function ThreadContent({
             {formatReplyCount(summary.replyCount, locale)}
           </p>
         )}
-        <ThreadEdge
-          reader={reader}
-          direction="up"
-          edge={state.up}
-          online={online}
-          locale={locale}
-        />
+        {waitingForReplies && (
+          <p className="thread-window-loading" role="status">
+            {text.loading}
+          </p>
+        )}
+        {!waitingForReplies && (
+          <ThreadEdge
+            reader={reader}
+            direction="up"
+            edge={state.up}
+            online={online}
+            locale={locale}
+          />
+        )}
         {outgoing.localNotice}
         <TimelineDays
           messages={[...outgoing.messages, ...outgoing.afterGap]}
           locale={locale}
           author={resolve}
           unknownDate={text.unknownDate}
-          boundary={{
-            index: outgoing.messages.length,
-            node: (
-              <ThreadEdge
-                key="reply-window-boundary"
-                reader={reader}
-                direction="down"
-                edge={state.down}
-                online={online}
-                locale={locale}
-                gap={outgoing.afterGap.length > 0}
-              />
-            ),
-          }}
+          boundary={
+            !waitingForReplies
+              ? {
+                  index: outgoing.messages.length,
+                  node: (
+                    <ThreadEdge
+                      key="reply-window-boundary"
+                      reader={reader}
+                      direction="down"
+                      edge={state.down}
+                      online={online}
+                      locale={locale}
+                      gap={outgoing.afterGap.length > 0}
+                    />
+                  ),
+                }
+              : undefined
+          }
         >
           {renderReply}
         </TimelineDays>
@@ -557,7 +702,7 @@ function ThreadContent({
           </button>
         </div>
       )}
-      {canReply && following && controlsHost && (
+      {canReply && mayOpen && following && controlsHost && (
         <ThreadFollowButton
           control={following}
           host={controlsHost}
@@ -565,7 +710,24 @@ function ThreadContent({
           online={online}
         />
       )}
-      {canReply && renderComposer(root.id, reader, following?.acceptedReply)}
+      {canReply &&
+        (inboxWindow ? (
+          <div
+            className="thread-composer-frame"
+            ref={composerRef}
+            style={
+              inboxWindow.retained?.place.composerHeight
+                ? ({
+                    "--retained-composer-height": `${inboxWindow.retained.place.composerHeight}px`,
+                  } as CSSProperties)
+                : undefined
+            }
+          >
+            {renderComposer(root.id, reader, following?.acceptedReply)}
+          </div>
+        ) : (
+          renderComposer(root.id, reader, following?.acceptedReply)
+        ))}
     </div>
   );
 }
@@ -649,10 +811,11 @@ type FeedProps = {
   focusedId?: string;
   arrivalRequest?: number;
   firstUnread?: string;
+  retainedPlace?: ThreadReadingPlace;
   label: string;
   children: ReactNode;
 };
-type Place = { top: number; id?: string; offset?: number; edge?: Direction };
+type Place = ThreadReadingPlace & { edge?: Direction };
 
 class ThreadFeed extends Component<FeedProps> {
   private readonly frame = createRef<HTMLDivElement>();
@@ -664,8 +827,10 @@ class ThreadFeed extends Component<FeedProps> {
 
   private positionOpeningReply = true;
   private placedUnread = false;
+  private userMoved = false;
   private markUserScroll = () => {
     this.positionOpeningReply = false;
+    this.userMoved = true;
   };
 
   componentDidMount() {
@@ -689,8 +854,13 @@ class ThreadFeed extends Component<FeedProps> {
       });
       this.resize.observe(frame);
     }
-    this.centerOpeningReply(true);
-    this.placeUnread();
+    if (pane && this.props.retainedPlace) {
+      this.positionOpeningReply = false;
+      this.restorePlace(pane, this.props.retainedPlace);
+    } else {
+      this.centerOpeningReply(true);
+      this.placeUnread();
+    }
   }
 
   private placeUnread() {
@@ -750,9 +920,16 @@ class ThreadFeed extends Component<FeedProps> {
         : undefined;
     const place: Place = {
       top: pane.scrollTop,
+      atEnd: pane.scrollHeight - pane.clientHeight - pane.scrollTop < 8,
       edge: edge === "up" || edge === "down" ? edge : undefined,
     };
-    if (pane.scrollTop === 0 && !this.props.focusedId && !edge) return place;
+    if (
+      pane.scrollTop === 0 &&
+      !this.props.retainedPlace &&
+      !this.props.focusedId &&
+      !edge
+    )
+      return place;
     const items = pane.querySelectorAll<HTMLElement>(
       ".thread-reply [data-post-id]",
     );
@@ -768,6 +945,18 @@ class ThreadFeed extends Component<FeedProps> {
       }
     }
     return place;
+  }
+  getReadingPlace(): ThreadReadingPlace | null {
+    const place = this.getSnapshotBeforeUpdate();
+    if (!place) return null;
+    const { edge: _edge, ...reading } = place;
+    return { ...reading, atEnd: this.followsEnd(place) };
+  }
+  private followsEnd(place: Place) {
+    return (
+      place.atEnd ||
+      (!this.userMoved && this.props.retainedPlace?.atEnd === true)
+    );
   }
   private restorePlace(pane: HTMLElement, place: Place) {
     const row =
@@ -790,7 +979,14 @@ class ThreadFeed extends Component<FeedProps> {
   ) {
     const pane = this.pane.current;
     if (!pane || !place) return;
-    this.restorePlace(pane, place);
+    const { state } = this.props;
+    if (
+      state.newReplyId &&
+      state.newReplyId !== previous.state.newReplyId &&
+      this.followsEnd(place)
+    )
+      pane.scrollTop = pane.scrollHeight;
+    else this.restorePlace(pane, place);
     if (
       this.props.arrivalRequest !== undefined &&
       this.lastArrival !== this.props.arrivalRequest
@@ -799,7 +995,6 @@ class ThreadFeed extends Component<FeedProps> {
       this.centerOpeningReply(true);
     }
     this.placeUnread();
-    const { state } = this.props;
     if (
       this.positionOpeningReply &&
       (previous.state.up.status === "loading" ||
