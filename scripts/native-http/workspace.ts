@@ -17,6 +17,14 @@ const townMessage =
   "Town fixture message\n\n| Name | Score |\n| :- | -: |\n| Aurora | 17 |";
 const cardEmbed = { embeds: [{ type: "message_attachment" }] };
 
+const townRoom = {
+  id: town,
+  team_id: team,
+  type: "O",
+  name: "town-square",
+  display_name: "Town Square",
+  delete_at: 0,
+};
 const publicRoom = {
   id: "z".repeat(26),
   team_id: team,
@@ -158,14 +166,7 @@ export async function respondToWorkspace(
     [
       `users/me/teams/${team}/channels`,
       [
-        {
-          id: town,
-          team_id: team,
-          type: "O",
-          name: "town-square",
-          display_name: "Town Square",
-          delete_at: 0,
-        },
+        townRoom,
         {
           id: design,
           team_id: team,
@@ -313,6 +314,9 @@ export async function respondToWorkspace(
     req.headers.authorization !== undefined;
   const searchPosts = path === `teams/${team}/posts/search`;
   const searchFiles = path === `teams/${team}/files/search`;
+  const namedTeam = systemLinks && path === "teams/name/browser";
+  const namedChannel =
+    systemLinks && path === `teams/name/browser/channels/name/${townRoom.name}`;
   const post =
     joinRoom ||
     searchPosts ||
@@ -330,6 +334,8 @@ export async function respondToWorkspace(
     !joinedPosts &&
     !thread &&
     !policy &&
+    !namedTeam &&
+    !namedChannel &&
     !post
   )
     return;
@@ -341,6 +347,23 @@ export async function respondToWorkspace(
   );
   assert.equal(req.headers.cookie, undefined);
   assert.equal(req.method, post ? "POST" : "GET");
+  if (namedTeam) {
+    assert.equal(url.search, "");
+    return json(
+      {
+        id: team,
+        name: "browser",
+        display_name: "Browser team",
+        type: "O",
+        delete_at: 0,
+      },
+      "system-named-team",
+    );
+  }
+  if (namedChannel) {
+    assert.equal(url.search, "?include_deleted=true");
+    return json(townRoom, "system-named-channel");
+  }
   if (listRooms || queryRooms) {
     assert.deepEqual(
       Object.fromEntries(url.searchParams),

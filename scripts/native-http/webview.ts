@@ -6,7 +6,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import https from "node:https";
 import type { Socket } from "node:net";
 import { json, text } from "node:stream/consumers";
-import { deniedPost } from "../webview-check/link-examples.ts";
+import { deniedPost, systemReply } from "../webview-check/link-examples.ts";
 import type { SendMacKey } from "../webview-check/macos.ts";
 import { respondToAccount } from "./account.ts";
 import {
@@ -657,6 +657,21 @@ export function webviewServers(
       return;
     }
     if (url.pathname.startsWith("/system-post-check/api/v4/")) {
+      const replyPath = `/system-post-check/api/v4/posts/${systemReply}`;
+      if (
+        url.pathname === `${replyPath}/info` &&
+        !systemPostReads.has("system-reply-destination")
+      )
+        assert(
+          systemPostReads.has("system-named-team") &&
+            systemPostReads.has("system-named-channel"),
+          "The warm system reply was looked up before verifying its named channel",
+        );
+      if (url.pathname === replyPath)
+        assert(
+          systemPostReads.has("system-reply-destination"),
+          "The warm system reply text was read before its post destination",
+        );
       if (
         url.pathname === `/system-post-check/api/v4/posts/${deniedPost}/info`
       ) {
@@ -2278,6 +2293,8 @@ export function webviewServers(
       for (const read of [
         "live-search-destination",
         "live-search-post-anchor",
+        "system-named-team",
+        "system-named-channel",
         "system-reply-destination",
         "system-reply-anchor",
         "system-neighbors-before",

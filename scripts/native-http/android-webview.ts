@@ -428,7 +428,7 @@ export async function checkWebviewProcesses(
   const systemPid = await openSystemLink(adb, app, activity, posts.cold, 1);
   assert.notEqual(systemPid, seeded);
   assert.equal(
-    await openSystemLink(adb, app, activity, posts.warm, 2),
+    await openSystemLink(adb, app, activity, posts.warmNamedReply, 2),
     systemPid,
   );
   assert.equal(
@@ -436,7 +436,7 @@ export async function checkWebviewProcesses(
     systemPid,
   );
   console.log(
-    `Android focused the linked post and thread reply in process ${systemPid}; both deliveries were acknowledged.`,
+    `Android focused the permalink and named-channel reply in process ${systemPid}; both deliveries were acknowledged.`,
   );
   // Android protects the device owner from force-stop. TLS checks have finished
   // using its test CA, so release ownership before testing process restarts.
