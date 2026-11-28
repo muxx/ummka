@@ -55,7 +55,11 @@
 .channels-thread-head:has(.thread-follow-status)
   .thread-heading
   .thread-heading-context {
-  visibility: hidden;
+  /* The channel still describes the heading while the status uses its visual slot. */
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  clip-path: inset(50%);
 }
 .thread-follow-status {
   color: var(--error);
