@@ -44,6 +44,27 @@ export const PaneExpansion = createContext<{
   toggle: () => void;
 } | null>(null);
 
+const expandPaths = [
+  "M16 4l4 0l0 4",
+  "M14 10l6 -6",
+  "M8 20l-4 0l0 -4",
+  "M4 20l6 -6",
+  "M16 20l4 0l0 -4",
+  "M14 14l6 6",
+  "M8 4l-4 0l0 4",
+  "M4 4l6 6",
+];
+const restorePaths = [
+  "M5 9l4 0l0 -4",
+  "M3 3l6 6",
+  "M5 15l4 0l0 4",
+  "M3 21l6 -6",
+  "M19 9l-4 0l0 -4",
+  "M15 9l6 -6",
+  "M19 15l-4 0l0 4",
+  "M15 15l6 6",
+];
+
 export function PaneSizeToggle() {
   const pane = useContext(PaneExpansion);
   if (!pane) return null;
@@ -52,7 +73,7 @@ export function PaneSizeToggle() {
   return (
     <button
       type="button"
-      className="channels-icon-action pane-size-toggle"
+      className="channels-icon-action pane-header-action pane-size-toggle"
       data-pane-width-control="right"
       aria-label={label}
       title={label}
@@ -67,18 +88,14 @@ export function PaneSizeToggle() {
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
-        strokeWidth="1.7"
+        strokeWidth="1.65"
         strokeLinecap="round"
         strokeLinejoin="round"
         aria-hidden="true"
       >
-        <path
-          d={
-            pane.expanded
-              ? "M4 9h5V4m6 16v-5h5M4 4l5 5m11 11-5-5"
-              : "M4 9V4h5m6 16h5v-5M4 4l6 6m10 10-6-6"
-          }
-        />
+        {(pane.expanded ? restorePaths : expandPaths).map((d) => (
+          <path key={d} d={d} />
+        ))}
       </svg>
     </button>
   );

@@ -224,6 +224,14 @@
     outline: 2px solid Highlight;
   }
 }
+.channels-pane-head .pane-header-action {
+  color: var(--quote-text);
+  border-radius: 6px;
+}
+.channels-pane-head .pane-header-action:hover {
+  color: var(--accent);
+  background: var(--accent-tint);
+}
 .channels-pane-head .pane-size-toggle {
   width: 32px;
   height: 32px;

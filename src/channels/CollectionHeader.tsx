@@ -21,7 +21,7 @@ export function CollectionHeader({
     <button
       key="close"
       type="button"
-      className="channels-icon-action collection-close"
+      className="channels-icon-action pane-header-action collection-close"
       aria-label={closeLabel}
       title={closeLabel}
       onClick={close}
@@ -32,12 +32,23 @@ export function CollectionHeader({
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
-        strokeWidth="1.8"
+        strokeWidth="1.65"
         strokeLinecap="round"
         strokeLinejoin="round"
         aria-hidden="true"
       >
-        <path d={compact ? "m12 5-7 7 7 7M5 12h15" : "m6 6 12 12M18 6 6 18"} />
+        {compact ? (
+          <>
+            <path d="M5 12l14 0" />
+            <path d="M5 12l6 6" />
+            <path d="M5 12l6 -6" />
+          </>
+        ) : (
+          <>
+            <path d="M18 6l-12 12" />
+            <path d="M6 6l12 12" />
+          </>
+        )}
       </svg>
     </button>
   );
