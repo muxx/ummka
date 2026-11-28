@@ -6,8 +6,10 @@ import {
 } from "../mattermost/channel-profiles.ts";
 import { MembersIcon } from "./ChannelInformationPanel.tsx";
 import { ChannelListPosition } from "./ChannelListPosition.tsx";
-import { ChannelSectionHeader } from "./ChannelSectionHeader.tsx";
+import { ContextPanelHeader } from "./ContextPanelHeader.tsx";
 import type { Member, PageReading } from "./channel-list-reading.ts";
+import { channelPanelBack } from "./context-panel-copy.ts";
+import { PaneSizeToggle } from "./PaneWidthControls.tsx";
 import { initials } from "./profile-initials.ts";
 import { useChannelListControls } from "./use-channel-list-controls.tsx";
 import { useChannelListPages } from "./use-channel-list-pages.ts";
@@ -16,8 +18,6 @@ import type { WorkspaceConnection } from "./use-workspace-read.ts";
 const copy = {
   en: {
     title: "Members",
-    back: "Back to channel info",
-    backToChannel: "Back to conversation",
     close: "Close members",
     search: "Find a member",
     guest: "Guest",
@@ -30,8 +30,6 @@ const copy = {
   },
   ru: {
     title: "Участники",
-    back: "Вернуться к сведениям о канале",
-    backToChannel: "Вернуться в беседу",
     close: "Закрыть участников",
     search: "Найти участника",
     guest: "Гость",
@@ -132,19 +130,23 @@ export function ChannelMembersPanel({
       className="channels-thread channel-information channel-context-pane channel-members-panel"
       aria-labelledby={title}
     >
-      <ChannelSectionHeader
+      <ContextPanelHeader
         id={title}
         heading={heading}
         icon={<MembersIcon />}
         title={t.title}
-        name={name}
-        detailStatus={controls.detailStatus}
-        detailAction={controls.detailAction}
-        desktopBack={Boolean(back) && !direct}
-        backLabel={direct || !back ? t.backToChannel : t.back}
-        closeLabel={t.close}
-        back={back ?? close}
-        close={close}
+        subtitle={name}
+        status={controls.headerStatus}
+        back={{
+          label:
+            channelPanelBack[language][
+              direct || !back ? "conversation" : "info"
+            ],
+          run: back ?? close,
+          compactOnly: direct || !back,
+        }}
+        close={{ label: t.close, run: close }}
+        actions={<PaneSizeToggle />}
       />
       <div
         className="channel-member-body"

@@ -90,6 +90,7 @@ function Panel({
           online={online}
           language="en"
           back={back}
+          close={back}
           sessionIssue={sessionIssue}
         />
       </AttachmentWindow>

@@ -5,7 +5,10 @@ import type { TeamSidebar } from "../mattermost/team-sidebar.ts";
 import { BookmarkIcon } from "./BookmarkIcon.tsx";
 import { bookmarkCopy } from "./ChannelBookmarksPanel.tsx";
 import { FileIcon, filePanelCopy } from "./ChannelFilesPanel.tsx";
+import { ContextPanelGroup, ContextPanelRow } from "./ContextPanelGroup.tsx";
+import { ContextPanelHeader } from "./ContextPanelHeader.tsx";
 import { collectionCopy } from "./collection-copy.ts";
+import { channelPanelBack } from "./context-panel-copy.ts";
 import { PaneSizeToggle } from "./PaneWidthControls.tsx";
 import { CollectionMark } from "./PostCollectionPane.tsx";
 import { PublishedPostBody } from "./PublishedPostBody.tsx";
@@ -232,37 +235,20 @@ export function ChannelInformationPanel({
       className="channels-thread channel-information channel-context-pane"
       aria-labelledby={id}
     >
-      <header className="channels-pane-head">
-        <div className="channels-pane-titles">
-          <h2 id={id} ref={heading} tabIndex={-1}>
-            <InformationIcon />
-            {t.title}
-          </h2>
-          <p>{name}</p>
-        </div>
-        <PaneSizeToggle />
-        <button
-          type="button"
-          className="channels-icon-action"
-          aria-label={t.close}
-          onClick={close}
-        >
-          <svg
-            aria-hidden="true"
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path className="channel-info-close" d="m6 6 12 12m0-12L6 18" />
-            <path className="channel-info-back" d="m11 5-7 7 7 7M4 12h16" />
-          </svg>
-        </button>
-      </header>
+      <ContextPanelHeader
+        id={id}
+        heading={heading}
+        title={t.title}
+        subtitle={name}
+        icon={<InformationIcon />}
+        back={{
+          label: channelPanelBack[language].conversation,
+          run: close,
+          compactOnly: true,
+        }}
+        close={{ label: t.close, run: close }}
+        actions={<PaneSizeToggle />}
+      />
       <div className="channel-information-body">
         {[
           [t.name, name],
@@ -285,96 +271,85 @@ export function ChannelInformationPanel({
               </section>
             ),
         )}
-        <button
-          type="button"
-          className="channel-info-notify"
-          ref={members}
-          onClick={openMembers}
-        >
-          <MembersIcon />
-          <span>
-            <strong>{t.members}</strong>
-            <small role="status">
-              {count.value.status === "ready"
-                ? count.value.value
-                : status(count.value)}
-            </small>
-          </span>
-        </button>
-        {count.value.status === "failed" && (
-          <button type="button" onClick={count.retry}>
-            {t.retry}
-          </button>
-        )}
-        <button
-          ref={pins}
-          type="button"
-          className="channel-info-notify"
-          onClick={openPins}
-        >
-          <CollectionMark kind="pins" />
-          <strong>{collectionCopy[language].pins}</strong>
-        </button>
-        {openFiles && (
-          <button
-            ref={files}
-            type="button"
-            className="channel-info-notify"
-            onClick={openFiles}
-          >
-            <FileIcon />
-            <strong>{filePanelCopy[language].title}</strong>
-          </button>
-        )}
-        <button
-          ref={bookmarks}
-          type="button"
-          className="channel-info-notify"
-          onClick={openBookmarks}
-        >
-          <BookmarkIcon />
-          <strong>{bookmarkCopy[language].title}</strong>
-        </button>
-        {notifications && (
-          <>
-            <button
-              type="button"
-              className="channel-info-notify"
-              onClick={(event) => notifications(event.currentTarget)}
-            >
-              <svg
-                aria-hidden="true"
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M18 9a6 6 0 0 0-12 0c0 7-2.5 7.5-2.5 9h17c0-1.5-2.5-2-2.5-9ZM10 21a2.5 2.5 0 0 0 4 0" />
-              </svg>
-              <span>
-                <strong>{t.notifications}</strong>
-                <small>
-                  {rule.value.status === "ready"
-                    ? summary(
-                        rule.value.value.channel,
-                        channel.kind === "G",
-                        language,
-                      )
-                    : status(rule.value)}
-                </small>
-              </span>
+        <ContextPanelGroup>
+          <ContextPanelRow
+            icon={<MembersIcon />}
+            title={t.members}
+            ref={members}
+            onClick={openMembers}
+            detail={
+              <small role="status">
+                {count.value.status === "ready"
+                  ? count.value.value
+                  : status(count.value)}
+              </small>
+            }
+          />
+          {count.value.status === "failed" && (
+            <button type="button" onClick={count.retry}>
+              {t.retry}
             </button>
-            {rule.value.status === "failed" && (
-              <button type="button" onClick={rule.retry}>
-                {t.retry}
-              </button>
-            )}
-          </>
-        )}
+          )}
+          <ContextPanelRow
+            ref={pins}
+            icon={<CollectionMark kind="pins" />}
+            title={collectionCopy[language].pins}
+            onClick={openPins}
+          />
+          {openFiles && (
+            <ContextPanelRow
+              ref={files}
+              icon={<FileIcon />}
+              title={filePanelCopy[language].title}
+              onClick={openFiles}
+            />
+          )}
+          <ContextPanelRow
+            ref={bookmarks}
+            icon={<BookmarkIcon />}
+            title={bookmarkCopy[language].title}
+            onClick={openBookmarks}
+          />
+          {notifications && (
+            <>
+              <ContextPanelRow
+                icon={
+                  <svg
+                    aria-hidden="true"
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M18 9a6 6 0 0 0-12 0c0 7-2.5 7.5-2.5 9h17c0-1.5-2.5-2-2.5-9ZM10 21a2.5 2.5 0 0 0 4 0" />
+                  </svg>
+                }
+                title={t.notifications}
+                onClick={(event) => notifications(event.currentTarget)}
+                detail={
+                  <small>
+                    {rule.value.status === "ready"
+                      ? summary(
+                          rule.value.value.channel,
+                          channel.kind === "G",
+                          language,
+                        )
+                      : status(rule.value)}
+                  </small>
+                }
+              />
+              {rule.value.status === "failed" && (
+                <button type="button" onClick={rule.retry}>
+                  {t.retry}
+                </button>
+              )}
+            </>
+          )}
+        </ContextPanelGroup>
       </div>
     </aside>
   );

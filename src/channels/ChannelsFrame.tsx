@@ -217,7 +217,7 @@ export function ChannelsFrame({
       ? (sidebar.current?.querySelector<HTMLElement>('[aria-current="page"]') ??
         team.current)
       : (root.current?.querySelector<HTMLElement>(
-          ".channels-panes > aside .channels-pane-head h2",
+          ".channels-panes > aside :is(.channels-pane-head, .context-panel-header) h2",
         ) ?? heading.current);
     target?.focus({ preventScroll: true });
   });

@@ -177,29 +177,29 @@ export function useChannelListControls<Row>({
     );
   }
 
+  const showRetry = warm && (failed || retrying);
   return {
     loading,
     empty: exhausted,
     notice,
-    detailStatus:
-      warm && (failed || retrying)
-        ? t.updateFailed
-        : showRefresh
-          ? t.updating
-          : undefined,
-    detailAction:
-      warm && (failed || retrying) ? (
-        <button
-          ref={headerRetry}
-          className="channel-section-retry"
-          type="button"
-          aria-busy={retrying || undefined}
-          aria-disabled={retrying || undefined}
-          onClick={() => repeat(headerRetry.current)}
-        >
-          {retrying ? t.retrying : t.retry}
-        </button>
-      ) : undefined,
+    headerStatus: (showRetry || showRefresh) && (
+      <>
+        <span className="panel-text--secondary">
+          {showRetry ? t.updateFailed : t.updating}
+        </span>
+        {showRetry && (
+          <button
+            ref={headerRetry}
+            type="button"
+            aria-busy={retrying || undefined}
+            aria-disabled={retrying || undefined}
+            onClick={() => repeat(headerRetry.current)}
+          >
+            {retrying ? t.retrying : t.retry}
+          </button>
+        )}
+      </>
+    ),
     top: (
       <>
         {above && statusBlock}

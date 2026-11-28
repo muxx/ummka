@@ -10,14 +10,167 @@ import {
 } from "../../src/mattermost/installation-registry.ts";
 import { openNativeRestConnection } from "../../src/mattermost/native-rest.ts";
 
+const click = (button: HTMLElement) => flushSync(() => fireEvent.click(button));
+
+function checkPixels(label: string, actual: number, expected: number) {
+  if (Math.abs(actual - expected) > 1)
+    throw Error(`${label}: expected ${expected} CSS px, got ${actual}`);
+}
+
+function checkOverviewRowGap(overview: HTMLElement) {
+  const section = overview.querySelector(
+    ".channel-information-body > section:last-of-type",
+  );
+  if (!section || getComputedStyle(section).borderBlockEndWidth === "0px")
+    throw Error("The last description section has no divider");
+  const first = within(overview).getByRole("button", { name: /^Members/ });
+  checkPixels(
+    "From the description divider to the first row’s hover surface",
+    first.getBoundingClientRect().top - section.getBoundingClientRect().bottom,
+    8,
+  );
+}
+
+function checkOverviewRows(overview: HTMLElement, compact: boolean) {
+  const actions = within(overview);
+  const rows = [
+    { name: /^Members\b/, detail: true },
+    { name: "Pinned messages" },
+    { name: "Channel files" },
+    { name: "Channel bookmarks" },
+    { name: /^Notifications\b/, detail: true },
+  ];
+  let previous: DOMRect | undefined;
+  for (const { name, detail } of rows) {
+    const row = actions.getByRole("button", { name });
+    const label = row.querySelector("strong");
+    const subtitle = row.querySelector("small");
+    const icon = row.querySelector("svg");
+    if (!label || !icon || Boolean(subtitle) !== Boolean(detail))
+      throw Error(`Wrong label or detail for overview row ${name}`);
+    const bounds = row.getBoundingClientRect();
+    const title = label.getBoundingClientRect();
+    const textHeight = subtitle
+      ? subtitle.getBoundingClientRect().bottom - title.top
+      : title.height;
+    // System text scaling can make the measured text taller than the minimum.
+    const contentHeight = Math.max(
+      textHeight,
+      icon.getBoundingClientRect().height,
+    );
+    checkPixels(
+      `Height of the overview action ${name}`,
+      bounds.height,
+      Math.max(compact || detail ? 44 : 32, contentHeight + 8),
+    );
+    if (previous)
+      checkPixels(
+        `Gap above the overview action ${name}`,
+        bounds.top - previous.bottom,
+        0,
+      );
+    previous = bounds;
+  }
+}
+
+async function checkOverviewActions(overview: HTMLElement, compact: boolean) {
+  const heading = within(overview).getByRole("heading", {
+    name: "About this channel",
+  });
+  const header = heading.closest("header");
+  if (!header) throw Error("Channel overview has no header");
+  const actions = within(header);
+  if (compact) {
+    const back = await actions.findByRole("button", {
+      name: "Back to conversation",
+    });
+    const bounds = back.getBoundingClientRect();
+    if (
+      actions.getAllByRole("button").length !== 1 ||
+      bounds.right > heading.getBoundingClientRect().left + 1 ||
+      bounds.width < 43 ||
+      bounds.height < 43
+    )
+      throw Error("The compact overview needs a single leading Back target");
+    return;
+  }
+  const expand = await actions.findByRole("button", { name: "Expand panel" });
+  const checkRightGroup = (toggle: HTMLElement) => {
+    const closeBox = actions
+      .getByRole("button", { name: "Close channel info" })
+      .getBoundingClientRect();
+    const expandBox = toggle.getBoundingClientRect();
+    checkPixels(
+      "Channel overview close inset",
+      header.getBoundingClientRect().right - closeBox.right,
+      11,
+    );
+    checkPixels(
+      "Gap between expand and close",
+      closeBox.left - expandBox.right,
+      4,
+    );
+    checkPixels("Width of the close button", closeBox.width, 32);
+    checkPixels("Width of the expand button", expandBox.width, 32);
+  };
+  checkRightGroup(expand);
+  const width = overview.getBoundingClientRect().width;
+  click(expand);
+  await waitFor(() => {
+    const restore = actions.getByRole("button", {
+      name: "Restore narrow panel",
+    });
+    if (
+      overview.getBoundingClientRect().width <= width + 1 ||
+      document.activeElement !== restore
+    )
+      throw Error("Expanding channel info did not widen it and keep focus");
+    checkRightGroup(restore);
+  });
+  click(actions.getByRole("button", { name: "Restore narrow panel" }));
+  await waitFor(() => {
+    checkPixels(
+      "Restored channel overview width",
+      overview.getBoundingClientRect().width,
+      width,
+    );
+    checkRightGroup(actions.getByRole("button", { name: "Expand panel" }));
+  });
+}
+
+async function checkBookmarksBack(workspace: HTMLElement) {
+  const ui = within(workspace);
+  const bookmarks = ui.getByRole("complementary", {
+    name: "Channel bookmarks",
+  });
+  const back = within(bookmarks).getByRole("button", {
+    name: "Back to channel info",
+  });
+  if (!back.getClientRects().length)
+    throw Error("Bookmarks opened from channel info have no visible Back");
+  click(back);
+  const overview = within(
+    await ui.findByRole("complementary", {
+      name: "About this channel",
+    }),
+  );
+  await waitFor(() => {
+    if (
+      bookmarks.isConnected ||
+      document.activeElement !==
+        overview.getByRole("button", { name: "Channel bookmarks" })
+    )
+      throw Error("The Bookmarks Back button did not restore its opening row");
+  });
+  return overview;
+}
+
 export async function checkCollectionWindow(url: string, controlPort: string) {
   const original = await readInstallationSelection();
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host),
     ui = within(host);
-  const click = (button: HTMLElement) =>
-    flushSync(() => fireEvent.click(button));
   const findPane = async (name: string) =>
     within(await ui.findByRole("complementary", { name }, { timeout: 10000 }));
   const driver = await openNativeRestConnection(
@@ -242,10 +395,20 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
       if (document.activeElement !== info)
         throw Error("Hidden opener retained focus");
     });
-    host.style.removeProperty("width");
+    host.style.width = "1180px";
     click(info);
-    let about = await findPane("About this channel");
+    const overview = await ui.findByRole("complementary", {
+      name: "About this channel",
+    });
+    let about = within(overview);
     await about.findByText("7", { selector: "[role=status]" });
+    checkOverviewRowGap(overview);
+    await checkOverviewActions(overview, false);
+    checkOverviewRows(overview, false);
+    host.style.width = "390px";
+    await checkOverviewActions(overview, true);
+    checkOverviewRows(overview, true);
+    host.style.removeProperty("width");
     click(about.getByRole("button", { name: /^Members/ }));
     const roster = await findPane("Members");
     await roster.findByText("@channel.guest");
@@ -392,6 +555,9 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
       );
     click(uncertainEditor.getByRole("button", { name: "Close" }));
     await bookmarks.findByRole("button", { name: "Unconfirmed guide" });
+    about = await checkBookmarksBack(host);
+    click(about.getByRole("button", { name: "Channel bookmarks" }));
+    await findPane("Channel bookmarks");
     await back("bookmarks");
     about = await findPane("About this channel");
     await waitFor(() => {
@@ -506,6 +672,11 @@ export async function checkCollectionWindow(url: string, controlPort: string) {
     });
     if (document.activeElement !== pin)
       throw Error("Reopening Pins did not focus the remembered pinned row");
+    // A cached row is visible before the initial reread settles. Keep that
+    // request separate from the reconnect read for which the fixture arms 503.
+    await pins.findByText("Pinned messages updated", {}, { timeout: 10000 });
+    if (!pin.isConnected || document.activeElement !== pin)
+      throw Error("The warm Pins response moved focus from the remembered row");
     // An open Pins view rereads the same list when connectivity returns.
     const previousOnline = Object.getOwnPropertyDescriptor(navigator, "onLine");
     Object.defineProperty(navigator, "onLine", {

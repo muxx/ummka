@@ -1647,7 +1647,7 @@ test("pins opened from channel details restore the post, the pins action and the
   ).toBe("Target draft");
 });
 
-test("closing an empty pins list restores details above an addressed search reply", async () => {
+test("going back from an empty pins list restores details above an addressed search reply", async () => {
   const { account } = fixture();
   account.readPinnedChannelPosts.mockResolvedValue({
     items: [],
@@ -1663,7 +1663,7 @@ test("closing an empty pins list restores details above an addressed search repl
     await screen.findByRole("button", { name: "Pinned messages" }),
   );
   await screen.findByText("No pinned messages in this channel.");
-  fireEvent.click(screen.getByRole("button", { name: "Close collection" }));
+  fireEvent.click(screen.getByRole("button", { name: "Back to channel info" }));
   const pins = await screen.findByRole("button", { name: "Pinned messages" });
   expect(document.activeElement).toBe(pins);
   fireEvent.keyDown(window, { key: "Escape" });
@@ -1671,7 +1671,7 @@ test("closing an empty pins list restores details above an addressed search repl
   expect(within(thread).getByText(reply.message)).toBeTruthy();
 });
 
-test("a refused pins read drops its return to channel details", async () => {
+test("a refused pins list still returns to its source row", async () => {
   const { account } = fixture();
   account.readPinnedChannelPosts.mockRejectedValue(
     new ResponseError(new Response(null, { status: 403 })),
@@ -1686,11 +1686,13 @@ test("a refused pins read drops its return to channel details", async () => {
   });
   await within(list).findByRole("alert");
   fireEvent.keyDown(window, { key: "Escape" });
-  expect(
-    screen.queryByRole("complementary", {
-      name: /About this channel|Pinned messages/,
-    }),
-  ).toBeNull();
+  const overview = screen.getByRole("complementary", {
+    name: "About this channel",
+  });
+  expect(document.activeElement).toBe(
+    within(overview).getByRole("button", { name: "Pinned messages" }),
+  );
+  fireEvent.keyDown(window, { key: "Escape" });
   expect(document.activeElement).toBe(info);
 });
 
@@ -1947,7 +1949,12 @@ test.each(["Saved messages", "Pinned messages", "Mentions"])(
     const pane = within(await screen.findByRole("complementary", { name }));
     const heading = pane.getByRole("heading", { name });
     const back = pane.getByRole("button", {
-      name: name === "Mentions" ? "Close panel" : "Close collection",
+      name:
+        name === "Mentions"
+          ? "Close panel"
+          : name === "Pinned messages"
+            ? "Back to conversation"
+            : "Close collection",
     });
     const contents = pane.getByRole("region", { name: "Side panel contents" });
     expect(
@@ -3293,5 +3300,34 @@ test.each(["channel", "files", "cancelled"] as const)(
     expect(Boolean(open("Members").queryByText("@ada"))).toBe(
       source !== "channel",
     );
+  },
+);
+
+test.each([
+  ["Pinned messages", "Close collection"],
+  ["Channel bookmarks", "Close channel bookmarks"],
+] as const)(
+  "opens %s from details with separate Back and Close destinations",
+  async (name, closeName) => {
+    fixture();
+    const info = await screen.findByRole("button", { name: "Channel info" });
+    const row = () =>
+      within(
+        screen.getByRole("complementary", { name: "About this channel" }),
+      ).getByRole("button", { name });
+    const open = async () => {
+      fireEvent.click(row());
+      return within(await screen.findByRole("complementary", { name }));
+    };
+    fireEvent.click(info);
+    const pane = await open();
+    fireEvent.click(pane.getByRole("button", { name: "Back to channel info" }));
+    expect(document.activeElement).toBe(row());
+    fireEvent.click((await open()).getByRole("button", { name: closeName }));
+    expect(
+      screen.queryByRole("complementary", { name: "About this channel" }),
+    ).toBeNull();
+    expect(screen.queryByRole("complementary", { name })).toBeNull();
+    expect(document.activeElement).toBe(info);
   },
 );

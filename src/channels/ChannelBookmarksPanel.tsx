@@ -16,7 +16,7 @@ import {
   editorCopy,
 } from "./BookmarkEditor.tsx";
 import { BookmarkIcon } from "./BookmarkIcon.tsx";
-import { FileIcon, filePanelCopy } from "./ChannelFilesPanel.tsx";
+import { FileIcon } from "./ChannelFilesPanel.tsx";
 import { ChannelListPosition } from "./ChannelListPosition.tsx";
 import {
   ChannelListStatus,
@@ -24,8 +24,8 @@ import {
   channelListError,
   channelListOffline,
 } from "./ChannelListState.tsx";
-import { ChannelSectionHeader } from "./ChannelSectionHeader.tsx";
 import { useCollectionRefreshVisibility } from "./CollectionReadNotice.tsx";
+import { ContextPanelHeader } from "./ContextPanelHeader.tsx";
 import type { ChannelBookmarkWrites } from "./channel-bookmark-writes.ts";
 import {
   type BookmarkReading,
@@ -34,6 +34,8 @@ import {
   rememberList,
   withinPlace,
 } from "./channel-list-reading.ts";
+import { channelPanelBack } from "./context-panel-copy.ts";
+import { PaneSizeToggle } from "./PaneWidthControls.tsx";
 import {
   AttachmentWindow,
   ChannelFileDetails,
@@ -103,6 +105,7 @@ type Props = {
   language: EntryLanguage;
   direct?: boolean;
   back: () => void;
+  close: () => void;
   sessionIssue: (reason: "session" | "unauthorized") => void;
 };
 
@@ -773,43 +776,44 @@ export function ChannelBookmarksPanel(props: Props) {
       className="channels-thread channel-information channel-context-pane channel-bookmarks-panel"
       aria-labelledby={id}
     >
-      <ChannelSectionHeader
+      <ContextPanelHeader
         id={id}
         heading={heading}
         icon={<BookmarkIcon />}
         title={t.title}
-        name={props.name}
-        detailStatus={
-          updateRetry
-            ? t.updateFailed
-            : showRefresh
-              ? revisiting
-                ? listText.updating
-                : t.updating
-              : undefined
-        }
-        detailAction={
-          updateRetry && (
-            <button
-              className="channel-section-retry"
-              type="button"
-              ref={refreshButton}
-              aria-disabled={retrying || undefined}
-              aria-busy={retrying || undefined}
-              onClick={() => repeat(refreshButton.current)}
-            >
-              {retrying ? listText.retrying : listText.retry}
-            </button>
+        subtitle={props.name}
+        status={
+          (updateRetry || showRefresh) && (
+            <>
+              <span className="panel-text--secondary">
+                {updateRetry
+                  ? t.updateFailed
+                  : revisiting
+                    ? listText.updating
+                    : t.updating}
+              </span>
+              {updateRetry && (
+                <button
+                  type="button"
+                  ref={refreshButton}
+                  aria-disabled={retrying || undefined}
+                  aria-busy={retrying || undefined}
+                  onClick={() => repeat(refreshButton.current)}
+                >
+                  {retrying ? listText.retrying : listText.retry}
+                </button>
+              )}
+            </>
           )
         }
-        backLabel={
-          props.direct
-            ? filePanelCopy[language].backToChannel
-            : filePanelCopy[language].back
-        }
-        closeLabel={t.close}
-        back={props.back}
-        close={props.back}
+        back={{
+          label:
+            channelPanelBack[language][props.direct ? "conversation" : "info"],
+          run: props.back,
+          compactOnly: props.direct,
+        }}
+        close={{ label: t.close, run: props.close }}
+        actions={<PaneSizeToggle />}
       />
       <ChannelListPosition
         scroll={body}

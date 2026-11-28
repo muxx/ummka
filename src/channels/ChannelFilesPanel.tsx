@@ -1,9 +1,11 @@
 import { useEffectEvent, useId, useLayoutEffect, useRef } from "react";
 import type { EntryLanguage } from "../entry/language.ts";
 import { ChannelListPosition } from "./ChannelListPosition.tsx";
-import { ChannelSectionHeader } from "./ChannelSectionHeader.tsx";
+import { ContextPanelHeader } from "./ContextPanelHeader.tsx";
 import { readChannelFilesPage } from "./channel-files-page.ts";
 import type { ChannelFile, PageReading } from "./channel-list-reading.ts";
+import { channelPanelBack } from "./context-panel-copy.ts";
+import { PaneSizeToggle } from "./PaneWidthControls.tsx";
 import { ChannelFileCard } from "./PublishedAttachments.tsx";
 import { searchCopy } from "./search-copy.ts";
 import { useChannelListControls } from "./use-channel-list-controls.tsx";
@@ -14,8 +16,6 @@ export const filePanelCopy = {
   en: {
     title: "Channel files",
     close: "Close channel files",
-    back: "Back to channel info",
-    backToChannel: "Back to conversation",
     empty: "No files yet",
     hint: "Attachments from the channel and its threads will appear here.",
     loading: "Loading files…",
@@ -25,8 +25,6 @@ export const filePanelCopy = {
   ru: {
     title: "Файлы канала",
     close: "Закрыть файлы канала",
-    back: "Вернуться к сведениям о канале",
-    backToChannel: "Вернуться в беседу",
     empty: "Файлов пока нет",
     hint: "Вложения из канала и его тредов появятся здесь.",
     loading: "Загружаем файлы…",
@@ -140,19 +138,23 @@ export function ChannelFilesPanel(props: Props) {
       className="channels-thread channel-information channel-context-pane channel-files-panel"
       aria-labelledby={id}
     >
-      <ChannelSectionHeader
+      <ContextPanelHeader
         id={id}
         heading={heading}
         icon={<FileIcon />}
         title={t.title}
-        name={props.name}
-        detailStatus={controls.detailStatus}
-        detailAction={controls.detailAction}
-        desktopBack={!props.direct}
-        backLabel={props.direct ? t.backToChannel : t.back}
-        closeLabel={t.close}
-        back={props.back}
-        close={props.close}
+        subtitle={props.name}
+        status={controls.headerStatus}
+        back={{
+          label:
+            channelPanelBack[props.language][
+              props.direct ? "conversation" : "info"
+            ],
+          run: props.back,
+          compactOnly: props.direct,
+        }}
+        close={{ label: t.close, run: props.close }}
+        actions={<PaneSizeToggle />}
       />
       <ChannelListPosition
         scroll={body}
